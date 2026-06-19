@@ -1,4 +1,6 @@
-use crate::{logging::setup_logger, prove};
+use std::num::NonZeroUsize;
+
+use crate::{logging::setup_logger, prove, prove_with_batch_size};
 use starstream_interleaving_spec::{
     CoroutineState, FunctionId, Hash, InterleavingInstance, InterleavingWitness,
     LedgerEffectsCommitment, ProcessId, Ref, Value, VerificationError, WitEffectOutput,
@@ -744,9 +746,12 @@ fn test_folding_r1cs_extraction_satisfies() {
 
     let wit = InterleavingWitness { traces };
 
-    let (shape, assignments) =
-        crate::folding::extract_r1cs_and_assignments(instance.clone(), wit.clone())
-            .expect("extract r1cs");
+    let (shape, assignments) = crate::folding::extract_r1cs_and_assignments(
+        instance.clone(),
+        wit.clone(),
+        NonZeroUsize::new(crate::DEFAULT_BATCH_SIZE).unwrap(),
+    )
+    .expect("extract r1cs");
     assert!(!assignments.is_empty());
     for (i, z) in assignments.iter().enumerate() {
         assert_eq!(z.len(), shape.r1cs.m, "step {i} assignment width");
@@ -780,4 +785,74 @@ fn test_folding_r1cs_extraction_satisfies() {
         matches!(err, VerificationError::FoldVerification(_)),
         "expected FoldVerification for a mismatched anchor, got {err:?}"
     );
+}
+
+/// Regression: a folded trace whose step count is not a multiple of the batch
+/// size must still prove and verify. The batch-fill Nops run past
+/// `required_steps`, so they exercise the Nebula scan's tag-0 padding — which is
+/// gated out of the IS/FS commitment/fingerprint by `scan` (see the `active`
+/// gate). Guards the batch-fill fold path (no aligned test hits it), and once
+/// the Poseidon IC commitment is re-enabled it also guards against scan/batch
+/// padding drifting apart.
+#[test]
+fn test_folding_batch_fill_nops_round_trip() {
+    setup_logger();
+
+    let p0 = ProcessId(0);
+    let ref_0 = Ref(0);
+    let val_0 = v(&[7]);
+
+    let entry_trace = vec![
+        WitLedgerEffect::NewRef {
+            size: 1,
+            ret: ref_0.into(),
+        },
+        ref_push1(val_0),
+        WitLedgerEffect::Return {},
+    ];
+    let traces = vec![entry_trace];
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 0,
+        n_coords: 1,
+        entrypoint: p0,
+        process_table: vec![h(0)],
+        is_utxo: vec![false],
+        is_token: vec![false],
+        must_burn: vec![],
+        ownership_in: vec![],
+        ownership_out: vec![],
+        host_calls_roots,
+        input_states: vec![],
+    };
+    let wit = InterleavingWitness { traces };
+
+    // Probe the natural (unbatched, scan-padded) step count, then pick the
+    // smallest batch size that does NOT divide it, so batch-fill Nops are
+    // required and run past `required_steps` (tag-0 scan padding).
+    let (_, unbatched) = crate::folding::extract_r1cs_and_assignments(
+        instance.clone(),
+        wit.clone(),
+        NonZeroUsize::new(1).unwrap(),
+    )
+    .expect("probe extract");
+    let natural_steps = unbatched.len();
+    let batch_size = (2usize..)
+        .find(|b| natural_steps % b != 0)
+        .expect("a non-divisor always exists");
+    assert_ne!(
+        natural_steps % batch_size,
+        0,
+        "test must require batch-fill (natural_steps={natural_steps})"
+    );
+
+    let proof = prove_with_batch_size(
+        instance.clone(),
+        wit.clone(),
+        NonZeroUsize::new(batch_size).unwrap(),
+    )
+    .expect("prove");
+    proof.verify(&instance, &wit).expect("verify");
 }

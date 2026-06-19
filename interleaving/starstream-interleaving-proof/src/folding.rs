@@ -3,10 +3,9 @@
 //!
 //! TODO(nebula-cross-link): only program-state IVC wires are cross-linked today;
 //! add the Nebula commitment state to the semantic-state indices.
-#![allow(dead_code)]
 
 use crate::F as ArkF;
-use crate::circuit::{InterRoundWires, IvcWireLayout, StepCircuitBuilder};
+use crate::circuit::{InterRoundWires, IvcWireLayout, IvcWiresVars, StepCircuitBuilder};
 use crate::memory::IVCMemory as _;
 use crate::nebula::tracer::{NebulaMemory, NebulaMemoryParams};
 use ark_ff::PrimeField as _;
@@ -16,6 +15,7 @@ use neo_fold_clean::frontends::r1cs_f_prime::SparseR1cs;
 use neo_math::F as NeoF;
 use p3_field::PrimeCharacteristicRing as _;
 use starstream_interleaving_spec::{InterleavingInstance, InterleavingWitness};
+use std::num::NonZeroUsize;
 
 pub(crate) fn to_neo(v: ArkF) -> NeoF {
     NeoF::from_u64(v.into_bigint().0[0])
@@ -29,40 +29,69 @@ pub(crate) struct StepShape {
 pub(crate) fn extract_r1cs_and_assignments(
     inst: InterleavingInstance,
     wit: InterleavingWitness,
+    batch_size: NonZeroUsize,
 ) -> Result<(StepShape, Vec<Vec<NeoF>>), SynthesisError> {
     let ops = crate::make_interleaved_trace(&inst, &wit);
 
     let mut builder = StepCircuitBuilder::<NebulaMemory<1>>::new(inst, ops);
     // TODO(soundness): re-enable the Poseidon IC commitment.
-    let mb = builder.trace_memory_ops(NebulaMemoryParams {
-        unsound_disable_poseidon_commitment: true,
-    });
+    let mb = builder.trace_memory_ops(
+        NebulaMemoryParams {
+            unsound_disable_poseidon_commitment: true,
+        },
+        batch_size.get(),
+    );
     let mut mem = mb.constraints();
 
+    // `trace_memory_ops` padded the step list to a whole number of batches.
     let num_steps = builder.ops.len();
+    debug_assert_eq!(num_steps % batch_size, 0);
+    let num_batches = num_steps / batch_size;
     let mut irw = InterRoundWires::new(builder.instance.entrypoint.0 as u64);
 
-    let mut assignments = Vec::with_capacity(num_steps);
+    let mut assignments = Vec::with_capacity(num_batches);
     let mut shape: Option<StepShape> = None;
 
-    for i in 0..num_steps {
+    for batch in 0..num_batches {
         let cs = ConstraintSystem::<ArkF>::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
 
-        let capture = i == 0;
-        let (next_irw, (), layout) =
-            builder.make_step_circuit(i, &mut mem, cs.clone(), irw, capture)?;
-        irw = next_irw;
+        // Synthesize batch_size sub-steps into one constraint system, threading
+        // the program state in-circuit so the whole batch folds as a single R1CS
+        // instance (amortizing the per-fold recursion overhead). Only the batch
+        // boundary (first input / last output) is cross-linked by the fold.
+        let mut first_input: Option<IvcWiresVars> = None;
+        let mut prev_output: Option<IvcWiresVars> = None;
+
+        for k in 0..batch_size.get() {
+            let i = batch * batch_size.get() + k;
+            let (next_irw, (), input_vars, output_vars) =
+                builder.make_step_circuit(i, &mut mem, cs.clone(), irw)?;
+            irw = next_irw;
+
+            // Intra-batch continuity: this sub-step's input state == previous
+            // sub-step's output state.
+            if let Some(prev) = prev_output.as_ref() {
+                prev.enforce_equal(&input_vars)?;
+            }
+            if first_input.is_none() {
+                first_input = Some(input_vars);
+            }
+            prev_output = Some(output_vars);
+        }
+
+        let first_input = first_input.expect("batch has at least one sub-step");
+        let last_output = prev_output.expect("batch has at least one sub-step");
 
         if let Some(unsat) = cs.which_is_unsatisfied()? {
-            tracing::error!(step = i, location = unsat, "step CCS is unsat");
+            tracing::error!(batch, location = unsat, "batch CCS is unsat");
         }
         assert!(
             cs.is_satisfied()?,
-            "interleaving step {i} should be satisfied"
+            "interleaving batch {batch} should be satisfied"
         );
 
-        // z = [instance | witness], in the same column order as the matrices.
+        // Ark matrices use instance-then-witness column order.
         let z: Vec<NeoF> = cs
             .instance_assignment()?
             .into_iter()
@@ -70,12 +99,20 @@ pub(crate) fn extract_r1cs_and_assignments(
             .map(to_neo)
             .collect();
 
-        if capture {
-            let ivc_layout = layout.expect("ivc layout requested on first step");
-
+        // The per-batch R1CS shape and IVC-wire layout are uniform across
+        // batches, so capture them once from the first batch.
+        if batch == 0 {
             cs.finalize();
             let m_in = cs.num_instance_variables();
             let m = m_in + cs.num_witness_variables();
+
+            // The batch's cross-linked program state spans the first sub-step's
+            // input wires to the last sub-step's output wires.
+            let ivc_layout = IvcWireLayout {
+                input: first_input.indices(&cs)?,
+                output: last_output.indices(&cs)?,
+            };
+
             // Borrow the matrices; `irw` still holds variables from this CS.
             let mut all = cs.to_matrices().expect("R1CS matrices");
             let mut matrices = all.remove("R1CS").unwrap_or_else(|| {
@@ -88,7 +125,14 @@ pub(crate) fn extract_r1cs_and_assignments(
             let b = matrices.pop().unwrap();
             let a = matrices.pop().unwrap();
             let n = a.len();
-            tracing::info!(n, m, m_in, num_steps, "extracted per-step R1CS shape");
+            tracing::info!(
+                n,
+                m,
+                m_in,
+                num_batches,
+                batch_size,
+                "extracted per-batch R1CS shape"
+            );
 
             let r1cs = SparseR1cs::new(
                 csc_from_rows(&a, n, m),
@@ -106,7 +150,7 @@ pub(crate) fn extract_r1cs_and_assignments(
         assignments.push(z);
     }
 
-    Ok((shape.expect("at least one step"), assignments))
+    Ok((shape.expect("at least one batch"), assignments))
 }
 
 /// Build a sparse `CcsMatrix` (CSC) from ark's sparse row form `Vec<(coeff, col)>`.
@@ -141,20 +185,26 @@ fn build_plan(
     semantic_in: Vec<usize>,
     semantic_out: Vec<usize>,
     anchor: [u8; 32],
+    batch_size: usize,
+    ce_override: Option<NifsCeClaimShape>,
 ) -> RecursiveStepImagePlan {
     let limbs = m * POSEIDON2_GOLDILOCKS_BITS + 1;
 
-    // Re-tune this fixed point if the recursive shape changes.
-    const C_DATA_ENTRIES: usize = 972;
-    let ce_shape = NifsCeClaimShape {
-        c_data_entries: C_DATA_ENTRIES,
+    // The CE-claim shape is a deterministic fixed point of the R1CS shape; it
+    // shifts slightly as m grows with BATCH_SIZE (e.g. `s_col_len` ticks up).
+    // Start from a best-known guess; `fold` self-tunes via a
+    // PostParentShapeMismatch retry when the actual shape differs, so a stale
+    // guess only costs one extra preprocess on the first attempt.
+    let ce_shape = ce_override.unwrap_or_else(|| NifsCeClaimShape {
+        c_data_entries: 972,
         x_rows: 54,
         x_active_cols: 5,
         r_len: 14,
         y_ring_inner_lens: vec![64; 8],
         y_zcol_len: 64,
-        s_col_len: 20,
-    };
+        s_col_len: if batch_size <= 2 { 20 } else { 21 },
+    });
+    let c_data_entries = ce_shape.c_data_entries;
 
     let probe_plan = RecursiveStepImagePlan {
         limbs,
@@ -172,7 +222,7 @@ fn build_plan(
         nifs_payload_shapes: vec![NifsPayloadShape::CeClaim(ce_shape)],
         accumulator: Some(AccumulatorPlanOptions {
             ce_claim_payload_index: 0,
-            c_data_entries: C_DATA_ENTRIES,
+            c_data_entries,
             child_count: 14,
             unified: true,
         }),
@@ -208,6 +258,7 @@ pub(crate) fn fold(
     shape: &StepShape,
     assignments: &[Vec<NeoF>],
     anchor: [u8; 32],
+    batch_size: usize,
 ) -> (SparseR1cs, RecursiveStepImagePlan, UncompressedAudit) {
     // `IvcWireLayout` indices are witness-local; the plan's semantic-state
     // indices address the full assignment `z = [instance | witness]`, so shift
@@ -240,21 +291,68 @@ pub(crate) fn fold(
         "prover's step-0 input state doesn't match the instance-derived anchor"
     );
 
-    let plan = build_plan(shape.r1cs.m, shape.r1cs.m_in, in_idx, out_idx, anchor);
-    let prep = r1cs_f_prime::preprocess_sparse_seeded(
-        &shape.r1cs,
-        &plan,
-        starstream_interleaving_spec::FOLD_SEED,
-    )
-    .expect("preprocess_sparse_seeded");
+    // Fold the chain. The recursive CE-claim shape is deterministic for this
+    // R1CS but shifts with BATCH_SIZE; if the compile reports the actual shape
+    // via PostParentShapeMismatch, rebuild the plan with it and retry once.
+    let mut ce_override: Option<NifsCeClaimShape> = None;
+    loop {
+        let plan = build_plan(
+            shape.r1cs.m,
+            shape.r1cs.m_in,
+            in_idx.clone(),
+            out_idx.clone(),
+            anchor,
+            batch_size,
+            ce_override.clone(),
+        );
+        let prep = r1cs_f_prime::preprocess_sparse_seeded(
+            &shape.r1cs,
+            &plan,
+            starstream_interleaving_spec::FOLD_SEED,
+        )
+        .expect("preprocess_sparse_seeded");
 
-    let mut chain = R1csChainBuilder::new(&prep).expect("chain builder");
-    for z in assignments {
-        chain
-            .append_assignment(z.clone())
-            .expect("append_assignment");
+        let mut chain = R1csChainBuilder::new(&prep).expect("chain builder");
+        let mut fold_err = None;
+        for z in assignments {
+            if let Err(e) = chain.append_assignment(z.clone()) {
+                fold_err = Some(e);
+                break;
+            }
+        }
+
+        match fold_err {
+            None => {
+                let audit = chain.finish_with_audit().expect("finish_with_audit");
+                return (shape.r1cs.clone(), plan, audit);
+            }
+            Some(e) => match post_parent_actual_shape(&e) {
+                Some(actual) if ce_override.is_none() => {
+                    tracing::info!(
+                        ?actual,
+                        "retuning CE-claim shape from PostParentShapeMismatch"
+                    );
+                    ce_override = Some(actual);
+                }
+                _ => panic!("append_assignment: {e:?}"),
+            },
+        }
     }
-    let audit = chain.finish_with_audit().expect("finish_with_audit");
+}
 
-    (shape.r1cs.clone(), plan, audit)
+/// Pull the compiler's computed CE-claim shape out of a `PostParentShapeMismatch`
+/// so the plan can be rebuilt to match (see `fold`'s retry loop).
+fn post_parent_actual_shape(
+    err: &neo_fold_clean::frontends::r1cs_f_prime::Error,
+) -> Option<NifsCeClaimShape> {
+    use neo_fold_clean::frontends::f_prime::compiler::FPrimeShellCompilerError;
+    use neo_fold_clean::frontends::r1cs_f_prime::Error;
+    use neo_fold_clean::frontends::r1cs_f_prime::compiler::R1csCompilerError;
+
+    match err {
+        Error::Compiler(R1csCompilerError::Shell(
+            FPrimeShellCompilerError::PostParentShapeMismatch { actual, .. },
+        )) => Some(actual.clone()),
+        _ => None,
+    }
 }

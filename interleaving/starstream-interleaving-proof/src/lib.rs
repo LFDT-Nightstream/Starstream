@@ -17,40 +17,73 @@ mod program_state;
 mod ref_arena_gadget;
 mod switchboard;
 
+pub use abi::commit;
 use abi::ledger_operation_from_wit;
 use ark_relations::gr1cs::SynthesisError;
+pub use ledger_operation::LedgerOperation;
 pub use memory::nebula;
 pub use optional::{OptionalF, OptionalFpVar};
 use starstream_interleaving_spec::{InterleavingInstance, InterleavingWitness, ZkTransactionProof};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, num::NonZeroUsize};
 
 pub type F = ark_goldilocks::FpGoldilocks;
-
 pub type ProgramId = F;
 
-pub use abi::commit;
-pub use ledger_operation::LedgerOperation;
+/// Default number of interleaving sub-steps folded as one R1CS instance. Each
+/// fold step pays the (largely fixed) recursion/NIFS overhead once, so batching
+/// B sub-steps amortizes it across B. The per-batch program-state continuity is
+/// enforced in-circuit (`IvcWiresVars::enforce_equal`); only the batch boundary
+/// is cross-linked by the fold.
+///
+/// This is only the default for [`crate::prove`]; the batch size is a per-call
+/// argument ([`crate::prove_with_batch_size`]) since it's a pure performance
+/// knob — the verifier re-derives preprocessing from the carried R1CS shape, so
+/// each proof may use a different B. Bump until the marginal gain flattens.
+pub const DEFAULT_BATCH_SIZE: usize = 4;
 
 /// Build the interleaving circuit, extract per-step R1CS assignments, and fold
-/// them into a verifiable transaction proof.
+/// them into a verifiable transaction proof, using [`circuit::DEFAULT_BATCH_SIZE`].
 pub fn prove(
     inst: InterleavingInstance,
     wit: InterleavingWitness,
+) -> Result<ZkTransactionProof, SynthesisError> {
+    prove_with_batch_size(inst, wit, DEFAULT_BATCH_SIZE.try_into().unwrap())
+}
+
+pub fn prove_with_batch_size(
+    inst: InterleavingInstance,
+    wit: InterleavingWitness,
+    batch_size: NonZeroUsize,
 ) -> Result<ZkTransactionProof, SynthesisError> {
     logging::setup_logger();
 
     let anchor = starstream_interleaving_spec::expected_initial_semantic_state_anchor(&inst);
 
-    let (shape, assignments) = folding::extract_r1cs_and_assignments(inst, wit)?;
+    let t_extract = std::time::Instant::now();
+    let (shape, assignments) = folding::extract_r1cs_and_assignments(inst, wit, batch_size)?;
+    let extract_ms = t_extract.elapsed().as_millis();
 
+    let batches = assignments.len();
     tracing::info!(
-        steps = assignments.len(),
+        batches,
+        batch_size,
         n = shape.r1cs.n,
         m = shape.r1cs.m,
+        extract_ms,
         "folding interleaving trace with neo-fold-clean (r1cs_f_prime)"
     );
 
-    let (r1cs, plan, audit) = folding::fold(&shape, &assignments, anchor);
+    let t_fold = std::time::Instant::now();
+    let (r1cs, plan, audit) = folding::fold(&shape, &assignments, anchor, batch_size.get());
+    let fold_ms = t_fold.elapsed().as_millis();
+    tracing::info!(
+        batches,
+        batch_size,
+        extract_ms,
+        fold_ms,
+        per_batch_ms = fold_ms / (batches.max(1) as u128),
+        "interleaving proof produced"
+    );
 
     Ok(ZkTransactionProof::Neo {
         r1cs: Box::new(r1cs),

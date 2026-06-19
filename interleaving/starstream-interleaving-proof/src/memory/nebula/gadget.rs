@@ -460,10 +460,21 @@ impl NebulaMemoryConstraints<F> {
 
             *last_addr = address.clone();
 
+            // Rows past the real init set are tag-0 padding (the iterator's
+            // `repeat(address_padding)` tail), which happens whenever the step
+            // count exceeds `required_steps` — e.g. batch-fill Nops. Such rows
+            // must not enter the IS/FS commitment or fingerprint, so they stay
+            // equal to the expected values built from the real init set only.
+            // Tag 0 is the reserved padding marker (see `enforce_monotonic_commitment`).
+            // A witness (not a constant) keeps the per-step circuit uniform.
+            let active = !address
+                .tag
+                .is_eq(&FpVar::new_constant(cs.clone(), F::from(0))?)?;
+
             let is_entry = is_v.allocate(cs.clone(), max_segment_size)?;
 
             self.step_ic_is_fs.as_mut().unwrap().increment(
-                &Boolean::constant(true),
+                &active,
                 &address,
                 &is_entry,
                 self.params.unsound_disable_poseidon_commitment,
@@ -472,14 +483,14 @@ impl NebulaMemoryConstraints<F> {
             let fs_entry = fs_v.allocate(cs.clone(), max_segment_size)?;
 
             self.step_ic_is_fs.as_mut().unwrap().increment(
-                &Boolean::constant(true),
+                &active,
                 &address,
                 &fs_entry,
                 self.params.unsound_disable_poseidon_commitment,
             )?;
 
             Self::hash_avt(
-                &Boolean::constant(true),
+                &active,
                 &mut self.fingerprint_wires.as_mut().unwrap().is,
                 self.c0_wire.as_ref().unwrap(),
                 self.c1_powers_cache.as_ref().unwrap(),
@@ -489,7 +500,7 @@ impl NebulaMemoryConstraints<F> {
             )?;
 
             Self::hash_avt(
-                &Boolean::constant(true),
+                &active,
                 &mut self.fingerprint_wires.as_mut().unwrap().fs,
                 self.c0_wire.as_ref().unwrap(),
                 self.c1_powers_cache.as_ref().unwrap(),

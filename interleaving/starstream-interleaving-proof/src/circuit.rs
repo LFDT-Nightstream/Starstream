@@ -68,12 +68,14 @@ type StepCircuitResult<M> = Result<
     (
         InterRoundWires,
         <<M as IVCMemory<F>>::Allocator as IVCMemoryAllocated<F>>::FinishStepPayload,
-        Option<IvcWireLayout>,
+        // Program-state IVC wires of this sub-step: (input, output). The caller
+        // chains output[k] == input[k+1] within a batch and records the batch's
+        // first-input / last-output indices for cross-linking.
+        IvcWiresVars,
+        IvcWiresVars,
     ),
     SynthesisError,
 >;
-
-// OptionalF/OptionalFpVar live in optional.rs
 
 /// common circuit variables to all the opcodes
 #[derive(Clone)]
@@ -198,6 +200,75 @@ impl IvcWireLayout {
             self.output.ref_building_remaining,
             self.output.ref_building_ptr,
         ]
+    }
+}
+
+/// The program-state IVC wires.
+///
+/// Cross-step continuity most be enforced for this, both across folding steps,
+/// and also intra-step if using batching.
+#[derive(Clone)]
+pub(crate) struct IvcWiresVars {
+    id_curr: FpVar<F>,
+    id_prev_encoded: FpVar<F>,
+    next_ref_id: FpVar<F>,
+    ref_arena_len: FpVar<F>,
+    handler_stack_ptr: FpVar<F>,
+    pending_resume_function_id: FpVar<F>,
+    pending_enter: FpVar<F>,
+    ref_building_remaining: FpVar<F>,
+    ref_building_ptr: FpVar<F>,
+}
+
+impl IvcWiresVars {
+    fn from_wires(w: &Wires) -> Self {
+        Self {
+            id_curr: w.id_curr.clone(),
+            id_prev_encoded: w.id_prev.encoded(),
+            next_ref_id: w.next_ref_id.clone(),
+            ref_arena_len: w.ref_arena_len.clone(),
+            handler_stack_ptr: w.handler_stack_ptr.clone(),
+            pending_resume_function_id: w.pending_resume_function_id.clone(),
+            pending_enter: w.pending_enter.clone(),
+            ref_building_remaining: w.ref_building_remaining.clone(),
+            ref_building_ptr: w.ref_building_ptr.clone(),
+        }
+    }
+
+    pub(crate) fn enforce_equal(&self, next: &Self) -> Result<(), SynthesisError> {
+        self.id_curr.enforce_equal(&next.id_curr)?;
+        self.id_prev_encoded.enforce_equal(&next.id_prev_encoded)?;
+        self.next_ref_id.enforce_equal(&next.next_ref_id)?;
+        self.ref_arena_len.enforce_equal(&next.ref_arena_len)?;
+        self.handler_stack_ptr
+            .enforce_equal(&next.handler_stack_ptr)?;
+        self.pending_resume_function_id
+            .enforce_equal(&next.pending_resume_function_id)?;
+        self.pending_enter.enforce_equal(&next.pending_enter)?;
+        self.ref_building_remaining
+            .enforce_equal(&next.ref_building_remaining)?;
+        self.ref_building_ptr
+            .enforce_equal(&next.ref_building_ptr)?;
+        Ok(())
+    }
+
+    /// Witness-local indices of these wires in `cs` (the positions the fold's
+    /// `semantic_state_*_var_indices` reference, before the `+ m_in` shift).
+    pub(crate) fn indices(
+        &self,
+        cs: &ConstraintSystemRef<F>,
+    ) -> Result<IvcWireIndices, SynthesisError> {
+        Ok(IvcWireIndices {
+            id_curr: fpvar_witness_index(cs, &self.id_curr)?,
+            id_prev: fpvar_witness_index(cs, &self.id_prev_encoded)?,
+            next_ref_id: fpvar_witness_index(cs, &self.next_ref_id)?,
+            ref_arena_len: fpvar_witness_index(cs, &self.ref_arena_len)?,
+            handler_stack_ptr: fpvar_witness_index(cs, &self.handler_stack_ptr)?,
+            pending_resume_function_id: fpvar_witness_index(cs, &self.pending_resume_function_id)?,
+            pending_enter: fpvar_witness_index(cs, &self.pending_enter)?,
+            ref_building_remaining: fpvar_witness_index(cs, &self.ref_building_remaining)?,
+            ref_building_ptr: fpvar_witness_index(cs, &self.ref_building_ptr)?,
+        })
     }
 }
 
@@ -869,7 +940,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         rm: &mut M::Allocator,
         cs: ConstraintSystemRef<F>,
         mut irw: InterRoundWires,
-        compute_ivc_layout: bool,
     ) -> StepCircuitResult<M> {
         rm.start_step(cs.clone()).unwrap();
 
@@ -917,12 +987,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         let mem_step_data = rm.finish_step(i == self.ops.len() - 1)?;
 
-        // input <-> output mappings are done by modifying next_wires
-        let ivc_layout = if compute_ivc_layout {
-            Some(ivc_wires(&cs, &wires_in, &next_wires)?)
-        } else {
-            None
-        };
+        // Snapshot the program-state IVC wires as FpVars before `irw.update`
+        // consumes `next_wires`: input wires (this sub-step's incoming state)
+        // and output wires (its outgoing state). The caller chains output[k] ==
+        // input[k+1] inside a batch and records first-input / last-output.
+        let input_vars = IvcWiresVars::from_wires(&wires_in);
+        let output_vars = IvcWiresVars::from_wires(&next_wires);
 
         {
             let _guard = debug_span!(target: "gr1cs", "ref_building_mode").entered();
@@ -933,10 +1003,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         irw.update(next_wires);
 
-        Ok((irw, mem_step_data, ivc_layout))
+        Ok((irw, mem_step_data, input_vars, output_vars))
     }
 
-    pub fn trace_memory_ops(&mut self, params: <M as memory::IVCMemory<F>>::Params) -> M {
+    pub fn trace_memory_ops(
+        &mut self,
+        params: <M as memory::IVCMemory<F>>::Params,
+        batch_size: usize,
+    ) -> M {
         // initialize all the maps
         let mut mb = {
             let mut mb = M::new(params);
@@ -1129,6 +1203,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             tracing::debug!("padding with {missing} Nop operations for scan");
             self.ops
                 .extend(std::iter::repeat_n(LedgerOperation::Nop {}, missing));
+        }
+
+        // Round the step count up to a whole number of batches so every folded
+        // R1CS instance holds exactly batch_size sub-steps (uniform shape).
+        let rem = self.ops.len() % batch_size;
+        if rem != 0 {
+            self.ops.extend(std::iter::repeat_n(
+                LedgerOperation::Nop {},
+                batch_size - rem,
+            ));
         }
 
         // out of circuit memory operations.
@@ -2500,39 +2584,6 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         MemType::Rom,
         "ROM_IS_TOKEN",
     );
-}
-
-#[tracing::instrument(target = "gr1cs", skip_all)]
-fn ivc_wires(
-    cs: &ConstraintSystemRef<F>,
-    wires_in: &Wires,
-    wires_out: &Wires,
-) -> Result<IvcWireLayout, SynthesisError> {
-    let input = IvcWireIndices {
-        id_curr: fpvar_witness_index(cs, &wires_in.id_curr)?,
-        id_prev: fpvar_witness_index(cs, &wires_in.id_prev.encoded())?,
-        next_ref_id: fpvar_witness_index(cs, &wires_in.next_ref_id)?,
-        ref_arena_len: fpvar_witness_index(cs, &wires_in.ref_arena_len)?,
-        handler_stack_ptr: fpvar_witness_index(cs, &wires_in.handler_stack_ptr)?,
-        pending_resume_function_id: fpvar_witness_index(cs, &wires_in.pending_resume_function_id)?,
-        pending_enter: fpvar_witness_index(cs, &wires_in.pending_enter)?,
-        ref_building_remaining: fpvar_witness_index(cs, &wires_in.ref_building_remaining)?,
-        ref_building_ptr: fpvar_witness_index(cs, &wires_in.ref_building_ptr)?,
-    };
-
-    let output = IvcWireIndices {
-        id_curr: fpvar_witness_index(cs, &wires_out.id_curr)?,
-        id_prev: fpvar_witness_index(cs, &wires_out.id_prev.encoded())?,
-        next_ref_id: fpvar_witness_index(cs, &wires_out.next_ref_id)?,
-        ref_arena_len: fpvar_witness_index(cs, &wires_out.ref_arena_len)?,
-        handler_stack_ptr: fpvar_witness_index(cs, &wires_out.handler_stack_ptr)?,
-        pending_resume_function_id: fpvar_witness_index(cs, &wires_out.pending_resume_function_id)?,
-        pending_enter: fpvar_witness_index(cs, &wires_out.pending_enter)?,
-        ref_building_remaining: fpvar_witness_index(cs, &wires_out.ref_building_remaining)?,
-        ref_building_ptr: fpvar_witness_index(cs, &wires_out.ref_building_ptr)?,
-    };
-
-    Ok(IvcWireLayout { input, output })
 }
 
 fn fpvar_witness_index(

@@ -11,7 +11,10 @@ pub use tag::MemoryTag;
 
 /// Number of value lanes a memory uses per step.
 #[derive(Debug, Clone, Copy)]
-pub struct Lanes(pub usize);
+// currently nothing uses this, but keeping it as part of the interface since
+// it may be relevant later (maybe could we used to de-hardcode the order in the
+// nebula impl?)
+pub struct Lanes(#[allow(dead_code)] pub usize);
 
 impl Default for Lanes {
     fn default() -> Self {

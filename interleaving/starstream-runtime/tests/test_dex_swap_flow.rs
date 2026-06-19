@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use starstream_interleaving_spec::{CoroutineState, Ledger, UtxoId, Value};
 use starstream_runtime::{
     UnprovenTransaction, poseidon_program_hash, register_mermaid_default_decoder,
@@ -571,7 +573,12 @@ fn test_dex_swap_flow() {
         entrypoint: 3,
     };
 
-    let proven_init = tx_init.prove().unwrap();
+    // The dex traces are large, so use a bigger interleaving batch size to
+    // amortize the per-fold recursion overhead (a pure performance knob — it
+    // doesn't affect verification).
+    let proven_init = tx_init
+        .prove_with_batch_size(NonZeroUsize::new(8).unwrap())
+        .unwrap();
     let mut ledger = Ledger::new();
     ledger = ledger.apply_transaction(&proven_init).unwrap();
 
@@ -608,7 +615,9 @@ fn test_dex_swap_flow() {
         entrypoint: 3,
     };
 
-    let proven_swap = tx_swap.prove().unwrap();
+    let proven_swap = tx_swap
+        .prove_with_batch_size(NonZeroUsize::new(8).unwrap())
+        .unwrap();
     ledger = ledger.apply_transaction(&proven_swap).unwrap();
 
     assert_eq!(ledger.utxos.len(), 3);
