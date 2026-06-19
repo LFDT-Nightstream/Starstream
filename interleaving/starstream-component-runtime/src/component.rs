@@ -547,14 +547,9 @@ fn call_resource_method(
         _ => ComponentValueIr::Tuple(value_args.clone()),
     };
     let payload = allocate_payload_ref(ctx.data_mut(), caller, payload_value)?;
-    ctx.data_mut().executor.record_import(
-        caller,
-        HostImportCall::Resume {
-            target,
-            payload,
-            function_id: method_function_id(import_name, func_name),
-        },
-    )?;
+    ctx.data_mut()
+        .executor
+        .record_import(caller, HostImportCall::Resume { target, payload })?;
 
     // TODO(interleaving-proof): method dispatch currently executes the target export
     // synchronously in the host and only records the caller-side `Resume`. Once the

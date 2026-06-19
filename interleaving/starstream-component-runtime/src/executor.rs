@@ -165,11 +165,7 @@ where
                         HostImportOutcome::None,
                     )
                 }
-                HostImportCall::Resume {
-                    target,
-                    payload,
-                    function_id: _,
-                } => {
+                HostImportCall::Resume { target, payload } => {
                     let target = self
                         .state
                         .resolve_resource(target)
@@ -245,7 +241,6 @@ where
                 HostImportCall::CallEffectHandler {
                     interface_id,
                     payload,
-                    function_id: _,
                 } => (
                     WitLedgerEffect::CallEffectHandler {
                         interface_id,
