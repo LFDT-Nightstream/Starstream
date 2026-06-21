@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\ntoken MyToken {\n    mint fn mint() -> u32 {\n        0\n    }\n\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n}\n"
+---
+E0043 (https://starstream.nightstream.dev/errors/E0043)
+
+  x return type not allowed on this function
+   ,-[test.star:2:13]
+ 1 | token MyToken {
+ 2 |     mint fn mint() -> u32 {
+   :             ^^^^
+ 3 |         0
+   `----

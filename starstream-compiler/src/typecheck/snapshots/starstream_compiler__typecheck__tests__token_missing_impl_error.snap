@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\ntoken MyToken {\n    mint fn mint() {}\n}\n"
+---
+E0053 (https://starstream.nightstream.dev/errors/E0053)
+
+  x token `MyToken` must have an `impl Token { ... }` block
+   ,-[test.star:1:7]
+ 1 | token MyToken {
+   :       ^^^^^^^
+ 2 |     mint fn mint() {}
+   `----

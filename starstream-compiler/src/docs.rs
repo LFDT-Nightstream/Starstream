@@ -96,6 +96,14 @@ impl From<&Type> for TypeRef {
                 name: name.to_owned(),
                 kind: TypeKind::Resource,
             },
+            Type::TokenAny => TypeRef::Resource {
+                name: "Token".to_owned(),
+                kind: TypeKind::Resource,
+            },
+            Type::TokenNamed(name) => TypeRef::Resource {
+                name: name.to_owned(),
+                kind: TypeKind::Resource,
+            },
             Type::AbiNarrow(abi) => TypeRef::Resource {
                 name: abi.name.to_string(),
                 kind: TypeKind::Resource,

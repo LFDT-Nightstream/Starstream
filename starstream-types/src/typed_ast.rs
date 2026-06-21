@@ -161,13 +161,30 @@ pub struct TypedUtxoGlobal {
     pub ty: Type,
 }
 
-/// Shallow typed marker for a `token` definition. Token bodies are not yet
-/// type-checked; this carries just the name/span so the definition survives
-/// lowering. Fleshed out alongside the global `Token` type in a follow-up.
 #[derive(Clone, Debug)]
 pub struct TypedTokenDef {
     pub name: Identifier,
-    pub span: Span,
+    pub parts: Vec<TypedTokenPart>,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedTokenPart {
+    Storage(Vec<TypedTokenGlobal>),
+    Function(Box<TypedFunctionDef>),
+    AbiImpl {
+        span: Span,
+        abi: Type,
+        parts: Vec<TypedFunctionDef>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedTokenGlobal {
+    /// Whether the field carries the `indexed` modifier.
+    pub indexed: bool,
+    pub name: Identifier,
+    pub ty: Type,
 }
 
 #[derive(Clone, Debug)]

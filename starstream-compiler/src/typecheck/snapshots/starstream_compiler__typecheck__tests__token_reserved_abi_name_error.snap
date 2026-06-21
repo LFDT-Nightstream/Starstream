@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi Token {\n    fn attach(to: Utxo);\n}\n"
+---
+E0055 (https://starstream.nightstream.dev/errors/E0055)
+
+  x `Token` is a built-in ABI and cannot be redeclared
+   ,-[test.star:1:5]
+ 1 | abi Token {
+   :     ^^^^^
+ 2 |     fn attach(to: Utxo);
+   `----
