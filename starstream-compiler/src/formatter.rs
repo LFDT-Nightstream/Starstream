@@ -1,8 +1,9 @@
 use pretty::RcDoc;
 use starstream_types::{
-    AbiDef, AbiMethodDecl, AbiPart, BinaryOp, Block, Comment, CommentMap, Definition, EventDef,
-    Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal, Spanned, Statement,
-    TokenDef, TokenGlobal, TokenPart, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
+    AbiDef, AbiMethodDecl, AbiPart, BinaryOp, Block, Comment, CommentMap, Definition, EffectDef,
+    EventDef, Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal, Spanned,
+    Statement, TokenDef, TokenGlobal, TokenPart, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal,
+    UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, ImportDef, ImportItems, ImportNamedItem, ImportSource, MatchArm, Pattern,
@@ -625,10 +626,7 @@ fn abi_definition_to_doc<'a>(
         let mut prev_end = body_start;
 
         for (i, part) in definition.parts.iter().enumerate() {
-            let part_span = match part {
-                AbiPart::Event(e) => e.span,
-                AbiPart::FnDecl(m) => m.span,
-            };
+            let part_span = part.span();
             let comments_before = comments.comments_between(prev_end, part_span, source);
 
             if i > 0 {
@@ -656,6 +654,7 @@ fn abi_definition_to_doc<'a>(
 fn abi_part_to_doc<'a>(part: &AbiPart, source: &'a str) -> RcDoc<'a, ()> {
     match part {
         AbiPart::Event(event) => event_definition_to_doc(event, source),
+        AbiPart::Effect(effect) => effect_definition_to_doc(effect, source),
         AbiPart::FnDecl(method) => abi_method_decl_to_doc(method, source),
     }
 }
@@ -663,6 +662,23 @@ fn abi_part_to_doc<'a>(part: &AbiPart, source: &'a str) -> RcDoc<'a, ()> {
 fn abi_method_decl_to_doc<'a>(method: &AbiMethodDecl, source: &'a str) -> RcDoc<'a, ()> {
     let params = params_to_doc(&method.params, source);
     let doc = RcDoc::text("fn")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&method.name, source))
+        .append(RcDoc::text("("))
+        .append(params)
+        .append(RcDoc::text(")"));
+    let doc = if let Some(ret) = &method.return_type {
+        doc.append(RcDoc::text(" -> "))
+            .append(type_annotation_to_doc(ret, source))
+    } else {
+        doc
+    };
+    doc.append(RcDoc::text(";"))
+}
+
+fn effect_definition_to_doc<'a>(method: &EffectDef, source: &'a str) -> RcDoc<'a, ()> {
+    let params = params_to_doc(&method.params, source);
+    let doc = RcDoc::text("effect")
         .append(RcDoc::space())
         .append(identifier_to_doc(&method.name, source))
         .append(RcDoc::text("("))

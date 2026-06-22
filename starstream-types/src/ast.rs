@@ -357,7 +357,18 @@ pub struct AbiDef {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum AbiPart {
     Event(EventDef),
+    Effect(EffectDef),
     FnDecl(AbiMethodDecl),
+}
+
+impl AbiPart {
+    pub fn span(&self) -> Span {
+        match self {
+            AbiPart::Event(e) => e.span,
+            AbiPart::Effect(e) => e.span,
+            AbiPart::FnDecl(m) => m.span,
+        }
+    }
 }
 
 /// Method declaration inside an `abi` block (signature only, no body).
@@ -377,6 +388,17 @@ pub struct EventDef {
     pub name: Identifier,
     pub params: Vec<FunctionParam>,
     /// The span covering the entire declaration from `event` to `;`.
+    #[serde(skip)]
+    pub span: Span,
+}
+
+/// Method declaration inside an `abi` block (signature only, no body).
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct EffectDef {
+    pub name: Identifier,
+    pub params: Vec<FunctionParam>,
+    pub return_type: Option<TypeAnnotation>,
+    /// The span covering the entire declaration from `fn` to `;`.
     #[serde(skip)]
     pub span: Span,
 }
