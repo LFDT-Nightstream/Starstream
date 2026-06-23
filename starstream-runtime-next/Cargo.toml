@@ -1,0 +1,34 @@
+[package]
+name = "starstream-runtime-next"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[features]
+async = ["wasmtime/async", "wasmtime/debug"]
+trace = ["async"]
+#wasmtime-custom-fiber = ["wasmtime/custom-fiber"] # TODO: Update wasmtime and uncomment
+wasmtime-custom-virtual-memory = ["wasmtime/custom-virtual-memory"]
+
+[dependencies]
+anyhow = { version = "1.0.102", default-features = false }
+tracing = { version = "0.1.44", default-features = false, features = [
+    "attributes",
+] }
+wasmparser = { version = "0.251.0", default-features = false }
+wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", branch = "release-46.0.0", default-features = false, features = [
+    "anyhow",
+    "component-model",
+    "cranelift",
+    "runtime",
+] }
+wit-component = { version = "0.251.0", default-features = false }
+
+[dev-dependencies]
+sha2 = "0.10.9"
+starstream-compiler = { workspace = true }
+starstream-to-wasm = { workspace = true }
+tokio = { version = "1.47.1", features = ["macros", "rt"] }

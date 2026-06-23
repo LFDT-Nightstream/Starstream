@@ -6,6 +6,7 @@ members = [
   "starstream-interpreter",
   "starstream-language-server",
   "starstream-language-server-web",
+  "starstream-runtime-next",
   "starstream-sandbox-web",
   "starstream-to-wasm",
   "starstream-types",
@@ -14,7 +15,7 @@ members = [
   "interleaving/starstream-component-runtime",
   "interleaving/starstream-runtime",
   "ark-poseidon2",
-  "ark-goldilocks"
+  "ark-goldilocks",
 ]
 
 [workspace.package]
@@ -35,6 +36,7 @@ serde = "1.0.219"
 serde_json = "1.0"
 starstream-compiler = { path = "starstream-compiler" }
 starstream-language-server = { path = "starstream-language-server" }
+starstream-runtime-next = { path = "starstream-runtime-next" }
 starstream-to-wasm = { path = "starstream-to-wasm" }
 starstream-types = { path = "starstream-types" }
 thiserror = "2.0.17"
