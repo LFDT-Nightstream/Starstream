@@ -6,7 +6,7 @@ use starstream_interleaving_spec::{
     CoroutineState, FunctionId, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
 };
 use std::collections::{HashMap, HashSet};
-use wasmtime::component::types::ComponentItem;
+use wasmtime::component::types::{ComponentExtern, ComponentItem};
 use wasmtime::component::{
     Component, Linker, Resource, ResourceAny, ResourceType, Val as WasmtimeVal,
 };
@@ -160,7 +160,9 @@ impl WasmtimeComponentStarstreamExecutor {
         component: &ScalarComponent,
     ) -> Result<wasmtime::component::Instance, ScalarComponentError> {
         let instance = self.instantiate_component(component)?;
-        for (export_name, item) in component.component_type().exports(&self.engine) {
+        for (export_name, ComponentExtern { ty: item, .. }) in
+            component.component_type().exports(&self.engine)
+        {
             if !matches!(item, ComponentItem::ComponentInstance(_)) {
                 continue;
             }
@@ -751,12 +753,14 @@ fn extract_import_instance_schemas(
     engine: &Engine,
 ) -> HashMap<String, ImportInstanceSchema> {
     let mut schemas = HashMap::new();
-    for (import_name, item) in component.component_type().imports(engine) {
+    for (import_name, ComponentExtern { ty: item, .. }) in
+        component.component_type().imports(engine)
+    {
         let ComponentItem::ComponentInstance(instance) = item else {
             continue;
         };
         let mut schema = ImportInstanceSchema::default();
-        for (name, item) in instance.exports(engine) {
+        for (name, ComponentExtern { ty: item, .. }) in instance.exports(engine) {
             match item {
                 ComponentItem::ComponentFunc(func) => {
                     let params = func
