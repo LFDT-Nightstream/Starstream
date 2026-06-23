@@ -8,9 +8,9 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-async = ["wasmtime/async", "wasmtime/debug"]
-trace = ["async"]
-#wasmtime-custom-fiber = ["wasmtime/custom-fiber"] # TODO: Update wasmtime and uncomment
+async = ["wasmtime/async"]
+trace = ["async", "wasmtime/debug"]
+wasmtime-custom-fiber = ["wasmtime/custom-fiber"]
 wasmtime-custom-virtual-memory = ["wasmtime/custom-virtual-memory"]
 
 [dependencies]
@@ -19,7 +19,7 @@ tracing = { version = "0.1.44", default-features = false, features = [
     "attributes",
 ] }
 wasmparser = { version = "0.251.0", default-features = false }
-wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", branch = "release-46.0.0", default-features = false, features = [
+wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "a260163e20dd5bb92a3a9df093c9e229e2b4f8df", default-features = false, features = [
     "anyhow",
     "component-model",
     "cranelift",
