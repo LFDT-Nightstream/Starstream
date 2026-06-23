@@ -111,8 +111,8 @@ fn assert_progress_utxo<T: Host>(contract: &Contract<T>) -> wasmtime::Result<Pro
         .context("failed to get `score-progress` UTXO export by name")?;
 
     let new = {
-        let mut constructor_exports = contract.utxo_constructors(&utxo);
-        match (constructor_exports.next(), constructor_exports.next()) {
+        let mut exports = contract.utxo_constructors(&utxo);
+        match (exports.next(), exports.next()) {
             (Some(("[static]utxo.new", Ok(new))), None) => new,
             exports => bail!("unexpected UTXO constructor exports: {exports:?}"),
         }
