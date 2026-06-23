@@ -28,5 +28,7 @@ wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", branch = "rel
 wit-component = { version = "0.251.0", default-features = false }
 
 [dev-dependencies]
-test-contracts = { workspace = true }
+sha2 = "0.10.9"
+starstream-compiler = { workspace = true }
+starstream-to-wasm = { workspace = true }
 tokio = { version = "1.47.1", features = ["macros", "rt"] }

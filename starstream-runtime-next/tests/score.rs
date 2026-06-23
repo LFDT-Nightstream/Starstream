@@ -2,15 +2,42 @@ use core::array;
 use core::iter::zip;
 
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
+use sha2::{Digest as _, Sha256};
+use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
     ConstructorExport, Contract, EventHandler, Host, MethodExport, Utxo, UtxoStorageExport,
     bindings,
 };
-use test_contracts::EXAMPLE_SCORE;
+use starstream_to_wasm::compile;
 use wasmtime::bail;
 use wasmtime::component::Val;
 use wasmtime::error::Context as _;
+
+/// Compile a single Starstream contract source to a core Wasm module in-process.
+///
+/// Mirrors the browser sandbox's compile path: parse the source, typecheck it,
+/// then emit the contract. The result carries a `component-type` custom section,
+/// so `Contract::new`'s `componentize` step wraps it into a component at run
+/// time.
+fn compile_contract(source: &str) -> Vec<u8> {
+    let (program, errors) = parse_program(source).into_output_errors();
+    assert!(errors.is_empty(), "parsing failed: {errors:?}");
+    let program = program.expect("parser produced no program");
+    let typed = typecheck_program(&program, TypecheckOptions::default())
+        .unwrap_or_else(|failure| panic!("typechecking failed: {:?}", failure.errors));
+    let result = compile(&typed.program);
+    assert!(
+        result.errors.is_empty(),
+        "compiling failed: {:?}",
+        result.errors
+    );
+    result.wasm.expect("compiling produced no Wasm")
+}
+
+static EXAMPLE_SCORE: LazyLock<Vec<u8>> =
+    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
 
 #[derive(Clone, Debug, Default)]
 struct Ctx {
@@ -42,32 +69,27 @@ impl EventHandler for Ctx {
     }
 }
 
-const METHODS: [(u64, u64, u64, u64); 4] = [
-    (
-        9984741223472054651,
-        3777191895585416912,
-        11414430493733454782,
-        17853027721887758589,
-    ),
-    (
-        10031671596645923877,
-        5859691412821126436,
-        14636224297006305312,
-        18400238348769808647,
-    ),
-    (
-        10486967187806387020,
-        13073113330981563051,
-        14419176846782403470,
-        15804774841702521566,
-    ),
-    (
-        5384737671178596162,
-        7822374597054249491,
-        11449494298339117153,
-        15762863519083182186,
-    ),
-];
+/// The ABI method identity hash the guest reports via `implements-method`:
+/// the SHA-256 of the method name, split into four little-endian `u64`s. Mirrors
+/// the codegen in `starstream-to-wasm`.
+fn method_hash(name: &str) -> (u64, u64, u64, u64) {
+    let digest = Sha256::digest(name.as_bytes());
+    let mut chunks = digest
+        .chunks_exact(8)
+        .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()));
+    let hash = (
+        chunks.next().unwrap(),
+        chunks.next().unwrap(),
+        chunks.next().unwrap(),
+        chunks.next().unwrap(),
+    );
+    assert_eq!(chunks.next(), None);
+    hash
+}
+
+/// The methods of the `Score` ABI, in declaration (and `yield`) order.
+static METHODS: LazyLock<[(u64, u64, u64, u64); 4]> =
+    LazyLock::new(|| ["plus_chips", "plus_mult", "mult_mult", "finish"].map(method_hash));
 
 struct ProgressUtxo {
     storage: UtxoStorageExport,
@@ -88,12 +110,13 @@ fn assert_progress_utxo<T: Host>(contract: &Contract<T>) -> wasmtime::Result<Pro
         .get_utxo("score-progress")
         .context("failed to get `score-progress` UTXO export by name")?;
 
-    let mut constructor_exports = contract.utxo_constructors(&utxo);
-    let new = match (constructor_exports.next(), constructor_exports.next()) {
-        (Some(("[static]utxo.new", Ok(new))), None) => new,
-        exports => bail!("unexpected UTXO constructor exports: {exports:?}"),
+    let new = {
+        let mut constructor_exports = contract.utxo_constructors(&utxo);
+        match (constructor_exports.next(), constructor_exports.next()) {
+            (Some(("[static]utxo.new", Ok(new))), None) => new,
+            exports => bail!("unexpected UTXO constructor exports: {exports:?}"),
+        }
     };
-    drop(constructor_exports);
 
     let _named = contract
         .get_utxo_constructor(&utxo, "[static]utxo.new")
@@ -191,7 +214,7 @@ async fn get_progress_storage_async<T: Send>(
 
 #[test]
 fn score_sync() -> wasmtime::Result<()> {
-    let contract = Contract::new(EXAMPLE_SCORE).context("failed to create contract")?;
+    let contract = Contract::new(EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
     let ProgressUtxo {
         storage,
         new,
@@ -209,7 +232,7 @@ fn score_sync() -> wasmtime::Result<()> {
 
     for (i, mut utxo) in zip(0.., utxos) {
         let Ctx { methods, events } = utxo.store().data();
-        assert_eq!(methods.as_ref(), METHODS);
+        assert_eq!(methods.as_ref(), *METHODS);
         assert_eq!(events.as_ref(), []);
 
         let ProgressStorage {
@@ -255,7 +278,7 @@ fn score_sync() -> wasmtime::Result<()> {
         assert!(res.is_empty());
 
         let Ctx { methods, events } = utxo.into_inner().context("failed to drop UTXO")?;
-        assert_eq!(methods, METHODS);
+        assert_eq!(methods, *METHODS);
         assert_eq!(
             events,
             [(
@@ -271,7 +294,7 @@ fn score_sync() -> wasmtime::Result<()> {
 #[cfg(feature = "async")]
 #[tokio::test]
 async fn score_async() -> wasmtime::Result<()> {
-    let contract = Contract::new(EXAMPLE_SCORE).context("failed to create contract")?;
+    let contract = Contract::new(EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
     let ProgressUtxo {
         storage,
         new,
@@ -288,7 +311,7 @@ async fn score_async() -> wasmtime::Result<()> {
 
     for (i, mut utxo) in zip(0.., [utxos.0, utxos.1, utxos.2, utxos.3, utxos.4]) {
         let Ctx { methods, events } = utxo.store().data();
-        assert_eq!(methods.as_ref(), METHODS);
+        assert_eq!(methods.as_ref(), *METHODS);
         assert_eq!(events.as_ref(), []);
 
         let ProgressStorage {
@@ -341,7 +364,7 @@ async fn score_async() -> wasmtime::Result<()> {
             .into_inner_async()
             .await
             .context("failed to drop UTXO")?;
-        assert_eq!(methods, METHODS);
+        assert_eq!(methods, *METHODS);
         assert_eq!(
             events,
             [(

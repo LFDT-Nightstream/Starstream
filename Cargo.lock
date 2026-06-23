@@ -3443,7 +3443,9 @@ name = "starstream-runtime-next"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "test-contracts",
+ "sha2",
+ "starstream-compiler",
+ "starstream-to-wasm",
  "tokio",
  "tracing",
  "wasmparser 0.251.0",
@@ -3603,15 +3605,6 @@ checksum = "60b8cb979cb11c32ce1603f8137b22262a9d131aaa5c37b5678025f22b8becd0"
 dependencies = [
  "rustix",
  "windows-sys 0.60.2",
-]
-
-[[package]]
-name = "test-contracts"
-version = "0.0.0"
-dependencies = [
- "starstream-compiler",
- "starstream-to-wasm",
- "starstream-types",
 ]
 
 [[package]]
