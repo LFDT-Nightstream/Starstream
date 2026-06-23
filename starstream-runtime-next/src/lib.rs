@@ -231,13 +231,72 @@ impl<T: Host> Contract<T> {
         name: &str,
         instance_ty: types::ComponentInstance,
     ) -> wasmtime::Result<UtxoExport> {
+        fn get_storage(
+            component: &Component,
+            instance: &ComponentExportIndex,
+            utxo_ty: ResourceType,
+            storage_ty: &types::Record,
+        ) -> wasmtime::Result<ComponentExportIndex> {
+            let (ty, idx) = component
+                .get_export(Some(instance), "get-storage")
+                .context("`get-storage` export not found")?;
+            let types::ComponentItem::ComponentFunc(ty) = ty else {
+                bail!("`get-storage` export is not a function")
+            };
+            let mut params = ty.params();
+            let (Some((_, Type::Borrow(resource_ty))), None) = (params.next(), params.next())
+            else {
+                bail!("`get-storage` does not take borrowed resource type as the only parameter");
+            };
+            if resource_ty != utxo_ty {
+                bail!("`get-storage` resource type does not match UTXO resource type");
+            }
+            let mut results = ty.results();
+            let (Some(Type::Record(record_ty)), None) = (results.next(), results.next()) else {
+                bail!("`get-storage` does not return a record as the only return value");
+            };
+            if record_ty != *storage_ty {
+                bail!("`get-storage` record type does not match storage type");
+            }
+            Ok(idx)
+        }
+
+        fn set_storage(
+            component: &Component,
+            instance: &ComponentExportIndex,
+            utxo_ty: ResourceType,
+            storage_ty: &types::Record,
+        ) -> wasmtime::Result<ComponentExportIndex> {
+            let (ty, idx) = component
+                .get_export(Some(instance), "set-storage")
+                .context("`set-storage` export not found")?;
+            let types::ComponentItem::ComponentFunc(ty) = ty else {
+                bail!("`set-storage` export is not a function")
+            };
+            let mut params = ty.params();
+            let (Some((_, Type::Record(record_ty))), None) = (params.next(), params.next()) else {
+                bail!("`set-storage` does not take a storage record as the only parameter");
+            };
+            if record_ty != *storage_ty {
+                bail!("`set-storage` record type does not match storage type");
+            }
+            let mut results = ty.results();
+            let (Some(Type::Own(resource_ty)), None) = (results.next(), results.next()) else {
+                bail!("`set-storage` does not return an owned resource as the only return value");
+            };
+            if resource_ty != utxo_ty {
+                bail!("`set-storage` resource type does not match UTXO resource type");
+            }
+            Ok(idx)
+        }
+
         let engine = self.engine();
         let component = self.component();
         let instance_idx = component
             .get_export_index(None, name)
             .context("export not found")?;
         let Some(types::ComponentExtern {
-            ty: types::ComponentItem::Resource(resource_ty),
+            ty: types::ComponentItem::Resource(utxo_ty),
             ..
         }) = instance_ty.get_export(engine, "utxo")
         else {
@@ -246,69 +305,20 @@ impl<T: Host> Contract<T> {
         let storage = instance_ty
             .get_export(engine, "storage")
             .map(|types::ComponentExtern { ty, .. }| {
-                let types::ComponentItem::Type(Type::Record(ty)) = ty else {
+                let types::ComponentItem::Type(Type::Record(storage_ty)) = ty else {
                     bail!("`storage` export is not a record")
                 };
-
-                let (get_ty, get) = component
-                    .get_export(Some(&instance_idx), "get-storage")
-                    .context("`get-storage` export not found")?;
-                let types::ComponentItem::ComponentFunc(get_ty) = get_ty else {
-                    bail!("`get-storage` export is not a function")
-                };
-                let mut get_params = get_ty.params();
-                let (Some((_, Type::Borrow(get_resource_ty))), None) =
-                    (get_params.next(), get_params.next())
-                else {
-                    bail!(
-                        "`get-storage` does not take borrowed resource type as the only parameter"
-                    );
-                };
-                if get_resource_ty != resource_ty {
-                    bail!("`get-storage` resource type does not match UTXO resource type");
-                }
-                let mut get_results = get_ty.results();
-                let (Some(Type::Record(get_record_ty)), None) =
-                    (get_results.next(), get_results.next())
-                else {
-                    bail!("`get-storage` does not return a record as the only return value");
-                };
-                if get_record_ty != ty {
-                    bail!("`get-storage` record type does not match storage type");
-                }
-
-                let (set_ty, set) = component
-                    .get_export(Some(&instance_idx), "set-storage")
-                    .context("`set-storage` export not found")?;
-                let types::ComponentItem::ComponentFunc(set_ty) = set_ty else {
-                    bail!("`set-storage` export is not a function")
-                };
-                let mut set_params = set_ty.params();
-                let (Some((_, Type::Record(set_record_ty))), None) =
-                    (set_params.next(), set_params.next())
-                else {
-                    bail!("`set-storage` does not take a storage record as the only parameter");
-                };
-                if set_record_ty != ty {
-                    bail!("`set-storage` record type does not match storage type");
-                }
-                let mut set_results = set_ty.results();
-                let (Some(Type::Own(set_resource_ty)), None) =
-                    (set_results.next(), set_results.next())
-                else {
-                    bail!(
-                        "`set-storage` does not return an owned resource as the only return value"
-                    );
-                };
-                if set_resource_ty != resource_ty {
-                    bail!("`set-storage` resource type does not match UTXO resource type");
-                }
-
-                Ok(UtxoStorageExport { ty, get, set })
+                let get = get_storage(component, &instance_idx, utxo_ty, &storage_ty)?;
+                let set = set_storage(component, &instance_idx, utxo_ty, &storage_ty)?;
+                Ok(UtxoStorageExport {
+                    ty: storage_ty,
+                    get,
+                    set,
+                })
             })
             .transpose()?;
         Ok(UtxoExport {
-            resource_ty,
+            resource_ty: utxo_ty,
             instance_ty,
             instance_idx,
             storage,
