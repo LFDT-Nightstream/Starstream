@@ -34,7 +34,6 @@ pub struct MemSwitchboard<B> {
     pub finalized: B,
     pub did_burn: B,
     pub ownership: B,
-    pub must_enter: B,
     pub must_exit: B,
 }
 
@@ -98,7 +97,6 @@ impl MemSwitchboardWires {
             finalized: Boolean::new_witness(cs.clone(), || Ok(switches.finalized))?,
             did_burn: Boolean::new_witness(cs.clone(), || Ok(switches.did_burn))?,
             ownership: Boolean::new_witness(cs.clone(), || Ok(switches.ownership))?,
-            must_enter: Boolean::new_witness(cs.clone(), || Ok(switches.must_enter))?,
             must_exit: Boolean::new_witness(cs.clone(), || Ok(switches.must_exit))?,
         })
     }
