@@ -1847,25 +1847,34 @@ impl Compiler {
                     abi,
                     parts,
                 } => {
+                    // `impl Token` (and any `impl <UserAbi>`) is generated exactly
+                    // like a `utxo`'s `impl <Abi>`: each method is exported as a
+                    // `[method]` on the resource. `Token` is simply a built-in ABI.
                     _ = abi; // TODO: generate cast functions (mirrors `utxo`)
                     for function in parts {
-                        // Compile (and storage/type-check) the body so it is
-                        // validated, but do NOT export it yet.
-                        //
-                        // TODO(token-impl-export): `impl Token`'s `attach`/`detach`
-                        // take a `Utxo` parameter — a *foreign* resource referenced
-                        // from inside the token interface. The current resource-index
-                        // model (raw indices shared with `world_type`) conflates that
-                        // `Utxo` borrow with the token's own resource, so the emitted
-                        // WIT is wrong (`borrow<token>` instead of `borrow<utxo>`).
-                        // Exporting these needs proper cross-resource (cross-interface)
-                        // resource references in the component encoder. The bodies are
-                        // compiled here; only the WIT export is held back.
-                        let _core = self.visit_function(
+                        let core = self.visit_function(
                             Some(&token.ty),
                             function,
                             &(&() as &dyn Locals, &token_storage),
                         );
+                        let sig = self.star_to_component_signature(
+                            Some(&token.ty),
+                            &function.params,
+                            &function.return_type,
+                        );
+                        let wit_name = format!(
+                            "[method]{resource_name}.{}",
+                            to_kebab_case(function.name.as_str())
+                        );
+                        if let Some(func_idx) = self.make_component_export_wrapper_fn(
+                            function.name.span,
+                            &sig,
+                            core.idx,
+                            &core.ty,
+                        ) {
+                            self.export_core_fn(&format!("{interface_name}#{wit_name}"), func_idx);
+                            iface.export_fn(&wit_name, &sig);
+                        }
                     }
                 }
             }

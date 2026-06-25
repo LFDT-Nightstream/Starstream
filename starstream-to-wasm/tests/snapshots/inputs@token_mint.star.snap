@@ -330,6 +330,8 @@ TypedProgram {
   (import "[export]my-token" "[resource-drop]token" (func (;1;) (type 1)))
   (global (;0;) (mut i32) (i32.const 0))
   (export "my-token#[static]token.mint" (func 2))
+  (export "my-token#[method]token.attach" (func 3))
+  (export "my-token#[method]token.detach" (func 4))
   (export "my-token#get-storage" (func 5))
   (export "my-token#set-storage" (func 6))
   (func (;2;) (type 2) (result i32)
@@ -361,22 +363,27 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (type (;0;)
+              (import "utxo" (type (;0;) (sub resource)))
+              (type (;1;)
                 (instance
                   (export (;0;) "token" (type (sub resource)))
                   (type (;1;) (own 0))
                   (type (;2;) (func (result 1)))
                   (export (;0;) "[static]token.mint" (func (type 2)))
-                  (type (;3;) (record (field "supply" s32)))
-                  (export (;4;) "storage" (type (eq 3)))
-                  (type (;5;) (borrow 0))
-                  (type (;6;) (func (param "self" 5) (result 4)))
-                  (export (;1;) "get-storage" (func (type 6)))
-                  (type (;7;) (func (param "storage" 4) (result 1)))
-                  (export (;2;) "set-storage" (func (type 7)))
+                  (type (;3;) (borrow 0))
+                  (type (;4;) (func (param "self" 3) (param "to" 3)))
+                  (export (;1;) "[method]token.attach" (func (type 4)))
+                  (type (;5;) (func (param "self" 3) (param "source" 3)))
+                  (export (;2;) "[method]token.detach" (func (type 5)))
+                  (type (;6;) (record (field "supply" s32)))
+                  (export (;7;) "storage" (type (eq 6)))
+                  (type (;8;) (func (param "self" 3) (result 7)))
+                  (export (;3;) "get-storage" (func (type 8)))
+                  (type (;9;) (func (param "storage" 7) (result 1)))
+                  (export (;4;) "set-storage" (func (type 9)))
                 )
               )
-              (export (;0;) "my-token" (instance (type 0)))
+              (export (;0;) "my-token" (instance (type 1)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -391,9 +398,13 @@ TypedProgram {
 package root:component;
 
 world root {
+  resource utxo;
+
   export my-token: interface {
     resource token {
       mint: static func() -> token;
+      attach: func(to: borrow<token>);
+      detach: func(source: borrow<token>);
     }
 
     record storage {
