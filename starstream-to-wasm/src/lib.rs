@@ -12,8 +12,9 @@ use starstream_types::{
     TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
     TypedEnumDef, TypedEnumPatternPayload, TypedExpr, TypedExprKind, TypedFunctionDef,
     TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedImportItems, TypedImportSource,
-    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedUtxoDef,
-    TypedUtxoPart, UnaryOp,
+    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp,
+    ast::Identifier,
 };
 use thiserror::Error;
 use wasm_encoder::{
@@ -250,10 +251,10 @@ struct Compiler {
     yield_id: i32,
     yield_funcs: Vec<u32>,
 
-    current_utxo: Option<UtxoContext>,
+    current_resource: Option<ResourceContext>,
 }
 
-struct UtxoContext {
+struct ResourceContext {
     resume_fn: u32,
     resource_new_fn: u32,
     // resource_drop_fn: u32,
@@ -419,12 +420,12 @@ impl Compiler {
 
     fn generate_storage_exports(
         &mut self,
-        utxo: &TypedUtxoDef,
+        name: &Identifier,
+        ty: &Type,
         iface: &mut TypeBuilder<InstanceType>,
         interface_name: &str,
         fields: impl Iterator<Item = u32> + Clone,
     ) {
-        let name = &utxo.name;
         let storage_flat: Vec<ValType> = fields
             .clone()
             .map(|g| self.global_details[g as usize].1)
@@ -449,7 +450,7 @@ impl Compiler {
         });
         iface.export_ty("storage", &storage_record);
 
-        let utxo_borrow = self.star_to_component_type(&utxo.ty).unwrap();
+        let utxo_borrow = self.star_to_component_type(ty).unwrap();
         let utxo_own = utxo_borrow.convert_resource_to_owned();
 
         // get-storage(self: borrow<utxo>) -> storage
@@ -488,7 +489,7 @@ impl Compiler {
             }
             code.instructions()
                 .i32_const(0)
-                .return_call(self.current_utxo.as_ref().unwrap().resource_new_fn)
+                .return_call(self.current_resource.as_ref().unwrap().resource_new_fn)
                 .end();
             let func = self.add_function(&ty, code.into_raw_body());
             if let Some(func_idx) =
@@ -1158,7 +1159,9 @@ impl Compiler {
                     .and(ok);
                 dest.extend(flat);
             }
-            Type::UtxoAny | Type::UtxoNamed(_) => dest.push(ValType::I32),
+            Type::UtxoAny | Type::UtxoNamed(_) | Type::TokenAny | Type::TokenNamed(_) => {
+                dest.push(ValType::I32)
+            }
             _ => ok = Err(self.push_error(span, format!("unknown core lowering for {ty:?}"))),
         }
         ok
@@ -1308,6 +1311,7 @@ impl Compiler {
                 TypedDefinition::Import(def) => self.visit_import(def),
                 TypedDefinition::Abi(def) => self.visit_abi(def),
                 TypedDefinition::Utxo(def) => self.pre_visit_utxo(def),
+                TypedDefinition::Token(def) => self.pre_visit_token(def),
                 // All others handled below.
                 _ => {}
             }
@@ -1318,7 +1322,7 @@ impl Compiler {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
                 TypedDefinition::Contract => { /* Pure marker, no codegen. */ }
-                TypedDefinition::Token(_) => { /* Token codegen not yet supported. */ }
+                TypedDefinition::Token(token) => self.visit_token(token),
 
                 TypedDefinition::Function(func) => {
                     let core = self.visit_function(None, func, &());
@@ -1508,9 +1512,11 @@ impl Compiler {
         let mut bb = bb_orig;
 
         let resource_local = match function.export {
-            Some(FunctionExport::UtxoMain) => {
-                // A `utxo main` fn starts by spawning a resource to represent the created Utxo.
-                let ctx = self.current_utxo.as_mut().unwrap();
+            // A `utxo main` fn spawns the created Utxo; a token `mint fn` spawns
+            // the minted token. Both start by allocating a fresh resource handle
+            // that becomes the function's (owned) return value.
+            Some(FunctionExport::UtxoMain) | Some(FunctionExport::TokenMint) => {
+                let ctx = self.current_resource.as_mut().unwrap();
                 let resource_local = func.add_locals([ValType::I32]);
                 ctx.resource_local = resource_local;
                 func.instructions(&bb)
@@ -1557,7 +1563,7 @@ impl Compiler {
             self.yield_funcs.push(idx);
         }
 
-        if let Some(utxo) = &mut self.current_utxo {
+        if let Some(utxo) = &mut self.current_resource {
             utxo.resource_local = u32::MAX;
         }
 
@@ -1615,7 +1621,7 @@ impl Compiler {
         let yield_start = self.yield_id;
         let resume_fn = self.add_function(&FuncType::new([], []), Vec::new());
         let resume_code_idx = self.code_bytes.len() - 1;
-        self.current_utxo = Some(UtxoContext {
+        self.current_resource = Some(ResourceContext {
             resume_fn,
             resource_new_fn,
             // resource_drop_fn,
@@ -1701,7 +1707,8 @@ impl Compiler {
         // Generate storage exports.
         let end_global = self.globals.len();
         self.generate_storage_exports(
-            utxo,
+            &utxo.name,
+            &utxo.ty,
             &mut iface,
             &interface_name,
             self.yield_global
@@ -1710,7 +1717,154 @@ impl Compiler {
         );
 
         self.exported_interfaces.insert(interface_name, iface);
-        self.current_utxo = None;
+        self.current_resource = None;
+    }
+
+    fn pre_visit_token(&mut self, token: &TypedTokenDef) {
+        let interface_name = to_kebab_case(token.name.as_str());
+        let resource_name = "token";
+
+        // Allocate the synthetic `resource.new` and `resource.drop` imports.
+        let ty = self.add_core_func_type(&FuncType::new([ValType::I32], [ValType::I32]));
+        let new_fn = self.import_function(
+            &format!("[export]{interface_name}"),
+            &format!("[resource-new]{resource_name}"),
+            ty,
+        );
+        let ty = self.add_core_func_type(&FuncType::new([ValType::I32], []));
+        let drop_fn = self.import_function(
+            &format!("[export]{interface_name}"),
+            &format!("[resource-drop]{resource_name}"),
+            ty,
+        );
+        self.resource_abi_fns
+            .insert(token.ty.clone(), (new_fn, drop_fn));
+    }
+
+    fn visit_token(&mut self, token: &TypedTokenDef) {
+        let mut iface = TypeBuilder::<InstanceType>::default();
+
+        // Declare the resource type.
+        let interface_name = to_kebab_case(token.name.as_str());
+        let resource_name = "token";
+        let resource = self.world_type.inner.type_count();
+        iface.inner.export(
+            resource_name,
+            ComponentTypeRef::Type(TypeBounds::SubResource),
+        );
+        self.resources.insert(token.name.to_string(), resource);
+
+        let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&token.ty).unwrap();
+
+        // Tokens have no coroutine/`yield` semantics, so there is no `resume;`
+        // function to reserve (unlike `utxo`). `resume_fn` is never read because
+        // a `mint fn` body cannot yield.
+        self.current_resource = Some(ResourceContext {
+            resume_fn: u32::MAX,
+            resource_new_fn,
+            resource_local: u32::MAX,
+        });
+
+        // Visit each token part.
+        let mut token_storage = HashMap::new();
+        let start_global = self.globals.len();
+        for part in &token.parts {
+            match part {
+                TypedTokenPart::Storage(vars) => {
+                    for var in vars {
+                        // NOTE: `indexed` is carried on the typed field but does
+                        // not yet affect codegen; indexing support is deferred.
+                        let mut types = Vec::new();
+                        _ = self.star_to_core_types(token.name.span(), &mut types, &var.ty);
+                        let idx = self.add_globals(types.iter().copied(), var.name.as_str());
+                        token_storage.insert(var.name.name.clone(), Var::Global(idx));
+                    }
+                }
+                TypedTokenPart::Function(function) => {
+                    let core =
+                        self.visit_function(None, function, &(&() as &dyn Locals, &token_storage));
+                    match function.export {
+                        // A `mint fn` is a constructor: it returns an owned
+                        // handle to the freshly minted token (see the resource
+                        // spawn in `visit_function`).
+                        Some(FunctionExport::TokenMint) => {
+                            let mut sig = self.star_to_component_signature(
+                                None,
+                                &function.params,
+                                &function.return_type,
+                            );
+                            sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
+                            let wit_name = format!(
+                                "[static]{resource_name}.{}",
+                                to_kebab_case(function.name.as_str())
+                            );
+                            if let Some(func_idx) = self.make_component_export_wrapper_fn(
+                                function.name.span,
+                                &sig,
+                                core.idx,
+                                &core.ty,
+                            ) {
+                                self.export_core_fn(
+                                    &format!("{interface_name}#{wit_name}"),
+                                    func_idx,
+                                );
+                                iface.export_fn(&wit_name, &sig);
+                            }
+                        }
+                        // TODO(token-burn): the WIT shape of `burn fn` is not yet
+                        // decided — likely a consuming `[method]token.<name>` that
+                        // takes `self: own<token>`, or a call into the resource's
+                        // drop. For now the body is compiled (above) but the
+                        // function is not exported.
+                        Some(FunctionExport::TokenBurn) => {}
+                        // Plain helper functions are compiled but not exported,
+                        // matching `utxo` non-`main` functions.
+                        _ => {}
+                    }
+                }
+                TypedTokenPart::AbiImpl {
+                    span: _,
+                    abi,
+                    parts,
+                } => {
+                    _ = abi; // TODO: generate cast functions (mirrors `utxo`)
+                    for function in parts {
+                        // Compile (and storage/type-check) the body so it is
+                        // validated, but do NOT export it yet.
+                        //
+                        // TODO(token-impl-export): `impl Token`'s `attach`/`detach`
+                        // take a `Utxo` parameter, i.e. they reference a *foreign*
+                        // resource from inside the token interface. The current
+                        // resource-index model (raw indices shared with
+                        // `world_type`) conflates that `Utxo` borrow with the
+                        // token's own resource, so the emitted WIT would be wrong
+                        // (`borrow<token>` instead of `borrow<utxo>`). Exporting
+                        // these methods needs proper cross-resource index handling
+                        // in the component encoder. Until then they are compiled
+                        // but unexported.
+                        let _core = self.visit_function(
+                            Some(&token.ty),
+                            function,
+                            &(&() as &dyn Locals, &token_storage),
+                        );
+                    }
+                }
+            }
+        }
+
+        // Generate storage exports. Unlike `utxo`, tokens have no yield global
+        // to fold into storage.
+        let end_global = self.globals.len();
+        self.generate_storage_exports(
+            &token.name,
+            &token.ty,
+            &mut iface,
+            &interface_name,
+            start_global..end_global,
+        );
+
+        self.exported_interfaces.insert(interface_name, iface);
+        self.current_resource = None;
     }
 
     fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {
@@ -1858,7 +2012,7 @@ impl Compiler {
                     func.cfg.fill(
                         *bb,
                         Out::ReturnCall {
-                            func: self.current_utxo.as_ref().unwrap().resume_fn,
+                            func: self.current_resource.as_ref().unwrap().resume_fn,
                         },
                     );
                     *bb = usize::MAX;
