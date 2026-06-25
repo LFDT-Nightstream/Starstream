@@ -1810,12 +1810,33 @@ impl Compiler {
                                 iface.export_fn(&wit_name, &sig);
                             }
                         }
-                        // TODO(token-burn): the WIT shape of `burn fn` is not yet
-                        // decided — likely a consuming `[method]token.<name>` that
-                        // takes `self: own<token>`, or a call into the resource's
-                        // drop. For now the body is compiled (above) but the
-                        // function is not exported.
-                        Some(FunctionExport::TokenBurn) => {}
+                        // `burn fn` carries no special wasm semantics — what
+                        // burning actually does is a runtime concern. It is
+                        // exported as a plain static function on the token,
+                        // distinguished only by its export name.
+                        Some(FunctionExport::TokenBurn) => {
+                            let sig = self.star_to_component_signature(
+                                None,
+                                &function.params,
+                                &function.return_type,
+                            );
+                            let wit_name = format!(
+                                "[static]{resource_name}.{}",
+                                to_kebab_case(function.name.as_str())
+                            );
+                            if let Some(func_idx) = self.make_component_export_wrapper_fn(
+                                function.name.span,
+                                &sig,
+                                core.idx,
+                                &core.ty,
+                            ) {
+                                self.export_core_fn(
+                                    &format!("{interface_name}#{wit_name}"),
+                                    func_idx,
+                                );
+                                iface.export_fn(&wit_name, &sig);
+                            }
+                        }
                         // Plain helper functions are compiled but not exported,
                         // matching `utxo` non-`main` functions.
                         _ => {}
@@ -1832,15 +1853,14 @@ impl Compiler {
                         // validated, but do NOT export it yet.
                         //
                         // TODO(token-impl-export): `impl Token`'s `attach`/`detach`
-                        // take a `Utxo` parameter, i.e. they reference a *foreign*
-                        // resource from inside the token interface. The current
-                        // resource-index model (raw indices shared with
-                        // `world_type`) conflates that `Utxo` borrow with the
-                        // token's own resource, so the emitted WIT would be wrong
-                        // (`borrow<token>` instead of `borrow<utxo>`). Exporting
-                        // these methods needs proper cross-resource index handling
-                        // in the component encoder. Until then they are compiled
-                        // but unexported.
+                        // take a `Utxo` parameter — a *foreign* resource referenced
+                        // from inside the token interface. The current resource-index
+                        // model (raw indices shared with `world_type`) conflates that
+                        // `Utxo` borrow with the token's own resource, so the emitted
+                        // WIT is wrong (`borrow<token>` instead of `borrow<utxo>`).
+                        // Exporting these needs proper cross-resource (cross-interface)
+                        // resource references in the component encoder. The bodies are
+                        // compiled here; only the WIT export is held back.
                         let _core = self.visit_function(
                             Some(&token.ty),
                             function,

@@ -417,10 +417,10 @@ displayed in IDE hover tooltips above the type information.
   - `mint fn` items act as this type's constructors (analogous to a `utxo`'s
     `main fn`); each produces a handle to the newly minted token.
   - **Work in progress.** Tokens are parsed, type-checked, and have partial wasm
-    codegen: the token resource, `mint` constructors, and storage get/set are
-    emitted. Still outstanding: `burn`, the `impl Token` `attach`/`detach`
-    exports (they need cross-resource WIT handling), `indexed` storage support,
-    and runtime support.
+    codegen: the token resource, `mint` constructors, `burn` functions, and
+    storage get/set are emitted. Still outstanding: the `impl Token`
+    `attach`/`detach` exports (they need cross-resource WIT handling), `indexed`
+    storage support, and runtime support.
 
 No user-defined generics at this time.
 
