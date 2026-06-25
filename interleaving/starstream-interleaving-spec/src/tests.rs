@@ -139,9 +139,6 @@ fn test_transaction_with_coord_and_utxos() {
     // Host refs each process in canonical order: inputs ++ new_outputs ++ coord_scripts
     // Process 0: Input 1, Process 1: Input 2, Process 2: UTXO A (spawn), Process 3: UTXO B (spawn), Process 4: Coordination script
     let input_1_trace = vec![
-        WitLedgerEffect::ResumeFunctionId {
-            f_id: FunctionId::from(0u64),
-        },
         WitLedgerEffect::Enter {
             f_id: FunctionId::from(0u64),
         },
@@ -155,9 +152,6 @@ fn test_transaction_with_coord_and_utxos() {
     ];
 
     let input_2_trace = vec![
-        WitLedgerEffect::ResumeFunctionId {
-            f_id: FunctionId::from(0u64),
-        },
         WitLedgerEffect::Enter {
             f_id: FunctionId::from(0u64),
         },
@@ -170,9 +164,6 @@ fn test_transaction_with_coord_and_utxos() {
     ];
 
     let utxo_a_trace = vec![
-        WitLedgerEffect::ResumeFunctionId {
-            f_id: FunctionId::from(0u64),
-        },
         WitLedgerEffect::Enter {
             f_id: FunctionId::from(0u64),
         },
@@ -191,9 +182,6 @@ fn test_transaction_with_coord_and_utxos() {
     ];
 
     let utxo_b_trace = vec![
-        WitLedgerEffect::ResumeFunctionId {
-            f_id: FunctionId::from(0u64),
-        },
         WitLedgerEffect::Enter {
             f_id: FunctionId::from(0u64),
         },
@@ -253,6 +241,9 @@ fn test_transaction_with_coord_and_utxos() {
             ret: continued_1_ref.into(),
             caller: Some(ProcessId(0)).into(),
         },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
+        },
         WitLedgerEffect::NewRef {
             size: 1,
             ret: spend_input_2_ref.into(),
@@ -273,6 +264,9 @@ fn test_transaction_with_coord_and_utxos() {
             ret: burned_2_ref.into(),
             caller: Some(ProcessId(1)).into(),
         },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
+        },
         WitLedgerEffect::NewRef {
             size: 1,
             ret: done_a_ref.into(),
@@ -286,6 +280,9 @@ fn test_transaction_with_coord_and_utxos() {
             ret: done_a_ref.into(),
             caller: Some(ProcessId(2)).into(),
         },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
+        },
         WitLedgerEffect::NewRef {
             size: 1,
             ret: done_b_ref.into(),
@@ -298,6 +295,9 @@ fn test_transaction_with_coord_and_utxos() {
             val: init_b_ref,
             ret: done_b_ref.into(),
             caller: Some(ProcessId(3)).into(),
+        },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
         },
     ];
 
@@ -348,9 +348,6 @@ fn test_effect_handlers() {
     let mut ref_gen = RefGenerator::new();
 
     let utxo_trace = vec![
-        WitLedgerEffect::ResumeFunctionId {
-            f_id: FunctionId::from(0u64),
-        },
         WitLedgerEffect::Enter {
             f_id: FunctionId::from(0u64),
         },
@@ -443,6 +440,9 @@ fn test_effect_handlers() {
             val: ref_gen.get("effect_request_response"),
             ret: ref_gen.get("utxo_final").into(),
             caller: Some(ProcessId(0)).into(),
+        },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
         },
         WitLedgerEffect::UninstallHandler { interface_id },
     ];
@@ -630,9 +630,6 @@ fn test_duplicate_input_utxo_fails() {
             input_id.clone(),
             None,
             vec![
-                WitLedgerEffect::ResumeFunctionId {
-                    f_id: FunctionId::from(0u64),
-                },
                 WitLedgerEffect::Enter {
                     f_id: FunctionId::from(0u64),
                 },
@@ -662,6 +659,9 @@ fn test_duplicate_input_utxo_fails() {
                     val: Ref(0),
                     ret: Ref(0).into(),
                     caller: WitEffectOutput::Resolved(None),
+                },
+                WitLedgerEffect::ResumeFunctionId {
+                    f_id: FunctionId::from(0u64),
                 },
             ],
         )

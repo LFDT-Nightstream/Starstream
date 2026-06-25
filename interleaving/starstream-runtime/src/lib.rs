@@ -1187,14 +1187,14 @@ impl UnprovenTransaction {
                         .store
                         .data_mut()
                         .effect_traces
-                        .entry(target)
+                        .entry(current_pid)
                         .or_default()
                         .push(Some(WitLedgerEffect::ResumeFunctionId { f_id }));
                     runtime
                         .store
                         .data_mut()
                         .interleaving
-                        .push((target, WitLedgerEffect::ResumeFunctionId { f_id }));
+                        .push((current_pid, WitLedgerEffect::ResumeFunctionId { f_id }));
                     current_pid = target;
                 }
                 WitLedgerEffect::CallEffectHandler {
@@ -1223,14 +1223,14 @@ impl UnprovenTransaction {
                         .store
                         .data_mut()
                         .effect_traces
-                        .entry(target)
+                        .entry(current_pid)
                         .or_default()
                         .push(Some(WitLedgerEffect::ResumeFunctionId { f_id }));
                     runtime
                         .store
                         .data_mut()
                         .interleaving
-                        .push((target, WitLedgerEffect::ResumeFunctionId { f_id }));
+                        .push((current_pid, WitLedgerEffect::ResumeFunctionId { f_id }));
                     current_pid = target;
                 }
                 WitLedgerEffect::Yield { val, .. } => {

@@ -551,21 +551,18 @@ fn call_resource_method(
         .executor
         .record_import(caller, HostImportCall::Resume { target, payload })?;
 
-    // TODO(interleaving-proof): method dispatch currently executes the target export
-    // synchronously in the host and only records the caller-side `Resume`. Once the
-    // witness/circuit preserves `function_id`, this should become a traced callee turn.
     let instance =
         *ctx.data().instances.get(&target_pid).ok_or_else(|| {
             wasmtime::format_err!("missing instantiated target for {target_pid:?}")
         })?;
+    let method_f_id = method_function_id(import_name, func_name);
+    ctx.data_mut().executor.append_effect(
+        caller,
+        WitLedgerEffect::ResumeFunctionId { f_id: method_f_id },
+    );
     let previous_process = ctx.data().current_process;
     ctx.data_mut().current_process = target_pid;
     ctx.data_mut().executed_steps.push(target_pid);
-    let method_f_id = method_function_id(import_name, func_name);
-    ctx.data_mut().executor.append_effect(
-        target_pid,
-        WitLedgerEffect::ResumeFunctionId { f_id: method_f_id },
-    );
     ctx.data_mut()
         .executor
         .append_effect(target_pid, WitLedgerEffect::Enter { f_id: method_f_id });

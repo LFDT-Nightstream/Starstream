@@ -86,9 +86,11 @@ fn test_circuit_many_steps() {
     let ref_1 = Ref(1);
     let ref_4 = Ref(2);
 
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+    let f_token = FunctionId::from([5u64, 6, 7, 8]);
+
     let utxo_trace = vec![
-        resume_function_id_effect(FunctionId::from(0u64)),
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_utxo),
         WitLedgerEffect::Init {
             val: ref_4.into(),
             caller: p2.into(),
@@ -112,8 +114,7 @@ fn test_circuit_many_steps() {
     ];
 
     let token_trace = vec![
-        resume_function_id_effect(FunctionId::from(0u64)),
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_token),
         WitLedgerEffect::Init {
             val: ref_1.into(),
             caller: p2.into(),
@@ -160,10 +161,12 @@ fn test_circuit_many_steps() {
             id: p1.into(),
         },
         resume_effect(p1, ref_0, ref_1, None),
+        resume_function_id_effect(f_token),
         WitLedgerEffect::InstallHandler {
             interface_id: h(100),
         },
         resume_effect(p0, ref_0, ref_1, Some(p0)),
+        resume_function_id_effect(f_utxo),
         WitLedgerEffect::UninstallHandler {
             interface_id: h(100),
         },
@@ -208,9 +211,10 @@ fn test_circuit_small() {
 
     let ref_0 = Ref(0);
 
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+
     let utxo_trace = vec![
-        resume_function_id_effect(FunctionId::from(0u64)),
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_utxo),
         WitLedgerEffect::Yield {
             val: ref_0, // Yielding nothing
         },
@@ -228,6 +232,7 @@ fn test_circuit_small() {
             id: p0.into(),
         },
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
     ];
 
     let traces = vec![utxo_trace, coord_trace];
@@ -264,9 +269,10 @@ fn test_circuit_burn_then_yield_sat() {
     let ref_0 = Ref(0);
     let val_0 = v(&[7]);
 
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+
     let utxo_trace = vec![
-        resume_function_id_effect(FunctionId::from(0u64)),
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_utxo),
         WitLedgerEffect::Activation {
             val: ref_0.into(),
             caller: p1.into(),
@@ -282,6 +288,7 @@ fn test_circuit_burn_then_yield_sat() {
         },
         ref_push1(val_0),
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
     ];
 
     let traces = vec![utxo_trace, coord_trace];
@@ -325,11 +332,10 @@ fn test_circuit_resumer_mismatch() {
 
     let ref_0 = Ref(0);
 
-    let utxo_trace = vec![
-        resume_function_id_effect(FunctionId::from(0u64)),
-        enter_effect(FunctionId::from(0u64)),
-        WitLedgerEffect::Yield { val: ref_0 },
-    ];
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+    let f_coord_b = FunctionId::from([5u64, 6, 7, 8]);
+
+    let utxo_trace = vec![enter_effect(f_utxo), WitLedgerEffect::Yield { val: ref_0 }];
 
     let coord_a_trace = vec![
         WitLedgerEffect::NewRef {
@@ -348,13 +354,15 @@ fn test_circuit_resumer_mismatch() {
             id: p2.into(),
         },
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
         resume_effect(p2, ref_0, ref_0, None),
+        resume_function_id_effect(f_coord_b),
     ];
 
     let coord_b_trace = vec![
-        resume_function_id_effect(FunctionId::from(0u64)),
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_coord_b),
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
     ];
 
     let traces = vec![utxo_trace, coord_a_trace, coord_b_trace];
@@ -515,13 +523,13 @@ fn test_yield_parent_resumer_mismatch_trace() {
 
     // Coord A resumes UTXO but sets its own expected_resumer to Coord B.
     // Then UTXO yields back to Coord A. Spec says this should fail.
-    let utxo_trace = vec![
-        resume_function_id_effect(FunctionId::from(0u64)),
-        enter_effect(FunctionId::from(0u64)),
-        WitLedgerEffect::Yield { val: ref_1 },
-    ];
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+    let utxo_trace = vec![enter_effect(f_utxo), WitLedgerEffect::Yield { val: ref_1 }];
 
-    let coord_a_trace = vec![resume_effect(p0, ref_0, ref_1, Some(p2))];
+    let coord_a_trace = vec![
+        resume_effect(p0, ref_0, ref_1, Some(p2)),
+        resume_function_id_effect(f_utxo),
+    ];
 
     let coord_b_trace = vec![];
 
@@ -565,9 +573,12 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
     let val_0 = v(&[7]);
     let iface = h(100);
 
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+    let f_handler = FunctionId::from([5u64, 6, 7, 8]);
+    let f_ceh = FunctionId::from([9u64, 10, 11, 12]);
+
     let utxo_trace = vec![
-        resume_function_id_effect(FunctionId::from(0u64)),
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_utxo),
         WitLedgerEffect::Init {
             val: ref_0.into(),
             caller: p1.into(),
@@ -577,6 +588,7 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
             val: ref_0,
             ret: ref_0.into(),
         },
+        resume_function_id_effect(f_ceh),
         WitLedgerEffect::Yield { val: ref_0 },
     ];
 
@@ -597,13 +609,14 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
             id: p2.into(),
         },
         resume_effect(p2, ref_0, ref_0, None),
+        resume_function_id_effect(f_handler),
         // Invalid on purpose: after p0 CallEffectHandler, only p2 should resume p0.
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
     ];
 
     let coord_handler_trace = vec![
-        resume_function_id_effect(FunctionId::from(0u64)),
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_handler),
         WitLedgerEffect::Init {
             val: ref_0.into(),
             caller: p1.into(),
@@ -612,6 +625,7 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
             interface_id: iface,
         },
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
         WitLedgerEffect::Return {},
     ];
 

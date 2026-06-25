@@ -56,7 +56,8 @@ Where:
   ownership        : A map {ProcessID -> Option<ProcessID>} (token -> owner)
   did_burn         : A map {ProcessID -> Bool}
   pending_resume_function_id
-                  : Bool (the next opcode must be ResumeFunctionId)
+                  : Option<ProcessID> (when Some(target): the next opcode must
+                    be ResumeFunctionId, which then transfers control to target)
   must_enter       : A map {ProcessID -> Option<FunctionId>}
   must_exit        : A map {ProcessID -> Bool}
 ```
@@ -134,13 +135,14 @@ Rule: Resume
     2. expected_resumer[id_curr] <- caller    (Claim, needs to be checked later by future resumer)
     3. expected_input[target]    <- None      (Target claim consumed by this resume)
     4. expected_resumer[target]  <- None      (Target claim consumed by this resume)
-    5. id_prev'                  <- id_curr   (Trace-local previous id)
-    6. id_curr'                  <- target    (Switch)
-    7. if on_yield[target] then
+    5. if on_yield[target] then
            yield_to'[target]     <- Some(id_curr)
            on_yield'[target]     <- False
-    8. activation'[target]       <- Some(val_ref, id_curr)
-    9. pending_resume_function_id' <- True
+    6. activation'[target]       <- Some(val_ref, id_curr)
+    7. pending_resume_function_id' <- Some(target)
+
+    (No control switch here: it is deferred to the following ResumeFunctionId,
+     so the target's function id is attributed to the caller's trace.)
 ```
 
 ## Activation
@@ -233,27 +235,34 @@ a function scope, so these are not runtime-agnostic opcodes in that regard.
 For the current Starstream subset:
 
 - `Enter(function_id)` proves which Starstream-visible function began running.
-- `ResumeFunctionId(function_id)` binds the function id for the immediately
-  preceding `Resume` or `CallEffectHandler`.
+- `ResumeFunctionId(function_id)` binds the function id chosen by the caller and
+  performs the control transfer set up by the immediately preceding `Resume` or
+  `CallEffectHandler`.
 - `Return` ends the current function frame.
 - `Yield` does not end the current function frame; it suspends it.
 
-After `Resume` or `CallEffectHandler`, the next opcode must be
-`ResumeFunctionId(function_id)`. After `ResumeFunctionId`, the next opcode for
-that process must be `Enter(function_id)`.
+`Resume` and `CallEffectHandler` do **not** switch control. They record the
+target in `pending_resume_function_id` and require that the resumer's next
+opcode be `ResumeFunctionId(function_id)`. `ResumeFunctionId` runs while
+`id_curr` is still the caller — so the function id it carries is attributed to
+the caller's trace (in the circuit, absorbed into the caller's trace
+commitment) — and only then transfers control to the target. After
+`ResumeFunctionId`, the next opcode for the target must be `Enter(function_id)`.
 
 ```text
 Rule: Resume Function Id
 ========================
     op = ResumeFunctionId(function_id)
 
-    1. pending_resume_function_id == True
+    1. pending_resume_function_id == Some(target)
 
-    (The previous control-transfer opcode must bind its target function id)
+    (A preceding Resume/CallEffectHandler recorded the deferred control transfer)
 
 -----------------------------------------------------------------------
-    1. must_enter'[id_curr]              <- Some(function_id)
-    2. pending_resume_function_id'       <- False
+    1. must_enter'[target]               <- Some(function_id)
+    2. id_prev'                          <- id_curr
+    3. id_curr'                          <- target   (deferred control switch)
+    4. pending_resume_function_id'       <- None
 ```
 
 ```text
@@ -439,10 +448,11 @@ Rule: Call Effect Handler
     2. expected_resumer[id_curr] <- Some(target)
     3. expected_input[target]    <- None
     4. expected_resumer[target]  <- None
-    5. id_prev'                  <- id_curr
-    6. id_curr'                  <- target
-    7. activation'[target]       <- Some(val_ref, id_curr)
-    8. pending_resume_function_id' <- True
+    5. activation'[target]       <- Some(val_ref, id_curr)
+    6. pending_resume_function_id' <- Some(target)
+
+    (As with Resume, the control switch is deferred to the following
+     ResumeFunctionId.)
 ```
 
 ---

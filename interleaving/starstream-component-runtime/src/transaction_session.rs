@@ -206,7 +206,6 @@ fn collect_spawn_edges(
 fn prepend_if_missing(trace: &mut Vec<WitLedgerEffect>, effect: WitLedgerEffect) {
     let front = trace.first();
     let second = trace.get(1);
-    let third = trace.get(2);
     let already_present = match (&effect, front, second) {
         (WitLedgerEffect::Activation { .. }, Some(WitLedgerEffect::Activation { .. }), _) => true,
         (WitLedgerEffect::Init { .. }, Some(WitLedgerEffect::Init { .. }), _) => true,
@@ -220,22 +219,9 @@ fn prepend_if_missing(trace: &mut Vec<WitLedgerEffect>, effect: WitLedgerEffect)
             Some(WitLedgerEffect::Enter { .. }),
             Some(WitLedgerEffect::Init { .. }),
         ) => true,
-        (
-            WitLedgerEffect::Activation { .. },
-            Some(WitLedgerEffect::ResumeFunctionId { .. }),
-            Some(WitLedgerEffect::Enter { .. }),
-        ) if matches!(third, Some(WitLedgerEffect::Activation { .. })) => true,
-        (
-            WitLedgerEffect::Init { .. },
-            Some(WitLedgerEffect::ResumeFunctionId { .. }),
-            Some(WitLedgerEffect::Enter { .. }),
-        ) if matches!(third, Some(WitLedgerEffect::Init { .. })) => true,
         _ => false,
     };
     if !already_present {
-        // `ResumeFunctionId` and `Enter` are the only Starstream-visible effects
-        // allowed before the derived callee-entry context (`Activation` / `Init`)
-        // for these paths.
         trace.insert(index_after_optional_enter(trace), effect);
     }
 }
@@ -248,9 +234,8 @@ fn trace_commitment(trace: &[WitLedgerEffect]) -> LedgerEffectsCommitment {
 }
 
 fn index_after_optional_enter(trace: &[WitLedgerEffect]) -> usize {
-    match (trace.first(), trace.get(1)) {
-        (Some(WitLedgerEffect::ResumeFunctionId { .. }), Some(WitLedgerEffect::Enter { .. })) => 2,
-        (Some(WitLedgerEffect::Enter { .. }), _) => 1,
+    match trace.first() {
+        Some(WitLedgerEffect::Enter { .. }) => 1,
         _ => 0,
     }
 }

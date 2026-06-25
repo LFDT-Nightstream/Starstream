@@ -86,7 +86,7 @@ pub struct Wires {
     next_ref_id: FpVar<F>,
     ref_arena_len: FpVar<F>,
     handler_stack_ptr: FpVar<F>,
-    pending_resume_function_id: FpVar<F>,
+    pending_resume_function_id: OptionalFpVar<F>,
     pending_enter: FpVar<F>,
 
     ref_building_remaining: FpVar<F>,
@@ -145,7 +145,7 @@ pub struct InterRoundWires {
     next_ref_id: F,
     ref_arena_len: F,
     handler_stack_counter: F,
-    pending_resume_function_id: F,
+    pending_resume_function_id: OptionalF<F>,
     pending_enter: F,
 
     ref_building_remaining: F,
@@ -214,7 +214,7 @@ pub(crate) struct IvcWiresVars {
     next_ref_id: FpVar<F>,
     ref_arena_len: FpVar<F>,
     handler_stack_ptr: FpVar<F>,
-    pending_resume_function_id: FpVar<F>,
+    pending_resume_function_id_encoded: FpVar<F>,
     pending_enter: FpVar<F>,
     ref_building_remaining: FpVar<F>,
     ref_building_ptr: FpVar<F>,
@@ -228,7 +228,7 @@ impl IvcWiresVars {
             next_ref_id: w.next_ref_id.clone(),
             ref_arena_len: w.ref_arena_len.clone(),
             handler_stack_ptr: w.handler_stack_ptr.clone(),
-            pending_resume_function_id: w.pending_resume_function_id.clone(),
+            pending_resume_function_id_encoded: w.pending_resume_function_id.encoded(),
             pending_enter: w.pending_enter.clone(),
             ref_building_remaining: w.ref_building_remaining.clone(),
             ref_building_ptr: w.ref_building_ptr.clone(),
@@ -242,8 +242,8 @@ impl IvcWiresVars {
         self.ref_arena_len.enforce_equal(&next.ref_arena_len)?;
         self.handler_stack_ptr
             .enforce_equal(&next.handler_stack_ptr)?;
-        self.pending_resume_function_id
-            .enforce_equal(&next.pending_resume_function_id)?;
+        self.pending_resume_function_id_encoded
+            .enforce_equal(&next.pending_resume_function_id_encoded)?;
         self.pending_enter.enforce_equal(&next.pending_enter)?;
         self.ref_building_remaining
             .enforce_equal(&next.ref_building_remaining)?;
@@ -264,7 +264,10 @@ impl IvcWiresVars {
             next_ref_id: fpvar_witness_index(cs, &self.next_ref_id)?,
             ref_arena_len: fpvar_witness_index(cs, &self.ref_arena_len)?,
             handler_stack_ptr: fpvar_witness_index(cs, &self.handler_stack_ptr)?,
-            pending_resume_function_id: fpvar_witness_index(cs, &self.pending_resume_function_id)?,
+            pending_resume_function_id: fpvar_witness_index(
+                cs,
+                &self.pending_resume_function_id_encoded,
+            )?,
             pending_enter: fpvar_witness_index(cs, &self.pending_enter)?,
             ref_building_remaining: fpvar_witness_index(cs, &self.ref_building_remaining)?,
             ref_building_ptr: fpvar_witness_index(cs, &self.ref_building_ptr)?,
@@ -304,7 +307,9 @@ impl Wires {
         let handler_stack_counter =
             FpVar::new_witness(cs.clone(), || Ok(vals.irw.handler_stack_counter))?;
         let pending_resume_function_id =
-            FpVar::new_witness(cs.clone(), || Ok(vals.irw.pending_resume_function_id))?;
+            OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
+                Ok(vals.irw.pending_resume_function_id.encoded())
+            })?);
         let pending_enter = FpVar::new_witness(cs.clone(), || Ok(vals.irw.pending_enter))?;
 
         let ref_building_remaining =
@@ -393,11 +398,12 @@ impl Wires {
             opcode_args[ArgName::FunctionHash2.idx()].clone(),
             opcode_args[ArgName::FunctionHash3.idx()].clone(),
         ];
+        let must_enter_write_address = pending_resume_function_id.decode_or_zero()?;
         must_enter_write_wires(
             cs.clone(),
             rm,
             &switches.resume_function_id,
-            &curr_address,
+            &must_enter_write_address,
             &function_hash_args,
         )?;
 
@@ -531,7 +537,7 @@ impl InterRoundWires {
             next_ref_id: F::ZERO,
             ref_arena_len: F::ZERO,
             handler_stack_counter: F::ZERO,
-            pending_resume_function_id: F::ZERO,
+            pending_resume_function_id: OptionalF::none(),
             pending_enter: F::ZERO,
             ref_building_remaining: F::ZERO,
             ref_building_ptr: F::ZERO,
@@ -574,7 +580,8 @@ impl InterRoundWires {
         );
 
         self.handler_stack_counter = res.handler_stack_ptr.value().unwrap();
-        self.pending_resume_function_id = res.pending_resume_function_id.value().unwrap();
+        self.pending_resume_function_id =
+            OptionalF::from_encoded(res.pending_resume_function_id.value().unwrap());
         self.pending_enter = res.pending_enter.value().unwrap();
 
         self.ref_building_remaining = res.ref_building_remaining.value().unwrap();
@@ -623,7 +630,6 @@ impl LedgerOperation<crate::F> {
             }
             LedgerOperation::ResumeFunctionId { .. } => {
                 config.execution_switches.resume_function_id = true;
-                config.mem_switches_curr.must_exit = true;
             }
             LedgerOperation::CallEffectHandler { .. } => {
                 config.execution_switches.call_effect_handler = true;
@@ -1344,10 +1350,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 LedgerOperation::ResumeFunctionId { f_id_hash, .. } => Some(*f_id_hash),
                 _ => None,
             };
+            let must_enter_target = irw.pending_resume_function_id.decode_or_zero();
             trace_must_enter_writes(
                 &mut mb,
                 config.execution_switches.resume_function_id,
-                irw.id_curr.into_bigint().0[0],
+                must_enter_target.into_bigint().0[0],
                 &function_hash.unwrap_or([F::ZERO; 4]),
             );
 
@@ -1401,29 +1408,28 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             // update pids for next iteration
             match instr {
                 LedgerOperation::Resume { target, .. } => {
-                    irw.id_prev = OptionalF::new(irw.id_curr);
-                    irw.id_curr = *target;
-                    irw.pending_resume_function_id = F::ONE;
+                    irw.pending_resume_function_id = OptionalF::new(*target);
                     irw.pending_enter = F::ZERO;
                 }
                 LedgerOperation::CallEffectHandler { .. } => {
-                    irw.id_prev = OptionalF::new(irw.id_curr);
-                    irw.id_curr = handler_reads.handler_stack_node_process;
-                    irw.pending_resume_function_id = F::ONE;
+                    irw.pending_resume_function_id =
+                        OptionalF::new(handler_reads.handler_stack_node_process);
                     irw.pending_enter = F::ZERO;
                 }
                 LedgerOperation::ResumeFunctionId { .. } => {
-                    irw.pending_resume_function_id = F::ZERO;
+                    irw.id_prev = OptionalF::new(irw.id_curr);
+                    irw.id_curr = irw.pending_resume_function_id.decode_or_zero();
+                    irw.pending_resume_function_id = OptionalF::none();
                     irw.pending_enter = F::ONE;
                 }
                 LedgerOperation::Enter { .. } => {
-                    irw.pending_resume_function_id = F::ZERO;
+                    irw.pending_resume_function_id = OptionalF::none();
                     irw.pending_enter = F::ZERO;
                 }
                 LedgerOperation::Yield { .. } => {
                     irw.id_prev = OptionalF::new(irw.id_curr);
                     irw.id_curr = curr_yield_to.decode_or_zero();
-                    irw.pending_resume_function_id = F::ZERO;
+                    irw.pending_resume_function_id = OptionalF::none();
                     irw.pending_enter = F::ZERO;
                 }
                 LedgerOperation::Return { .. } => {
@@ -1431,15 +1437,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                         irw.id_prev = OptionalF::new(irw.id_curr);
                         irw.id_curr = parent;
                     }
-                    irw.pending_resume_function_id = F::ZERO;
+                    irw.pending_resume_function_id = OptionalF::none();
                     irw.pending_enter = F::ZERO;
                 }
                 LedgerOperation::Burn { .. } => {
-                    irw.pending_resume_function_id = F::ZERO;
+                    irw.pending_resume_function_id = OptionalF::none();
                     irw.pending_enter = F::ZERO;
                 }
                 _ => {
-                    irw.pending_resume_function_id = F::ZERO;
+                    irw.pending_resume_function_id = OptionalF::none();
                     irw.pending_enter = F::ZERO;
                 }
             }
@@ -1769,19 +1775,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // ---
         // IVC state updates
         // ---
-        // On resume, current program becomes the target, and the old current program
-        // becomes the new previous program.
-        let next_id_curr = switch.select(&wires.arg(ArgName::Target), &wires.id_curr)?;
-        let next_id_prev = OptionalFpVar::select_encoded(
+        // Control switches on the following ResumeFunctionId.
+        let pending_target = OptionalFpVar::from_pid(&wires.arg(ArgName::Target));
+        wires.pending_resume_function_id = OptionalFpVar::select_encoded(
             switch,
-            &OptionalFpVar::from_pid(&wires.id_curr),
-            &wires.id_prev,
+            &pending_target,
+            &wires.pending_resume_function_id,
         )?;
-
-        wires.id_curr = next_id_curr;
-        wires.id_prev = next_id_prev;
-        wires.pending_resume_function_id =
-            switch.select(&FpVar::one(), &wires.pending_resume_function_id)?;
         wires.pending_enter = switch.select(&FpVar::zero(), &wires.pending_enter)?;
 
         Ok(wires)
@@ -1789,7 +1789,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_pending_resume_function_id(&self, wires: Wires) -> Result<Wires, SynthesisError> {
-        let pending = wires.pending_resume_function_id.is_one()?;
+        let pending = wires.pending_resume_function_id.is_some()?;
         pending
             .conditional_enforce_equal(&wires.switches.resume_function_id, &wires.constant_true)?;
         Ok(wires)
@@ -1869,21 +1869,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .must_exit
             .conditional_enforce_equal(&Boolean::FALSE, switch)?;
 
-        // IVC state updates mirror resume-to-target.
-        let next_id_curr = switch.select(
-            &wires.handler_state.handler_stack_node_process,
-            &wires.id_curr,
-        )?;
-        let next_id_prev = OptionalFpVar::select_encoded(
+        let pending_target =
+            OptionalFpVar::from_pid(&wires.handler_state.handler_stack_node_process);
+        wires.pending_resume_function_id = OptionalFpVar::select_encoded(
             switch,
-            &OptionalFpVar::from_pid(&wires.id_curr),
-            &wires.id_prev,
+            &pending_target,
+            &wires.pending_resume_function_id,
         )?;
-
-        wires.id_curr = next_id_curr;
-        wires.id_prev = next_id_prev;
-        wires.pending_resume_function_id =
-            switch.select(&FpVar::one(), &wires.pending_resume_function_id)?;
         wires.pending_enter = switch.select(&FpVar::zero(), &wires.pending_enter)?;
 
         Ok(wires)
@@ -1891,15 +1883,24 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_resume_function_id(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.switches.resume_function_id;
+        let switch = wires.switches.resume_function_id.clone();
 
-        wires
-            .curr_read_wires
-            .must_exit
-            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+        let target = wires.pending_resume_function_id.decode_or_zero()?;
+        let next_id_curr = switch.select(&target, &wires.id_curr)?;
+        let next_id_prev = OptionalFpVar::select_encoded(
+            &switch,
+            &OptionalFpVar::from_pid(&wires.id_curr),
+            &wires.id_prev,
+        )?;
 
-        wires.pending_resume_function_id =
-            switch.select(&FpVar::zero(), &wires.pending_resume_function_id)?;
+        wires.id_curr = next_id_curr;
+        wires.id_prev = next_id_prev;
+        // Clear the pending target (encoded none = 0).
+        wires.pending_resume_function_id = OptionalFpVar::select_encoded(
+            &switch,
+            &OptionalFpVar::new(FpVar::zero()),
+            &wires.pending_resume_function_id,
+        )?;
         wires.pending_enter = switch.select(&FpVar::one(), &wires.pending_enter)?;
 
         Ok(wires)

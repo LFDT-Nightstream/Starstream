@@ -98,6 +98,7 @@ pub(crate) fn make_interleaved_trace(
 ) -> Vec<LedgerOperation<crate::F>> {
     let mut ops = vec![];
     let mut id_curr = inst.entrypoint.0;
+    let mut pending_target: Option<usize> = None;
     let mut next_op_idx = vec![0usize; inst.process_table.len()];
     let mut on_yield = vec![true; inst.process_table.len()];
     let mut yield_to: Vec<Option<usize>> = vec![None; inst.process_table.len()];
@@ -128,7 +129,7 @@ pub(crate) fn make_interleaved_trace(
                     yield_to[target.0] = Some(id_curr);
                     on_yield[target.0] = false;
                 }
-                id_curr = target.0;
+                pending_target = Some(target.0);
             }
             starstream_interleaving_spec::WitLedgerEffect::InstallHandler { interface_id } => {
                 handler_stack
@@ -151,7 +152,12 @@ pub(crate) fn make_interleaved_trace(
                     .get(&interface_id.0)
                     .and_then(|stack| stack.last())
                     .expect("CallEffectHandler with empty stack in interleaving trace");
-                id_curr = target;
+                pending_target = Some(target);
+            }
+            starstream_interleaving_spec::WitLedgerEffect::ResumeFunctionId { .. } => {
+                id_curr = pending_target
+                    .take()
+                    .expect("ResumeFunctionId without a pending Resume/CallEffectHandler");
             }
             starstream_interleaving_spec::WitLedgerEffect::Yield { .. } => {
                 on_yield[id_curr] = true;
