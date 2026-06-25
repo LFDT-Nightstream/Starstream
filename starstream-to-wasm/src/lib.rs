@@ -13,8 +13,7 @@ use starstream_types::{
     TypedEnumDef, TypedEnumPatternPayload, TypedExpr, TypedExprKind, TypedFunctionDef,
     TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedImportItems, TypedImportSource,
     TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef,
-    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp,
-    ast::Identifier,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
 use thiserror::Error;
 use wasm_encoder::{
