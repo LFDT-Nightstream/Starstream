@@ -43,6 +43,8 @@ pub struct StarstreamExecutor<Resource> {
     ref_building: HashMap<ProcessId, (Ref, u32)>,
     traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
     effect_log: Vec<(ProcessId, WitLedgerEffect)>,
+    /// `new_pid -> (init_ref, creator_pid)` for UTXOs created but not yet entered.
+    pending_inits: HashMap<ProcessId, (Ref, ProcessId)>,
 }
 
 impl<Resource> StarstreamExecutor<Resource>
@@ -56,6 +58,7 @@ where
             ref_building: HashMap::new(),
             traces: HashMap::new(),
             effect_log: Vec::new(),
+            pending_inits: HashMap::new(),
         }
     }
 
@@ -194,6 +197,7 @@ where
                         },
                         None,
                     );
+                    self.pending_inits.insert(target, (init, caller));
                     (
                         WitLedgerEffect::NewUtxo {
                             program_hash,
@@ -258,6 +262,10 @@ where
     pub fn append_effect(&mut self, pid: ProcessId, effect: WitLedgerEffect) {
         self.traces.entry(pid).or_default().push(effect.clone());
         self.effect_log.push((pid, effect));
+    }
+
+    pub fn take_pending_init(&mut self, pid: ProcessId) -> Option<(Ref, ProcessId)> {
+        self.pending_inits.remove(&pid)
     }
 
     pub fn resolve_resume_output(

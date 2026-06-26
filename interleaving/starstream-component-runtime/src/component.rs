@@ -566,6 +566,15 @@ fn call_resource_method(
     ctx.data_mut()
         .executor
         .append_effect(target_pid, WitLedgerEffect::Enter { f_id: method_f_id });
+    if let Some((init, creator)) = ctx.data_mut().executor.take_pending_init(target_pid) {
+        ctx.data_mut().executor.append_effect(
+            target_pid,
+            WitLedgerEffect::Init {
+                val: WitEffectOutput::Resolved(init),
+                caller: WitEffectOutput::Resolved(creator),
+            },
+        );
+    }
     ctx.data_mut().executor.append_effect(
         target_pid,
         WitLedgerEffect::Activation {
