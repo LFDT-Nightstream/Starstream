@@ -49,31 +49,16 @@ wasmparser = "0.240.0"
 wasmtime = { version = "46.0", default-features = false }
 wit-component = "0.240.0"
 
-# Nightstream main (pure-R1CS folding backend). Bumped from the old
-# Twist/Shout rev 8b32cc8 after the interleaving prover moved onto Nebula memory.
-neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e752b77467a7f7dc3d050812d9828eda35b0c3e6" }
-neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e752b77467a7f7dc3d050812d9828eda35b0c3e6" }
-neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e752b77467a7f7dc3d050812d9828eda35b0c3e6" }
-neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e752b77467a7f7dc3d050812d9828eda35b0c3e6" }
+# NOTE: this doesn't point to main, but to the wasm-vm branch
+neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7d74458c38bcb8ab72ea2653c7be139b7e89478f" }
+neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7d74458c38bcb8ab72ea2653c7be139b7e89478f" }
+neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7d74458c38bcb8ab72ea2653c7be139b7e89478f" }
+neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7d74458c38bcb8ab72ea2653c7be139b7e89478f" }
 
 [profile.dev.package]
 insta.opt-level = 3
 
 [patch.crates-io]
-# tmp: p3-goldilocks 0.5.1 was yanked from crates.io, but nightstream (rev
-# e752b77) pins it exactly (`=0.5.1`), so a fresh resolve can't select it.
-p3-challenger  = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-dft         = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-field       = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-goldilocks  = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-matrix      = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-mds         = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-monty-31    = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-poseidon1   = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-poseidon2   = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-symmetric   = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
-p3-util        = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
 ark-relations = {  git = "https://github.com/arkworks-rs/snark/" }
 ark-snark = {  git = "https://github.com/arkworks-rs/snark/" }
 ark-r1cs-std = {  git = "https://github.com/arkworks-rs/r1cs-std" }
