@@ -16,8 +16,25 @@ log = "0.4.28"
 miette.workspace = true
 serde.workspace = true
 serde_cbor = "0.11.2"
+serde_json.workspace = true
+sha2 = "0.10.9"
 starstream-compiler.workspace = true
 starstream-to-wasm.workspace = true
 termcolor = "1.4.1"
+starstream-runtime-next = { workspace = true, features = [
+    "wasmtime-custom-virtual-memory",
+] }
+# Pinned to the exact Wasmtime rev `starstream-runtime-next` uses: the sandbox
+# drives that crate's `Utxo`/`bindings`/`Val` types, so both must resolve to one
+# `wasmtime` instance or the types won't unify.
+wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "a260163e20dd5bb92a3a9df093c9e229e2b4f8df", default-features = false, features = [
+    "anyhow",
+    "component-model",
+    "cranelift",
+    "runtime",
+] }
+cranelift-codegen = { git = "https://github.com/bytecodealliance/wasmtime", rev = "a260163e20dd5bb92a3a9df093c9e229e2b4f8df", default-features = false, features = [
+    "timing",
+] }
 wasmprinter = { workspace = true, features = ["component-model"] }
 wit-component.workspace = true
