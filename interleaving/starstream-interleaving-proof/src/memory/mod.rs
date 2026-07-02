@@ -7,8 +7,18 @@ use std::fmt;
 pub mod dummy;
 pub mod nebula;
 pub mod tag;
-pub mod twist_and_shout;
 pub use tag::MemoryTag;
+
+/// Number of value lanes a memory uses per step.
+#[derive(Debug, Clone, Copy)]
+// Reserved in the interface while Nebula uses a fixed lane order.
+pub struct Lanes(#[allow(dead_code)] pub usize);
+
+impl Default for Lanes {
+    fn default() -> Self {
+        Lanes(1)
+    }
+}
 
 #[derive(PartialOrd, Ord, PartialEq, Eq, Debug, Clone)]
 pub struct Address<A = u64, T = u64> {
@@ -77,7 +87,7 @@ pub trait IVCMemory<F: PrimeField> {
         tag: u64,
         size: u64,
         mem_type: MemType,
-        extra_info: twist_and_shout::Lanes,
+        extra_info: Lanes,
         debug_name: &'static str,
     );
 

@@ -65,12 +65,12 @@ type StepCircuitResult<M> = Result<
     (
         InterRoundWires,
         <<M as IVCMemory<F>>::Allocator as IVCMemoryAllocated<F>>::FinishStepPayload,
-        Option<IvcWireLayout>,
+        // Program-state input and output wires for this sub-step.
+        IvcWires,
+        IvcWires,
     ),
     SynthesisError,
 >;
-
-// OptionalF/OptionalFpVar live in optional.rs
 
 /// common circuit variables to all the opcodes
 #[derive(Clone)]
@@ -187,7 +187,66 @@ impl IvcWireLayout {
     }
 }
 
+/// The program-state IVC wires.
+#[derive(Clone)]
+pub(crate) struct IvcWires {
+    id_curr: FpVar<F>,
+    id_prev: OptionalFpVar<F>,
+    next_ref_id: FpVar<F>,
+    ref_arena_len: FpVar<F>,
+    handler_stack_ptr: FpVar<F>,
+    ref_building_remaining: FpVar<F>,
+    ref_building_ptr: FpVar<F>,
+}
+
+impl IvcWires {
+    pub(crate) fn enforce_equal(&self, next: &Self) -> Result<(), SynthesisError> {
+        self.id_curr.enforce_equal(&next.id_curr)?;
+        self.id_prev
+            .encoded()
+            .enforce_equal(&next.id_prev.encoded())?;
+        self.next_ref_id.enforce_equal(&next.next_ref_id)?;
+        self.ref_arena_len.enforce_equal(&next.ref_arena_len)?;
+        self.handler_stack_ptr
+            .enforce_equal(&next.handler_stack_ptr)?;
+        self.ref_building_remaining
+            .enforce_equal(&next.ref_building_remaining)?;
+        self.ref_building_ptr
+            .enforce_equal(&next.ref_building_ptr)?;
+        Ok(())
+    }
+
+    /// Witness-local indices of these wires in `cs` (the positions the fold's
+    /// `semantic_state_*_var_indices` reference, before the `+ m_in` shift).
+    pub(crate) fn indices(
+        &self,
+        cs: &ConstraintSystemRef<F>,
+    ) -> Result<IvcWireIndices, SynthesisError> {
+        Ok(IvcWireIndices {
+            id_curr: fpvar_witness_index(cs, &self.id_curr)?,
+            id_prev: fpvar_witness_index(cs, &self.id_prev.encoded())?,
+            next_ref_id: fpvar_witness_index(cs, &self.next_ref_id)?,
+            ref_arena_len: fpvar_witness_index(cs, &self.ref_arena_len)?,
+            handler_stack_ptr: fpvar_witness_index(cs, &self.handler_stack_ptr)?,
+            ref_building_remaining: fpvar_witness_index(cs, &self.ref_building_remaining)?,
+            ref_building_ptr: fpvar_witness_index(cs, &self.ref_building_ptr)?,
+        })
+    }
+}
+
 impl Wires {
+    fn ivc_wires(&self) -> IvcWires {
+        IvcWires {
+            id_curr: self.id_curr.clone(),
+            id_prev: self.id_prev.clone(),
+            next_ref_id: self.next_ref_id.clone(),
+            ref_arena_len: self.ref_arena_len.clone(),
+            handler_stack_ptr: self.handler_stack_ptr.clone(),
+            ref_building_remaining: self.ref_building_remaining.clone(),
+            ref_building_ptr: self.ref_building_ptr.clone(),
+        }
+    }
+
     fn arg(&self, kind: ArgName) -> FpVar<F> {
         self.opcode_args[kind.idx()].clone()
     }
@@ -835,7 +894,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         rm: &mut M::Allocator,
         cs: ConstraintSystemRef<F>,
         mut irw: InterRoundWires,
-        compute_ivc_layout: bool,
     ) -> StepCircuitResult<M> {
         rm.start_step(cs.clone()).unwrap();
 
@@ -881,12 +939,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         let mem_step_data = rm.finish_step(i == self.ops.len() - 1)?;
 
-        // input <-> output mappings are done by modifying next_wires
-        let ivc_layout = if compute_ivc_layout {
-            Some(ivc_wires(&cs, &wires_in, &next_wires)?)
-        } else {
-            None
-        };
+        let input_vars = wires_in.ivc_wires();
+        let output_vars = next_wires.ivc_wires();
 
         {
             let _guard = debug_span!(target: "gr1cs", "ref_building_mode").entered();
@@ -897,10 +951,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         irw.update(next_wires);
 
-        Ok((irw, mem_step_data, ivc_layout))
+        Ok((irw, mem_step_data, input_vars, output_vars))
     }
 
-    pub fn trace_memory_ops(&mut self, params: <M as memory::IVCMemory<F>>::Params) -> M {
+    pub fn trace_memory_ops(
+        &mut self,
+        params: <M as memory::IVCMemory<F>>::Params,
+        batch_size: usize,
+    ) -> M {
         // initialize all the maps
         let mut mb = {
             let mut mb = M::new(params);
@@ -1047,7 +1105,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 );
             }
 
-            for (pid, owner) in self.instance.ownership_in.iter().enumerate() {
+            // Per-pid memory must exist for coordination scripts too.
+            for pid in 0..self.instance.process_table.len() {
+                let owner = self.instance.ownership_in.get(pid).copied().flatten();
                 let encoded_owner = owner
                     .map(|p| OptionalF::new(F::from(p.0 as u64)).encoded())
                     .unwrap_or_else(|| OptionalF::none().encoded());
@@ -1080,6 +1140,24 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // Initialize handler memory using simplified approach
         self.init_handler_memory(&mut mb);
 
+        self.init_ref_memory(&mut mb);
+
+        // Pad scan-only steps before tracing so bookkeeping and synthesis align.
+        if let Some(missing) = mb.required_steps().checked_sub(self.ops.len()) {
+            tracing::debug!("padding with {missing} Nop operations for scan");
+            self.ops
+                .extend(std::iter::repeat_n(LedgerOperation::Nop {}, missing));
+        }
+
+        // Every folded R1CS instance must have the same number of sub-steps.
+        let rem = self.ops.len() % batch_size;
+        if rem != 0 {
+            self.ops.extend(std::iter::repeat_n(
+                LedgerOperation::Nop {},
+                batch_size - rem,
+            ));
+        }
+
         // out of circuit memory operations.
         // this is needed to commit to the memory operations before-hand.
         //
@@ -1102,13 +1180,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             let config = instr.get_config();
 
-            trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
-
-            let curr_switches = config.mem_switches_curr;
-            let target_switches = config.mem_switches_target;
-            let rom_switches = config.rom_switches;
-            let handler_switches = config.handler_switches;
-            let ref_arena_switches = config.ref_arena_switches;
+            let curr_switches = config.mem_switches_curr.clone();
+            let target_switches = config.mem_switches_target.clone();
+            let rom_switches = config.rom_switches.clone();
+            let handler_switches = config.handler_switches.clone();
+            let ref_arena_switches = config.ref_arena_switches.clone();
 
             self.mem_switches
                 .push((curr_switches.clone(), target_switches.clone()));
@@ -1134,6 +1210,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 _ => F::ZERO,
             };
 
+            // Keep this memory-op order in lockstep with `from_irw`; Nebula's
+            // RS/WS commitment is an order-dependent hash chain.
+            let curr_read =
+                trace_program_state_reads(&mut mb, irw.id_curr.into_bigint().0[0], &curr_switches);
+            let curr_yield_to = curr_read.yield_to;
+
             let handler_reads = trace_handler_stack_ops(
                 &mut mb,
                 &handler_switches,
@@ -1146,26 +1228,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 irw.handler_stack_counter += F::ONE;
             }
 
-            trace_ref_arena_ops(
-                &mut mb,
-                &mut next_ref_base,
-                &mut ref_building_ptr,
-                &mut ref_building_remaining,
-                &ref_arena_switches,
-                instr,
-            );
-
-            let curr_read =
-                trace_program_state_reads(&mut mb, irw.id_curr.into_bigint().0[0], &curr_switches);
-            let curr_yield_to = curr_read.yield_to;
-
             let target_addr = match instr {
                 LedgerOperation::Resume { target, .. } => Some(*target),
                 LedgerOperation::CallEffectHandler { .. } => {
                     Some(handler_reads.handler_stack_node_process)
                 }
-                LedgerOperation::Yield { .. } => curr_read.yield_to.to_option(),
-                LedgerOperation::Return { .. } => curr_read.yield_to.to_option(),
+                LedgerOperation::Yield { .. } => curr_yield_to.to_option(),
+                LedgerOperation::Return { .. } => curr_yield_to.to_option(),
                 LedgerOperation::Burn { .. } => None,
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
                 LedgerOperation::NewToken { target: id, .. } => Some(*id),
@@ -1174,45 +1243,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 LedgerOperation::Unbind { token_id } => Some(*token_id),
                 _ => None,
             };
-
             let target_pid = target_addr.map(|t| t.into_bigint().0[0]);
-            let target_read =
-                trace_program_state_reads(&mut mb, target_pid.unwrap_or(0), &target_switches);
-
-            mb.conditional_read(
-                rom_switches.read_is_utxo_curr,
-                Address {
-                    addr: irw.id_curr.into_bigint().0[0],
-                    tag: RomMemoryTag::IsUtxo.memory_tag(),
-                },
-            );
-            mb.conditional_read(
-                rom_switches.read_is_utxo_target,
-                Address {
-                    addr: target_pid.unwrap_or(0),
-                    tag: RomMemoryTag::IsUtxo.memory_tag(),
-                },
-            );
-            mb.conditional_read(
-                rom_switches.read_is_token_target,
-                Address {
-                    addr: target_pid.unwrap_or(0),
-                    tag: RomMemoryTag::IsToken.memory_tag(),
-                },
-            );
-            mb.conditional_read(
-                rom_switches.read_must_burn_curr,
-                Address {
-                    addr: irw.id_curr.into_bigint().0[0],
-                    tag: RomMemoryTag::MustBurn.memory_tag(),
-                },
-            );
             let target_pid_value = target_pid.unwrap_or(0);
-            let _ = trace_program_hash_ops(
-                &mut mb,
-                rom_switches.read_program_hash_target,
-                &F::from(target_pid_value),
-            );
+
+            let target_read =
+                trace_program_state_reads(&mut mb, target_pid_value, &target_switches);
 
             let curr_is_utxo = self.instance.is_utxo[irw.id_curr.into_bigint().0[0] as usize];
             let target_id = match instr {
@@ -1241,6 +1276,53 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             trace_program_state_writes(&mut mb, target_pid_value, &target_write, &target_switches);
 
+            mb.conditional_read(
+                rom_switches.read_is_utxo_curr,
+                Address {
+                    addr: irw.id_curr.into_bigint().0[0],
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_is_utxo_target,
+                Address {
+                    addr: target_pid_value,
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_is_token_target,
+                Address {
+                    addr: target_pid_value,
+                    tag: RomMemoryTag::IsToken.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_must_burn_curr,
+                Address {
+                    addr: irw.id_curr.into_bigint().0[0],
+                    tag: RomMemoryTag::MustBurn.memory_tag(),
+                },
+            );
+
+            let _ = trace_program_hash_ops(
+                &mut mb,
+                rom_switches.read_program_hash_target,
+                &F::from(target_pid_value),
+            );
+
+            trace_ref_arena_ops(
+                &mut mb,
+                &mut next_ref_base,
+                &mut ref_building_ptr,
+                &mut ref_building_remaining,
+                &ref_arena_switches,
+                instr,
+            );
+
+            // Must be last, matching `from_irw`.
+            trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
+
             // update pids for next iteration
             match instr {
                 LedgerOperation::Resume { target, .. } => {
@@ -1266,18 +1348,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
 
             mb.finish_step();
-        }
-
-        let current_steps = self.ops.len();
-        if let Some(missing) = mb.required_steps().checked_sub(current_steps) {
-            tracing::debug!("padding with {missing} Nop operations for scan");
-            self.ops
-                .extend(std::iter::repeat_n(LedgerOperation::Nop {}, missing));
-
-            // TODO: we probably want to do this before the main loop
-            for _ in 0..missing {
-                mb.finish_step();
-            }
         }
 
         mb
@@ -1328,6 +1398,47 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     tag: RamMemoryTag::HandlerStackArenaNextPtr.memory_tag(),
                 },
                 vec![F::ZERO], // next_ptr
+            );
+        }
+    }
+
+    /// Pre-initialize dynamically-sized ref memories.
+    ///
+    /// `RefSizes`/`RefBases` are addressed by ref id. `RefArena` is zero-filled
+    /// for every cell the trace can touch.
+    fn init_ref_memory(&self, mem: &mut M) {
+        let mut total_arena = 0u64;
+
+        for op in &self.ops {
+            if let LedgerOperation::NewRef { size, ret } = op {
+                let ref_id = ret.into_bigint().0[0];
+
+                mem.init(
+                    Address {
+                        addr: ref_id,
+                        tag: RamMemoryTag::RefSizes.memory_tag(),
+                    },
+                    vec![F::ZERO],
+                );
+                mem.init(
+                    Address {
+                        addr: ref_id,
+                        tag: RamMemoryTag::RefBases.memory_tag(),
+                    },
+                    vec![F::ZERO],
+                );
+
+                total_arena += size.into_bigint().0[0] * REF_PUSH_BATCH_SIZE as u64;
+            }
+        }
+
+        for addr in 0..total_arena {
+            mem.init(
+                Address {
+                    addr,
+                    tag: RamMemoryTag::RefArena.memory_tag(),
+                },
+                vec![F::ZERO],
             );
         }
     }
@@ -2349,35 +2460,6 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
     );
 }
 
-#[tracing::instrument(target = "gr1cs", skip_all)]
-fn ivc_wires(
-    cs: &ConstraintSystemRef<F>,
-    wires_in: &Wires,
-    wires_out: &Wires,
-) -> Result<IvcWireLayout, SynthesisError> {
-    let input = IvcWireIndices {
-        id_curr: fpvar_witness_index(cs, &wires_in.id_curr)?,
-        id_prev: fpvar_witness_index(cs, &wires_in.id_prev.encoded())?,
-        next_ref_id: fpvar_witness_index(cs, &wires_in.next_ref_id)?,
-        ref_arena_len: fpvar_witness_index(cs, &wires_in.ref_arena_len)?,
-        handler_stack_ptr: fpvar_witness_index(cs, &wires_in.handler_stack_ptr)?,
-        ref_building_remaining: fpvar_witness_index(cs, &wires_in.ref_building_remaining)?,
-        ref_building_ptr: fpvar_witness_index(cs, &wires_in.ref_building_ptr)?,
-    };
-
-    let output = IvcWireIndices {
-        id_curr: fpvar_witness_index(cs, &wires_out.id_curr)?,
-        id_prev: fpvar_witness_index(cs, &wires_out.id_prev.encoded())?,
-        next_ref_id: fpvar_witness_index(cs, &wires_out.next_ref_id)?,
-        ref_arena_len: fpvar_witness_index(cs, &wires_out.ref_arena_len)?,
-        handler_stack_ptr: fpvar_witness_index(cs, &wires_out.handler_stack_ptr)?,
-        ref_building_remaining: fpvar_witness_index(cs, &wires_out.ref_building_remaining)?,
-        ref_building_ptr: fpvar_witness_index(cs, &wires_out.ref_building_ptr)?,
-    };
-
-    Ok(IvcWireLayout { input, output })
-}
-
 fn fpvar_witness_index(
     cs: &ConstraintSystemRef<F>,
     var: &FpVar<F>,
@@ -2439,9 +2521,7 @@ impl PreWires {
 }
 
 fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig) {
-    if config.execution_switches.nop {
-        return;
-    }
+    let should_trace = !config.execution_switches.nop;
 
     let mut concat_data = [F::ZERO; 12];
 
@@ -2449,7 +2529,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
         let addr = (curr_pid * 4) + i;
 
         *slot = mb.conditional_read(
-            true,
+            should_trace,
             Address {
                 tag: RamMemoryTag::TraceCommitments.memory_tag(),
                 addr: addr as u64,
@@ -2465,13 +2545,15 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
     for (i, elem) in new_commitment.iter().enumerate() {
         let addr = (curr_pid * 4) + i;
 
+        let value = if should_trace { *elem } else { F::ZERO };
+
         mb.conditional_write(
-            true,
+            should_trace,
             Address {
                 addr: addr as u64,
                 tag: RamMemoryTag::TraceCommitments.memory_tag(),
             },
-            vec![*elem],
+            vec![value],
         );
     }
 }
