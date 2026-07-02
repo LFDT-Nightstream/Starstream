@@ -1,0 +1,15 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/effect_raise.star
+---
+==== AST ====
+parser
+
+  x found 'f' expected 'v'
+   ,-[2:6]
+ 1 | abi Foo {
+ 2 |     effect Hello();
+   :      |
+   :      `-- found 'f'
+ 3 | }
+   `----
