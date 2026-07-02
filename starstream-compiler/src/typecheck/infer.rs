@@ -1140,7 +1140,7 @@ impl Inferencer {
         for part in &def.parts {
             match part {
                 AbiPart::Event(event) => self.register_event(event)?,
-                AbiPart::Effect(effect) => todo!(),
+                AbiPart::Effect(_effect) => todo!(),
                 AbiPart::FnDecl(method) => {
                     let mut params = Vec::with_capacity(method.params.len());
                     for param in &method.params {
@@ -1565,7 +1565,9 @@ impl Inferencer {
                         params,
                     }));
                 }
-                AbiPart::Effect(effect) => {}
+                AbiPart::Effect(_effect) => {
+                    todo!()
+                }
                 AbiPart::FnDecl(method) => {
                     let abi_info = self.abis.get(&def.name.name).expect("abi registered");
                     let method_info = abi_info

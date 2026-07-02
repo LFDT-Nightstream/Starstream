@@ -923,6 +923,16 @@ impl DocumentState {
                         self.add_hover_label(span, format!("event {}", event.name.name));
                     }
                 }
+                TypedAbiPart::Effect(effect) => {
+                    if let Some(span) = effect.name.opt_span() {
+                        self.definition_entries.push(DefinitionEntry {
+                            usage: span,
+                            target: span,
+                        });
+
+                        self.add_hover_label(span, format!("effect {}", effect.name.name));
+                    }
+                }
                 TypedAbiPart::FnDecl(decl) => {
                     let method_doc = self.comment_map.doc_comments(decl.span, source);
 
@@ -1705,6 +1715,14 @@ impl DocumentState {
                                     self.collect_type_annotation_node(&param.ty);
                                 }
                             }
+                            untyped_ast::AbiPart::Effect(effect) => {
+                                for param in &effect.params {
+                                    self.collect_type_annotation_node(&param.ty);
+                                }
+                                if let Some(ret) = &effect.return_type {
+                                    self.collect_type_annotation_node(ret);
+                                }
+                            }
                             untyped_ast::AbiPart::FnDecl(decl) => {
                                 for param in &decl.params {
                                     self.collect_type_annotation_node(&param.ty);
@@ -2222,6 +2240,37 @@ impl DocumentState {
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
                             name: event.name.name.clone(),
+                            detail,
+                            kind: SymbolKind::EVENT,
+                            tags: None,
+                            deprecated: None,
+                            range: self.span_to_range(span),
+                            selection_range: self.span_to_range(span),
+                            children: None,
+                        };
+
+                        children.push(child);
+                    }
+                }
+                TypedAbiPart::Effect(effect) => {
+                    if let Some(span) = effect.name.opt_span() {
+                        let params = effect
+                            .params
+                            .iter()
+                            .map(|p| format!("{}: {}", p.name.name, p.ty))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+
+                        let ret = match &effect.return_type {
+                            Type::Unit => String::new(),
+                            ty => format!(" -> {ty}"),
+                        };
+
+                        let detail = Some(format!("({params}){ret}"));
+
+                        #[allow(deprecated)]
+                        let child = DocumentSymbol {
+                            name: effect.name.name.clone(),
                             detail,
                             kind: SymbolKind::EVENT,
                             tags: None,

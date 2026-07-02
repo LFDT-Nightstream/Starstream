@@ -179,6 +179,7 @@ pub struct TypedAbiDef {
 #[derive(Clone, Debug)]
 pub enum TypedAbiPart {
     Event(TypedEventDef),
+    Effect(TypedEffectDef),
     FnDecl(TypedAbiMethodDecl),
 }
 
@@ -203,6 +204,13 @@ impl TypedAbiMethodDecl {
 pub struct TypedEventDef {
     pub name: Identifier,
     pub params: Vec<TypedFunctionParam>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedEffectDef {
+    pub name: Identifier,
+    pub params: Vec<TypedFunctionParam>,
+    pub return_type: Type,
 }
 
 /// Typed statements.

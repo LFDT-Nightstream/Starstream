@@ -1455,6 +1455,41 @@ impl Compiler {
                         .inner
                         .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
+                TypedAbiPart::Effect(effect) => {
+                    let mut core_params = Vec::with_capacity(16);
+                    let span = effect.name.span();
+                    for p in &effect.params {
+                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
+                    }
+                    let mut core_results = Vec::new();
+                    _ = self.star_to_core_types(span, &mut core_results, &effect.return_type);
+
+                    let interface =
+                        format!("starstream:effects/{}", to_kebab_case(def.name.as_str()));
+                    let kebab = to_kebab_case(effect.name.as_str());
+
+                    // Core import
+                    let core_fn_ty = self.add_core_func_type(&FuncType::new(
+                        core_params.iter().copied(),
+                        core_results,
+                    ));
+                    let func = self.import_function(&interface, &kebab, core_fn_ty);
+                    self.callables.insert(effect.name.as_str().to_owned(), func);
+
+                    // Component import
+                    let comp_params = effect
+                        .params
+                        .iter()
+                        .filter_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
+                        .collect::<Vec<_>>();
+                    let comp_result = self.star_to_component_type(&effect.return_type);
+                    let iface = self.imported_interfaces.entry(interface).or_default();
+                    let comp_fn_ty =
+                        iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
+                    iface
+                        .inner
+                        .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
+                }
                 TypedAbiPart::FnDecl(_) => {
                     // ABI method codegen not yet implemented.
                 }
