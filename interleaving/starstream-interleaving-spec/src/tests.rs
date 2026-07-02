@@ -237,10 +237,12 @@ fn test_transaction_with_coord_and_utxos() {
         },
         WitLedgerEffect::Resume {
             target: ProcessId(0),
-            f_id: FunctionId::from(0u64),
             val: spend_input_1_ref,
             ret: continued_1_ref.into(),
             caller: Some(ProcessId(0)).into(),
+        },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -258,10 +260,12 @@ fn test_transaction_with_coord_and_utxos() {
         },
         WitLedgerEffect::Resume {
             target: ProcessId(1),
-            f_id: FunctionId::from(0u64),
             val: spend_input_2_ref,
             ret: burned_2_ref.into(),
             caller: Some(ProcessId(1)).into(),
+        },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -272,10 +276,12 @@ fn test_transaction_with_coord_and_utxos() {
         },
         WitLedgerEffect::Resume {
             target: ProcessId(2),
-            f_id: FunctionId::from(0u64),
             val: init_a_ref,
             ret: done_a_ref.into(),
             caller: Some(ProcessId(2)).into(),
+        },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -286,10 +292,12 @@ fn test_transaction_with_coord_and_utxos() {
         },
         WitLedgerEffect::Resume {
             target: ProcessId(3),
-            f_id: FunctionId::from(0u64),
             val: init_b_ref,
             ret: done_b_ref.into(),
             caller: Some(ProcessId(3)).into(),
+        },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
         },
     ];
 
@@ -364,10 +372,12 @@ fn test_effect_handlers() {
         },
         WitLedgerEffect::Resume {
             target: ProcessId(1),
-            f_id: FunctionId::from(0u64),
             val: ref_gen.get("effect_request"),
             ret: ref_gen.get("effect_request_response").into(),
             caller: Some(ProcessId(1)).into(),
+        },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
         },
         WitLedgerEffect::Enter {
             f_id: FunctionId::from(0u64),
@@ -397,10 +407,12 @@ fn test_effect_handlers() {
         },
         WitLedgerEffect::Resume {
             target: ProcessId(0),
-            f_id: FunctionId::from(0u64),
             val: ref_gen.get("init_utxo"),
             ret: ref_gen.get("effect_request").into(),
             caller: WitEffectOutput::Resolved(None),
+        },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
         },
         WitLedgerEffect::Enter {
             f_id: FunctionId::from(0u64),
@@ -425,10 +437,12 @@ fn test_effect_handlers() {
         },
         WitLedgerEffect::Resume {
             target: ProcessId(0),
-            f_id: FunctionId::from(0u64),
             val: ref_gen.get("effect_request_response"),
             ret: ref_gen.get("utxo_final").into(),
             caller: Some(ProcessId(0)).into(),
+        },
+        WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from(0u64),
         },
         WitLedgerEffect::UninstallHandler { interface_id },
     ];
@@ -507,7 +521,6 @@ fn test_utxo_resumes_utxo_fails() {
                 WitLedgerEffect::RefPush { vals: v7(b"") },
                 WitLedgerEffect::Resume {
                     target: ProcessId(1),
-                    f_id: FunctionId::from(0u64),
                     val: Ref(0),
                     ret: Ref(0).into(),
                     caller: WitEffectOutput::Resolved(None),
@@ -643,10 +656,12 @@ fn test_duplicate_input_utxo_fails() {
                 WitLedgerEffect::RefPush { vals: v7(b"") },
                 WitLedgerEffect::Resume {
                     target: 0.into(),
-                    f_id: FunctionId::from(0u64),
                     val: Ref(0),
                     ret: Ref(0).into(),
                     caller: WitEffectOutput::Resolved(None),
+                },
+                WitLedgerEffect::ResumeFunctionId {
+                    f_id: FunctionId::from(0u64),
                 },
             ],
         )

@@ -21,7 +21,12 @@ pub trait MemoryTag {
 // this is not a twist and shout limitation, but a limitation in the current
 // middleware, where we just have a single namespace for both ROM and RAM
 // tracing
-const ROM_NAMESPACE: u64 = 0;
+//
+// Tag 0 is reserved and must never be a real segment: the Nebula memory scan
+// uses it as the pre-scan sentinel for the running address and as its padding
+// filler (see `memory::nebula::gadget::enforce_monotonic_commitment`). ROM tags
+// therefore start at 1.
+const ROM_NAMESPACE: u64 = 1;
 const RAM_NAMESPACE: u64 = 1 << 16;
 
 impl MemoryTag for RomMemoryTag {

@@ -107,16 +107,7 @@ impl TransactionSession {
                 .processes
                 .get(pid_idx)
                 .ok_or(TransactionSessionError::MissingProcess(pid))?;
-            let mut trace = traces.get(&pid).cloned().unwrap_or_default();
-            if let Some((creator, init, _)) = spawn_map.get(&pid).copied() {
-                prepend_if_missing(
-                    &mut trace,
-                    WitLedgerEffect::Init {
-                        val: WitEffectOutput::Resolved(init),
-                        caller: WitEffectOutput::Resolved(creator),
-                    },
-                );
-            }
+            let trace = traces.get(&pid).cloned().unwrap_or_default();
             let host_calls_root = trace_commitment(&trace);
             builder = builder.with_fresh_output_and_trace_commitment(
                 starstream_interleaving_spec::NewOutput {
@@ -203,40 +194,11 @@ fn collect_spawn_edges(
     Ok(edges)
 }
 
-fn prepend_if_missing(trace: &mut Vec<WitLedgerEffect>, effect: WitLedgerEffect) {
-    let front = trace.first();
-    let second = trace.get(1);
-    let already_present = match (&effect, front, second) {
-        (WitLedgerEffect::Activation { .. }, Some(WitLedgerEffect::Activation { .. }), _) => true,
-        (WitLedgerEffect::Init { .. }, Some(WitLedgerEffect::Init { .. }), _) => true,
-        (
-            WitLedgerEffect::Activation { .. },
-            Some(WitLedgerEffect::Enter { .. }),
-            Some(WitLedgerEffect::Activation { .. }),
-        ) => true,
-        (
-            WitLedgerEffect::Init { .. },
-            Some(WitLedgerEffect::Enter { .. }),
-            Some(WitLedgerEffect::Init { .. }),
-        ) => true,
-        _ => false,
-    };
-    if !already_present {
-        // `Enter` is the only Starstream-visible effect allowed before the
-        // derived callee-entry context (`Activation` / `Init`) for these paths.
-        trace.insert(index_after_optional_enter(trace), effect);
-    }
-}
-
 fn trace_commitment(trace: &[WitLedgerEffect]) -> LedgerEffectsCommitment {
     trace
         .iter()
         .cloned()
         .fold(LedgerEffectsCommitment::iv(), commit_trace_effect)
-}
-
-fn index_after_optional_enter(trace: &[WitLedgerEffect]) -> usize {
-    usize::from(matches!(trace.first(), Some(WitLedgerEffect::Enter { .. })))
 }
 
 #[cfg(test)]

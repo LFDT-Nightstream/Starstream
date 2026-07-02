@@ -28,7 +28,7 @@ The global state of the interleaving machine σ is defined as:
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, activation, init, ref_store, ref_sizes, ref_bases, ref_building_state, next_ref_id, next_ref_base, process_table, host_calls, must_burn, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn, must_enter, must_exit)
+σ = (id_curr, id_prev, M, activation, init, ref_store, ref_sizes, ref_bases, ref_building_state, next_ref_id, next_ref_base, process_table, host_calls, must_burn, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn, pending_resume_function_id, must_enter, must_exit)
 
 Where:
   id_curr          : ID of the currently executing VM. In the range [0..#coord + #utxo]
@@ -55,9 +55,16 @@ Where:
   handler_stack    : A map {InterfaceID -> Stack<ProcessID>}
   ownership        : A map {ProcessID -> Option<ProcessID>} (token -> owner)
   did_burn         : A map {ProcessID -> Bool}
-  must_enter       : A map {ProcessID -> Option<HandlerId>}
+  pending_resume_function_id
+                  : Option<ProcessID> (when Some(target): the next opcode must
+                    be ResumeFunctionId, which then transfers control to target)
+  must_enter       : A map {ProcessID -> Option<FunctionId>}
   must_exit        : A map {ProcessID -> Bool}
 ```
+
+`FunctionId` is the 4-limb Poseidon2 hash identifying the Starstream-visible
+function. In the circuit, `must_enter` is represented as four flat RAM cells per
+process: `pid * 4 + 0..3`.
 
 Note that the maps are used here for convenience of notation. In practice they
 are memory arguments enforced through an auxiliary protocol, like Twist And
@@ -102,7 +109,7 @@ change `yield_to` unless the process yields again.
 ```text
 Rule: Resume
 ============
-    op = Resume(target, f_id, val_ref) -> (ret_ref, caller)
+    op = Resume(target, val_ref) -> (ret_ref, caller)
 
     1. id_curr ≠ target
 
@@ -128,13 +135,14 @@ Rule: Resume
     2. expected_resumer[id_curr] <- caller    (Claim, needs to be checked later by future resumer)
     3. expected_input[target]    <- None      (Target claim consumed by this resume)
     4. expected_resumer[target]  <- None      (Target claim consumed by this resume)
-    5. id_prev'                  <- id_curr   (Trace-local previous id)
-    6. id_curr'                  <- target    (Switch)
-    7. if on_yield[target] then
+    5. if on_yield[target] then
            yield_to'[target]     <- Some(id_curr)
            on_yield'[target]     <- False
-    8. activation'[target]       <- Some(val_ref, id_curr)
-    9. must_enter'[target]       <- Some(f_id)
+    6. activation'[target]       <- Some(val_ref, id_curr)
+    7. pending_resume_function_id' <- Some(target)
+
+    (No control switch here: it is deferred to the following ResumeFunctionId,
+     so the target's function id is attributed to the caller's trace.)
 ```
 
 ## Activation
@@ -227,8 +235,35 @@ a function scope, so these are not runtime-agnostic opcodes in that regard.
 For the current Starstream subset:
 
 - `Enter(function_id)` proves which Starstream-visible function began running.
+- `ResumeFunctionId(function_id)` binds the function id chosen by the caller and
+  performs the control transfer set up by the immediately preceding `Resume` or
+  `CallEffectHandler`.
 - `Return` ends the current function frame.
 - `Yield` does not end the current function frame; it suspends it.
+
+`Resume` and `CallEffectHandler` do **not** switch control. They record the
+target in `pending_resume_function_id` and require that the resumer's next
+opcode be `ResumeFunctionId(function_id)`. `ResumeFunctionId` runs while
+`id_curr` is still the caller — so the function id it carries is attributed to
+the caller's trace (in the circuit, absorbed into the caller's trace
+commitment) — and only then transfers control to the target. After
+`ResumeFunctionId`, the next opcode for the target must be `Enter(function_id)`.
+
+```text
+Rule: Resume Function Id
+========================
+    op = ResumeFunctionId(function_id)
+
+    1. pending_resume_function_id == Some(target)
+
+    (A preceding Resume/CallEffectHandler recorded the deferred control transfer)
+
+-----------------------------------------------------------------------
+    1. must_enter'[target]               <- Some(function_id)
+    2. id_prev'                          <- id_curr
+    3. id_curr'                          <- target   (deferred control switch)
+    4. pending_resume_function_id'       <- None
+```
 
 ```text
 Rule: Handler Enter
@@ -389,7 +424,7 @@ space), and resolves to `handler_stack[interface_id].top()`.
 ```text
 Rule: Call Effect Handler
 =========================
-    op = CallEffectHandler(interface_id, f_id, val_ref) -> ret_ref
+    op = CallEffectHandler(interface_id, val_ref) -> ret_ref
 
     1. target = handler_stack[interface_id].top()
 
@@ -413,10 +448,11 @@ Rule: Call Effect Handler
     2. expected_resumer[id_curr] <- Some(target)
     3. expected_input[target]    <- None
     4. expected_resumer[target]  <- None
-    5. id_prev'                  <- id_curr
-    6. id_curr'                  <- target
-    7. activation'[target]       <- Some(val_ref, id_curr)
-    8. must_enter'[target]       <- Some(f_id)
+    5. activation'[target]       <- Some(val_ref, id_curr)
+    6. pending_resume_function_id' <- Some(target)
+
+    (As with Resume, the control switch is deferred to the following
+     ResumeFunctionId.)
 ```
 
 ---

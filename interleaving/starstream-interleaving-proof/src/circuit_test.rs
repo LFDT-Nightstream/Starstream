@@ -1,7 +1,10 @@
-use crate::{logging::setup_logger, prove};
+use std::num::NonZeroUsize;
+
+use crate::{logging::setup_logger, prove, prove_with_batch_size};
 use starstream_interleaving_spec::{
     CoroutineState, FunctionId, Hash, InterleavingInstance, InterleavingWitness,
-    LedgerEffectsCommitment, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
+    LedgerEffectsCommitment, ProcessId, Ref, Value, VerificationError, WitEffectOutput,
+    WitLedgerEffect, ZkTransactionProof,
 };
 
 pub fn h<T>(n: u8) -> Hash<T> {
@@ -35,7 +38,6 @@ fn resume_effect(
 ) -> WitLedgerEffect {
     WitLedgerEffect::Resume {
         target,
-        f_id: FunctionId::from(0u64),
         val,
         ret: WitEffectOutput::Resolved(ret),
         caller: WitEffectOutput::Resolved(caller),
@@ -44,6 +46,10 @@ fn resume_effect(
 
 fn enter_effect(f_id: FunctionId) -> WitLedgerEffect {
     WitLedgerEffect::Enter { f_id }
+}
+
+fn resume_function_id_effect(f_id: FunctionId) -> WitLedgerEffect {
+    WitLedgerEffect::ResumeFunctionId { f_id }
 }
 
 fn host_calls_roots(traces: &[Vec<WitLedgerEffect>]) -> Vec<LedgerEffectsCommitment> {
@@ -80,8 +86,11 @@ fn test_circuit_many_steps() {
     let ref_1 = Ref(1);
     let ref_4 = Ref(2);
 
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+    let f_token = FunctionId::from([5u64, 6, 7, 8]);
+
     let utxo_trace = vec![
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_utxo),
         WitLedgerEffect::Init {
             val: ref_4.into(),
             caller: p2.into(),
@@ -105,7 +114,7 @@ fn test_circuit_many_steps() {
     ];
 
     let token_trace = vec![
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_token),
         WitLedgerEffect::Init {
             val: ref_1.into(),
             caller: p2.into(),
@@ -152,10 +161,12 @@ fn test_circuit_many_steps() {
             id: p1.into(),
         },
         resume_effect(p1, ref_0, ref_1, None),
+        resume_function_id_effect(f_token),
         WitLedgerEffect::InstallHandler {
             interface_id: h(100),
         },
         resume_effect(p0, ref_0, ref_1, Some(p0)),
+        resume_function_id_effect(f_utxo),
         WitLedgerEffect::UninstallHandler {
             interface_id: h(100),
         },
@@ -200,8 +211,10 @@ fn test_circuit_small() {
 
     let ref_0 = Ref(0);
 
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+
     let utxo_trace = vec![
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_utxo),
         WitLedgerEffect::Yield {
             val: ref_0, // Yielding nothing
         },
@@ -219,6 +232,7 @@ fn test_circuit_small() {
             id: p0.into(),
         },
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
     ];
 
     let traces = vec![utxo_trace, coord_trace];
@@ -255,8 +269,10 @@ fn test_circuit_burn_then_yield_sat() {
     let ref_0 = Ref(0);
     let val_0 = v(&[7]);
 
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+
     let utxo_trace = vec![
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_utxo),
         WitLedgerEffect::Activation {
             val: ref_0.into(),
             caller: p1.into(),
@@ -272,6 +288,7 @@ fn test_circuit_burn_then_yield_sat() {
         },
         ref_push1(val_0),
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
     ];
 
     let traces = vec![utxo_trace, coord_trace];
@@ -315,10 +332,10 @@ fn test_circuit_resumer_mismatch() {
 
     let ref_0 = Ref(0);
 
-    let utxo_trace = vec![
-        enter_effect(FunctionId::from(0u64)),
-        WitLedgerEffect::Yield { val: ref_0 },
-    ];
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+    let f_coord_b = FunctionId::from([5u64, 6, 7, 8]);
+
+    let utxo_trace = vec![enter_effect(f_utxo), WitLedgerEffect::Yield { val: ref_0 }];
 
     let coord_a_trace = vec![
         WitLedgerEffect::NewRef {
@@ -337,12 +354,15 @@ fn test_circuit_resumer_mismatch() {
             id: p2.into(),
         },
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
         resume_effect(p2, ref_0, ref_0, None),
+        resume_function_id_effect(f_coord_b),
     ];
 
     let coord_b_trace = vec![
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_coord_b),
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
     ];
 
     let traces = vec![utxo_trace, coord_a_trace, coord_b_trace];
@@ -503,12 +523,13 @@ fn test_yield_parent_resumer_mismatch_trace() {
 
     // Coord A resumes UTXO but sets its own expected_resumer to Coord B.
     // Then UTXO yields back to Coord A. Spec says this should fail.
-    let utxo_trace = vec![
-        enter_effect(FunctionId::from(0u64)),
-        WitLedgerEffect::Yield { val: ref_1 },
-    ];
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+    let utxo_trace = vec![enter_effect(f_utxo), WitLedgerEffect::Yield { val: ref_1 }];
 
-    let coord_a_trace = vec![resume_effect(p0, ref_0, ref_1, Some(p2))];
+    let coord_a_trace = vec![
+        resume_effect(p0, ref_0, ref_1, Some(p2)),
+        resume_function_id_effect(f_utxo),
+    ];
 
     let coord_b_trace = vec![];
 
@@ -552,18 +573,22 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
     let val_0 = v(&[7]);
     let iface = h(100);
 
+    let f_utxo = FunctionId::from([1u64, 2, 3, 4]);
+    let f_handler = FunctionId::from([5u64, 6, 7, 8]);
+    let f_ceh = FunctionId::from([9u64, 10, 11, 12]);
+
     let utxo_trace = vec![
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_utxo),
         WitLedgerEffect::Init {
             val: ref_0.into(),
             caller: p1.into(),
         },
         WitLedgerEffect::CallEffectHandler {
             interface_id: iface,
-            f_id: FunctionId::from(0u64),
             val: ref_0,
             ret: ref_0.into(),
         },
+        resume_function_id_effect(f_ceh),
         WitLedgerEffect::Yield { val: ref_0 },
     ];
 
@@ -584,12 +609,14 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
             id: p2.into(),
         },
         resume_effect(p2, ref_0, ref_0, None),
+        resume_function_id_effect(f_handler),
         // Invalid on purpose: after p0 CallEffectHandler, only p2 should resume p0.
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
     ];
 
     let coord_handler_trace = vec![
-        enter_effect(FunctionId::from(0u64)),
+        enter_effect(f_handler),
         WitLedgerEffect::Init {
             val: ref_0.into(),
             caller: p1.into(),
@@ -598,6 +625,7 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
             interface_id: iface,
         },
         resume_effect(p0, ref_0, ref_0, None),
+        resume_function_id_effect(f_utxo),
         WitLedgerEffect::Return {},
     ];
 
@@ -651,9 +679,9 @@ fn test_entrypoint_return_sat() {
         process_table: vec![h(0)],
         is_utxo: vec![false],
         is_token: vec![false],
-        must_burn: vec![],
-        ownership_in: vec![],
-        ownership_out: vec![],
+        must_burn: vec![false],
+        ownership_in: vec![None],
+        ownership_out: vec![None],
         host_calls_roots,
         input_states: vec![],
     };
@@ -692,4 +720,153 @@ fn test_non_entrypoint_return_without_parent_panics() {
 
     let wit = InterleavingWitness { traces };
     let _ = prove(instance, wit);
+}
+
+// The extracted ark R1CS must be satisfied by the neo-fold assignment.
+#[test]
+fn test_folding_r1cs_extraction_satisfies() {
+    setup_logger();
+
+    let p0 = ProcessId(0);
+    let ref_0 = Ref(0);
+    let val_0 = v(&[7]);
+
+    let entry_trace = vec![
+        WitLedgerEffect::NewRef {
+            size: 1,
+            ret: ref_0.into(),
+        },
+        ref_push1(val_0),
+        WitLedgerEffect::Return {},
+    ];
+
+    let traces = vec![entry_trace];
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 0,
+        n_coords: 1,
+        entrypoint: p0,
+        process_table: vec![h(0)],
+        is_utxo: vec![false],
+        is_token: vec![false],
+        must_burn: vec![],
+        ownership_in: vec![],
+        ownership_out: vec![],
+        host_calls_roots,
+        input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+
+    let (shape, assignments) = crate::folding::extract_r1cs_and_assignments(
+        instance.clone(),
+        wit.clone(),
+        NonZeroUsize::new(crate::DEFAULT_BATCH_SIZE).unwrap(),
+    )
+    .expect("extract r1cs");
+    assert!(!assignments.is_empty());
+    for (i, z) in assignments.iter().enumerate() {
+        assert_eq!(z.len(), shape.r1cs.m, "step {i} assignment width");
+        shape
+            .r1cs
+            .is_satisfied_by(z)
+            .unwrap_or_else(|e| panic!("step {i} not satisfied by neo R1CS: {e:?}"));
+    }
+
+    let proof = prove(instance.clone(), wit.clone()).expect("prove");
+    proof.verify(&instance, &wit).expect("verify");
+
+    // A forged base-step anchor must be rejected before audit verification.
+    let ZkTransactionProof::Neo {
+        r1cs,
+        mut plan,
+        audit,
+    } = proof
+    else {
+        panic!("expected a Neo proof");
+    };
+    plan.state_x_out
+        .as_mut()
+        .expect("state_x_out")
+        .initial_semantic_state_digest_anchor = Some([0xAB; 32]);
+    let tampered = ZkTransactionProof::Neo { r1cs, plan, audit };
+    let err = tampered
+        .verify(&instance, &wit)
+        .expect_err("verify must reject a forged base-step anchor");
+    assert!(
+        matches!(err, VerificationError::FoldVerification(_)),
+        "expected FoldVerification for a mismatched anchor, got {err:?}"
+    );
+}
+
+/// Regression: a folded trace whose step count is not a multiple of the batch
+/// size must still prove and verify. The batch-fill Nops run past
+/// `required_steps`, so they exercise the Nebula scan's tag-0 padding — which is
+/// gated out of the IS/FS commitment/fingerprint by `scan` (see the `active`
+/// gate). Guards the batch-fill fold path (no aligned test hits it), and once
+/// the Poseidon IC commitment is re-enabled it also guards against scan/batch
+/// padding drifting apart.
+#[test]
+fn test_folding_batch_fill_nops_round_trip() {
+    setup_logger();
+
+    let p0 = ProcessId(0);
+    let ref_0 = Ref(0);
+    let val_0 = v(&[7]);
+
+    let entry_trace = vec![
+        WitLedgerEffect::NewRef {
+            size: 1,
+            ret: ref_0.into(),
+        },
+        ref_push1(val_0),
+        WitLedgerEffect::Return {},
+    ];
+    let traces = vec![entry_trace];
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 0,
+        n_coords: 1,
+        entrypoint: p0,
+        process_table: vec![h(0)],
+        is_utxo: vec![false],
+        is_token: vec![false],
+        must_burn: vec![],
+        ownership_in: vec![],
+        ownership_out: vec![],
+        host_calls_roots,
+        input_states: vec![],
+    };
+    let wit = InterleavingWitness { traces };
+
+    // Probe the natural (unbatched, scan-padded) step count, then pick the
+    // smallest batch size that does NOT divide it, so batch-fill Nops are
+    // required and run past `required_steps` (tag-0 scan padding).
+    let (_, unbatched) = crate::folding::extract_r1cs_and_assignments(
+        instance.clone(),
+        wit.clone(),
+        NonZeroUsize::new(1).unwrap(),
+    )
+    .expect("probe extract");
+    let natural_steps = unbatched.len();
+    let batch_size = (2usize..)
+        .find(|b| natural_steps % b != 0)
+        .expect("a non-divisor always exists");
+    assert_ne!(
+        natural_steps % batch_size,
+        0,
+        "test must require batch-fill (natural_steps={natural_steps})"
+    );
+
+    let proof = prove_with_batch_size(
+        instance.clone(),
+        wit.clone(),
+        NonZeroUsize::new(batch_size).unwrap(),
+    )
+    .expect("prove");
+    proof.verify(&instance, &wit).expect("verify");
 }

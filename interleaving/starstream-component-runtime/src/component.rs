@@ -547,29 +547,34 @@ fn call_resource_method(
         _ => ComponentValueIr::Tuple(value_args.clone()),
     };
     let payload = allocate_payload_ref(ctx.data_mut(), caller, payload_value)?;
-    ctx.data_mut().executor.record_import(
-        caller,
-        HostImportCall::Resume {
-            target,
-            payload,
-            function_id: method_function_id(import_name, func_name),
-        },
-    )?;
+    ctx.data_mut()
+        .executor
+        .record_import(caller, HostImportCall::Resume { target, payload })?;
 
-    // TODO(interleaving-proof): method dispatch currently executes the target export
-    // synchronously in the host and only records the caller-side `Resume`. Once the
-    // witness/circuit preserves `function_id`, this should become a traced callee turn.
     let instance =
         *ctx.data().instances.get(&target_pid).ok_or_else(|| {
             wasmtime::format_err!("missing instantiated target for {target_pid:?}")
         })?;
+    let method_f_id = method_function_id(import_name, func_name);
+    ctx.data_mut().executor.append_effect(
+        caller,
+        WitLedgerEffect::ResumeFunctionId { f_id: method_f_id },
+    );
     let previous_process = ctx.data().current_process;
     ctx.data_mut().current_process = target_pid;
     ctx.data_mut().executed_steps.push(target_pid);
-    let method_f_id = FunctionId::from(method_function_id(import_name, func_name));
     ctx.data_mut()
         .executor
         .append_effect(target_pid, WitLedgerEffect::Enter { f_id: method_f_id });
+    if let Some((init, creator)) = ctx.data_mut().executor.take_pending_init(target_pid) {
+        ctx.data_mut().executor.append_effect(
+            target_pid,
+            WitLedgerEffect::Init {
+                val: WitEffectOutput::Resolved(init),
+                caller: WitEffectOutput::Resolved(creator),
+            },
+        );
+    }
     ctx.data_mut().executor.append_effect(
         target_pid,
         WitLedgerEffect::Activation {
@@ -850,16 +855,14 @@ fn pack_bytes_to_safe_limbs(bytes: &[u8]) -> Vec<F> {
     out
 }
 
-// TODO: This is wrong. We should include the entire hash, but then use indexes
-// with a lookup in the circuit
-fn method_function_id(import_name: &str, func_name: &str) -> u64 {
+fn method_function_id(import_name: &str, func_name: &str) -> FunctionId {
     let mut msg = pack_bytes_to_safe_limbs("starstream/function_id/v1/poseidon2".as_bytes());
     msg.push(F::from(import_name.len() as u64));
     msg.extend(pack_bytes_to_safe_limbs(import_name.as_bytes()));
     msg.push(F::from(func_name.len() as u64));
     msg.extend(pack_bytes_to_safe_limbs(func_name.as_bytes()));
     let hash = ark_poseidon2::sponge_12_trace(&msg).expect("poseidon2 method id");
-    hash[0].into_bigint().0[0]
+    FunctionId::from(hash.map(|limb| limb.into_bigint().0[0]))
 }
 
 fn default_val_for_schema(schema: &ComponentTypeIr) -> WasmtimeVal {

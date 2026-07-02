@@ -396,7 +396,15 @@ fn format_edge_line(
             Some(format!("{from} ->> {to}: {label}"))
         }
         WitLedgerEffect::CallEffectHandler { val, .. } => {
-            let target = ctx.interleaving.get(idx + 1).map(|(p, _)| *p)?;
+            // The control transfer is deferred to the following `ResumeFunctionId`
+            // row, which is emitted under the caller. The handler is the next row
+            // that isn't that synthetic `ResumeFunctionId`.
+            let target = ctx
+                .interleaving
+                .get(idx + 1..)?
+                .iter()
+                .find(|(_, e)| !matches!(e, WitLedgerEffect::ResumeFunctionId { .. }))
+                .map(|(p, _)| *p)?;
             let interface_id = ctx.handler_interfaces.get(&target);
             let label = format!(
                 "call_effect_handler<br/>{}",

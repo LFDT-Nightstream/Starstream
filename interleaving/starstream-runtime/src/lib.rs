@@ -9,6 +9,7 @@ use starstream_interleaving_spec::{
 };
 use starstream_interleaving_spec::{REF_GET_WIDTH, REF_PUSH_WIDTH, REF_WRITE_WIDTH};
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use wasmtime::component::{
     Component, Instance as ComponentInstance, Linker as ComponentLinker, Val as ComponentVal,
 };
@@ -90,7 +91,6 @@ fn decode_effect_from_commit_abi(
     let effect = match disc {
         EffectDiscriminant::Resume => WitLedgerEffect::Resume {
             target: ProcessId(arg(ArgName::Target) as usize),
-            f_id: FunctionId::from(arg(ArgName::FunctionId1)),
             val: Ref(arg(ArgName::Val)),
             ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
             caller: WitEffectOutput::Resolved(decode_optional_pid(arg(ArgName::Caller))),
@@ -217,12 +217,24 @@ fn decode_effect_from_commit_abi(
                 arg(ArgName::InterfaceId2),
                 arg(ArgName::InterfaceId3),
             ),
-            f_id: FunctionId::from(arg(ArgName::FunctionId0)),
             val: Ref(arg(ArgName::Val)),
             ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
         },
+        EffectDiscriminant::ResumeFunctionId => WitLedgerEffect::ResumeFunctionId {
+            f_id: FunctionId::from([
+                arg(ArgName::FunctionHash0),
+                arg(ArgName::FunctionHash1),
+                arg(ArgName::FunctionHash2),
+                arg(ArgName::FunctionHash3),
+            ]),
+        },
         EffectDiscriminant::Enter => WitLedgerEffect::Enter {
-            f_id: FunctionId::from(arg(ArgName::FunctionId0)),
+            f_id: FunctionId::from([
+                arg(ArgName::FunctionHash0),
+                arg(ArgName::FunctionHash1),
+                arg(ArgName::FunctionHash2),
+                arg(ArgName::FunctionHash3),
+            ]),
         },
     };
     Ok(effect)
@@ -469,7 +481,6 @@ impl Runtime {
 
                 store.data_mut().pending_host_effect = Some(WitLedgerEffect::Resume {
                     target,
-                    f_id: FunctionId::from(0u64),
                     val,
                     ret,
                     caller: WitEffectOutput::Resolved(None),
@@ -669,7 +680,6 @@ impl Runtime {
                 let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                 store.data_mut().pending_host_effect = Some(WitLedgerEffect::CallEffectHandler {
                     interface_id,
-                    f_id: FunctionId::from(0u64),
                     val: Ref(val),
                     ret: WitEffectOutput::Resolved(Ref(0)),
                 });
@@ -928,10 +938,23 @@ impl UnprovenTransaction {
     }
 
     pub fn prove(self) -> Result<ProvenTransaction, Error> {
+        self.prove_with_batch_size(
+            NonZeroUsize::new(starstream_interleaving_proof::DEFAULT_BATCH_SIZE).unwrap(),
+        )
+    }
+
+    pub fn prove_with_batch_size(
+        self,
+        batch_size: NonZeroUsize,
+    ) -> Result<ProvenTransaction, Error> {
         let (instance, state, witness) = self.execute()?;
 
-        let proof = starstream_interleaving_proof::prove(instance.clone(), witness.clone())
-            .map_err(|e| Error::RuntimeError(e.to_string()))?;
+        let proof = starstream_interleaving_proof::prove_with_batch_size(
+            instance.clone(),
+            witness.clone(),
+            batch_size,
+        )
+        .map_err(|e| Error::RuntimeError(e.to_string()))?;
 
         trace_mermaid::emit_trace_mermaid(&instance, &state);
 
@@ -1154,16 +1177,30 @@ impl UnprovenTransaction {
 
             match last_effect {
                 WitLedgerEffect::Resume { target, val, .. } => {
+                    let f_id = FunctionId::from(0u64);
                     runtime
                         .store
                         .data_mut()
                         .pending_activation
                         .insert(target, (val, current_pid));
+                    runtime
+                        .store
+                        .data_mut()
+                        .effect_traces
+                        .entry(current_pid)
+                        .or_default()
+                        .push(Some(WitLedgerEffect::ResumeFunctionId { f_id }));
+                    runtime
+                        .store
+                        .data_mut()
+                        .interleaving
+                        .push((current_pid, WitLedgerEffect::ResumeFunctionId { f_id }));
                     current_pid = target;
                 }
                 WitLedgerEffect::CallEffectHandler {
                     interface_id, val, ..
                 } => {
+                    let f_id = FunctionId::from(0u64);
                     let target = {
                         let stack = runtime
                             .store
@@ -1182,6 +1219,18 @@ impl UnprovenTransaction {
                         .data_mut()
                         .pending_activation
                         .insert(target, (val, current_pid));
+                    runtime
+                        .store
+                        .data_mut()
+                        .effect_traces
+                        .entry(current_pid)
+                        .or_default()
+                        .push(Some(WitLedgerEffect::ResumeFunctionId { f_id }));
+                    runtime
+                        .store
+                        .data_mut()
+                        .interleaving
+                        .push((current_pid, WitLedgerEffect::ResumeFunctionId { f_id }));
                     current_pid = target;
                 }
                 WitLedgerEffect::Yield { val, .. } => {

@@ -6,6 +6,9 @@ use crate::handler_stack_gadget::{
 };
 use crate::ledger_operation::{REF_GET_BATCH_SIZE, REF_PUSH_BATCH_SIZE};
 use crate::memory::{self, Address, IVCMemory, MemType, MemoryTag as _};
+use crate::must_enter_gadget::{
+    must_enter_read_wires, must_enter_write_wires, trace_must_enter_reads, trace_must_enter_writes,
+};
 use crate::program_hash_gadget::{program_hash_access_wires, trace_program_hash_ops};
 use crate::program_state::{
     ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
@@ -65,12 +68,14 @@ type StepCircuitResult<M> = Result<
     (
         InterRoundWires,
         <<M as IVCMemory<F>>::Allocator as IVCMemoryAllocated<F>>::FinishStepPayload,
-        Option<IvcWireLayout>,
+        // Program-state IVC wires of this sub-step: (input, output). The caller
+        // chains output[k] == input[k+1] within a batch and records the batch's
+        // first-input / last-output indices for cross-linking.
+        IvcWiresVars,
+        IvcWiresVars,
     ),
     SynthesisError,
 >;
-
-// OptionalF/OptionalFpVar live in optional.rs
 
 /// common circuit variables to all the opcodes
 #[derive(Clone)]
@@ -81,6 +86,8 @@ pub struct Wires {
     next_ref_id: FpVar<F>,
     ref_arena_len: FpVar<F>,
     handler_stack_ptr: FpVar<F>,
+    pending_resume_function_id: OptionalFpVar<F>,
+    pending_enter: FpVar<F>,
 
     ref_building_remaining: FpVar<F>,
     ref_building_ptr: FpVar<F>,
@@ -94,6 +101,7 @@ pub struct Wires {
 
     target_read_wires: ProgramStateWires,
     target_write_wires: ProgramStateWires,
+    curr_must_enter_hash: [FpVar<F>; 4],
 
     ref_arena_read: [FpVar<F>; REF_GET_BATCH_SIZE],
     handler_state: HandlerState,
@@ -137,6 +145,8 @@ pub struct InterRoundWires {
     next_ref_id: F,
     ref_arena_len: F,
     handler_stack_counter: F,
+    pending_resume_function_id: OptionalF<F>,
+    pending_enter: F,
 
     ref_building_remaining: F,
     ref_building_ptr: F,
@@ -149,6 +159,8 @@ pub struct IvcWireIndices {
     pub next_ref_id: usize,
     pub ref_arena_len: usize,
     pub handler_stack_ptr: usize,
+    pub pending_resume_function_id: usize,
+    pub pending_enter: usize,
     pub ref_building_remaining: usize,
     pub ref_building_ptr: usize,
 }
@@ -160,7 +172,7 @@ pub struct IvcWireLayout {
 }
 
 impl IvcWireLayout {
-    pub const FIELD_COUNT: usize = 7;
+    pub const FIELD_COUNT: usize = 9;
 
     pub fn input_indices(&self) -> [usize; Self::FIELD_COUNT] {
         [
@@ -169,6 +181,8 @@ impl IvcWireLayout {
             self.input.next_ref_id,
             self.input.ref_arena_len,
             self.input.handler_stack_ptr,
+            self.input.pending_resume_function_id,
+            self.input.pending_enter,
             self.input.ref_building_remaining,
             self.input.ref_building_ptr,
         ]
@@ -181,9 +195,83 @@ impl IvcWireLayout {
             self.output.next_ref_id,
             self.output.ref_arena_len,
             self.output.handler_stack_ptr,
+            self.output.pending_resume_function_id,
+            self.output.pending_enter,
             self.output.ref_building_remaining,
             self.output.ref_building_ptr,
         ]
+    }
+}
+
+/// The program-state IVC wires.
+///
+/// Cross-step continuity most be enforced for this, both across folding steps,
+/// and also intra-step if using batching.
+#[derive(Clone)]
+pub(crate) struct IvcWiresVars {
+    id_curr: FpVar<F>,
+    id_prev_encoded: FpVar<F>,
+    next_ref_id: FpVar<F>,
+    ref_arena_len: FpVar<F>,
+    handler_stack_ptr: FpVar<F>,
+    pending_resume_function_id_encoded: FpVar<F>,
+    pending_enter: FpVar<F>,
+    ref_building_remaining: FpVar<F>,
+    ref_building_ptr: FpVar<F>,
+}
+
+impl IvcWiresVars {
+    fn from_wires(w: &Wires) -> Self {
+        Self {
+            id_curr: w.id_curr.clone(),
+            id_prev_encoded: w.id_prev.encoded(),
+            next_ref_id: w.next_ref_id.clone(),
+            ref_arena_len: w.ref_arena_len.clone(),
+            handler_stack_ptr: w.handler_stack_ptr.clone(),
+            pending_resume_function_id_encoded: w.pending_resume_function_id.encoded(),
+            pending_enter: w.pending_enter.clone(),
+            ref_building_remaining: w.ref_building_remaining.clone(),
+            ref_building_ptr: w.ref_building_ptr.clone(),
+        }
+    }
+
+    pub(crate) fn enforce_equal(&self, next: &Self) -> Result<(), SynthesisError> {
+        self.id_curr.enforce_equal(&next.id_curr)?;
+        self.id_prev_encoded.enforce_equal(&next.id_prev_encoded)?;
+        self.next_ref_id.enforce_equal(&next.next_ref_id)?;
+        self.ref_arena_len.enforce_equal(&next.ref_arena_len)?;
+        self.handler_stack_ptr
+            .enforce_equal(&next.handler_stack_ptr)?;
+        self.pending_resume_function_id_encoded
+            .enforce_equal(&next.pending_resume_function_id_encoded)?;
+        self.pending_enter.enforce_equal(&next.pending_enter)?;
+        self.ref_building_remaining
+            .enforce_equal(&next.ref_building_remaining)?;
+        self.ref_building_ptr
+            .enforce_equal(&next.ref_building_ptr)?;
+        Ok(())
+    }
+
+    /// Witness-local indices of these wires in `cs` (the positions the fold's
+    /// `semantic_state_*_var_indices` reference, before the `+ m_in` shift).
+    pub(crate) fn indices(
+        &self,
+        cs: &ConstraintSystemRef<F>,
+    ) -> Result<IvcWireIndices, SynthesisError> {
+        Ok(IvcWireIndices {
+            id_curr: fpvar_witness_index(cs, &self.id_curr)?,
+            id_prev: fpvar_witness_index(cs, &self.id_prev_encoded)?,
+            next_ref_id: fpvar_witness_index(cs, &self.next_ref_id)?,
+            ref_arena_len: fpvar_witness_index(cs, &self.ref_arena_len)?,
+            handler_stack_ptr: fpvar_witness_index(cs, &self.handler_stack_ptr)?,
+            pending_resume_function_id: fpvar_witness_index(
+                cs,
+                &self.pending_resume_function_id_encoded,
+            )?,
+            pending_enter: fpvar_witness_index(cs, &self.pending_enter)?,
+            ref_building_remaining: fpvar_witness_index(cs, &self.ref_building_remaining)?,
+            ref_building_ptr: fpvar_witness_index(cs, &self.ref_building_ptr)?,
+        })
     }
 }
 
@@ -218,6 +306,11 @@ impl Wires {
         let ref_arena_len = FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_len))?;
         let handler_stack_counter =
             FpVar::new_witness(cs.clone(), || Ok(vals.irw.handler_stack_counter))?;
+        let pending_resume_function_id =
+            OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
+                Ok(vals.irw.pending_resume_function_id.encoded())
+            })?);
+        let pending_enter = FpVar::new_witness(cs.clone(), || Ok(vals.irw.pending_enter))?;
 
         let ref_building_remaining =
             FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_building_remaining))?;
@@ -250,6 +343,8 @@ impl Wires {
         let curr_address = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.id_curr))?;
         let curr_read_wires =
             program_state_read_wires(rm, &cs, curr_address.clone(), &curr_mem_switches)?;
+        let curr_must_enter_hash =
+            must_enter_read_wires(cs.clone(), rm, &switches.enter, &curr_address)?;
 
         let handler_switches =
             HandlerSwitchboardWires::allocate(cs.clone(), &vals.handler_switches)?;
@@ -295,6 +390,21 @@ impl Wires {
             target_address.clone(),
             &target_write_wires,
             &target_mem_switches,
+        )?;
+
+        let function_hash_args = [
+            opcode_args[ArgName::FunctionHash0.idx()].clone(),
+            opcode_args[ArgName::FunctionHash1.idx()].clone(),
+            opcode_args[ArgName::FunctionHash2.idx()].clone(),
+            opcode_args[ArgName::FunctionHash3.idx()].clone(),
+        ];
+        let must_enter_write_address = pending_resume_function_id.decode_or_zero()?;
+        must_enter_write_wires(
+            cs.clone(),
+            rm,
+            &switches.resume_function_id,
+            &must_enter_write_address,
+            &function_hash_args,
         )?;
 
         let rom_switches = RomSwitchboardWires::allocate(cs.clone(), &vals.rom_switches)?;
@@ -388,6 +498,8 @@ impl Wires {
             next_ref_id,
             ref_arena_len,
             handler_stack_ptr: handler_stack_counter,
+            pending_resume_function_id,
+            pending_enter,
 
             ref_building_remaining,
             ref_building_ptr,
@@ -404,6 +516,7 @@ impl Wires {
 
             target_read_wires,
             target_write_wires,
+            curr_must_enter_hash,
 
             is_utxo_curr,
             is_utxo_target,
@@ -424,6 +537,8 @@ impl InterRoundWires {
             next_ref_id: F::ZERO,
             ref_arena_len: F::ZERO,
             handler_stack_counter: F::ZERO,
+            pending_resume_function_id: OptionalF::none(),
+            pending_enter: F::ZERO,
             ref_building_remaining: F::ZERO,
             ref_building_ptr: F::ZERO,
         }
@@ -465,6 +580,9 @@ impl InterRoundWires {
         );
 
         self.handler_stack_counter = res.handler_stack_ptr.value().unwrap();
+        self.pending_resume_function_id =
+            OptionalF::from_encoded(res.pending_resume_function_id.value().unwrap());
+        self.pending_enter = res.pending_enter.value().unwrap();
 
         self.ref_building_remaining = res.ref_building_remaining.value().unwrap();
         self.ref_building_ptr = res.ref_building_ptr.value().unwrap();
@@ -505,11 +623,13 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.yield_to = true;
                 config.mem_switches_target.finalized = true;
                 config.mem_switches_target.initialized = true;
-                config.mem_switches_target.must_enter = true;
                 config.mem_switches_target.must_exit = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
+            }
+            LedgerOperation::ResumeFunctionId { .. } => {
+                config.execution_switches.resume_function_id = true;
             }
             LedgerOperation::CallEffectHandler { .. } => {
                 config.execution_switches.call_effect_handler = true;
@@ -523,7 +643,6 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
                 config.mem_switches_target.finalized = true;
-                config.mem_switches_target.must_enter = true;
                 config.mem_switches_target.must_exit = true;
 
                 config.handler_switches.read_interface = true;
@@ -533,7 +652,6 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::Enter { .. } => {
                 config.execution_switches.enter = true;
 
-                config.mem_switches_curr.must_enter = true;
                 config.mem_switches_curr.must_exit = true;
             }
             LedgerOperation::Yield { .. } => {
@@ -547,7 +665,6 @@ impl LedgerOperation<crate::F> {
 
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
-                config.mem_switches_target.must_enter = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
             }
@@ -729,11 +846,7 @@ impl LedgerOperation<crate::F> {
                 // Nop does nothing to the state
             }
             LedgerOperation::Resume {
-                f_id,
-                val,
-                ret,
-                caller,
-                ..
+                val, ret, caller, ..
             } => {
                 curr_write.activation = F::ZERO;
                 curr_write.expected_input = OptionalF::new(*ret);
@@ -749,9 +862,9 @@ impl LedgerOperation<crate::F> {
                     target_write.yield_to = OptionalF::new(curr_id);
                 }
                 target_write.on_yield = false;
-                target_write.must_enter = OptionalF::new(*f_id);
             }
-            LedgerOperation::CallEffectHandler { f_id, val, ret, .. } => {
+            LedgerOperation::ResumeFunctionId { .. } => {}
+            LedgerOperation::CallEffectHandler { val, ret, .. } => {
                 let target = target_id.expect("CallEffectHandler requires resolved handler target");
                 curr_write.activation = F::ZERO;
                 curr_write.expected_input = OptionalF::new(*ret);
@@ -762,10 +875,8 @@ impl LedgerOperation<crate::F> {
                 target_write.expected_resumer = OptionalF::none();
                 target_write.activation = *val;
                 target_write.finalized = false;
-                target_write.must_enter = OptionalF::new(*f_id);
             }
             LedgerOperation::Enter { .. } => {
-                curr_write.must_enter = OptionalF::none();
                 curr_write.must_exit = true;
             }
             LedgerOperation::Yield { val: _, .. } => {
@@ -835,7 +946,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         rm: &mut M::Allocator,
         cs: ConstraintSystemRef<F>,
         mut irw: InterRoundWires,
-        compute_ivc_layout: bool,
     ) -> StepCircuitResult<M> {
         rm.start_step(cs.clone()).unwrap();
 
@@ -856,6 +966,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // is valid
         //
         // but the Enter opcode semantics are enforced in visit_enter
+        let next_wires = self.visit_pending_resume_function_id(next_wires)?;
         let next_wires = self.visit_pending_enter(next_wires)?;
 
         // per opcode constraints
@@ -863,6 +974,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_wires = self.visit_return(next_wires)?;
         let next_wires = self.visit_call_effect_handler(next_wires)?;
         let next_wires = self.visit_resume(next_wires)?;
+        let next_wires = self.visit_resume_function_id(next_wires)?;
         let next_wires = self.visit_enter(next_wires)?;
         let next_wires = self.visit_burn(next_wires)?;
         let next_wires = self.visit_program_hash(next_wires)?;
@@ -881,12 +993,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         let mem_step_data = rm.finish_step(i == self.ops.len() - 1)?;
 
-        // input <-> output mappings are done by modifying next_wires
-        let ivc_layout = if compute_ivc_layout {
-            Some(ivc_wires(&cs, &wires_in, &next_wires)?)
-        } else {
-            None
-        };
+        // Snapshot the program-state IVC wires as FpVars before `irw.update`
+        // consumes `next_wires`: input wires (this sub-step's incoming state)
+        // and output wires (its outgoing state). The caller chains output[k] ==
+        // input[k+1] inside a batch and records first-input / last-output.
+        let input_vars = IvcWiresVars::from_wires(&wires_in);
+        let output_vars = IvcWiresVars::from_wires(&next_wires);
 
         {
             let _guard = debug_span!(target: "gr1cs", "ref_building_mode").entered();
@@ -897,10 +1009,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         irw.update(next_wires);
 
-        Ok((irw, mem_step_data, ivc_layout))
+        Ok((irw, mem_step_data, input_vars, output_vars))
     }
 
-    pub fn trace_memory_ops(&mut self, params: <M as memory::IVCMemory<F>>::Params) -> M {
+    pub fn trace_memory_ops(
+        &mut self,
+        params: <M as memory::IVCMemory<F>>::Params,
+        batch_size: usize,
+    ) -> M {
         // initialize all the maps
         let mut mb = {
             let mut mb = M::new(params);
@@ -1047,7 +1163,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 );
             }
 
-            for (pid, owner) in self.instance.ownership_in.iter().enumerate() {
+            // Per-pid memory must exist for coordination scripts too.
+            for pid in 0..self.instance.process_table.len() {
+                let owner = self.instance.ownership_in.get(pid).copied().flatten();
                 let encoded_owner = owner
                     .map(|p| OptionalF::new(F::from(p.0 as u64)).encoded())
                     .unwrap_or_else(|| OptionalF::none().encoded());
@@ -1058,13 +1176,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     },
                     vec![encoded_owner],
                 );
-                mb.init(
-                    Address {
-                        addr: pid as u64,
-                        tag: RamMemoryTag::MustEnter.memory_tag(),
-                    },
-                    vec![OptionalF::none().encoded()],
-                );
+                for lane in 0..4 {
+                    mb.init(
+                        Address {
+                            addr: ((pid * 4) + lane) as u64,
+                            tag: RamMemoryTag::MustEnter.memory_tag(),
+                        },
+                        vec![F::ZERO],
+                    );
+                }
                 mb.init(
                     Address {
                         addr: pid as u64,
@@ -1079,6 +1199,27 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // Initialize handler memory using simplified approach
         self.init_handler_memory(&mut mb);
+
+        // Initialize the dynamically-sized ref memories (see init_ref_memory).
+        self.init_ref_memory(&mut mb);
+
+        // Pad scan-only steps up front so trace bookkeeping and circuit
+        // synthesis stay aligned.
+        if let Some(missing) = mb.required_steps().checked_sub(self.ops.len()) {
+            tracing::debug!("padding with {missing} Nop operations for scan");
+            self.ops
+                .extend(std::iter::repeat_n(LedgerOperation::Nop {}, missing));
+        }
+
+        // Round the step count up to a whole number of batches so every folded
+        // R1CS instance holds exactly batch_size sub-steps (uniform shape).
+        let rem = self.ops.len() % batch_size;
+        if rem != 0 {
+            self.ops.extend(std::iter::repeat_n(
+                LedgerOperation::Nop {},
+                batch_size - rem,
+            ));
+        }
 
         // out of circuit memory operations.
         // this is needed to commit to the memory operations before-hand.
@@ -1102,13 +1243,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             let config = instr.get_config();
 
-            trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
-
-            let curr_switches = config.mem_switches_curr;
-            let target_switches = config.mem_switches_target;
-            let rom_switches = config.rom_switches;
-            let handler_switches = config.handler_switches;
-            let ref_arena_switches = config.ref_arena_switches;
+            let curr_switches = config.mem_switches_curr.clone();
+            let target_switches = config.mem_switches_target.clone();
+            let rom_switches = config.rom_switches.clone();
+            let handler_switches = config.handler_switches.clone();
+            let ref_arena_switches = config.ref_arena_switches.clone();
 
             self.mem_switches
                 .push((curr_switches.clone(), target_switches.clone()));
@@ -1134,6 +1273,19 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 _ => F::ZERO,
             };
 
+            // Keep this memory-op order in lockstep with `from_irw`; Nebula's
+            // RS/WS commitment is an order-dependent hash chain.
+
+            let curr_read =
+                trace_program_state_reads(&mut mb, irw.id_curr.into_bigint().0[0], &curr_switches);
+            let curr_yield_to = curr_read.yield_to;
+
+            let _ = trace_must_enter_reads(
+                &mut mb,
+                config.execution_switches.enter,
+                irw.id_curr.into_bigint().0[0],
+            );
+
             let handler_reads = trace_handler_stack_ops(
                 &mut mb,
                 &handler_switches,
@@ -1146,26 +1298,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 irw.handler_stack_counter += F::ONE;
             }
 
-            trace_ref_arena_ops(
-                &mut mb,
-                &mut next_ref_base,
-                &mut ref_building_ptr,
-                &mut ref_building_remaining,
-                &ref_arena_switches,
-                instr,
-            );
-
-            let curr_read =
-                trace_program_state_reads(&mut mb, irw.id_curr.into_bigint().0[0], &curr_switches);
-            let curr_yield_to = curr_read.yield_to;
-
             let target_addr = match instr {
                 LedgerOperation::Resume { target, .. } => Some(*target),
                 LedgerOperation::CallEffectHandler { .. } => {
                     Some(handler_reads.handler_stack_node_process)
                 }
-                LedgerOperation::Yield { .. } => curr_read.yield_to.to_option(),
-                LedgerOperation::Return { .. } => curr_read.yield_to.to_option(),
+                LedgerOperation::Yield { .. } => curr_yield_to.to_option(),
+                LedgerOperation::Return { .. } => curr_yield_to.to_option(),
                 LedgerOperation::Burn { .. } => None,
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
                 LedgerOperation::NewToken { target: id, .. } => Some(*id),
@@ -1174,45 +1313,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 LedgerOperation::Unbind { token_id } => Some(*token_id),
                 _ => None,
             };
-
             let target_pid = target_addr.map(|t| t.into_bigint().0[0]);
-            let target_read =
-                trace_program_state_reads(&mut mb, target_pid.unwrap_or(0), &target_switches);
-
-            mb.conditional_read(
-                rom_switches.read_is_utxo_curr,
-                Address {
-                    addr: irw.id_curr.into_bigint().0[0],
-                    tag: RomMemoryTag::IsUtxo.memory_tag(),
-                },
-            );
-            mb.conditional_read(
-                rom_switches.read_is_utxo_target,
-                Address {
-                    addr: target_pid.unwrap_or(0),
-                    tag: RomMemoryTag::IsUtxo.memory_tag(),
-                },
-            );
-            mb.conditional_read(
-                rom_switches.read_is_token_target,
-                Address {
-                    addr: target_pid.unwrap_or(0),
-                    tag: RomMemoryTag::IsToken.memory_tag(),
-                },
-            );
-            mb.conditional_read(
-                rom_switches.read_must_burn_curr,
-                Address {
-                    addr: irw.id_curr.into_bigint().0[0],
-                    tag: RomMemoryTag::MustBurn.memory_tag(),
-                },
-            );
             let target_pid_value = target_pid.unwrap_or(0);
-            let _ = trace_program_hash_ops(
-                &mut mb,
-                rom_switches.read_program_hash_target,
-                &F::from(target_pid_value),
-            );
+
+            let target_read =
+                trace_program_state_reads(&mut mb, target_pid_value, &target_switches);
 
             let curr_is_utxo = self.instance.is_utxo[irw.id_curr.into_bigint().0[0] as usize];
             let target_id = match instr {
@@ -1241,43 +1346,111 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             trace_program_state_writes(&mut mb, target_pid_value, &target_write, &target_switches);
 
+            let function_hash = match instr {
+                LedgerOperation::ResumeFunctionId { f_id_hash, .. } => Some(*f_id_hash),
+                _ => None,
+            };
+            let must_enter_target = irw.pending_resume_function_id.decode_or_zero();
+            trace_must_enter_writes(
+                &mut mb,
+                config.execution_switches.resume_function_id,
+                must_enter_target.into_bigint().0[0],
+                &function_hash.unwrap_or([F::ZERO; 4]),
+            );
+
+            mb.conditional_read(
+                rom_switches.read_is_utxo_curr,
+                Address {
+                    addr: irw.id_curr.into_bigint().0[0],
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_is_utxo_target,
+                Address {
+                    addr: target_pid_value,
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_is_token_target,
+                Address {
+                    addr: target_pid_value,
+                    tag: RomMemoryTag::IsToken.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_must_burn_curr,
+                Address {
+                    addr: irw.id_curr.into_bigint().0[0],
+                    tag: RomMemoryTag::MustBurn.memory_tag(),
+                },
+            );
+
+            let _ = trace_program_hash_ops(
+                &mut mb,
+                rom_switches.read_program_hash_target,
+                &F::from(target_pid_value),
+            );
+
+            trace_ref_arena_ops(
+                &mut mb,
+                &mut next_ref_base,
+                &mut ref_building_ptr,
+                &mut ref_building_remaining,
+                &ref_arena_switches,
+                instr,
+            );
+
+            // Must be last, matching `from_irw`.
+            trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
+
             // update pids for next iteration
             match instr {
                 LedgerOperation::Resume { target, .. } => {
-                    irw.id_prev = OptionalF::new(irw.id_curr);
-                    irw.id_curr = *target;
+                    irw.pending_resume_function_id = OptionalF::new(*target);
+                    irw.pending_enter = F::ZERO;
                 }
                 LedgerOperation::CallEffectHandler { .. } => {
+                    irw.pending_resume_function_id =
+                        OptionalF::new(handler_reads.handler_stack_node_process);
+                    irw.pending_enter = F::ZERO;
+                }
+                LedgerOperation::ResumeFunctionId { .. } => {
                     irw.id_prev = OptionalF::new(irw.id_curr);
-                    irw.id_curr = handler_reads.handler_stack_node_process;
+                    irw.id_curr = irw.pending_resume_function_id.decode_or_zero();
+                    irw.pending_resume_function_id = OptionalF::none();
+                    irw.pending_enter = F::ONE;
+                }
+                LedgerOperation::Enter { .. } => {
+                    irw.pending_resume_function_id = OptionalF::none();
+                    irw.pending_enter = F::ZERO;
                 }
                 LedgerOperation::Yield { .. } => {
                     irw.id_prev = OptionalF::new(irw.id_curr);
                     irw.id_curr = curr_yield_to.decode_or_zero();
+                    irw.pending_resume_function_id = OptionalF::none();
+                    irw.pending_enter = F::ZERO;
                 }
                 LedgerOperation::Return { .. } => {
                     if let Some(parent) = curr_yield_to.to_option() {
                         irw.id_prev = OptionalF::new(irw.id_curr);
                         irw.id_curr = parent;
                     }
+                    irw.pending_resume_function_id = OptionalF::none();
+                    irw.pending_enter = F::ZERO;
                 }
-                LedgerOperation::Burn { .. } => {}
-                _ => {}
+                LedgerOperation::Burn { .. } => {
+                    irw.pending_resume_function_id = OptionalF::none();
+                    irw.pending_enter = F::ZERO;
+                }
+                _ => {
+                    irw.pending_resume_function_id = OptionalF::none();
+                    irw.pending_enter = F::ZERO;
+                }
             }
 
             mb.finish_step();
-        }
-
-        let current_steps = self.ops.len();
-        if let Some(missing) = mb.required_steps().checked_sub(current_steps) {
-            tracing::debug!("padding with {missing} Nop operations for scan");
-            self.ops
-                .extend(std::iter::repeat_n(LedgerOperation::Nop {}, missing));
-
-            // TODO: we probably want to do this before the main loop
-            for _ in 0..missing {
-                mb.finish_step();
-            }
         }
 
         mb
@@ -1328,6 +1501,47 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     tag: RamMemoryTag::HandlerStackArenaNextPtr.memory_tag(),
                 },
                 vec![F::ZERO], // next_ptr
+            );
+        }
+    }
+
+    /// Pre-initialize the dynamically-sized ref memories.
+    ///
+    /// `RefSizes`/`RefBases` are addressed by ref id. `RefArena` is zero-filled
+    /// for every cell the trace can touch.
+    fn init_ref_memory(&self, mem: &mut M) {
+        let mut total_arena = 0u64;
+
+        for op in &self.ops {
+            if let LedgerOperation::NewRef { size, ret } = op {
+                let ref_id = ret.into_bigint().0[0];
+
+                mem.init(
+                    Address {
+                        addr: ref_id,
+                        tag: RamMemoryTag::RefSizes.memory_tag(),
+                    },
+                    vec![F::ZERO],
+                );
+                mem.init(
+                    Address {
+                        addr: ref_id,
+                        tag: RamMemoryTag::RefBases.memory_tag(),
+                    },
+                    vec![F::ZERO],
+                );
+
+                total_arena += size.into_bigint().0[0] * REF_PUSH_BATCH_SIZE as u64;
+            }
+        }
+
+        for addr in 0..total_arena {
+            mem.init(
+                Address {
+                    addr,
+                    tag: RamMemoryTag::RefArena.memory_tag(),
+                },
+                vec![F::ZERO],
             );
         }
     }
@@ -1383,6 +1597,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             },
             LedgerOperation::Resume { .. } => PreWires {
                 switches: ExecutionSwitches::resume(),
+                ..default
+            },
+            LedgerOperation::ResumeFunctionId { .. } => PreWires {
+                switches: ExecutionSwitches::resume_function_id(),
                 ..default
             },
             LedgerOperation::CallEffectHandler { .. } => PreWires {
@@ -1557,24 +1775,29 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // ---
         // IVC state updates
         // ---
-        // On resume, current program becomes the target, and the old current program
-        // becomes the new previous program.
-        let next_id_curr = switch.select(&wires.arg(ArgName::Target), &wires.id_curr)?;
-        let next_id_prev = OptionalFpVar::select_encoded(
+        // Control switches on the following ResumeFunctionId.
+        let pending_target = OptionalFpVar::from_pid(&wires.arg(ArgName::Target));
+        wires.pending_resume_function_id = OptionalFpVar::select_encoded(
             switch,
-            &OptionalFpVar::from_pid(&wires.id_curr),
-            &wires.id_prev,
+            &pending_target,
+            &wires.pending_resume_function_id,
         )?;
-
-        wires.id_curr = next_id_curr;
-        wires.id_prev = next_id_prev;
+        wires.pending_enter = switch.select(&FpVar::zero(), &wires.pending_enter)?;
 
         Ok(wires)
     }
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
+    fn visit_pending_resume_function_id(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        let pending = wires.pending_resume_function_id.is_some()?;
+        pending
+            .conditional_enforce_equal(&wires.switches.resume_function_id, &wires.constant_true)?;
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_pending_enter(&self, wires: Wires) -> Result<Wires, SynthesisError> {
-        let pending_enter = wires.curr_read_wires.must_enter.is_some()?;
+        let pending_enter = wires.pending_enter.is_one()?;
         pending_enter.conditional_enforce_equal(&wires.switches.enter, &wires.constant_true)?;
         Ok(wires)
     }
@@ -1646,50 +1869,71 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .must_exit
             .conditional_enforce_equal(&Boolean::FALSE, switch)?;
 
-        // IVC state updates mirror resume-to-target.
-        let next_id_curr = switch.select(
-            &wires.handler_state.handler_stack_node_process,
-            &wires.id_curr,
-        )?;
-        let next_id_prev = OptionalFpVar::select_encoded(
+        let pending_target =
+            OptionalFpVar::from_pid(&wires.handler_state.handler_stack_node_process);
+        wires.pending_resume_function_id = OptionalFpVar::select_encoded(
             switch,
+            &pending_target,
+            &wires.pending_resume_function_id,
+        )?;
+        wires.pending_enter = switch.select(&FpVar::zero(), &wires.pending_enter)?;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip(self, wires))]
+    fn visit_resume_function_id(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = wires.switches.resume_function_id.clone();
+
+        let target = wires.pending_resume_function_id.decode_or_zero()?;
+        let next_id_curr = switch.select(&target, &wires.id_curr)?;
+        let next_id_prev = OptionalFpVar::select_encoded(
+            &switch,
             &OptionalFpVar::from_pid(&wires.id_curr),
             &wires.id_prev,
         )?;
 
         wires.id_curr = next_id_curr;
         wires.id_prev = next_id_prev;
+        // Clear the pending target (encoded none = 0).
+        wires.pending_resume_function_id = OptionalFpVar::select_encoded(
+            &switch,
+            &OptionalFpVar::new(FpVar::zero()),
+            &wires.pending_resume_function_id,
+        )?;
+        wires.pending_enter = switch.select(&FpVar::one(), &wires.pending_enter)?;
 
         Ok(wires)
     }
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
-    fn visit_enter(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+    fn visit_enter(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.enter;
-        let pending = wires.curr_read_wires.must_enter.clone();
-
-        pending
-            .is_some()?
-            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
-
-        pending
-            .decode_or_zero()?
-            .conditional_enforce_equal(&wires.arg(ArgName::FunctionId0), switch)?;
 
         wires
             .curr_read_wires
             .must_exit
             .conditional_enforce_equal(&Boolean::FALSE, switch)?;
 
-        wires
-            .curr_write_wires
-            .must_enter
-            .encoded()
-            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+        let function_hash_args = [
+            wires.arg(ArgName::FunctionHash0),
+            wires.arg(ArgName::FunctionHash1),
+            wires.arg(ArgName::FunctionHash2),
+            wires.arg(ArgName::FunctionHash3),
+        ];
+        for (read, expected) in wires
+            .curr_must_enter_hash
+            .iter()
+            .zip(function_hash_args.iter())
+        {
+            read.conditional_enforce_equal(expected, switch)?;
+        }
+
         wires
             .curr_write_wires
             .must_exit
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+        wires.pending_enter = switch.select(&FpVar::zero(), &wires.pending_enter)?;
 
         Ok(wires)
     }
@@ -1799,12 +2043,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .curr_write_wires
             .must_exit
             .conditional_enforce_equal(&Boolean::FALSE, switch)?;
-
-        wires
-            .target_write_wires
-            .must_enter
-            .encoded()
-            .conditional_enforce_equal(&wires.target_read_wires.must_enter.encoded(), switch)?;
 
         // ---
         // IVC state updates
@@ -2349,35 +2587,6 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
     );
 }
 
-#[tracing::instrument(target = "gr1cs", skip_all)]
-fn ivc_wires(
-    cs: &ConstraintSystemRef<F>,
-    wires_in: &Wires,
-    wires_out: &Wires,
-) -> Result<IvcWireLayout, SynthesisError> {
-    let input = IvcWireIndices {
-        id_curr: fpvar_witness_index(cs, &wires_in.id_curr)?,
-        id_prev: fpvar_witness_index(cs, &wires_in.id_prev.encoded())?,
-        next_ref_id: fpvar_witness_index(cs, &wires_in.next_ref_id)?,
-        ref_arena_len: fpvar_witness_index(cs, &wires_in.ref_arena_len)?,
-        handler_stack_ptr: fpvar_witness_index(cs, &wires_in.handler_stack_ptr)?,
-        ref_building_remaining: fpvar_witness_index(cs, &wires_in.ref_building_remaining)?,
-        ref_building_ptr: fpvar_witness_index(cs, &wires_in.ref_building_ptr)?,
-    };
-
-    let output = IvcWireIndices {
-        id_curr: fpvar_witness_index(cs, &wires_out.id_curr)?,
-        id_prev: fpvar_witness_index(cs, &wires_out.id_prev.encoded())?,
-        next_ref_id: fpvar_witness_index(cs, &wires_out.next_ref_id)?,
-        ref_arena_len: fpvar_witness_index(cs, &wires_out.ref_arena_len)?,
-        handler_stack_ptr: fpvar_witness_index(cs, &wires_out.handler_stack_ptr)?,
-        ref_building_remaining: fpvar_witness_index(cs, &wires_out.ref_building_remaining)?,
-        ref_building_ptr: fpvar_witness_index(cs, &wires_out.ref_building_ptr)?,
-    };
-
-    Ok(IvcWireLayout { input, output })
-}
-
 fn fpvar_witness_index(
     cs: &ConstraintSystemRef<F>,
     var: &FpVar<F>,
@@ -2439,9 +2648,9 @@ impl PreWires {
 }
 
 fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig) {
-    if config.execution_switches.nop {
-        return;
-    }
+    // Mirror `trace_ic_wires`: even Nops emit gated IC ops so Nebula stays in
+    // sync with the circuit.
+    let should_trace = !config.execution_switches.nop;
 
     let mut concat_data = [F::ZERO; 12];
 
@@ -2449,7 +2658,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
         let addr = (curr_pid * 4) + i;
 
         *slot = mb.conditional_read(
-            true,
+            should_trace,
             Address {
                 tag: RamMemoryTag::TraceCommitments.memory_tag(),
                 addr: addr as u64,
@@ -2465,13 +2674,17 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
     for (i, elem) in new_commitment.iter().enumerate() {
         let addr = (curr_pid * 4) + i;
 
+        // The value is dead when not tracing; zero it so it matches the
+        // gated in-circuit write (see trace_ic_wires).
+        let value = if should_trace { *elem } else { F::ZERO };
+
         mb.conditional_write(
-            true,
+            should_trace,
             Address {
                 addr: addr as u64,
                 tag: RamMemoryTag::TraceCommitments.memory_tag(),
             },
-            vec![*elem],
+            vec![value],
         );
     }
 }
@@ -2520,7 +2733,11 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
     let new_commitment = ark_poseidon2::compress_12(&compress_input)?;
 
     for i in 0..4 {
-        rm.conditional_write(should_trace, &addresses[i], &[new_commitment[i].clone()])?;
+        // Zero the value on the gated-off branch so it matches the tracer's
+        // padding write (RMW backends assert value consistency even when the
+        // write is gated off).
+        let value = should_trace.select(&new_commitment[i], &FpVar::zero())?;
+        rm.conditional_write(should_trace, &addresses[i], &[value])?;
     }
 
     Ok(())

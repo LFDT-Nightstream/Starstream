@@ -20,26 +20,27 @@ pub fn commit(prev: LedgerEffectsCommitment, op: WitLedgerEffect) -> LedgerEffec
     LedgerEffectsCommitment(compressed)
 }
 
-fn proof_function_id(f_id: FunctionId) -> F {
-    F::from(f_id.as_u64())
+fn proof_function_id_hash(f_id: FunctionId) -> [F; 4] {
+    f_id.as_hash().map(F::from)
 }
 
 pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation<F> {
     match op {
         WitLedgerEffect::Resume {
             target,
-            f_id,
             val,
             ret,
             caller,
         } => LedgerOperation::Resume {
             target: F::from(target.0 as u64),
-            f_id: proof_function_id(*f_id),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
             caller: OptionalF::from_option(
                 caller.to_option().flatten().map(|p| F::from(p.0 as u64)),
             ),
+        },
+        WitLedgerEffect::ResumeFunctionId { f_id } => LedgerOperation::ResumeFunctionId {
+            f_id_hash: proof_function_id_hash(*f_id),
         },
         WitLedgerEffect::Yield { val } => LedgerOperation::Yield {
             val: F::from(val.0),
@@ -126,17 +127,15 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
         },
         WitLedgerEffect::CallEffectHandler {
             interface_id,
-            f_id,
             val,
             ret,
         } => LedgerOperation::CallEffectHandler {
             interface_id: interface_id.0.map(F::from),
-            f_id: proof_function_id(*f_id),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
         },
         WitLedgerEffect::Enter { f_id } => LedgerOperation::Enter {
-            f_id: proof_function_id(*f_id),
+            f_id_hash: proof_function_id_hash(*f_id),
         },
     }
 }
@@ -145,6 +144,9 @@ pub(crate) fn opcode_discriminant(op: &LedgerOperation<F>) -> F {
     match op {
         LedgerOperation::Nop {} => F::zero(),
         LedgerOperation::Resume { .. } => F::from(EffectDiscriminant::Resume as u64),
+        LedgerOperation::ResumeFunctionId { .. } => {
+            F::from(EffectDiscriminant::ResumeFunctionId as u64)
+        }
         LedgerOperation::CallEffectHandler { .. } => {
             F::from(EffectDiscriminant::CallEffectHandler as u64)
         }
@@ -180,7 +182,6 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         LedgerOperation::Nop {} => {}
         LedgerOperation::Resume {
             target,
-            f_id,
             val,
             ret,
             caller,
@@ -189,15 +190,18 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = *ret;
             args[ArgName::Caller.idx()] = caller.encoded();
-            args[ArgName::FunctionId1.idx()] = *f_id;
+        }
+        LedgerOperation::ResumeFunctionId { f_id_hash } => {
+            args[ArgName::FunctionHash0.idx()] = f_id_hash[0];
+            args[ArgName::FunctionHash1.idx()] = f_id_hash[1];
+            args[ArgName::FunctionHash2.idx()] = f_id_hash[2];
+            args[ArgName::FunctionHash3.idx()] = f_id_hash[3];
         }
         LedgerOperation::CallEffectHandler {
             interface_id,
-            f_id,
             val,
             ret,
         } => {
-            args[ArgName::FunctionId0.idx()] = *f_id;
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = *ret;
             args[ArgName::InterfaceId0.idx()] = interface_id[0];
@@ -205,8 +209,11 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::InterfaceId2.idx()] = interface_id[2];
             args[ArgName::InterfaceId3.idx()] = interface_id[3];
         }
-        LedgerOperation::Enter { f_id } => {
-            args[ArgName::FunctionId0.idx()] = *f_id;
+        LedgerOperation::Enter { f_id_hash } => {
+            args[ArgName::FunctionHash0.idx()] = f_id_hash[0];
+            args[ArgName::FunctionHash1.idx()] = f_id_hash[1];
+            args[ArgName::FunctionHash2.idx()] = f_id_hash[2];
+            args[ArgName::FunctionHash3.idx()] = f_id_hash[3];
         }
         LedgerOperation::Yield { val } => {
             args[ArgName::Val.idx()] = *val;

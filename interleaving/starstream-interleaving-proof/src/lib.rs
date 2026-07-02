@@ -4,11 +4,12 @@ mod circuit;
 mod circuit_test;
 mod coroutine_args_gadget;
 mod execution_switches;
+mod folding;
 mod handler_stack_gadget;
 mod ledger_operation;
 mod logging;
 mod memory;
-mod neo;
+mod must_enter_gadget;
 mod opcode_dsl;
 mod optional;
 mod program_hash_gadget;
@@ -16,151 +17,88 @@ mod program_state;
 mod ref_arena_gadget;
 mod switchboard;
 
-use crate::circuit::{InterRoundWires, IvcWireLayout};
-use crate::memory::IVCMemory;
-use crate::memory::twist_and_shout::{TSMemLayouts, TSMemory};
-use crate::neo::{CHUNK_SIZE, StarstreamVm, StepCircuitNeo};
+pub use abi::commit;
 use abi::ledger_operation_from_wit;
-use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, SynthesisError};
-use circuit::StepCircuitBuilder;
+use ark_relations::gr1cs::SynthesisError;
+pub use ledger_operation::LedgerOperation;
 pub use memory::nebula;
-use neo_ajtai::AjtaiSModule;
-use neo_fold::pi_ccs::FoldingMode;
-use neo_fold::session::{FoldingSession, preprocess_shared_bus_r1cs};
-use neo_fold::shard::StepLinkingConfig;
-use neo_params::NeoParams;
 pub use optional::{OptionalF, OptionalFpVar};
-use rand::SeedableRng as _;
-use starstream_interleaving_spec::{
-    InterleavingInstance, InterleavingWitness, ProcessId, ZkTransactionProof,
-};
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::time::Instant;
+use starstream_interleaving_spec::{InterleavingInstance, InterleavingWitness, ZkTransactionProof};
+use std::{collections::BTreeMap, num::NonZeroUsize};
 
 pub type F = ark_goldilocks::FpGoldilocks;
-
 pub type ProgramId = F;
 
-pub use abi::commit;
-pub use ledger_operation::LedgerOperation;
+/// Default number of interleaving sub-steps folded as one R1CS instance. Each
+/// fold step pays the (largely fixed) recursion/NIFS overhead once, so batching
+/// B sub-steps amortizes it across B. The per-batch program-state continuity is
+/// enforced in-circuit (`IvcWiresVars::enforce_equal`); only the batch boundary
+/// is cross-linked by the fold.
+///
+/// This is only the default for [`crate::prove`]; the batch size is a per-call
+/// argument ([`crate::prove_with_batch_size`]) since it's a pure performance
+/// knob — the verifier re-derives preprocessing from the carried R1CS shape, so
+/// each proof may use a different B. Bump until the marginal gain flattens.
+pub const DEFAULT_BATCH_SIZE: usize = 4;
 
+/// Build the interleaving circuit, extract per-step R1CS assignments, and fold
+/// them into a verifiable transaction proof, using [`circuit::DEFAULT_BATCH_SIZE`].
 pub fn prove(
     inst: InterleavingInstance,
     wit: InterleavingWitness,
 ) -> Result<ZkTransactionProof, SynthesisError> {
+    prove_with_batch_size(inst, wit, DEFAULT_BATCH_SIZE.try_into().unwrap())
+}
+
+pub fn prove_with_batch_size(
+    inst: InterleavingInstance,
+    wit: InterleavingWitness,
+    batch_size: NonZeroUsize,
+) -> Result<ZkTransactionProof, SynthesisError> {
     logging::setup_logger();
 
-    let output_binding_config = inst.output_binding_config();
+    let anchor = starstream_interleaving_spec::expected_initial_semantic_state_anchor(&inst);
 
-    // map all the disjoints vectors of traces (one per process) into a single
-    // list, which is simpler to think about for ivc.
-    let mut ops = make_interleaved_trace(&inst, &wit);
+    let t_extract = std::time::Instant::now();
+    let (shape, assignments) = folding::extract_r1cs_and_assignments(inst, wit, batch_size)?;
+    let extract_ms = t_extract.elapsed().as_millis();
 
-    ops.resize(
-        ops.len().next_multiple_of(CHUNK_SIZE),
-        crate::LedgerOperation::Nop {},
+    let batches = assignments.len();
+    tracing::info!(
+        batches,
+        batch_size,
+        n = shape.r1cs.n,
+        m = shape.r1cs.m,
+        extract_ms,
+        "folding interleaving trace with neo-fold-clean (r1cs_f_prime)"
     );
 
-    let max_steps = ops.len();
+    let t_fold = std::time::Instant::now();
+    let (r1cs, plan, audit) = folding::fold(&shape, &assignments, anchor, batch_size.get());
+    let fold_ms = t_fold.elapsed().as_millis();
+    tracing::info!(
+        batches,
+        batch_size,
+        extract_ms,
+        fold_ms,
+        per_batch_ms = fold_ms / (batches.max(1) as u128),
+        "interleaving proof produced"
+    );
 
-    tracing::info!("making proof, steps {}", ops.len());
-
-    let mut circuit_builder = StepCircuitBuilder::<TSMemory<F>>::new(inst, ops);
-
-    let mb = circuit_builder.trace_memory_ops(());
-
-    let circuit = Arc::new(StepCircuitNeo::new(mb.init_tables()));
-
-    let pre = {
-        let now = std::time::Instant::now();
-        let pre =
-            preprocess_shared_bus_r1cs(Arc::clone(&circuit)).expect("preprocess_shared_bus_r1cs");
-        tracing::info!(
-            "preprocess_shared_bus_r1cs took {}ms",
-            now.elapsed().as_millis()
-        );
-
-        pre
-    };
-
-    let m = pre.m();
-
-    // params copy-pasted from nightstream tests, this needs review
-    let base_params = NeoParams::goldilocks_auto_r1cs_ccs(m).expect("params");
-    let params = NeoParams::new(
-        base_params.q,
-        base_params.eta,
-        base_params.d,
-        base_params.kappa,
-        base_params.m,
-        4,  // b
-        16, // k_rho
-        base_params.T,
-        base_params.s,
-        base_params.lambda,
-    )
-    .expect("params");
-
-    let committer = setup_ajtai_committer(m, params.kappa as usize);
-    let prover = pre
-        .into_prover(params, committer.clone())
-        .expect("into_prover (R1csCpu shared-bus config)");
-
-    let mut session = FoldingSession::new(FoldingMode::Optimized, params, committer);
-
-    session.set_step_linking(StepLinkingConfig::new(neo::ivc_step_linking_pairs()));
-
-    let (constraints, shout, twist) = mb.split();
-
-    prover
-        .execute_into_session(
-            &mut session,
-            StarstreamVm::new(circuit_builder, constraints),
-            twist,
-            shout,
-            max_steps,
-        )
-        .expect("execute_into_session should succeed");
-
-    let t_prove = Instant::now();
-    let run = session
-        .fold_and_prove_with_output_binding_auto_simple(prover.ccs(), &output_binding_config)
-        .unwrap();
-    tracing::info!("proof generated in {} ms", t_prove.elapsed().as_millis());
-
-    let status = session
-        .verify_with_output_binding_collected_simple(prover.ccs(), &run, &output_binding_config)
-        .unwrap();
-
-    assert!(status, "optimized verification should pass");
-
-    let mcss_public = session.mcss_public();
-    let steps_public = session.steps_public();
-
-    let prover_output = ZkTransactionProof::NeoProof {
-        proof: run,
-        session: Box::new(session),
-        ccs: prover.ccs().clone(),
-        mcss_public,
-        steps_public,
-    };
-
-    Ok(prover_output)
+    Ok(ZkTransactionProof::Neo {
+        r1cs: Box::new(r1cs),
+        plan: Box::new(plan),
+        audit: Box::new(audit),
+    })
 }
 
-fn setup_ajtai_committer(m: usize, kappa: usize) -> AjtaiSModule {
-    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
-    let pp = neo_ajtai::setup(&mut rng, neo_math::D, kappa, m).expect("Ajtai setup");
-    AjtaiSModule::new(Arc::new(pp))
-}
-
-fn make_interleaved_trace(
+pub(crate) fn make_interleaved_trace(
     inst: &InterleavingInstance,
     wit: &InterleavingWitness,
 ) -> Vec<LedgerOperation<crate::F>> {
     let mut ops = vec![];
     let mut id_curr = inst.entrypoint.0;
+    let mut pending_target: Option<usize> = None;
     let mut next_op_idx = vec![0usize; inst.process_table.len()];
     let mut on_yield = vec![true; inst.process_table.len()];
     let mut yield_to: Vec<Option<usize>> = vec![None; inst.process_table.len()];
@@ -191,7 +129,7 @@ fn make_interleaved_trace(
                     yield_to[target.0] = Some(id_curr);
                     on_yield[target.0] = false;
                 }
-                id_curr = target.0;
+                pending_target = Some(target.0);
             }
             starstream_interleaving_spec::WitLedgerEffect::InstallHandler { interface_id } => {
                 handler_stack
@@ -214,7 +152,12 @@ fn make_interleaved_trace(
                     .get(&interface_id.0)
                     .and_then(|stack| stack.last())
                     .expect("CallEffectHandler with empty stack in interleaving trace");
-                id_curr = target;
+                pending_target = Some(target);
+            }
+            starstream_interleaving_spec::WitLedgerEffect::ResumeFunctionId { .. } => {
+                id_curr = pending_target
+                    .take()
+                    .expect("ResumeFunctionId without a pending Resume/CallEffectHandler");
             }
             starstream_interleaving_spec::WitLedgerEffect::Yield { .. } => {
                 on_yield[id_curr] = true;
@@ -246,49 +189,4 @@ fn make_interleaved_trace(
     );
 
     ops
-}
-
-fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts, IvcWireLayout), SynthesisError>
-{
-    let _span = tracing::info_span!("dummy circuit").entered();
-
-    tracing::debug!("constructing nop circuit to get initial (stable) ccs shape");
-
-    let cs = ConstraintSystem::new_ref();
-    cs.set_optimization_goal(ark_relations::gr1cs::OptimizationGoal::Constraints);
-
-    let hash = starstream_interleaving_spec::Hash([0u64; 4], std::marker::PhantomData);
-
-    let inst = InterleavingInstance {
-        host_calls_roots: vec![],
-        process_table: vec![hash],
-        is_utxo: vec![false],
-        is_token: vec![false],
-        must_burn: vec![false],
-        n_inputs: 0,
-        n_new: 0,
-        n_coords: 1,
-        ownership_in: vec![None],
-        ownership_out: vec![None],
-        entrypoint: ProcessId(0),
-        input_states: vec![],
-    };
-
-    let mut dummy_tx = StepCircuitBuilder::<TSMemory<F>>::new(inst, vec![LedgerOperation::Nop {}]);
-
-    let mb = dummy_tx.trace_memory_ops(());
-
-    let irw = InterRoundWires::new(dummy_tx.instance.entrypoint.0 as u64);
-
-    let mut running_mem = mb.constraints();
-
-    let (_irw, _mem, captured_layout) =
-        dummy_tx.make_step_circuit(0, &mut running_mem, cs.clone(), irw, true)?;
-    let ivc_layout = captured_layout.expect("ivc layout requested");
-
-    cs.finalize();
-
-    let mem_spec = running_mem.ts_mem_layouts();
-
-    Ok((cs, mem_spec, ivc_layout))
 }

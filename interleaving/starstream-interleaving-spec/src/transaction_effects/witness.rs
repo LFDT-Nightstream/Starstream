@@ -27,6 +27,7 @@ pub enum EffectDiscriminant {
     CallEffectHandler = 18,
     NewToken = 19,
     Enter = 20,
+    ResumeFunctionId = 21,
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
@@ -55,7 +56,6 @@ pub enum WitLedgerEffect {
     Resume {
         // in
         target: ProcessId,
-        f_id: FunctionId,
         val: Ref,
         // out
         ret: WitEffectOutput<Ref>,
@@ -117,13 +117,16 @@ pub enum WitLedgerEffect {
     CallEffectHandler {
         // in
         interface_id: InterfaceId,
-        f_id: FunctionId,
         val: Ref,
         // out
         ret: WitEffectOutput<Ref>,
     },
 
     Enter {
+        f_id: FunctionId,
+    },
+
+    ResumeFunctionId {
         f_id: FunctionId,
     },
 
@@ -235,6 +238,7 @@ impl TryFrom<u64> for EffectDiscriminant {
             18 => Ok(EffectDiscriminant::CallEffectHandler),
             19 => Ok(EffectDiscriminant::NewToken),
             20 => Ok(EffectDiscriminant::Enter),
+            21 => Ok(EffectDiscriminant::ResumeFunctionId),
             _ => Err(EffectDiscriminantError { value }),
         }
     }
