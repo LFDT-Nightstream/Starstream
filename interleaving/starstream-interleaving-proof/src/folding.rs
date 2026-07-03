@@ -11,7 +11,21 @@ use crate::nebula::tracer::{NebulaMemory, NebulaMemoryParams};
 use ark_ff::PrimeField as _;
 use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
 use neo_ccs::{CcsMatrix, CscMat};
+use neo_fold_clean::UncompressedAudit;
+use neo_fold_clean::engine::ccs_native::poseidon2::POSEIDON2_GOLDILOCKS_BITS;
+use neo_fold_clean::frontends::f_prime::image::{
+    FPrimeImageLayout, NifsCeClaimShape, NifsPayloadShape,
+};
+use neo_fold_clean::frontends::f_prime::recursive_plan::build_semantic_state_preimage_fields;
+use neo_fold_clean::frontends::f_prime::recursive_plan::{
+    AccumulatorPlanOptions, RecursiveStepImagePlan, StateXOutPlanOptions,
+    build_recursive_step_image_config,
+};
 use neo_fold_clean::frontends::r1cs_f_prime::SparseR1cs;
+use neo_fold_clean::frontends::r1cs_f_prime::{self, R1csChainBuilder};
+use neo_fold_clean::paper::digest::digest_fields_as_digest32;
+use neo_fold_clean::paper::f_prime::poseidon_trace::encode_poseidon_trace;
+use neo_fold_clean::paper::f_prime::ring_action_trace::{LowNormEncoding, RingActionTraceLayout};
 use neo_math::F as NeoF;
 use p3_field::PrimeCharacteristicRing as _;
 use starstream_interleaving_spec::{InterleavingInstance, InterleavingWitness};
@@ -160,21 +174,6 @@ fn csc_from_rows(rows: &[Vec<(ArkF, usize)>], n: usize, m: usize) -> CcsMatrix<N
     }
     CcsMatrix::Csc(CscMat::from_triplets(triplets, n, m))
 }
-
-use neo_fold_clean::UncompressedAudit;
-use neo_fold_clean::engine::ccs_native::poseidon2::POSEIDON2_GOLDILOCKS_BITS;
-use neo_fold_clean::frontends::f_prime::image::{
-    FPrimeImageLayout, NifsCeClaimShape, NifsPayloadShape,
-};
-use neo_fold_clean::frontends::f_prime::recursive_plan::build_semantic_state_preimage_fields;
-use neo_fold_clean::frontends::f_prime::recursive_plan::{
-    AccumulatorPlanOptions, RecursiveStepImagePlan, StateXOutPlanOptions,
-    build_recursive_step_image_config,
-};
-use neo_fold_clean::frontends::r1cs_f_prime::{self, R1csChainBuilder};
-use neo_fold_clean::paper::digest::digest_fields_as_digest32;
-use neo_fold_clean::paper::f_prime::poseidon_trace::encode_poseidon_trace;
-use neo_fold_clean::paper::f_prime::ring_action_trace::{LowNormEncoding, RingActionTraceLayout};
 
 fn build_plan(
     m: usize,
