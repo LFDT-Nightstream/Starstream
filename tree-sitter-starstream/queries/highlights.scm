@@ -104,6 +104,9 @@
 ; ABI and events
 (abi_definition (identifier) @type.definition)
 (event_definition (identifier) @function.definition)
+(event_definition "event" @keyword)
+(effect_definition (identifier) @function.definition)
+(effect_definition "effect" @keyword)
 (emit_expression
   event: (identifier) @function.call)
 

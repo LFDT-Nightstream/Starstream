@@ -12,6 +12,10 @@
           "named": true
         },
         {
+          "type": "effect_definition",
+          "named": true
+        },
+        {
           "type": "event_definition",
           "named": true
         },
@@ -251,6 +255,29 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "effect_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        },
+        {
+          "type": "type_annotation",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -1533,6 +1560,10 @@
     "type": "doc_comment",
     "named": true,
     "extra": true
+  },
+  {
+    "type": "effect",
+    "named": false
   },
   {
     "type": "else",

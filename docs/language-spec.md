@@ -131,10 +131,14 @@ abi_definition ::=
 
 abi_part ::=
   | event_definition
+  | effect_definition
   | abi_fn_declaration
 
 event_definition ::=
   "event" identifier "(" ( parameter ( "," parameter )* )? ")" ";"
+
+effect_definition ::=
+  "effect" identifier "(" ( parameter ( "," parameter )* )? ")" ( "->" type_annotation )? ";"
 
 abi_fn_declaration ::=
   "fn" identifier "(" ( parameter ( "," parameter )* )? ")" ( "->" type_annotation )? ";"

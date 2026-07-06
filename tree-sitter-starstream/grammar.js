@@ -169,7 +169,7 @@ module.exports = grammar({
     abi_definition: ($) =>
       seq("abi", $.identifier, "{", repeat($._abi_part), "}"),
 
-    _abi_part: ($) => choice($.event_definition, $.abi_fn_declaration),
+    _abi_part: ($) => choice($.event_definition, $.effect_definition, $.abi_fn_declaration),
 
     event_definition: ($) =>
       seq(
@@ -178,6 +178,17 @@ module.exports = grammar({
         "(",
         optional(seq($.parameter, repeat(seq(",", $.parameter)))),
         ")",
+        ";",
+      ),
+
+    effect_definition: ($) =>
+      seq(
+        "effect",
+        $.identifier,
+        "(",
+        optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        ")",
+        optional(seq("->", $.type_annotation)),
         ";",
       ),
 

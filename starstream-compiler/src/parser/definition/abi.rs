@@ -1,5 +1,5 @@
 use chumsky::prelude::*;
-use starstream_types::{AbiDef, AbiMethodDecl, AbiPart, EventDef, ast::FunctionParam};
+use starstream_types::{AbiDef, AbiMethodDecl, AbiPart, EffectDef, EventDef, ast::FunctionParam};
 
 use crate::parser::{comment, context::Extra, primitives, type_annotation};
 
@@ -14,6 +14,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, AbiDef, Extra<'a>> {
         .clone()
         .then(choice((
             event_definition().map(AbiPart::Event),
+            effect_definition().map(AbiPart::Effect),
             fn_decl_definition().map(AbiPart::FnDecl),
         )))
         .map(|(_, part)| part);
@@ -61,6 +62,41 @@ fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
         .map_with(|(name, params), extra| EventDef {
             name,
             params,
+            span: extra.span(),
+        })
+}
+
+fn effect_definition<'a>() -> impl Parser<'a, &'a str, EffectDef, Extra<'a>> {
+    let type_parser = type_annotation::parser().boxed();
+
+    let parameter = just("pub")
+        .padded()
+        .or_not()
+        .then(primitives::identifier())
+        .then_ignore(just(':').padded())
+        .then(type_parser.clone())
+        .map(|((public, name), ty)| FunctionParam {
+            public: public.is_some(),
+            name,
+            ty,
+        });
+
+    just("effect")
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(
+            parameter
+                .separated_by(just(',').padded())
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just('(').padded(), just(')').padded()),
+        )
+        .then(just("->").padded().ignore_then(type_parser).or_not())
+        .then_ignore(just(';').padded())
+        .map_with(|((name, params), return_type), extra| EffectDef {
+            name,
+            params,
+            return_type,
             span: extra.span(),
         })
 }
