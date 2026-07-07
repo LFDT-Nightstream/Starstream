@@ -1347,7 +1347,7 @@ impl Compiler {
                     params,
                     param_spans: _,
                     result,
-                    effect: _,
+                    kind: _,
                     name_span: _,
                 } => {
                     let mut core_params = Vec::with_capacity(16);

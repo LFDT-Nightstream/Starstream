@@ -5,14 +5,14 @@
 
 use std::collections::HashMap;
 
-use starstream_types::{DUMMY_SPAN, EffectKind, Type};
+use starstream_types::{DUMMY_SPAN, FunctionKind, Type};
 
 /// Information about a built-in function from the standard library.
 #[derive(Clone, Debug)]
 pub struct BuiltinFunction {
     pub params: Vec<Type>,
     pub return_type: Type,
-    pub effect: EffectKind,
+    pub kind: FunctionKind,
 }
 
 impl BuiltinFunction {
@@ -21,7 +21,7 @@ impl BuiltinFunction {
             params: self.params.clone(),
             param_spans: Vec::new(),
             result: Box::new(self.return_type.clone()),
-            effect: self.effect,
+            kind: self.kind,
             name_span: DUMMY_SPAN,
         }
     }
@@ -98,7 +98,7 @@ impl BuiltinRegistry {
             BuiltinFunction {
                 params: vec![],
                 return_type: Type::int(),
-                effect: EffectKind::Runtime,
+                kind: FunctionKind::Runtime,
             },
         );
 
@@ -108,7 +108,7 @@ impl BuiltinRegistry {
             BuiltinFunction {
                 params: vec![],
                 return_type: Type::int(),
-                effect: EffectKind::Runtime,
+                kind: FunctionKind::Runtime,
             },
         );
 
@@ -132,7 +132,7 @@ mod tests {
 
         assert_eq!(func.params, vec![]);
         assert_eq!(func.return_type, Type::int());
-        assert_eq!(func.effect, EffectKind::Runtime);
+        assert_eq!(func.kind, FunctionKind::Runtime);
     }
 
     #[test]

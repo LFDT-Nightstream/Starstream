@@ -104,16 +104,38 @@ impl IntWidth {
     }
 }
 
-/// Effect kind for functions - tracks whether a function performs side effects.
+/// Function kind: whether it can be called normally or requires a keyword prefix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub enum EffectKind {
-    /// Pure function with no side effects.
+pub enum FunctionKind {
+    /// Functions requiring no prefix keyword to call.
     #[default]
-    Pure,
-    /// Effectful function that raises effects which can be caught, handled, and resumed (requires `raise`).
-    Effectful,
-    /// Runtime function that calls external runtime/host functions (requires `runtime`).
+    Normal,
+    /// Functions requiring `emit` keyword to call, generally declared using `event`.
+    Emit,
+    /// Functions requiring `raise` keyword to call, generally declared using `effect`.
+    Raise,
+    /// Functions requruing `runtime` keyword to call, generally imported host functions.
     Runtime,
+}
+
+impl FunctionKind {
+    pub fn declaration_keyword(&self) -> &'static str {
+        match self {
+            FunctionKind::Normal => "fn",
+            FunctionKind::Emit => "event",
+            FunctionKind::Raise => "effect",
+            FunctionKind::Runtime => "runtime fn",
+        }
+    }
+
+    pub fn call_keyword(&self) -> &'static str {
+        match self {
+            FunctionKind::Normal => "",
+            FunctionKind::Emit => "emit",
+            FunctionKind::Raise => "raise",
+            FunctionKind::Runtime => "runtime",
+        }
+    }
 }
 
 /// Identifier for a type variable.
@@ -185,7 +207,7 @@ pub enum Type {
         params: Vec<Type>,
         param_spans: Vec<Span>,
         result: Box<Type>,
-        effect: EffectKind,
+        kind: FunctionKind,
         name_span: Span,
     },
     /// Tuple type `(T0, T1, …)`.
@@ -250,7 +272,7 @@ impl Type {
             params,
             param_spans: Vec::new(),
             result: Box::new(result),
-            effect: EffectKind::Pure,
+            kind: FunctionKind::Normal,
             name_span: DUMMY_SPAN,
         }
     }
@@ -295,7 +317,7 @@ impl Type {
                 params: fn_params,
                 param_spans: _,
                 result,
-                effect,
+                kind,
                 name_span: _,
             } => {
                 let params_doc = if fn_params.is_empty() {
@@ -310,13 +332,7 @@ impl Type {
                         .append(RcDoc::text(")"))
                 };
 
-                let effect_prefix = match effect {
-                    EffectKind::Pure => RcDoc::text("fn"),
-                    EffectKind::Effectful => RcDoc::text("effect fn"),
-                    EffectKind::Runtime => RcDoc::text("runtime fn"),
-                };
-
-                effect_prefix
+                RcDoc::text(kind.declaration_keyword())
                     .append(params_doc)
                     .append(RcDoc::text(" -> "))
                     .append(result.to_doc(TypeDocMode::Compact, params))

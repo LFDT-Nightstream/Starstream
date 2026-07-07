@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::{
     Abi, FunctionExport, Span, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
-    types::{EffectKind, Type},
+    types::{FunctionKind, Type},
 };
 
 /// Entire program with types attached.
@@ -100,7 +100,7 @@ pub struct TypedFunctionDef {
     pub name: Identifier,
     pub params: Vec<TypedFunctionParam>,
     pub return_type: Type,
-    pub effect: EffectKind,
+    pub kind: FunctionKind,
     pub body: TypedBlock,
 }
 

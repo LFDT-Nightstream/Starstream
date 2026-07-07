@@ -7,8 +7,8 @@ use std::{
 };
 
 use starstream_types::{
-    Abi, AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, IfCondition, IntWidth,
-    Scheme, Span, Spanned, Type, TypeParam, TypeVarId, TypedTokenDef, TypedUtxoDef,
+    Abi, AbiDef, AbiPart, DUMMY_SPAN, EventDef, FunctionKind, GenericTypeDef, IfCondition,
+    IntWidth, Scheme, Span, Spanned, Type, TypeParam, TypeVarId, TypedTokenDef, TypedUtxoDef,
     TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
@@ -303,7 +303,7 @@ struct ExportedFunction {
     param_types: Vec<Type>,
     param_spans: Vec<Span>,
     return_type: Type,
-    effect: EffectKind,
+    kind: FunctionKind,
     name_span: Span,
 }
 
@@ -313,7 +313,7 @@ impl ExportedFunction {
             params: self.param_types.clone(),
             param_spans: self.param_spans.clone(),
             result: Box::new(self.return_type.clone()),
-            effect: self.effect,
+            kind: self.kind,
             name_span: self.name_span,
         }
     }
@@ -323,7 +323,7 @@ impl ExportedFunction {
             param_types: self.param_types.clone(),
             param_spans: self.param_spans.clone(),
             return_type: self.return_type.clone(),
-            effect: self.effect,
+            kind: self.kind,
             name_span: self.name_span,
         }
     }
@@ -659,7 +659,7 @@ fn collect_exports(typed_definitions: &[TypedDefinition]) -> ModuleExports {
                         param_types,
                         param_spans,
                         return_type: func.return_type.clone(),
-                        effect: func.effect,
+                        kind: func.kind,
                         name_span: func.name.span(),
                     },
                 );
@@ -711,7 +711,7 @@ struct FunctionInfo {
     param_types: Vec<Type>,
     param_spans: Vec<Span>,
     return_type: Type,
-    effect: EffectKind,
+    kind: FunctionKind,
     name_span: Span,
 }
 
@@ -1122,7 +1122,7 @@ impl Inferencer {
                             param_types: builtin.params.clone(),
                             param_spans: vec![],
                             return_type: builtin.return_type.clone(),
-                            effect: builtin.effect,
+                            kind: builtin.kind,
                             name_span: alias.span(),
                         },
                     );
@@ -2236,7 +2236,7 @@ impl Inferencer {
                     params: param_types.clone(),
                     param_spans,
                     result: Box::new(expected_return.clone()),
-                    effect: EffectKind::Pure,
+                    kind: FunctionKind::Normal,
                     name_span: function.name.span,
                 }),
                 class: BindingClass::Local,
@@ -2310,7 +2310,7 @@ impl Inferencer {
                 name: function.name.clone(),
                 params: typed_params,
                 return_type: ctx.expected_return,
-                effect: EffectKind::Pure, // User-defined functions are currently always pure
+                kind: FunctionKind::Normal,
                 body: typed_body,
             },
             trace,
@@ -3134,7 +3134,7 @@ impl Inferencer {
                             params: method.params.iter().map(|p| p.ty.clone()).collect(),
                             param_spans: method.params.iter().map(|p| p.name.span).collect(),
                             result: Box::new(method.return_type.clone()),
-                            effect: EffectKind::Pure,
+                            kind: FunctionKind::Normal,
                             name_span: method.name.span,
                         }
                     }
@@ -3207,10 +3207,10 @@ impl Inferencer {
 
                     let param_types = &func_info.param_types;
                     let return_type = &func_info.return_type;
-                    let effect = func_info.effect;
+                    let kind = func_info.kind;
 
                     // Check effect: runtime functions need `runtime` keyword
-                    if effect == EffectKind::Runtime && !ctx.inside_runtime {
+                    if kind == FunctionKind::Runtime && !ctx.inside_runtime {
                         return Err(TypeError::new(
                             TypeErrorKind::RuntimeWithoutKeyword {
                                 function_name: variant.name.clone(),
@@ -3224,7 +3224,7 @@ impl Inferencer {
                     }
 
                     // Check effect: effectful functions need `raise` keyword
-                    if effect == EffectKind::Effectful && !ctx.inside_raise {
+                    if kind == FunctionKind::Raise && !ctx.inside_raise {
                         return Err(TypeError::new(
                             TypeErrorKind::EffectfulWithoutRaise {
                                 function_name: variant.name.clone(),
@@ -3281,7 +3281,7 @@ impl Inferencer {
                         params: param_types.clone(),
                         param_spans: Vec::new(),
                         result: Box::new(return_type.clone()),
-                        effect,
+                        kind,
                         name_span: func_info.name_span,
                     };
 
@@ -3903,7 +3903,7 @@ impl Inferencer {
                     params: ref param_types,
                     ref param_spans,
                     result: ref return_type,
-                    effect,
+                    kind,
                     name_span: _,
                 } = callee_ty
                 else {
@@ -3914,7 +3914,7 @@ impl Inferencer {
                 };
 
                 // Check effect: effectful functions can only be called inside `raise`
-                if effect == EffectKind::Effectful && !ctx.inside_raise {
+                if kind == FunctionKind::Raise && !ctx.inside_raise {
                     let func_name = callee_name.unwrap_or("<anonymous>").to_string();
                     return Err(TypeError::new(
                         TypeErrorKind::EffectfulWithoutRaise {
@@ -3928,7 +3928,7 @@ impl Inferencer {
                 }
 
                 // Check effect: runtime functions can only be called inside `runtime`
-                if effect == EffectKind::Runtime && !ctx.inside_runtime {
+                if kind == FunctionKind::Runtime && !ctx.inside_runtime {
                     let func_name = callee_name.unwrap_or("<anonymous>").to_string();
                     return Err(TypeError::new(
                         TypeErrorKind::RuntimeWithoutKeyword {
@@ -4110,7 +4110,7 @@ impl Inferencer {
                         matches!(
                             callee.node.ty,
                             Type::Function {
-                                effect: EffectKind::Effectful,
+                                kind: FunctionKind::Raise,
                                 ..
                             }
                         )
@@ -4162,7 +4162,7 @@ impl Inferencer {
                         matches!(
                             callee.node.ty,
                             Type::Function {
-                                effect: EffectKind::Runtime,
+                                kind: FunctionKind::Runtime,
                                 ..
                             }
                         )
@@ -4545,13 +4545,13 @@ impl Inferencer {
                 params,
                 param_spans,
                 result,
-                effect,
+                kind,
                 name_span,
             } => Type::Function {
                 params: params.iter().map(|t| self.apply_for_display(t)).collect(),
                 param_spans: param_spans.clone(),
                 result: Box::new(self.apply_for_display(result)),
-                effect: *effect,
+                kind: *kind,
                 name_span: *name_span,
             },
             Type::Tuple(items) => {
@@ -4618,13 +4618,13 @@ impl Inferencer {
                 params,
                 param_spans,
                 result,
-                effect,
+                kind,
                 name_span,
             } => Type::Function {
                 params: params.iter().map(|t| self.apply(t)).collect(),
                 param_spans: param_spans.clone(),
                 result: Box::new(self.apply(result)),
-                effect: *effect,
+                kind: *kind,
                 name_span: *name_span,
             },
             Type::Tuple(items) => Type::Tuple(items.iter().map(|t| self.apply(t)).collect()),
@@ -5082,7 +5082,7 @@ impl Inferencer {
                     params: lp,
                     param_spans: lps,
                     result: lr,
-                    effect: le,
+                    kind: le,
                     name_span: lns,
                 },
                 Type::Function {
@@ -5103,7 +5103,7 @@ impl Inferencer {
                         params: lp,
                         param_spans: lps,
                         result: lr,
-                        effect: le,
+                        kind: le,
                         name_span: lns,
                     },
                     children,
@@ -5268,7 +5268,7 @@ impl Inferencer {
                     params: lp,
                     param_spans: lps,
                     result: lr,
-                    effect: le,
+                    kind: le,
                     name_span: lns,
                 },
                 Type::Function {
@@ -5314,7 +5314,7 @@ impl Inferencer {
                         params: lp,
                         param_spans: lps,
                         result: lr,
-                        effect: le,
+                        kind: le,
                         name_span: lns,
                     },
                     arrow_children,
@@ -5519,7 +5519,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             params,
             param_spans,
             result,
-            effect,
+            kind,
             name_span,
         } => Type::Function {
             params: params
@@ -5528,7 +5528,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                 .collect(),
             param_spans: param_spans.clone(),
             result: Box::new(substitute_type(result, mapping)),
-            effect: *effect,
+            kind: *kind,
             name_span: *name_span,
         },
         Type::Tuple(items) => Type::Tuple(

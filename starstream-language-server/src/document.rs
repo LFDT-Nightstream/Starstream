@@ -996,14 +996,9 @@ impl DocumentState {
                 .map(|p| format!("{}: {}", p.name.name, p.ty.to_compact_string()))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let effect_prefix = match function.effect {
-                starstream_types::types::EffectKind::Pure => "fn",
-                starstream_types::types::EffectKind::Effectful => "effect fn",
-                starstream_types::types::EffectKind::Runtime => "runtime fn",
-            };
             let signature = format!(
                 "{}({}) -> {}",
-                effect_prefix,
+                function.kind.declaration_keyword(),
                 params,
                 function.return_type.to_compact_string()
             );
