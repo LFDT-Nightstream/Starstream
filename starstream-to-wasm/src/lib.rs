@@ -8,11 +8,12 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
-    BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned, Type,
-    TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef, TypedEnumPatternPayload,
-    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
-    TypedImportDef, TypedImportItems, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
-    TypedStatement, TypedStructDef, TypedUtxoDef, TypedUtxoPart, UnaryOp,
+    BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned,
+    StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
+    TypedEnumPatternPayload, TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam,
+    TypedIfCondition, TypedImportDef, TypedImportItems, TypedImportSource, TypedMatchArm,
+    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedUtxoDef, TypedUtxoPart,
+    UnaryOp,
 };
 use thiserror::Error;
 use wasm_encoder::{
@@ -2806,91 +2807,64 @@ impl Compiler {
                 }
                 Ok(())
             }
-            /*
-            TypedExprKind::EnumConstructor {
-                enum_name: _,
-                variant,
-                payload,
-            } => {
-                let Type::Enum(enum_) = &expr.ty else {
-                    panic!("EnumConstructor type should be Enum, got {:?}", &expr.ty);
-                };
-
-                let mut dest_types = Vec::new();
-                _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
-                let mut iter = dest_types.into_iter();
-
-                // Push the discriminant
-                assert_eq!(iter.next().unwrap(), ValType::I32);
-                let Some((discriminant, variant_ty)) = enum_
-                    .variants
-                    .iter()
-                    .enumerate()
-                    .find(|(_, v)| v.name == variant.as_str())
-                else {
-                    panic!(
-                        "EnumConstructor variant {} not found in {:?}",
-                        variant, &expr.ty
-                    );
-                };
-                let discriminant = u32::try_from(discriminant).unwrap();
-                func.instructions(bb).i32_const(discriminant as i32);
-
-                // Push the values
-                match payload {
-                    TypedEnumConstructorPayload::Unit => {}
-                    TypedEnumConstructorPayload::Tuple(fields) => {
-                        for f in fields {
-                            self.visit_expr_stack(func, bb, locals, f.span, &f.node)?;
-                            self.enum_promote(func, bb, f.span, &f.node.ty, &mut iter);
-                        }
-                    }
-                    TypedEnumConstructorPayload::Struct(fields) => {
-                        let EnumVariantKind::Struct(struct_) = &variant_ty.kind else {
-                            panic!("EnumConstructor struct used for non-struct variant {variant}");
-                        };
-                        let fields = fields
-                            .iter()
-                            .map(|f| (f.name.as_str(), &f.value))
-                            .collect::<HashMap<_, _>>();
-                        // NB: currently compiles in declaration order, not the order written in source.
-                        for field in struct_ {
-                            let expr = fields
-                                .get(field.name.as_str())
-                                .expect("StructLiteral missing field");
-                            self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
-                            self.enum_promote(func, bb, expr.span, &expr.node.ty, &mut iter);
-                        }
-                    }
-                }
-
-                // Push 0 for the rest
-                for ty in iter {
-                    match ty {
-                        ValType::I32 => func.instructions(bb).i32_const(0),
-                        ValType::I64 => func.instructions(bb).i64_const(0),
-                        ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
-                        ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
-                        _ => todo!(),
-                    };
-                }
-
-                Ok(())
-            }
-             */
             // Function calls
             TypedExprKind::Call { callee, args }
             | TypedExprKind::Emit { callee, args }
             | TypedExprKind::Raise { callee, args }
             | TypedExprKind::Runtime { callee, args } => {
-                // TODO: handle namespacing in `callables`
-                let TypedExprKind::ScopedName(i) = &callee.node.kind else {
-                    return Err(self.push_error(span, "TODO: cannot call non-identifier"));
+                let callee_span = callee.span;
+                let Type::Function { callee, .. } = &callee.node.ty else {
+                    unreachable!()
                 };
-                let Some(&target) = self.callables.get(i.last().unwrap().as_str()) else {
-                    return Err(self.push_error(span, "no callable found for identifier"));
-                };
-                self.visit_call(func, bb, locals, span, target, args)
+                match callee {
+                    Some(StaticFunction::Named(name)) => {
+                        // TODO: properly handle namespacing in `callables`
+                        let Some(&target) = self.callables.get(name) else {
+                            return Err(
+                                self.push_error(callee_span, "no callable found for identifier")
+                            );
+                        };
+                        self.visit_call(func, bb, locals, span, target, args)
+                    }
+                    Some(StaticFunction::Constructor { variant }) => {
+                        // Enum tuple variant constructor.
+                        // TODO: maybe de-inline this?
+                        let Type::Enum(_) = &expr.ty else {
+                            panic!("EnumConstructor type should be Enum, got {:?}", &expr.ty);
+                        };
+
+                        let mut dest_types = Vec::new();
+                        _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
+                        let mut iter = dest_types.into_iter();
+
+                        // Push the discriminant
+                        assert_eq!(iter.next().unwrap(), ValType::I32);
+                        func.instructions(bb)
+                            .i32_const(i32::try_from(*variant).unwrap());
+
+                        // Push the values
+                        for f in args {
+                            self.visit_expr_stack(func, bb, locals, f.span, &f.node)?;
+                            self.enum_promote(func, bb, f.span, &f.node.ty, &mut iter);
+                        }
+
+                        // Push 0 for the rest
+                        for ty in iter {
+                            match ty {
+                                ValType::I32 => func.instructions(bb).i32_const(0),
+                                ValType::I64 => func.instructions(bb).i64_const(0),
+                                ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
+                                ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
+                                _ => todo!(),
+                            };
+                        }
+
+                        Ok(())
+                    }
+                    None => {
+                        return Err(self.push_error(callee_span, "function pointers not supported"));
+                    }
+                }
             }
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_stack(func, bb, locals, span, expr, scrutinee, arms)

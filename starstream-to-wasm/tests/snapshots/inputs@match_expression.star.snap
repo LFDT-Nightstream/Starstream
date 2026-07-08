@@ -178,11 +178,13 @@ Program {
                             Spanned {
                                 node: Match {
                                     scrutinee: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "foo",
-                                                span: 170..173,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "foo",
+                                                    span: 170..173,
+                                                },
+                                            ],
                                         ),
                                         span: 170..174,
                                     },
@@ -228,11 +230,13 @@ Program {
                                                     Spanned {
                                                         node: FieldAccess {
                                                             target: Spanned {
-                                                                node: Identifier(
-                                                                    Identifier {
-                                                                        name: "ctx",
-                                                                        span: 229..232,
-                                                                    },
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "ctx",
+                                                                            span: 229..232,
+                                                                        },
+                                                                    ],
                                                                 ),
                                                                 span: 229..232,
                                                             },
@@ -310,11 +314,13 @@ Program {
                                                 statements: [],
                                                 tail_expression: Some(
                                                     Spanned {
-                                                        node: Identifier(
-                                                            Identifier {
-                                                                name: "n",
-                                                                span: 333..334,
-                                                            },
+                                                        node: ScopedName(
+                                                            [
+                                                                Identifier {
+                                                                    name: "n",
+                                                                    span: 333..334,
+                                                                },
+                                                            ],
                                                         ),
                                                         span: 333..343,
                                                     },
@@ -393,11 +399,13 @@ Program {
                             Spanned {
                                 node: Match {
                                     scrutinee: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "foo",
-                                                span: 447..450,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "foo",
+                                                    span: 447..450,
+                                                },
+                                            ],
                                         ),
                                         span: 447..451,
                                     },
@@ -509,11 +517,13 @@ Program {
                             Spanned {
                                 node: Match {
                                     scrutinee: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "x",
-                                                span: 596..597,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "x",
+                                                    span: 596..597,
+                                                },
+                                            ],
                                         ),
                                         span: 596..598,
                                     },
@@ -671,11 +681,13 @@ Program {
                             Spanned {
                                 node: Match {
                                     scrutinee: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "msg",
-                                                span: 796..799,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "msg",
+                                                    span: 796..799,
+                                                },
+                                            ],
                                         ),
                                         span: 796..800,
                                     },
@@ -726,20 +738,24 @@ Program {
                                                         node: Binary {
                                                             op: Add,
                                                             left: Spanned {
-                                                                node: Identifier(
-                                                                    Identifier {
-                                                                        name: "x",
-                                                                        span: 851..852,
-                                                                    },
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "x",
+                                                                            span: 851..852,
+                                                                        },
+                                                                    ],
                                                                 ),
                                                                 span: 851..853,
                                                             },
                                                             right: Spanned {
-                                                                node: Identifier(
-                                                                    Identifier {
-                                                                        name: "y",
-                                                                        span: 855..856,
-                                                                    },
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "y",
+                                                                            span: 855..856,
+                                                                        },
+                                                                    ],
                                                                 ),
                                                                 span: 855..865,
                                                             },
@@ -801,37 +817,44 @@ Program {
                                     Spanned {
                                         node: Call {
                                             callee: Spanned {
-                                                node: Identifier(
-                                                    Identifier {
-                                                        name: "match_foo",
-                                                        span: 943..952,
-                                                    },
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "match_foo",
+                                                            span: 943..952,
+                                                        },
+                                                    ],
                                                 ),
                                                 span: 943..952,
                                             },
                                             args: [
                                                 Spanned {
-                                                    node: EnumConstructor {
-                                                        enum_name: Identifier {
-                                                            name: "Foo",
-                                                            span: 953..956,
+                                                    node: Call {
+                                                        callee: Spanned {
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "Foo",
+                                                                        span: 953..956,
+                                                                    },
+                                                                    Identifier {
+                                                                        name: "Bar",
+                                                                        span: 958..961,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                            span: 953..961,
                                                         },
-                                                        variant: Identifier {
-                                                            name: "Bar",
-                                                            span: 958..961,
-                                                        },
-                                                        payload: Tuple(
-                                                            [
-                                                                Spanned {
-                                                                    node: Literal(
-                                                                        Boolean(
-                                                                            true,
-                                                                        ),
+                                                        args: [
+                                                            Spanned {
+                                                                node: Literal(
+                                                                    Boolean(
+                                                                        true,
                                                                     ),
-                                                                    span: 962..966,
-                                                                },
-                                                            ],
-                                                        ),
+                                                                ),
+                                                                span: 962..966,
+                                                            },
+                                                        ],
                                                     },
                                                     span: 953..967,
                                                 },
@@ -872,7 +895,7 @@ T-Fn: match_foo => i64
         2
     },
 } => i64
-    T-Match: {foo: Foo, match_foo: fn(Foo) -> i64} ⊢ match foo {
+    T-Match: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ match foo {
     Foo::Thing(Thing::Wow(ctx)) => {
         ctx.x
     },
@@ -886,7 +909,7 @@ T-Fn: match_foo => i64
         2
     },
 } ⇒ i64
-      T-Var: {foo: Foo, match_foo: fn(Foo) -> i64} ⊢ foo ⇒ Foo
+      T-Var: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ foo ⇒ Foo
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -897,8 +920,8 @@ T-Fn: match_foo => i64
         Unify-Record: Ctx ~ Ctx => {}
           Unify-Const: i64 ~ i64 => {}
       T-Tail: ctx.x => i64
-        T-FieldAccess: {ctx: Ctx, foo: Foo, match_foo: fn(Foo) -> i64} ⊢ ctx.x ⇒ i64
-          T-Var: {ctx: Ctx, foo: Foo, match_foo: fn(Foo) -> i64} ⊢ ctx ⇒ Ctx
+        T-FieldAccess: {ctx: Ctx, foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ ctx.x ⇒ i64
+          T-Var: {ctx: Ctx, foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ ctx ⇒ Ctx
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -906,7 +929,7 @@ T-Fn: match_foo => i64
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
       T-Tail: 0 => i64
-        T-Int: {b: bool, foo: Foo, match_foo: fn(Foo) -> i64} ⊢ 0 ⇒ i64
+        T-Int: {b: bool, foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
@@ -915,10 +938,10 @@ T-Fn: match_foo => i64
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
       T-Tail: n => i64
-        T-Var: {foo: Foo, match_foo: fn(Foo) -> i64, n: i64} ⊢ n ⇒ i64
+        T-Var: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], n: i64} ⊢ n ⇒ i64
       Unify-Const: i64 ~ i64 => i64
       T-Tail: 2 => i64
-        T-Int: {foo: Foo, match_foo: fn(Foo) -> i64} ⊢ 2 ⇒ i64
+        T-Int: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ 2 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
@@ -931,7 +954,7 @@ T-Fn: match_with_wildcard => i64
         0
     },
 } => i64
-    T-Match: {foo: Foo, match_foo: fn(Foo) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ match foo {
+    T-Match: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ match foo {
     Foo::Bar(b) => {
         1
     },
@@ -939,7 +962,7 @@ T-Fn: match_with_wildcard => i64
         0
     },
 } ⇒ i64
-      T-Var: {foo: Foo, match_foo: fn(Foo) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ foo ⇒ Foo
+      T-Var: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ foo ⇒ Foo
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -947,9 +970,9 @@ T-Fn: match_with_wildcard => i64
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
       T-Tail: 1 => i64
-        T-Int: {b: bool, foo: Foo, match_foo: fn(Foo) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ 1 ⇒ i64
+        T-Int: {b: bool, foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ 1 ⇒ i64
       T-Tail: 0 => i64
-        T-Int: {foo: Foo, match_foo: fn(Foo) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ 0 ⇒ i64
+        T-Int: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Var: i64 ~ i64 => {i64/t5}
 
@@ -962,7 +985,7 @@ T-Fn: match_literal => i64
         0
     },
 } => i64
-    T-Match: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_with_wildcard: fn(Foo) -> i64, x: i64} ⊢ match x {
+    T-Match: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], x: i64} ⊢ match x {
     42 => {
         1
     },
@@ -970,12 +993,12 @@ T-Fn: match_literal => i64
         0
     },
 } ⇒ i64
-      T-Var: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_with_wildcard: fn(Foo) -> i64, x: i64} ⊢ x ⇒ i64
+      T-Var: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], x: i64} ⊢ x ⇒ i64
       Unify-Const: i64 ~ i64 => {}
       T-Tail: 1 => i64
-        T-Int: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_with_wildcard: fn(Foo) -> i64, x: i64} ⊢ 1 ⇒ i64
+        T-Int: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], x: i64} ⊢ 1 ⇒ i64
       T-Tail: 0 => i64
-        T-Int: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_with_wildcard: fn(Foo) -> i64, x: i64} ⊢ 0 ⇒ i64
+        T-Int: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], x: i64} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Var: i64 ~ i64 => {i64/t7}
 
@@ -989,7 +1012,7 @@ T-Fn: match_point => i64
         0
     },
 } => i64
-    T-Match: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message} ⊢ match msg {
+    T-Match: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message} ⊢ match msg {
     Message::Point { x, y } => {
         x + y
     },
@@ -997,26 +1020,27 @@ T-Fn: match_point => i64
         0
     },
 } ⇒ i64
-      T-Var: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message} ⊢ msg ⇒ Message
+      T-Var: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message} ⊢ msg ⇒ Message
       Unify-Enum: Message ~ Message => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: x + y => i64
-        T-Bin-Add: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message, x: i64, y: i64} ⊢ x + y ⇒ i64
-          T-Var: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message, x: i64, y: i64} ⊢ x ⇒ i64
-          T-Var: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message, x: i64, y: i64} ⊢ y ⇒ i64
+        T-Bin-Add: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message, x: i64, y: i64} ⊢ x + y ⇒ i64
+          T-Var: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message, x: i64, y: i64} ⊢ x ⇒ i64
+          T-Var: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message, x: i64, y: i64} ⊢ y ⇒ i64
           Unify-Const: i64 ~ i64 => {}
       T-Tail: 0 => i64
-        T-Int: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message} ⊢ 0 ⇒ i64
+        T-Int: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: get_bar => ()
-  T-Expr: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ match_foo(Foo::Bar(true)); ⇒ ()
-    T-Call: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ match_foo(Foo::Bar(true)) ⇒ i64
-      T-Var: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ match_foo ⇒ fn(Foo) -> i64
-      T-EnumCtor: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ Foo::Bar(true) ⇒ Foo
-        T-Bool: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ true ⇒ bool
+  T-Expr: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ match_foo(Foo::Bar(true)); ⇒ ()
+    T-Call: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ match_foo(Foo::Bar(true)) ⇒ i64
+      T-Var: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ match_foo ⇒ fn(Foo) -> i64 [match_foo]
+      T-Call: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ Foo::Bar(true) ⇒ Foo
+        T-Var: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ Foo::Bar ⇒ fn(bool) -> Foo [0]
+        T-Bool: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ true ⇒ bool
         Unify-Const: bool ~ bool => {}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
@@ -1051,7 +1075,10 @@ TypedProgram {
                         name: "Ctx",
                         fields: [
                             RecordFieldType {
-                                name: "x",
+                                name: Identifier {
+                                    name: "x",
+                                    span: 17..18,
+                                },
                                 ty: Int(
                                     I64,
                                 ),
@@ -1080,7 +1107,10 @@ TypedProgram {
                                         name: "Ctx",
                                         fields: [
                                             RecordFieldType {
-                                                name: "x",
+                                                name: Identifier {
+                                                    name: "x",
+                                                    span: 17..18,
+                                                },
                                                 ty: Int(
                                                     I64,
                                                 ),
@@ -1112,7 +1142,10 @@ TypedProgram {
                                                 name: "Ctx",
                                                 fields: [
                                                     RecordFieldType {
-                                                        name: "x",
+                                                        name: Identifier {
+                                                            name: "x",
+                                                            span: 17..18,
+                                                        },
                                                         ty: Int(
                                                             I64,
                                                         ),
@@ -1184,7 +1217,10 @@ TypedProgram {
                                                                 name: "Ctx",
                                                                 fields: [
                                                                     RecordFieldType {
-                                                                        name: "x",
+                                                                        name: Identifier {
+                                                                            name: "x",
+                                                                            span: 17..18,
+                                                                        },
                                                                         ty: Int(
                                                                             I64,
                                                                         ),
@@ -1246,7 +1282,10 @@ TypedProgram {
                                                                         name: "Ctx",
                                                                         fields: [
                                                                             RecordFieldType {
-                                                                                name: "x",
+                                                                                name: Identifier {
+                                                                                    name: "x",
+                                                                                    span: 17..18,
+                                                                                },
                                                                                 ty: Int(
                                                                                     I64,
                                                                                 ),
@@ -1327,7 +1366,10 @@ TypedProgram {
                                                                                 name: "Ctx",
                                                                                 fields: [
                                                                                     RecordFieldType {
-                                                                                        name: "x",
+                                                                                        name: Identifier {
+                                                                                            name: "x",
+                                                                                            span: 17..18,
+                                                                                        },
                                                                                         ty: Int(
                                                                                             I64,
                                                                                         ),
@@ -1358,7 +1400,6 @@ TypedProgram {
                 return_type: Int(
                     I64,
                 ),
-                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -1409,7 +1450,10 @@ TypedProgram {
                                                                                                     name: "Ctx",
                                                                                                     fields: [
                                                                                                         RecordFieldType {
-                                                                                                            name: "x",
+                                                                                                            name: Identifier {
+                                                                                                                name: "x",
+                                                                                                                span: 17..18,
+                                                                                                            },
                                                                                                             ty: Int(
                                                                                                                 I64,
                                                                                                             ),
@@ -1435,11 +1479,13 @@ TypedProgram {
                                                     type_args: [],
                                                 },
                                             ),
-                                            kind: Identifier(
-                                                Identifier {
-                                                    name: "foo",
-                                                    span: 170..173,
-                                                },
+                                            kind: ScopedName(
+                                                [
+                                                    Identifier {
+                                                        name: "foo",
+                                                        span: 170..173,
+                                                    },
+                                                ],
                                             ),
                                         },
                                         span: 170..174,
@@ -1496,7 +1542,10 @@ TypedProgram {
                                                                                 name: "Ctx",
                                                                                 fields: [
                                                                                     RecordFieldType {
-                                                                                        name: "x",
+                                                                                        name: Identifier {
+                                                                                            name: "x",
+                                                                                            span: 17..18,
+                                                                                        },
                                                                                         ty: Int(
                                                                                             I64,
                                                                                         ),
@@ -1504,11 +1553,13 @@ TypedProgram {
                                                                                 ],
                                                                             },
                                                                         ),
-                                                                        kind: Identifier(
-                                                                            Identifier {
-                                                                                name: "ctx",
-                                                                                span: 229..232,
-                                                                            },
+                                                                        kind: ScopedName(
+                                                                            [
+                                                                                Identifier {
+                                                                                    name: "ctx",
+                                                                                    span: 229..232,
+                                                                                },
+                                                                            ],
                                                                         ),
                                                                     },
                                                                     span: 229..232,
@@ -1593,11 +1644,13 @@ TypedProgram {
                                                             ty: Int(
                                                                 I64,
                                                             ),
-                                                            kind: Identifier(
-                                                                Identifier {
-                                                                    name: "n",
-                                                                    span: 333..334,
-                                                                },
+                                                            kind: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "n",
+                                                                        span: 333..334,
+                                                                    },
+                                                                ],
                                                             ),
                                                         },
                                                         span: 333..343,
@@ -1688,7 +1741,10 @@ TypedProgram {
                                                                                 name: "Ctx",
                                                                                 fields: [
                                                                                     RecordFieldType {
-                                                                                        name: "x",
+                                                                                        name: Identifier {
+                                                                                            name: "x",
+                                                                                            span: 17..18,
+                                                                                        },
                                                                                         ty: Int(
                                                                                             I64,
                                                                                         ),
@@ -1719,7 +1775,6 @@ TypedProgram {
                 return_type: Int(
                     I64,
                 ),
-                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -1770,7 +1825,10 @@ TypedProgram {
                                                                                                     name: "Ctx",
                                                                                                     fields: [
                                                                                                         RecordFieldType {
-                                                                                                            name: "x",
+                                                                                                            name: Identifier {
+                                                                                                                name: "x",
+                                                                                                                span: 17..18,
+                                                                                                            },
                                                                                                             ty: Int(
                                                                                                                 I64,
                                                                                                             ),
@@ -1796,11 +1854,13 @@ TypedProgram {
                                                     type_args: [],
                                                 },
                                             ),
-                                            kind: Identifier(
-                                                Identifier {
-                                                    name: "foo",
-                                                    span: 447..450,
-                                                },
+                                            kind: ScopedName(
+                                                [
+                                                    Identifier {
+                                                        name: "foo",
+                                                        span: 447..450,
+                                                    },
+                                                ],
                                             ),
                                         },
                                         span: 447..451,
@@ -1898,7 +1958,6 @@ TypedProgram {
                 return_type: Int(
                     I64,
                 ),
-                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -1913,11 +1972,13 @@ TypedProgram {
                                             ty: Int(
                                                 I64,
                                             ),
-                                            kind: Identifier(
-                                                Identifier {
-                                                    name: "x",
-                                                    span: 596..597,
-                                                },
+                                            kind: ScopedName(
+                                                [
+                                                    Identifier {
+                                                        name: "x",
+                                                        span: 596..597,
+                                                    },
+                                                ],
                                             ),
                                         },
                                         span: 596..598,
@@ -2034,13 +2095,19 @@ TypedProgram {
                                 kind: Struct(
                                     [
                                         RecordFieldType {
-                                            name: "x",
+                                            name: Identifier {
+                                                name: "x",
+                                                span: 727..728,
+                                            },
                                             ty: Int(
                                                 I64,
                                             ),
                                         },
                                         RecordFieldType {
-                                            name: "y",
+                                            name: Identifier {
+                                                name: "y",
+                                                span: 735..736,
+                                            },
                                             ty: Int(
                                                 I64,
                                             ),
@@ -2081,13 +2148,19 @@ TypedProgram {
                                         kind: Struct(
                                             [
                                                 RecordFieldType {
-                                                    name: "x",
+                                                    name: Identifier {
+                                                        name: "x",
+                                                        span: 727..728,
+                                                    },
                                                     ty: Int(
                                                         I64,
                                                     ),
                                                 },
                                                 RecordFieldType {
-                                                    name: "y",
+                                                    name: Identifier {
+                                                        name: "y",
+                                                        span: 735..736,
+                                                    },
                                                     ty: Int(
                                                         I64,
                                                     ),
@@ -2104,7 +2177,6 @@ TypedProgram {
                 return_type: Int(
                     I64,
                 ),
-                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -2129,13 +2201,19 @@ TypedProgram {
                                                             kind: Struct(
                                                                 [
                                                                     RecordFieldType {
-                                                                        name: "x",
+                                                                        name: Identifier {
+                                                                            name: "x",
+                                                                            span: 727..728,
+                                                                        },
                                                                         ty: Int(
                                                                             I64,
                                                                         ),
                                                                     },
                                                                     RecordFieldType {
-                                                                        name: "y",
+                                                                        name: Identifier {
+                                                                            name: "y",
+                                                                            span: 735..736,
+                                                                        },
                                                                         ty: Int(
                                                                             I64,
                                                                         ),
@@ -2147,11 +2225,13 @@ TypedProgram {
                                                     type_args: [],
                                                 },
                                             ),
-                                            kind: Identifier(
-                                                Identifier {
-                                                    name: "msg",
-                                                    span: 796..799,
-                                                },
+                                            kind: ScopedName(
+                                                [
+                                                    Identifier {
+                                                        name: "msg",
+                                                        span: 796..799,
+                                                    },
+                                                ],
                                             ),
                                         },
                                         span: 796..800,
@@ -2211,11 +2291,13 @@ TypedProgram {
                                                                         ty: Int(
                                                                             I64,
                                                                         ),
-                                                                        kind: Identifier(
-                                                                            Identifier {
-                                                                                name: "x",
-                                                                                span: 851..852,
-                                                                            },
+                                                                        kind: ScopedName(
+                                                                            [
+                                                                                Identifier {
+                                                                                    name: "x",
+                                                                                    span: 851..852,
+                                                                                },
+                                                                            ],
                                                                         ),
                                                                     },
                                                                     span: 851..853,
@@ -2225,11 +2307,13 @@ TypedProgram {
                                                                         ty: Int(
                                                                             I64,
                                                                         ),
-                                                                        kind: Identifier(
-                                                                            Identifier {
-                                                                                name: "y",
-                                                                                span: 855..856,
-                                                                            },
+                                                                        kind: ScopedName(
+                                                                            [
+                                                                                Identifier {
+                                                                                    name: "y",
+                                                                                    span: 855..856,
+                                                                                },
+                                                                            ],
                                                                         ),
                                                                     },
                                                                     span: 855..865,
@@ -2282,7 +2366,6 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -2295,6 +2378,8 @@ TypedProgram {
                                         callee: Spanned {
                                             node: TypedExpr {
                                                 ty: Function {
+                                                    kind: Normal,
+                                                    name_span: 131..140,
                                                     params: [
                                                         Enum(
                                                             EnumType {
@@ -2335,7 +2420,10 @@ TypedProgram {
                                                                                                                 name: "Ctx",
                                                                                                                 fields: [
                                                                                                                     RecordFieldType {
-                                                                                                                        name: "x",
+                                                                                                                        name: Identifier {
+                                                                                                                            name: "x",
+                                                                                                                            span: 17..18,
+                                                                                                                        },
                                                                                                                         ty: Int(
                                                                                                                             I64,
                                                                                                                         ),
@@ -2368,14 +2456,19 @@ TypedProgram {
                                                     result: Int(
                                                         I64,
                                                     ),
-                                                    effect: Pure,
-                                                    name_span: 131..140,
+                                                    callee: Some(
+                                                        Named(
+                                                            "match_foo",
+                                                        ),
+                                                    ),
                                                 },
-                                                kind: Identifier(
-                                                    Identifier {
-                                                        name: "match_foo",
-                                                        span: 943..952,
-                                                    },
+                                                kind: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "match_foo",
+                                                            span: 943..952,
+                                                        },
+                                                    ],
                                                 ),
                                             },
                                             span: 943..952,
@@ -2422,7 +2515,10 @@ TypedProgram {
                                                                                                             name: "Ctx",
                                                                                                             fields: [
                                                                                                                 RecordFieldType {
-                                                                                                                    name: "x",
+                                                                                                                    name: Identifier {
+                                                                                                                        name: "x",
+                                                                                                                        span: 17..18,
+                                                                                                                    },
                                                                                                                     ty: Int(
                                                                                                                         I64,
                                                                                                                     ),
@@ -2448,38 +2544,126 @@ TypedProgram {
                                                             type_args: [],
                                                         },
                                                     ),
-                                                    kind: EnumConstructor {
-                                                        enum_name: Identifier {
-                                                            name: "Foo",
-                                                            span: 953..956,
-                                                        },
-                                                        variant: Identifier {
-                                                            name: "Bar",
-                                                            span: 958..961,
-                                                        },
-                                                        payload: Tuple(
-                                                            [
-                                                                Spanned {
-                                                                    node: TypedExpr {
-                                                                        ty: Bool,
-                                                                        kind: Literal(
-                                                                            Boolean(
-                                                                                true,
-                                                                            ),
-                                                                        ),
-                                                                    },
-                                                                    span: 962..966,
+                                                    kind: Call {
+                                                        callee: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Function {
+                                                                    kind: Normal,
+                                                                    name_span: 0..0,
+                                                                    params: [
+                                                                        Bool,
+                                                                    ],
+                                                                    param_spans: [],
+                                                                    result: Enum(
+                                                                        EnumType {
+                                                                            name: "Foo",
+                                                                            variants: [
+                                                                                EnumVariantType {
+                                                                                    name: "Bar",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Bool,
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                                EnumVariantType {
+                                                                                    name: "Baz",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Int(
+                                                                                                I64,
+                                                                                            ),
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                                EnumVariantType {
+                                                                                    name: "Thing",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Enum(
+                                                                                                EnumType {
+                                                                                                    name: "Thing",
+                                                                                                    variants: [
+                                                                                                        EnumVariantType {
+                                                                                                            name: "Wow",
+                                                                                                            kind: Tuple(
+                                                                                                                [
+                                                                                                                    Record(
+                                                                                                                        RecordType {
+                                                                                                                            name: "Ctx",
+                                                                                                                            fields: [
+                                                                                                                                RecordFieldType {
+                                                                                                                                    name: Identifier {
+                                                                                                                                        name: "x",
+                                                                                                                                        span: 17..18,
+                                                                                                                                    },
+                                                                                                                                    ty: Int(
+                                                                                                                                        I64,
+                                                                                                                                    ),
+                                                                                                                                },
+                                                                                                                            ],
+                                                                                                                        },
+                                                                                                                    ),
+                                                                                                                ],
+                                                                                                            ),
+                                                                                                        },
+                                                                                                        EnumVariantType {
+                                                                                                            name: "Who",
+                                                                                                            kind: Unit,
+                                                                                                        },
+                                                                                                    ],
+                                                                                                    type_args: [],
+                                                                                                },
+                                                                                            ),
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                            ],
+                                                                            type_args: [],
+                                                                        },
+                                                                    ),
+                                                                    callee: Some(
+                                                                        Constructor {
+                                                                            variant: 0,
+                                                                        },
+                                                                    ),
                                                                 },
-                                                            ],
-                                                        ),
+                                                                kind: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "Foo",
+                                                                            span: 953..956,
+                                                                        },
+                                                                        Identifier {
+                                                                            name: "Bar",
+                                                                            span: 958..961,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                            },
+                                                            span: 953..961,
+                                                        },
+                                                        args: [
+                                                            Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Bool,
+                                                                    kind: Literal(
+                                                                        Boolean(
+                                                                            true,
+                                                                        ),
+                                                                    ),
+                                                                },
+                                                                span: 962..966,
+                                                            },
+                                                        ],
                                                     },
                                                 },
-                                                span: 953..967,
+                                                span: 953..961,
                                             },
                                         ],
                                     },
                                 },
-                                span: 943..968,
+                                span: 943..952,
                             },
                         ),
                     ],

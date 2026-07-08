@@ -2327,7 +2327,7 @@ impl Inferencer {
                     result: Box::new(expected_return.clone()),
                     kind: FunctionKind::Normal,
                     name_span: function.name.span,
-                    callee: None,
+                    callee: Some(StaticFunction::Named(function.name.to_string())),
                 }),
                 class: BindingClass::Local,
                 visibility: BindingVisibility::Private,
@@ -3283,152 +3283,6 @@ impl Inferencer {
                     .and_then(|funcs| funcs.get(&variant.name))
                     .cloned();
 
-                if let Some(func_info) = ns_func_info {
-                    // This is a namespace call
-                    // Found the function in the namespace
-                    let args: &[Spanned<Expr>] = match payload {
-                        EnumConstructorPayload::Tuple(args) => args,
-                        EnumConstructorPayload::Unit => {
-                            // Unit payload means no-arg call: `cardano::blockHeight`
-                            // Treat as zero-arg call
-                            &[]
-                        }
-                        EnumConstructorPayload::Struct(_) => {
-                            return Err(TypeError::new(
-                                TypeErrorKind::ArityMismatch {
-                                    expected: func_info.param_types.len(),
-                                    found: 0,
-                                },
-                                expr.span,
-                            )
-                            .with_help(
-                                "namespace functions use tuple-style arguments, not struct syntax",
-                            ));
-                        }
-                    };
-
-                    let param_types = &func_info.param_types;
-                    let return_type = &func_info.return_type;
-                    let kind = func_info.kind;
-
-                    // Check effect: runtime functions need `runtime` keyword
-                    if kind == FunctionKind::Runtime && !ctx.inside_runtime {
-                        return Err(TypeError::new(
-                            TypeErrorKind::RuntimeWithoutKeyword {
-                                function_name: variant.name.clone(),
-                            },
-                            variant.span_or(expr.span),
-                        )
-                        .with_help(format!(
-                            "use `runtime` to call runtime functions, e.g., `runtime {}::{}()`",
-                            enum_name.name, variant.name
-                        )));
-                    }
-
-                    // Check effect: effectful functions need `raise` keyword
-                    if kind == FunctionKind::Raise && !ctx.inside_raise {
-                        return Err(TypeError::new(
-                            TypeErrorKind::EffectfulWithoutRaise {
-                                function_name: variant.name.clone(),
-                            },
-                            variant.span_or(expr.span),
-                        )
-                        .with_help(format!(
-                            "use `raise` to call effectful functions, e.g., `raise {}::{}()`",
-                            enum_name.name, variant.name
-                        )));
-                    }
-
-                    // Check arity
-                    if args.len() != param_types.len() {
-                        return Err(TypeError::new(
-                            TypeErrorKind::ArityMismatch {
-                                expected: param_types.len(),
-                                found: args.len(),
-                            },
-                            expr.span,
-                        ));
-                    }
-
-                    // Typecheck arguments
-                    let mut children = Vec::new();
-                    let mut typed_args = Vec::with_capacity(args.len());
-
-                    for (index, (arg, expected_ty)) in
-                        args.iter().zip(param_types.iter()).enumerate()
-                    {
-                        let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
-                        let actual_ty = typed_arg.node.ty.clone();
-
-                        let (_, unify_trace) = self.unify(
-                            actual_ty.clone(),
-                            expected_ty.clone(),
-                            arg.span,
-                            arg.span,
-                            TypeErrorKind::ArgumentTypeMismatch {
-                                expected: expected_ty.clone(),
-                                found: self.apply_for_display(&actual_ty),
-                                position: index + 1,
-                                param_span: func_info.param_spans.get(index).copied(),
-                            },
-                        )?;
-
-                        children.push(arg_trace);
-                        children.push(unify_trace);
-                        typed_args.push(typed_arg);
-                    }
-
-                    // Build the typed call - we use TypedExprKind::Call with a synthetic callee
-                    let callee_ty = Type::Function {
-                        params: param_types.clone(),
-                        param_spans: Vec::new(),
-                        result: Box::new(return_type.clone()),
-                        kind,
-                        name_span: func_info.name_span,
-                    };
-
-                    let callee_ident = Identifier::new(
-                        format!("{}::{}", enum_name.name, variant.name),
-                        variant.span(),
-                    );
-
-                    let typed_callee = Spanned::new(
-                        TypedExpr::new(callee_ty, TypedExprKind::Identifier(callee_ident)),
-                        variant.span_or(expr.span),
-                    );
-
-                    let typed = Spanned::new(
-                        TypedExpr::new(
-                            return_type.clone(),
-                            TypedExprKind::Call {
-                                callee: Box::new(typed_callee),
-                                args: typed_args,
-                            },
-                        ),
-                        expr.span,
-                    );
-
-                    let result_repr = self.maybe_string(|| self.format_type(return_type));
-                    let tree = self.make_trace(
-                        "T-NamespaceCall",
-                        env_context,
-                        subject_repr,
-                        result_repr,
-                        || children,
-                    );
-
-                    return Ok((typed, tree));
-                } else if self.namespaces.contains(&enum_name.name) {
-                    // Namespace exists but function not found
-                    return Err(TypeError::new(
-                        TypeErrorKind::UnknownImportFunction {
-                            path: enum_name.name.clone(),
-                            name: variant.name.clone(),
-                        },
-                        variant.span(),
-                    ));
-                }
-
                 // Not a namespace - check for enum
                 // Use casing heuristic for better error messages
                 let is_likely_namespace = enum_name
@@ -4203,29 +4057,6 @@ impl Inferencer {
                 }
             }
             Expr::FieldAccess { target, .. } => self.source_expr_visibility(env, target),
-            /*
-            Expr::EnumConstructor { payload, .. } => match payload {
-                EnumConstructorPayload::Unit => BindingVisibility::Public,
-                EnumConstructorPayload::Tuple(values) => {
-                    if values.iter().all(|value| {
-                        self.source_expr_visibility(env, value) == BindingVisibility::Public
-                    }) {
-                        BindingVisibility::Public
-                    } else {
-                        BindingVisibility::Private
-                    }
-                }
-                EnumConstructorPayload::Struct(fields) => {
-                    if fields.iter().all(|field| {
-                        self.source_expr_visibility(env, &field.value) == BindingVisibility::Public
-                    }) {
-                        BindingVisibility::Public
-                    } else {
-                        BindingVisibility::Private
-                    }
-                }
-            },
-            */
             Expr::Disclose { .. } => BindingVisibility::Public,
             Expr::Call { .. } => BindingVisibility::Private,
             Expr::Block(_)

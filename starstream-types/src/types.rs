@@ -192,7 +192,9 @@ pub struct Abi {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StaticFunction {
+    /// A specific function declared in the global namespace.
     Named(String),
+    /// Tuple variant constructor for the given variant of the function's return type.
     Constructor { variant: usize },
 }
 

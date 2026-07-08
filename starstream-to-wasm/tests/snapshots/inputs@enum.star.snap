@@ -108,37 +108,44 @@ Program {
                                     Spanned {
                                         node: Call {
                                             callee: Spanned {
-                                                node: Identifier(
-                                                    Identifier {
-                                                        name: "accepts_foo",
-                                                        span: 99..110,
-                                                    },
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "accepts_foo",
+                                                            span: 99..110,
+                                                        },
+                                                    ],
                                                 ),
                                                 span: 99..110,
                                             },
                                             args: [
                                                 Spanned {
-                                                    node: EnumConstructor {
-                                                        enum_name: Identifier {
-                                                            name: "Foo",
-                                                            span: 111..114,
+                                                    node: Call {
+                                                        callee: Spanned {
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "Foo",
+                                                                        span: 111..114,
+                                                                    },
+                                                                    Identifier {
+                                                                        name: "Bar",
+                                                                        span: 116..119,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                            span: 111..119,
                                                         },
-                                                        variant: Identifier {
-                                                            name: "Bar",
-                                                            span: 116..119,
-                                                        },
-                                                        payload: Tuple(
-                                                            [
-                                                                Spanned {
-                                                                    node: Literal(
-                                                                        Boolean(
-                                                                            true,
-                                                                        ),
+                                                        args: [
+                                                            Spanned {
+                                                                node: Literal(
+                                                                    Boolean(
+                                                                        true,
                                                                     ),
-                                                                    span: 120..124,
-                                                                },
-                                                            ],
-                                                        ),
+                                                                ),
+                                                                span: 120..124,
+                                                            },
+                                                        ],
                                                     },
                                                     span: 111..125,
                                                 },
@@ -176,37 +183,44 @@ Program {
                                     Spanned {
                                         node: Call {
                                             callee: Spanned {
-                                                node: Identifier(
-                                                    Identifier {
-                                                        name: "accepts_foo",
-                                                        span: 157..168,
-                                                    },
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "accepts_foo",
+                                                            span: 157..168,
+                                                        },
+                                                    ],
                                                 ),
                                                 span: 157..168,
                                             },
                                             args: [
                                                 Spanned {
-                                                    node: EnumConstructor {
-                                                        enum_name: Identifier {
-                                                            name: "Foo",
-                                                            span: 169..172,
+                                                    node: Call {
+                                                        callee: Spanned {
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "Foo",
+                                                                        span: 169..172,
+                                                                    },
+                                                                    Identifier {
+                                                                        name: "Baz",
+                                                                        span: 174..177,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                            span: 169..177,
                                                         },
-                                                        variant: Identifier {
-                                                            name: "Baz",
-                                                            span: 174..177,
-                                                        },
-                                                        payload: Tuple(
-                                                            [
-                                                                Spanned {
-                                                                    node: Literal(
-                                                                        Integer(
-                                                                            2,
-                                                                        ),
+                                                        args: [
+                                                            Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        2,
                                                                     ),
-                                                                    span: 178..179,
-                                                                },
-                                                            ],
-                                                        ),
+                                                                ),
+                                                                span: 178..179,
+                                                            },
+                                                        ],
                                                     },
                                                     span: 169..180,
                                                 },
@@ -233,22 +247,24 @@ Program {
 T-Fn: accepts_foo => ()
 
 T-Fn: get_bar => ()
-  T-Expr: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo(Foo::Bar(true)); ⇒ ()
-    T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo(Foo::Bar(true)) ⇒ ()
-      T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo ⇒ fn(Foo) -> ()
-      T-EnumCtor: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ Foo::Bar(true) ⇒ Foo
-        T-Bool: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ true ⇒ bool
+  T-Expr: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ accepts_foo(Foo::Bar(true)); ⇒ ()
+    T-Call: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ accepts_foo(Foo::Bar(true)) ⇒ ()
+      T-Var: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ accepts_foo ⇒ fn(Foo) -> () [accepts_foo]
+      T-Call: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ Foo::Bar(true) ⇒ Foo
+        T-Var: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ Foo::Bar ⇒ fn(bool) -> Foo [0]
+        T-Bool: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ true ⇒ bool
         Unify-Const: bool ~ bool => {}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
 
 T-Fn: get_baz => ()
-  T-Expr: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo(Foo::Baz(2)); ⇒ ()
-    T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo(Foo::Baz(2)) ⇒ ()
-      T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo ⇒ fn(Foo) -> ()
-      T-EnumCtor: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ Foo::Baz(2) ⇒ Foo
-        T-Int: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ 2 ⇒ i64
+  T-Expr: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ accepts_foo(Foo::Baz(2)); ⇒ ()
+    T-Call: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ accepts_foo(Foo::Baz(2)) ⇒ ()
+      T-Var: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ accepts_foo ⇒ fn(Foo) -> () [accepts_foo]
+      T-Call: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ Foo::Baz(2) ⇒ Foo
+        T-Var: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ Foo::Baz ⇒ fn(i64) -> Foo [1]
+        T-Int: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ 2 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t3}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
@@ -361,7 +377,6 @@ TypedProgram {
                     },
                 ],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: None,
@@ -379,7 +394,6 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -390,6 +404,8 @@ TypedProgram {
                                         callee: Spanned {
                                             node: TypedExpr {
                                                 ty: Function {
+                                                    kind: Normal,
+                                                    name_span: 46..57,
                                                     params: [
                                                         Enum(
                                                             EnumType {
@@ -422,14 +438,19 @@ TypedProgram {
                                                         63..66,
                                                     ],
                                                     result: Unit,
-                                                    effect: Pure,
-                                                    name_span: 46..57,
+                                                    callee: Some(
+                                                        Named(
+                                                            "accepts_foo",
+                                                        ),
+                                                    ),
                                                 },
-                                                kind: Identifier(
-                                                    Identifier {
-                                                        name: "accepts_foo",
-                                                        span: 99..110,
-                                                    },
+                                                kind: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "accepts_foo",
+                                                            span: 99..110,
+                                                        },
+                                                    ],
                                                 ),
                                             },
                                             span: 99..110,
@@ -463,38 +484,84 @@ TypedProgram {
                                                             type_args: [],
                                                         },
                                                     ),
-                                                    kind: EnumConstructor {
-                                                        enum_name: Identifier {
-                                                            name: "Foo",
-                                                            span: 111..114,
-                                                        },
-                                                        variant: Identifier {
-                                                            name: "Bar",
-                                                            span: 116..119,
-                                                        },
-                                                        payload: Tuple(
-                                                            [
-                                                                Spanned {
-                                                                    node: TypedExpr {
-                                                                        ty: Bool,
-                                                                        kind: Literal(
-                                                                            Boolean(
-                                                                                true,
-                                                                            ),
-                                                                        ),
-                                                                    },
-                                                                    span: 120..124,
+                                                    kind: Call {
+                                                        callee: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Function {
+                                                                    kind: Normal,
+                                                                    name_span: 0..0,
+                                                                    params: [
+                                                                        Bool,
+                                                                    ],
+                                                                    param_spans: [],
+                                                                    result: Enum(
+                                                                        EnumType {
+                                                                            name: "Foo",
+                                                                            variants: [
+                                                                                EnumVariantType {
+                                                                                    name: "Bar",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Bool,
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                                EnumVariantType {
+                                                                                    name: "Baz",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Int(
+                                                                                                I64,
+                                                                                            ),
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                            ],
+                                                                            type_args: [],
+                                                                        },
+                                                                    ),
+                                                                    callee: Some(
+                                                                        Constructor {
+                                                                            variant: 0,
+                                                                        },
+                                                                    ),
                                                                 },
-                                                            ],
-                                                        ),
+                                                                kind: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "Foo",
+                                                                            span: 111..114,
+                                                                        },
+                                                                        Identifier {
+                                                                            name: "Bar",
+                                                                            span: 116..119,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                            },
+                                                            span: 111..119,
+                                                        },
+                                                        args: [
+                                                            Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Bool,
+                                                                    kind: Literal(
+                                                                        Boolean(
+                                                                            true,
+                                                                        ),
+                                                                    ),
+                                                                },
+                                                                span: 120..124,
+                                                            },
+                                                        ],
                                                     },
                                                 },
-                                                span: 111..125,
+                                                span: 111..119,
                                             },
                                         ],
                                     },
                                 },
-                                span: 99..126,
+                                span: 99..110,
                             },
                         ),
                     ],
@@ -513,7 +580,6 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -524,6 +590,8 @@ TypedProgram {
                                         callee: Spanned {
                                             node: TypedExpr {
                                                 ty: Function {
+                                                    kind: Normal,
+                                                    name_span: 46..57,
                                                     params: [
                                                         Enum(
                                                             EnumType {
@@ -556,14 +624,19 @@ TypedProgram {
                                                         63..66,
                                                     ],
                                                     result: Unit,
-                                                    effect: Pure,
-                                                    name_span: 46..57,
+                                                    callee: Some(
+                                                        Named(
+                                                            "accepts_foo",
+                                                        ),
+                                                    ),
                                                 },
-                                                kind: Identifier(
-                                                    Identifier {
-                                                        name: "accepts_foo",
-                                                        span: 157..168,
-                                                    },
+                                                kind: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "accepts_foo",
+                                                            span: 157..168,
+                                                        },
+                                                    ],
                                                 ),
                                             },
                                             span: 157..168,
@@ -597,40 +670,88 @@ TypedProgram {
                                                             type_args: [],
                                                         },
                                                     ),
-                                                    kind: EnumConstructor {
-                                                        enum_name: Identifier {
-                                                            name: "Foo",
-                                                            span: 169..172,
-                                                        },
-                                                        variant: Identifier {
-                                                            name: "Baz",
-                                                            span: 174..177,
-                                                        },
-                                                        payload: Tuple(
-                                                            [
-                                                                Spanned {
-                                                                    node: TypedExpr {
-                                                                        ty: Int(
+                                                    kind: Call {
+                                                        callee: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Function {
+                                                                    kind: Normal,
+                                                                    name_span: 0..0,
+                                                                    params: [
+                                                                        Int(
                                                                             I64,
                                                                         ),
-                                                                        kind: Literal(
-                                                                            Integer(
-                                                                                2,
-                                                                            ),
-                                                                        ),
-                                                                    },
-                                                                    span: 178..179,
+                                                                    ],
+                                                                    param_spans: [],
+                                                                    result: Enum(
+                                                                        EnumType {
+                                                                            name: "Foo",
+                                                                            variants: [
+                                                                                EnumVariantType {
+                                                                                    name: "Bar",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Bool,
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                                EnumVariantType {
+                                                                                    name: "Baz",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Int(
+                                                                                                I64,
+                                                                                            ),
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                            ],
+                                                                            type_args: [],
+                                                                        },
+                                                                    ),
+                                                                    callee: Some(
+                                                                        Constructor {
+                                                                            variant: 1,
+                                                                        },
+                                                                    ),
                                                                 },
-                                                            ],
-                                                        ),
+                                                                kind: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "Foo",
+                                                                            span: 169..172,
+                                                                        },
+                                                                        Identifier {
+                                                                            name: "Baz",
+                                                                            span: 174..177,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                            },
+                                                            span: 169..177,
+                                                        },
+                                                        args: [
+                                                            Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Int(
+                                                                        I64,
+                                                                    ),
+                                                                    kind: Literal(
+                                                                        Integer(
+                                                                            2,
+                                                                        ),
+                                                                    ),
+                                                                },
+                                                                span: 178..179,
+                                                            },
+                                                        ],
                                                     },
                                                 },
-                                                span: 169..180,
+                                                span: 169..177,
                                             },
                                         ],
                                     },
                                 },
-                                span: 157..181,
+                                span: 157..168,
                             },
                         ),
                     ],

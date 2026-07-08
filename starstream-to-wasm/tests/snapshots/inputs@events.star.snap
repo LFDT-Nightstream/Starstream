@@ -79,9 +79,9 @@ Program {
 ==== Inference trace ====
 
 T-Fn: main => ()
-  T-Expr: {main: fn() -> ()} ⊢ emit Hello(); ⇒ ()
-    T-Call: {main: fn() -> ()} ⊢ emit Hello() ⇒ ()
-      T-Var: {main: fn() -> ()} ⊢ Hello ⇒ event() -> () [Hello]
+  T-Expr: {main: fn() -> () [main]} ⊢ emit Hello(); ⇒ ()
+    T-Call: {main: fn() -> () [main]} ⊢ emit Hello() ⇒ ()
+      T-Var: {main: fn() -> () [main]} ⊢ Hello ⇒ event() -> () [Hello]
 
 ==== Typed AST ====
 TypedProgram {
