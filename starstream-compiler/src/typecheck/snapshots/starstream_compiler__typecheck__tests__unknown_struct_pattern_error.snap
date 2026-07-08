@@ -4,7 +4,7 @@ description: "Source:\n\nfn test() {\n    match 0 {\n        Missing::Value => {
 ---
 E0017 (https://starstream.nightstream.dev/errors/E0017)
 
-  x unknown enum `Missing`
+  x unknown namespace `Missing`
    ,-[test.star:3:9]
  2 |     match 0 {
  3 |         Missing::Value => {

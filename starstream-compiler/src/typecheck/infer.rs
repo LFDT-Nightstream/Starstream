@@ -1407,7 +1407,7 @@ impl Inferencer {
     fn build_typed_enum(&self, def: &EnumDef) -> Result<TypedEnumDef, TypeError> {
         let info = self.types.enum_info(&def.name.name).ok_or_else(|| {
             TypeError::new(
-                TypeErrorKind::UnknownEnum {
+                TypeErrorKind::UnknownNamespace {
                     name: def.name.name.clone(),
                 },
                 def.name.span(),
@@ -1789,7 +1789,7 @@ impl Inferencer {
     fn lookup_enum_info(&mut self, name: &Identifier) -> Result<EnumInfo, TypeError> {
         self.instantiate_enum_info(&name.name).ok_or_else(|| {
             TypeError::new(
-                TypeErrorKind::UnknownEnum {
+                TypeErrorKind::UnknownNamespace {
                     name: name.name.clone(),
                 },
                 name.span(),

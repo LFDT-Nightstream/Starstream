@@ -5,11 +5,13 @@ description: "Code:\n\nmatch value {\n    Result::Ok(inner) => {\n        inner\
 Spanned {
     node: Match {
         scrutinee: Spanned {
-            node: Identifier(
-                Identifier {
-                    name: "value",
-                    span: 6..11,
-                },
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "value",
+                        span: 6..11,
+                    },
+                ],
             ),
             span: 6..12,
         },
@@ -39,11 +41,13 @@ Spanned {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
-                            node: Identifier(
-                                Identifier {
-                                    name: "inner",
-                                    span: 49..54,
-                                },
+                            node: ScopedName(
+                                [
+                                    Identifier {
+                                        name: "inner",
+                                        span: 49..54,
+                                    },
+                                ],
                             ),
                             span: 49..59,
                         },
@@ -77,11 +81,13 @@ Spanned {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
-                            node: Identifier(
-                                Identifier {
-                                    name: "reason",
-                                    span: 99..105,
-                                },
+                            node: ScopedName(
+                                [
+                                    Identifier {
+                                        name: "reason",
+                                        span: 99..105,
+                                    },
+                                ],
                             ),
                             span: 99..110,
                         },

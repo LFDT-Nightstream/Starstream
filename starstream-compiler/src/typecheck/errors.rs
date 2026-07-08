@@ -146,7 +146,7 @@ pub enum TypeErrorKind {
     UnknownStruct {
         name: String,
     },
-    UnknownEnum {
+    UnknownNamespace {
         name: String,
     },
     UnknownStructField {
@@ -324,7 +324,7 @@ impl TypeErrorKind {
             TypeErrorKind::DuplicateStructField { .. } => error_code!(E0014),
             TypeErrorKind::DuplicateEnumVariant { .. } => error_code!(E0015),
             TypeErrorKind::UnknownStruct { .. } => error_code!(E0016),
-            TypeErrorKind::UnknownEnum { .. } => error_code!(E0017),
+            TypeErrorKind::UnknownNamespace { .. } => error_code!(E0017),
             TypeErrorKind::UnknownStructField { .. } => error_code!(E0018),
             TypeErrorKind::DuplicateStructLiteralField { .. } => error_code!(E0019),
             TypeErrorKind::MissingStructField { .. } => error_code!(E0020),
@@ -514,7 +514,7 @@ impl fmt::Display for TypeErrorKind {
                 "variant `{variant_name}` appears multiple times in enum `{enum_name}`"
             ),
             TypeErrorKind::UnknownStruct { name } => write!(f, "unknown struct `{name}`"),
-            TypeErrorKind::UnknownEnum { name } => write!(f, "unknown enum `{name}`"),
+            TypeErrorKind::UnknownNamespace { name } => write!(f, "unknown namespace `{name}`"),
             TypeErrorKind::UnknownStructField {
                 struct_name,
                 field_name,

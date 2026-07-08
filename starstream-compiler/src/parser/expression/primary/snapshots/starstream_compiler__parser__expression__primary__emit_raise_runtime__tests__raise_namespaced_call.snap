@@ -1,0 +1,25 @@
+---
+source: starstream-compiler/src/parser/expression/primary/emit_raise_runtime.rs
+description: "Code:\n\nraise context::blockHeight()"
+---
+Spanned {
+    node: Raise {
+        callee: Spanned {
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "context",
+                        span: 6..13,
+                    },
+                    Identifier {
+                        name: "blockHeight",
+                        span: 15..26,
+                    },
+                ],
+            ),
+            span: 6..26,
+        },
+        args: [],
+    },
+    span: 0..28,
+}

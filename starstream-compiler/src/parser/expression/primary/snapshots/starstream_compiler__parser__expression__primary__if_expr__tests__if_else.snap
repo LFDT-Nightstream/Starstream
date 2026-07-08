@@ -8,11 +8,13 @@ Spanned {
             (
                 Bool(
                     Spanned {
-                        node: Identifier(
-                            Identifier {
-                                name: "flag",
-                                span: 4..8,
-                            },
+                        node: ScopedName(
+                            [
+                                Identifier {
+                                    name: "flag",
+                                    span: 4..8,
+                                },
+                            ],
                         ),
                         span: 4..8,
                     },
@@ -58,11 +60,13 @@ Spanned {
                                 node: Binary {
                                     op: Add,
                                     left: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "value",
-                                                span: 40..45,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "value",
+                                                    span: 40..45,
+                                                },
+                                            ],
                                         ),
                                         span: 40..46,
                                     },

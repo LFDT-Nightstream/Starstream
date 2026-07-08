@@ -1178,7 +1178,7 @@ fn expr_with_prec<'a>(
                         source,
                         comments,
                     );
-                    RcDoc::text("emit")
+                    RcDoc::text("raise")
                         .append(RcDoc::space())
                         .append(callee_doc)
                         .append(arguments_to_doc(args, source, comments))
@@ -1191,7 +1191,7 @@ fn expr_with_prec<'a>(
                         source,
                         comments,
                     );
-                    RcDoc::text("emit")
+                    RcDoc::text("runtime")
                         .append(RcDoc::space())
                         .append(callee_doc)
                         .append(arguments_to_doc(args, source, comments))

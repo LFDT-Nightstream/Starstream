@@ -3,11 +3,13 @@ source: starstream-compiler/src/parser/expression/primary/literal.rs
 description: "Code:\n\nfoo"
 ---
 Spanned {
-    node: Identifier(
-        Identifier {
-            name: "foo",
-            span: 0..3,
-        },
+    node: ScopedName(
+        [
+            Identifier {
+                name: "foo",
+                span: 0..3,
+            },
+        ],
     ),
     span: 0..3,
 }

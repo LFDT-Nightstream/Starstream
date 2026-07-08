@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/parser/expression/primary/emit_raise_runtime.rs
+description: "Code:\n\n// Emit ping\nemit Ping()\n"
+---
+Spanned {
+    node: Emit {
+        callee: Spanned {
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "Ping",
+                        span: 18..22,
+                    },
+                ],
+            ),
+            span: 18..22,
+        },
+        args: [],
+    },
+    span: 13..25,
+}

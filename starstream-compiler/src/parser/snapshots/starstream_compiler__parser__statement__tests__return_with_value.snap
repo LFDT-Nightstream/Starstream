@@ -5,11 +5,13 @@ description: "Code:\n\nreturn flag;"
 Return(
     Some(
         Spanned {
-            node: Identifier(
-                Identifier {
-                    name: "flag",
-                    span: 7..11,
-                },
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "flag",
+                        span: 7..11,
+                    },
+                ],
             ),
             span: 7..11,
         },

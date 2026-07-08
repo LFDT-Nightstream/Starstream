@@ -7,11 +7,13 @@ Spanned {
         target: Spanned {
             node: FieldAccess {
                 target: Spanned {
-                    node: Identifier(
-                        Identifier {
-                            name: "state",
-                            span: 0..5,
-                        },
+                    node: ScopedName(
+                        [
+                            Identifier {
+                                name: "state",
+                                span: 0..5,
+                            },
+                        ],
                     ),
                     span: 0..5,
                 },

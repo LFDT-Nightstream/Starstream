@@ -354,7 +354,7 @@ impl Type {
                             // TODO: use variant name here by inspecting `result`
                             RcDoc::text(" <").append(variant.to_string()).append(">")
                         }
-                        None => todo!(),
+                        None => RcDoc::nil(),
                     })
             }
             Type::Tuple(items) => RcDoc::text("(")

@@ -62,6 +62,7 @@ fn scoped_name_expr<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> 
 pub fn scoped_name<'a>() -> impl Parser<'a, &'a str, ScopedName, Extra<'a>> + Clone {
     primitives::identifier()
         .separated_by(just("::"))
+        .at_least(1)
         .collect::<Vec<_>>()
 }
 

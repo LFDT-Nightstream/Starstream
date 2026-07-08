@@ -1,0 +1,37 @@
+---
+source: starstream-compiler/src/parser/expression/primary/mod.rs
+description: "Code:\n\nResult::Ok(answer)"
+---
+Spanned {
+    node: Call {
+        callee: Spanned {
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "Result",
+                        span: 0..6,
+                    },
+                    Identifier {
+                        name: "Ok",
+                        span: 8..10,
+                    },
+                ],
+            ),
+            span: 0..10,
+        },
+        args: [
+            Spanned {
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "answer",
+                            span: 11..17,
+                        },
+                    ],
+                ),
+                span: 11..17,
+            },
+        ],
+    },
+    span: 0..18,
+}

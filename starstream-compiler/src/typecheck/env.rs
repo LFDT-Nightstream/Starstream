@@ -63,6 +63,7 @@ impl TypeEnv {
         if scoped.len() == 1 {
             self.get(scoped[0].as_str())
         } else {
+            // TODO
             None
         }
     }

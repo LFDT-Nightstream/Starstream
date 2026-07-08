@@ -8,11 +8,13 @@ Spanned {
             (
                 Bool(
                     Spanned {
-                        node: Identifier(
-                            Identifier {
-                                name: "a",
-                                span: 4..5,
-                            },
+                        node: ScopedName(
+                            [
+                                Identifier {
+                                    name: "a",
+                                    span: 4..5,
+                                },
+                            ],
                         ),
                         span: 4..5,
                     },
@@ -35,11 +37,13 @@ Spanned {
             (
                 Bool(
                     Spanned {
-                        node: Identifier(
-                            Identifier {
-                                name: "b",
-                                span: 22..23,
-                            },
+                        node: ScopedName(
+                            [
+                                Identifier {
+                                    name: "b",
+                                    span: 22..23,
+                                },
+                            ],
                         ),
                         span: 22..23,
                     },
