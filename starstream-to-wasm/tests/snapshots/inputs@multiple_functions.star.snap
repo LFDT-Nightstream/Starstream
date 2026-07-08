@@ -46,11 +46,13 @@ Program {
                                         (
                                             Bool(
                                                 Spanned {
-                                                    node: Identifier(
-                                                        Identifier {
-                                                            name: "flag",
-                                                            span: 41..45,
-                                                        },
+                                                    node: ScopedName(
+                                                        [
+                                                            Identifier {
+                                                                name: "flag",
+                                                                span: 41..45,
+                                                            },
+                                                        ],
                                                     ),
                                                     span: 41..45,
                                                 },
@@ -139,11 +141,13 @@ Program {
                                 node: Binary {
                                     op: Add,
                                     left: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "base",
-                                                span: 148..152,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "base",
+                                                    span: 148..152,
+                                                },
+                                            ],
                                         ),
                                         span: 148..153,
                                     },
@@ -214,7 +218,6 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -248,11 +251,13 @@ TypedProgram {
                                                 Spanned {
                                                     node: TypedExpr {
                                                         ty: Bool,
-                                                        kind: Identifier(
-                                                            Identifier {
-                                                                name: "flag",
-                                                                span: 41..45,
-                                                            },
+                                                        kind: ScopedName(
+                                                            [
+                                                                Identifier {
+                                                                    name: "flag",
+                                                                    span: 41..45,
+                                                                },
+                                                            ],
                                                         ),
                                                     },
                                                     span: 41..45,
@@ -297,7 +302,6 @@ TypedProgram {
                 return_type: Int(
                     I64,
                 ),
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -335,11 +339,13 @@ TypedProgram {
                                             ty: Int(
                                                 I64,
                                             ),
-                                            kind: Identifier(
-                                                Identifier {
-                                                    name: "base",
-                                                    span: 148..152,
-                                                },
+                                            kind: ScopedName(
+                                                [
+                                                    Identifier {
+                                                        name: "base",
+                                                        span: 148..152,
+                                                    },
+                                                ],
                                             ),
                                         },
                                         span: 148..153,

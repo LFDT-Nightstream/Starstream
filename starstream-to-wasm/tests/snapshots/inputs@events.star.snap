@@ -47,8 +47,15 @@ Program {
                                 node: Expression(
                                     Spanned {
                                         node: Emit {
-                                            event: Identifier {
-                                                name: "Hello",
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "Hello",
+                                                            span: 60..65,
+                                                        },
+                                                    ],
+                                                ),
                                                 span: 60..65,
                                             },
                                             args: [],
@@ -73,7 +80,8 @@ Program {
 
 T-Fn: main => ()
   T-Expr: {main: fn() -> ()} ⊢ emit Hello(); ⇒ ()
-    T-Emit: {main: fn() -> ()} ⊢ emit Hello() ⇒ ()
+    T-Call: {main: fn() -> ()} ⊢ emit Hello() ⇒ ()
+      T-Var: {main: fn() -> ()} ⊢ Hello ⇒ event() -> () [Hello]
 
 ==== Typed AST ====
 TypedProgram {
@@ -109,22 +117,42 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Expression(
                             Spanned {
                                 node: TypedExpr {
                                     ty: Unit,
-                                    kind: Emit {
-                                        event: Identifier {
-                                            name: "Hello",
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function {
+                                                    kind: Emit,
+                                                    name_span: 20..25,
+                                                    params: [],
+                                                    param_spans: [],
+                                                    result: Unit,
+                                                    callee: Some(
+                                                        Named(
+                                                            "Hello",
+                                                        ),
+                                                    ),
+                                                },
+                                                kind: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "Hello",
+                                                            span: 60..65,
+                                                        },
+                                                    ],
+                                                ),
+                                            },
                                             span: 60..65,
                                         },
                                         args: [],
                                     },
                                 },
-                                span: 55..67,
+                                span: 60..65,
                             },
                         ),
                     ],

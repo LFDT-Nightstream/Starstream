@@ -62,20 +62,24 @@ Program {
                                 node: Binary {
                                     op: Add,
                                     left: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "x",
-                                                span: 43..44,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "x",
+                                                    span: 43..44,
+                                                },
+                                            ],
                                         ),
                                         span: 43..45,
                                     },
                                     right: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "y",
-                                                span: 47..48,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "y",
+                                                    span: 47..48,
+                                                },
+                                            ],
                                         ),
                                         span: 47..49,
                                     },
@@ -139,7 +143,6 @@ TypedProgram {
                 return_type: Int(
                     I64,
                 ),
-                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -155,11 +158,13 @@ TypedProgram {
                                             ty: Int(
                                                 I64,
                                             ),
-                                            kind: Identifier(
-                                                Identifier {
-                                                    name: "x",
-                                                    span: 43..44,
-                                                },
+                                            kind: ScopedName(
+                                                [
+                                                    Identifier {
+                                                        name: "x",
+                                                        span: 43..44,
+                                                    },
+                                                ],
                                             ),
                                         },
                                         span: 43..45,
@@ -169,11 +174,13 @@ TypedProgram {
                                             ty: Int(
                                                 I64,
                                             ),
-                                            kind: Identifier(
-                                                Identifier {
-                                                    name: "y",
-                                                    span: 47..48,
-                                                },
+                                            kind: ScopedName(
+                                                [
+                                                    Identifier {
+                                                        name: "y",
+                                                        span: 47..48,
+                                                    },
+                                                ],
                                             ),
                                         },
                                         span: 47..49,
