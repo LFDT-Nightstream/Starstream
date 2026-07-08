@@ -822,7 +822,7 @@ impl Inferencer {
         let t = self.fresh_var_id();
         self.register_prelude_enum(
             "Option",
-            vec![
+            &[
                 ("Some", EnumVariantInfoKind::Tuple(vec![Type::Var(t)])),
                 ("None", EnumVariantInfoKind::Unit),
             ],
@@ -839,7 +839,7 @@ impl Inferencer {
         let e = self.fresh_var_id();
         self.register_prelude_enum(
             "Result",
-            vec![
+            &[
                 ("Ok", EnumVariantInfoKind::Tuple(vec![Type::Var(t2)])),
                 ("Err", EnumVariantInfoKind::Tuple(vec![Type::Var(e)])),
             ],
@@ -866,7 +866,7 @@ impl Inferencer {
     fn register_prelude_enum(
         &mut self,
         name: &str,
-        variants: Vec<(&str, EnumVariantInfoKind)>,
+        variants: &[(&str, EnumVariantInfoKind)],
         type_params: Vec<TypeParam>,
         doc: &str,
         variant_docs: &[(&str, &str)],
@@ -889,27 +889,71 @@ impl Inferencer {
         let info_variants: Vec<EnumVariantInfo> = variants
             .into_iter()
             .map(|(vname, kind)| EnumVariantInfo {
-                name: Identifier::anon(vname),
-                kind,
+                name: Identifier::anon(vname.to_owned()),
+                kind: kind.clone(),
             })
             .collect();
 
-        self.types.insert(
-            name.to_string(),
-            TypeEntry {
-                ty: Type::enum_type(name, type_variants),
-                kind: TypeEntryKind::Enum {
-                    variants: info_variants,
+        let ty = &self
+            .types
+            .insert(
+                name.to_string(),
+                TypeEntry {
+                    ty: Type::enum_type(name, type_variants),
+                    kind: TypeEntryKind::Enum {
+                        variants: info_variants,
+                    },
+                    span: DUMMY_SPAN,
+                    type_params,
+                    doc: Some(doc.into()),
+                    variant_docs: variant_docs
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
                 },
-                span: DUMMY_SPAN,
-                type_params,
-                doc: Some(doc.into()),
-                variant_docs: variant_docs
-                    .iter()
-                    .map(|(k, v)| (k.to_string(), v.to_string()))
-                    .collect(),
-            },
-        );
+            )
+            .ty;
+
+        // TODO: we need to create fresh variables for type parameters on use
+        let namespace = self.root.namespaces.entry(name.to_string()).or_default();
+        for (i, (name, kind)) in variants.iter().enumerate() {
+            match kind {
+                EnumVariantInfoKind::Unit => {
+                    // Unit variants are constants
+                    namespace.constants.insert(
+                        name.to_string(),
+                        ConstantInfo {
+                            ty: ty.clone(),
+                            variant: i,
+                        },
+                    );
+                }
+                EnumVariantInfoKind::Tuple(params) => {
+                    // Tuple variants are functions
+                    namespace.constants.insert(
+                        name.to_string(),
+                        ConstantInfo::from(Type::Function {
+                            kind: FunctionKind::Normal,
+                            name_span: DUMMY_SPAN,
+                            params: params.clone(),
+                            param_spans: vec![],
+                            result: Box::new(ty.clone()),
+                            callee: Some(StaticFunction::Constructor { variant: i }),
+                        }),
+                    );
+                }
+                EnumVariantInfoKind::Struct(_fields) => {
+                    // Struct variants are constructors
+                    namespace.struct_constructors.insert(
+                        name.to_string(),
+                        StructConstructor {
+                            ty: ty.clone(),
+                            enum_variant: i,
+                        },
+                    );
+                }
+            }
+        }
     }
 
     fn build_generic_type_defs(&self) -> HashMap<String, GenericTypeDef> {
