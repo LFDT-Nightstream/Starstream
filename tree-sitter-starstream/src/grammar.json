@@ -2086,8 +2086,12 @@
           "value": "emit"
         },
         {
-          "type": "SYMBOL",
-          "name": "_primary_expression"
+          "type": "FIELD",
+          "name": "callee",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_primary_expression"
+          }
         },
         {
           "type": "SYMBOL",
@@ -2103,8 +2107,12 @@
           "value": "raise"
         },
         {
-          "type": "SYMBOL",
-          "name": "_primary_expression"
+          "type": "FIELD",
+          "name": "callee",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_primary_expression"
+          }
         },
         {
           "type": "SYMBOL",
@@ -2120,8 +2128,12 @@
           "value": "runtime"
         },
         {
-          "type": "SYMBOL",
-          "name": "_primary_expression"
+          "type": "FIELD",
+          "name": "callee",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_primary_expression"
+          }
         },
         {
           "type": "SYMBOL",
@@ -2384,11 +2396,11 @@
         },
         {
           "type": "SYMBOL",
-          "name": "enum_variant_pattern"
+          "name": "tuple_pattern"
         },
         {
           "type": "SYMBOL",
-          "name": "identifier"
+          "name": "scoped_name"
         }
       ]
     },
@@ -2418,7 +2430,7 @@
       "members": [
         {
           "type": "SYMBOL",
-          "name": "identifier"
+          "name": "scoped_name"
         },
         {
           "type": "STRING",
@@ -2506,47 +2518,13 @@
         }
       ]
     },
-    "enum_variant_pattern": {
+    "tuple_pattern": {
       "type": "SEQ",
       "members": [
         {
           "type": "SYMBOL",
-          "name": "identifier"
+          "name": "scoped_name"
         },
-        {
-          "type": "STRING",
-          "value": "::"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "identifier"
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "CHOICE",
-              "members": [
-                {
-                  "type": "SYMBOL",
-                  "name": "enum_variant_pattern_tuple_payload"
-                },
-                {
-                  "type": "SYMBOL",
-                  "name": "enum_variant_pattern_struct_payload"
-                }
-              ]
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        }
-      ]
-    },
-    "enum_variant_pattern_tuple_payload": {
-      "type": "SEQ",
-      "members": [
         {
           "type": "STRING",
           "value": "("
@@ -2599,64 +2577,6 @@
         {
           "type": "STRING",
           "value": ")"
-        }
-      ]
-    },
-    "enum_variant_pattern_struct_payload": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "{"
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "SEQ",
-              "members": [
-                {
-                  "type": "SYMBOL",
-                  "name": "struct_field_pattern"
-                },
-                {
-                  "type": "REPEAT",
-                  "content": {
-                    "type": "SEQ",
-                    "members": [
-                      {
-                        "type": "STRING",
-                        "value": ","
-                      },
-                      {
-                        "type": "SYMBOL",
-                        "name": "struct_field_pattern"
-                      }
-                    ]
-                  }
-                }
-              ]
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "STRING",
-              "value": ","
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        },
-        {
-          "type": "STRING",
-          "value": "}"
         }
       ]
     },

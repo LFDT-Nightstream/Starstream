@@ -383,8 +383,8 @@ module.exports = grammar({
         $.wildcard_pattern,
         $.literal_pattern,
         $.struct_pattern,
-        $.enum_variant_pattern,
-        $.identifier,
+        $.tuple_pattern,
+        $.scoped_name,
       ),
 
     wildcard_pattern: ($) => "_",
@@ -394,7 +394,7 @@ module.exports = grammar({
 
     struct_pattern: ($) =>
       seq(
-        $.identifier,
+        $.scoped_name,
         "{",
         optional(
           seq($.struct_field_pattern, repeat(seq(",", $.struct_field_pattern))),
@@ -409,35 +409,13 @@ module.exports = grammar({
         alias($.identifier, $.struct_field_pattern_name),
       ),
 
-    enum_variant_pattern: ($) =>
+    tuple_pattern: ($) =>
       seq(
-        $.identifier,
-        "::",
-        $.identifier,
-        optional(
-          choice(
-            $.enum_variant_pattern_tuple_payload,
-            $.enum_variant_pattern_struct_payload,
-          ),
-        ),
-      ),
-
-    enum_variant_pattern_tuple_payload: ($) =>
-      seq(
+        $.scoped_name,
         "(",
         optional(seq($.pattern, repeat(seq(",", $.pattern)))),
         optional(","),
         ")",
-      ),
-
-    enum_variant_pattern_struct_payload: ($) =>
-      seq(
-        "{",
-        optional(
-          seq($.struct_field_pattern, repeat(seq(",", $.struct_field_pattern))),
-        ),
-        optional(","),
-        "}",
       ),
 
     // Literals and other terminals

@@ -239,22 +239,17 @@ pattern ::=
   | integer_literal
   | boolean_literal
   | unit_literal
-  | identifier
   | struct_pattern
-  | enum_variant_pattern
+  | tuple_pattern
+  | scoped_name
 
-struct_pattern ::= identifier "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
+struct_pattern ::= scoped_name "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
 
 struct_field_pattern ::=
   | identifier ":" pattern
   | identifier
 
-enum_variant_pattern ::=
-  identifier "::" identifier ( enum_pattern_tuple_payload | enum_pattern_struct_payload )?
-
-enum_pattern_tuple_payload ::= "(" ( pattern ( "," pattern )* )? ")"
-
-enum_pattern_struct_payload ::= "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
+tuple_pattern ::= scoped_name "(" ( pattern ( "," pattern )* )? ")"
 
 unary_expression ::= ("-" | "!") expression
 
