@@ -8,9 +8,9 @@
 use std::sync::Arc;
 
 use crate::{
-    Abi, FunctionExport, Span, Spanned,
+    Abi, FunctionExport, ScopedName, Span, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
-    types::{FunctionKind, Type},
+    types::Type,
 };
 
 /// Entire program with types attached.
@@ -100,7 +100,6 @@ pub struct TypedFunctionDef {
     pub name: Identifier,
     pub params: Vec<TypedFunctionParam>,
     pub return_type: Type,
-    pub kind: FunctionKind,
     pub body: TypedBlock,
 }
 
@@ -282,32 +281,44 @@ pub struct TypedExpr {
     pub kind: TypedExprKind,
 }
 
+pub type TypedArguments = Vec<Spanned<TypedExpr>>;
+
 #[derive(Clone, Debug)]
 pub enum TypedExprKind {
+    // Primary expressions ----------
+    Grouping(Box<Spanned<TypedExpr>>),
+    ScopedName(ScopedName),
     Literal(Literal),
-    Identifier(Identifier),
-    Unary {
-        op: UnaryOp,
+    StructConstructor {
+        name: ScopedName,
+        fields: Vec<TypedStructFieldInitializer>,
+        /// Discriminant, or 0 if not an enum.
+        enum_variant: usize,
+    },
+    /// Visibility-lifting expression: `disclose(expr)`
+    Disclose {
         expr: Box<Spanned<TypedExpr>>,
     },
-    Binary {
-        op: BinaryOp,
-        left: Box<Spanned<TypedExpr>>,
-        right: Box<Spanned<TypedExpr>>,
+    /// Event emission expression: `emit some_emit_fn(args...)`
+    Emit {
+        callee: Box<Spanned<TypedExpr>>,
+        args: TypedArguments,
     },
-    Grouping(Box<Spanned<TypedExpr>>),
-    StructLiteral {
-        name: Identifier,
-        fields: Vec<TypedStructLiteralField>,
+    /// Effectful call: `raise some_effect_fn(...)`
+    Raise {
+        callee: Box<Spanned<TypedExpr>>,
+        args: TypedArguments,
     },
-    FieldAccess {
-        target: Box<Spanned<TypedExpr>>,
-        field: Identifier,
+    /// Runtime call: `runtime some_runtime_fn(...)`
+    Runtime {
+        callee: Box<Spanned<TypedExpr>>,
+        args: TypedArguments,
     },
-    EnumConstructor {
-        enum_name: Identifier,
-        variant: Identifier,
-        payload: TypedEnumConstructorPayload,
+    // Control-flow primary expressions ----------
+    /// `yield` and `yield(AbiName, ...)`
+    Yield {
+        /// Empty for bare `yield`, or list of abi infos
+        abis: Vec<Arc<Abi>>,
     },
     Block(Box<TypedBlock>),
     If {
@@ -318,45 +329,44 @@ pub enum TypedExprKind {
         scrutinee: Box<Spanned<TypedExpr>>,
         arms: Vec<TypedMatchArm>,
     },
-    /// `yield` and `yield(AbiName, ...)`
-    Yield {
-        /// Empty for bare `yield`, or list of abi infos
-        abis: Vec<Arc<Abi>>,
-    },
+    // Postfix expressions ----------
     Call {
         callee: Box<Spanned<TypedExpr>>,
-        args: Vec<Spanned<TypedExpr>>,
+        args: TypedArguments,
     },
-    /// Visibility-lifting expression: `disclose(expr)`
-    Disclose {
+    FieldAccess {
+        target: Box<Spanned<TypedExpr>>,
+        field: Identifier,
+    },
+    // Operators ----------
+    Unary {
+        op: UnaryOp,
         expr: Box<Spanned<TypedExpr>>,
     },
-    /// Event emission expression: `emit EventName(args...)`
-    Emit {
-        event: Identifier,
-        args: Vec<Spanned<TypedExpr>>,
-    },
-    /// Effectful call: `raise some_effectful_fn(...)`
-    Raise {
-        expr: Box<Spanned<TypedExpr>>,
-    },
-    /// Runtime call: `runtime some_runtime_fn(...)`
-    Runtime {
-        expr: Box<Spanned<TypedExpr>>,
+    Binary {
+        op: BinaryOp,
+        left: Box<Spanned<TypedExpr>>,
+        right: Box<Spanned<TypedExpr>>,
     },
 }
 
+impl From<Identifier> for TypedExprKind {
+    fn from(value: Identifier) -> Self {
+        TypedExprKind::ScopedName(vec![value])
+    }
+}
+
+impl From<Identifier> for Spanned<TypedExprKind> {
+    fn from(value: Identifier) -> Self {
+        let span = value.span;
+        Spanned::new(TypedExprKind::from(value), span)
+    }
+}
+
 #[derive(Clone, Debug)]
-pub struct TypedStructLiteralField {
+pub struct TypedStructFieldInitializer {
     pub name: Identifier,
     pub value: Spanned<TypedExpr>,
-}
-
-#[derive(Clone, Debug)]
-pub enum TypedEnumConstructorPayload {
-    Unit,
-    Tuple(Vec<Spanned<TypedExpr>>),
-    Struct(Vec<TypedStructLiteralField>),
 }
 
 #[derive(Clone, Debug)]

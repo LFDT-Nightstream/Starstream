@@ -1,11 +1,24 @@
 use chumsky::{prelude::*, span::SimpleSpan};
-use starstream_types::ast::{Expr, Identifier, Spanned};
+use starstream_types::{
+    Arguments,
+    ast::{Expr, Identifier, Spanned},
+};
 
 use crate::parser::{context::Extra, primitives};
 
 enum Suffix {
     FieldAccess(Identifier),
-    Call(Vec<Spanned<Expr>>),
+    Call(Arguments),
+}
+
+pub fn arguments<'a>(
+    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, &'a str, Arguments, Extra<'a>> {
+    expression
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .delimited_by(just('(').padded(), just(')').padded())
 }
 
 pub fn parser<'a>(
@@ -17,12 +30,7 @@ pub fn parser<'a>(
         .ignore_then(primitives::identifier())
         .map(Suffix::FieldAccess);
 
-    let call = expression
-        .separated_by(just(',').padded())
-        .allow_trailing()
-        .collect::<Vec<_>>()
-        .delimited_by(just('(').padded(), just(')').padded())
-        .map(Suffix::Call);
+    let call = arguments(expression).map(Suffix::Call);
 
     let suffix = choice((field_access, call));
 

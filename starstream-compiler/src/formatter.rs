@@ -1,13 +1,13 @@
 use pretty::RcDoc;
 use starstream_types::{
-    AbiDef, AbiMethodDecl, AbiPart, BinaryOp, Block, Comment, CommentMap, Definition, EffectDef,
-    EventDef, Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal, Spanned,
-    Statement, TokenDef, TokenGlobal, TokenPart, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal,
-    UtxoPart,
+    AbiDef, AbiMethodDecl, AbiPart, Arguments, BinaryOp, Block, Comment, CommentMap, Definition,
+    EffectDef, EventDef, Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal,
+    ScopedName, Spanned, Statement, TokenDef, TokenGlobal, TokenPart, TypeAnnotation, UnaryOp,
+    UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
-        EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
-        Identifier, ImportDef, ImportItems, ImportNamedItem, ImportSource, MatchArm, Pattern,
-        Program, StructDef, StructField, StructLiteralField, StructPatternField,
+        EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload, Identifier, ImportDef,
+        ImportItems, ImportNamedItem, ImportSource, MatchArm, Pattern, Program, StructDef,
+        StructField, StructFieldInitializer, StructPatternField,
     },
 };
 use std::fmt;
@@ -838,6 +838,13 @@ fn parened_expr<'a>(expr: &Spanned<Expr>, source: &'a str, comments: &CommentMap
     })
 }
 
+fn scoped_name_to_doc<'a>(name: &ScopedName, source: &'a str) -> RcDoc<'a, ()> {
+    RcDoc::intersperse(
+        name.iter().map(|i| identifier_to_doc(i, source)),
+        RcDoc::text("::"),
+    )
+}
+
 fn identifier_to_doc<'a>(identifier: &Identifier, _source: &'a str) -> RcDoc<'a, ()> {
     RcDoc::text(identifier.name.clone())
 }
@@ -861,18 +868,18 @@ fn type_annotation_to_doc<'a>(annotation: &TypeAnnotation, source: &'a str) -> R
 }
 
 fn struct_literal_expr_to_doc<'a>(
-    name: &Identifier,
-    fields: &[StructLiteralField],
+    name: &ScopedName,
+    fields: &[StructFieldInitializer],
     source: &'a str,
     comments: &CommentMap,
 ) -> RcDoc<'a, ()> {
-    identifier_to_doc(name, source)
+    scoped_name_to_doc(name, source)
         .append(RcDoc::space())
         .append(struct_literal_fields_to_doc(fields, source, comments))
 }
 
 fn struct_literal_fields_to_doc<'a>(
-    fields: &[StructLiteralField],
+    fields: &[StructFieldInitializer],
     source: &'a str,
     comments: &CommentMap,
 ) -> RcDoc<'a, ()> {
@@ -896,42 +903,6 @@ fn struct_literal_fields_to_doc<'a>(
             .append(RcDoc::line())
             .append(RcDoc::text("}"))
     }
-}
-
-fn enum_constructor_to_doc<'a>(
-    enum_name: &Identifier,
-    variant: &Identifier,
-    payload: &EnumConstructorPayload,
-    source: &'a str,
-    comments: &CommentMap,
-) -> RcDoc<'a, ()> {
-    let mut doc = identifier_to_doc(enum_name, source)
-        .append(RcDoc::text("::"))
-        .append(identifier_to_doc(variant, source));
-
-    doc = match payload {
-        EnumConstructorPayload::Unit => doc,
-        EnumConstructorPayload::Tuple(values) => {
-            if values.is_empty() {
-                doc.append(RcDoc::text("()"))
-            } else {
-                let args = RcDoc::intersperse(
-                    values.iter().map(|expr| {
-                        spanned(expr, source, |node| expr_to_doc(node, source, comments))
-                    }),
-                    RcDoc::text(", "),
-                );
-                doc.append(RcDoc::text("("))
-                    .append(args)
-                    .append(RcDoc::text(")"))
-            }
-        }
-        EnumConstructorPayload::Struct(fields) => doc
-            .append(RcDoc::space())
-            .append(struct_literal_fields_to_doc(fields, source, comments)),
-    };
-
-    doc
 }
 
 fn match_expr_to_doc<'a>(
@@ -1082,7 +1053,7 @@ fn expr_with_prec<'a>(
             let prec = precedence(expr);
             let doc = match expr {
                 Expr::Literal(literal) => literal_to_doc(literal, source),
-                Expr::Identifier(identifier) => identifier_to_doc(identifier, source),
+                Expr::ScopedName(name) => scoped_name_to_doc(name, source),
                 Expr::Unary { op, expr } => {
                     let operand = spanned(expr, source, |node| {
                         expr_with_prec(node, prec, ChildPosition::Unary, source, comments)
@@ -1105,7 +1076,7 @@ fn expr_with_prec<'a>(
                         .append(right_doc)
                 }
                 Expr::Grouping(_) => unreachable!(),
-                Expr::StructLiteral { name, fields } => {
+                Expr::StructConstructor { name, fields } => {
                     struct_literal_expr_to_doc(name, fields, source, comments)
                 }
                 Expr::FieldAccess { target, field } => {
@@ -1116,11 +1087,6 @@ fn expr_with_prec<'a>(
                         .append(RcDoc::text("."))
                         .append(identifier_to_doc(field, source))
                 }
-                Expr::EnumConstructor {
-                    enum_name,
-                    variant,
-                    payload,
-                } => enum_constructor_to_doc(enum_name, variant, payload, source, comments),
                 Expr::Block(block) => block_to_doc(block, source, comments),
                 Expr::If {
                     branches,
@@ -1183,38 +1149,7 @@ fn expr_with_prec<'a>(
                         source,
                         comments,
                     );
-
-                    let args_doc = RcDoc::intersperse(
-                        args.iter().map(|arg| {
-                            expr_with_prec(
-                                &arg.node,
-                                PREC_LOWEST,
-                                ChildPosition::Top,
-                                source,
-                                comments,
-                            )
-                        }),
-                        RcDoc::text(",").append(RcDoc::space()),
-                    );
-
-                    callee_doc
-                        .append(RcDoc::text("("))
-                        .append(args_doc)
-                        .append(RcDoc::text(")"))
-                }
-                Expr::Emit { event, args } => {
-                    let args_doc = args.iter().map(|arg| {
-                        expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top, source, comments)
-                    });
-                    let args_doc =
-                        RcDoc::intersperse(args_doc, RcDoc::text(",").append(RcDoc::space()));
-
-                    RcDoc::text("emit")
-                        .append(RcDoc::space())
-                        .append(identifier_to_doc(event, source))
-                        .append(RcDoc::text("("))
-                        .append(args_doc)
-                        .append(RcDoc::text(")"))
+                    callee_doc.append(arguments_to_doc(args, source, comments))
                 }
                 Expr::Disclose { expr } => RcDoc::text("disclose")
                     .append(RcDoc::text("("))
@@ -1222,17 +1157,44 @@ fn expr_with_prec<'a>(
                         expr_with_prec(node, PREC_LOWEST, ChildPosition::Top, source, comments)
                     }))
                     .append(RcDoc::text(")")),
-                Expr::Raise { expr } => RcDoc::text("raise").append(RcDoc::space()).append(
-                    spanned(expr, source, |node| {
-                        expr_with_prec(node, PREC_LOWEST, ChildPosition::Top, source, comments)
-                    }),
-                ),
-                Expr::Runtime { expr } => {
-                    RcDoc::text("runtime")
+                Expr::Emit { callee, args } => {
+                    let callee_doc = expr_with_prec(
+                        &callee.node,
+                        PREC_FIELD_ACCESS,
+                        ChildPosition::Left,
+                        source,
+                        comments,
+                    );
+                    RcDoc::text("emit")
                         .append(RcDoc::space())
-                        .append(spanned(expr, source, |node| {
-                            expr_with_prec(node, PREC_LOWEST, ChildPosition::Top, source, comments)
-                        }))
+                        .append(callee_doc)
+                        .append(arguments_to_doc(args, source, comments))
+                }
+                Expr::Raise { callee, args } => {
+                    let callee_doc = expr_with_prec(
+                        &callee.node,
+                        PREC_FIELD_ACCESS,
+                        ChildPosition::Left,
+                        source,
+                        comments,
+                    );
+                    RcDoc::text("emit")
+                        .append(RcDoc::space())
+                        .append(callee_doc)
+                        .append(arguments_to_doc(args, source, comments))
+                }
+                Expr::Runtime { callee, args } => {
+                    let callee_doc = expr_with_prec(
+                        &callee.node,
+                        PREC_FIELD_ACCESS,
+                        ChildPosition::Left,
+                        source,
+                        comments,
+                    );
+                    RcDoc::text("emit")
+                        .append(RcDoc::space())
+                        .append(callee_doc)
+                        .append(arguments_to_doc(args, source, comments))
                 }
             };
 
@@ -1243,6 +1205,17 @@ fn expr_with_prec<'a>(
             }
         }
     }
+}
+
+fn arguments_to_doc<'a>(args: &Arguments, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
+    RcDoc::text("(")
+        .append(RcDoc::intersperse(
+            args.iter().map(|arg| {
+                expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top, source, comments)
+            }),
+            RcDoc::text(",").append(RcDoc::space()),
+        ))
+        .append(RcDoc::text(")"))
 }
 
 fn literal_to_doc<'a>(literal: &Literal, _source: &'a str) -> RcDoc<'a, ()> {
@@ -1281,9 +1254,8 @@ fn unary_op_str(op: &UnaryOp) -> &'static str {
 fn precedence(expr: &Expr) -> u8 {
     match expr {
         Expr::Literal(_)
-        | Expr::Identifier(_)
-        | Expr::StructLiteral { .. }
-        | Expr::EnumConstructor { .. }
+        | Expr::ScopedName(_)
+        | Expr::StructConstructor { .. }
         | Expr::Disclose { .. }
         | Expr::Emit { .. }
         | Expr::Raise { .. }

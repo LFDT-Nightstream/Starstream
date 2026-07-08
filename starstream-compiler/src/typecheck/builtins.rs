@@ -23,6 +23,7 @@ impl BuiltinFunction {
             result: Box::new(self.return_type.clone()),
             kind: self.kind,
             name_span: DUMMY_SPAN,
+            callee: None,
         }
     }
 }

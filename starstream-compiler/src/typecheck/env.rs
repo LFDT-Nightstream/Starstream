@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use starstream_types::{Scheme, Span, Type, TypeVarId, types::EnumVariantKind};
+use starstream_types::{Scheme, ScopedName, Span, Type, TypeVarId, types::EnumVariantKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BindingClass {
@@ -57,6 +57,14 @@ impl TypeEnv {
             }
         }
         None
+    }
+
+    pub fn get_scoped(&self, scoped: &ScopedName) -> Option<&Binding> {
+        if scoped.len() == 1 {
+            self.get(scoped[0].as_str())
+        } else {
+            None
+        }
     }
 
     pub fn get_in_current_scope(&self, name: &str) -> Option<&Binding> {

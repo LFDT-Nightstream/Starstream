@@ -7,22 +7,21 @@ use std::{
 };
 
 use starstream_types::{
-    Abi, AbiDef, AbiPart, DUMMY_SPAN, EventDef, FunctionKind, GenericTypeDef, IfCondition,
-    IntWidth, Scheme, Span, Spanned, Type, TypeParam, TypeVarId, TypedTokenDef, TypedUtxoDef,
-    TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    Abi, AbiDef, AbiPart, Arguments, DUMMY_SPAN, EventDef, FunctionKind, GenericTypeDef,
+    IfCondition, IntWidth, Scheme, Span, Spanned, StaticFunction, Type, TypeParam, TypeVarId,
+    TypedTokenDef, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
-        BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
-        EnumVariantPayload, Expr, FunctionDef, Identifier, ImportDef, ImportItems, ImportSource,
-        Literal, Pattern, Program, Statement, StructDef, TypeAnnotation, UnaryOp,
+        BinaryOp, Block, Definition, EnumDef, EnumPatternPayload, EnumVariantPayload, Expr,
+        FunctionDef, Identifier, ImportDef, ImportItems, ImportSource, Literal, Pattern, Program,
+        Statement, StructDef, TypeAnnotation, UnaryOp,
     },
     typed_ast::{
-        TypedAbiDef, TypedAbiMethodDecl, TypedAbiPart, TypedBlock, TypedDefinition,
-        TypedEnumConstructorPayload, TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariant,
-        TypedEnumVariantPayload, TypedEventDef, TypedExpr, TypedExprKind, TypedFunctionDef,
-        TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedImportItems,
-        TypedImportNamedItem, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
-        TypedStatement, TypedStructDef, TypedStructField, TypedStructLiteralField,
-        TypedStructPatternField,
+        TypedAbiDef, TypedAbiMethodDecl, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
+        TypedEnumPatternPayload, TypedEnumVariant, TypedEnumVariantPayload, TypedEventDef,
+        TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
+        TypedImportDef, TypedImportItems, TypedImportNamedItem, TypedImportSource, TypedMatchArm,
+        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructField,
+        TypedStructFieldInitializer, TypedStructPatternField,
     },
     types::{
         EnumType, EnumVariantKind as TypeEnumVariantKind, EnumVariantType as TypeEnumVariant,
@@ -93,22 +92,12 @@ impl TypeRegistry {
         }
     }
 
-    fn insert(&mut self, name: String, entry: TypeEntry) {
-        self.entries.insert(name, entry);
+    fn insert(&mut self, name: String, entry: TypeEntry) -> &TypeEntry {
+        self.entries.entry(name).insert_entry(entry).into_mut()
     }
 
     fn get(&self, name: &str) -> Option<&TypeEntry> {
         self.entries.get(name)
-    }
-
-    fn struct_info(&self, name: &str) -> Option<StructInfo> {
-        self.entries.get(name).and_then(|entry| match &entry.kind {
-            TypeEntryKind::Struct { fields } => Some(StructInfo {
-                ty: entry.ty.clone(),
-                fields: fields.clone(),
-            }),
-            _ => None,
-        })
     }
 
     fn enum_info(&self, name: &str) -> Option<EnumInfo> {
@@ -132,17 +121,12 @@ struct TypeEntry {
     variant_docs: HashMap<String, String>,
 }
 
+// TODO: Fold this into Type
 #[derive(Clone)]
 enum TypeEntryKind {
-    Struct { fields: Vec<StructFieldInfo> },
+    Struct,
     Enum { variants: Vec<EnumVariantInfo> },
     Handle,
-}
-
-#[derive(Clone)]
-struct StructInfo {
-    ty: Type,
-    fields: Vec<StructFieldInfo>,
 }
 
 #[derive(Clone)]
@@ -315,6 +299,7 @@ impl ExportedFunction {
             result: Box::new(self.return_type.clone()),
             kind: self.kind,
             name_span: self.name_span,
+            callee: None,
         }
     }
 
@@ -325,6 +310,7 @@ impl ExportedFunction {
             return_type: self.return_type.clone(),
             kind: self.kind,
             name_span: self.name_span,
+            callee: None,
         }
     }
 }
@@ -611,17 +597,23 @@ fn resolve_path_imports(
                 );
             }
             ImportItems::Namespace(alias) => {
-                let mut functions = HashMap::new();
+                // TODO: currently only covers functions, should probably import the other namespace wholesale.
+                let mut namespace = Namespace::default();
                 let mut typed_items = Vec::with_capacity(target_exports.functions.len());
                 for (name, func) in &target_exports.functions {
-                    functions.insert(name.clone(), func.to_function_info());
+                    namespace
+                        .functions
+                        .insert(name.clone(), func.to_function_info());
                     typed_items.push(TypedImportNamedItem {
                         imported: Identifier::anon(name),
                         local: Identifier::anon(name),
                         ty: func.to_function_type(),
                     });
                 }
-                inferencer.namespaces.insert(alias.name.clone(), functions);
+                inferencer
+                    .root
+                    .namespaces
+                    .insert(alias.name.clone(), namespace);
                 typed_imports.insert(
                     def_index,
                     TypedImportDef {
@@ -659,7 +651,7 @@ fn collect_exports(typed_definitions: &[TypedDefinition]) -> ModuleExports {
                         param_types,
                         param_spans,
                         return_type: func.return_type.clone(),
-                        kind: func.kind,
+                        kind: FunctionKind::Normal,
                         name_span: func.name.span(),
                     },
                 );
@@ -688,59 +680,65 @@ fn collect_exports(typed_definitions: &[TypedDefinition]) -> ModuleExports {
 /// Internal stateful helper that owns the substitution map and generates fresh
 /// type variables while walking the AST.
 struct Inferencer {
+    // Options
     capture_traces: bool,
+
+    // Outputs
+    warnings: Vec<TypeWarning>,
+    has_yields: bool,
+
+    // Type var tracking
     next_type_var: u32,
     subst: HashMap<TypeVarId, Type>,
     /// Type variables constrained to integer types (from polymorphic integer literals).
     int_vars: HashSet<TypeVarId>,
     /// Tracks the literal value associated with each integer type variable for range checking.
     int_literal_values: HashMap<TypeVarId, (i128, Span)>,
+
+    /// Root namespace, and registries for things that can't be namespaced (yet).
+    root: Namespace,
     types: TypeRegistry,
-    events: EventRegistry,
     abis: AbiRegistry,
-    namespaces: NamespaceRegistry,
+
+    /// Registry of builtins that are available to be `import`ed.
     builtins: BuiltinRegistry,
-    warnings: Vec<TypeWarning>,
+
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
     abi_call_trackers: Vec<AbiCallTracker>,
-    has_yields: bool,
+}
+
+/// Namespace
+#[derive(Clone, Default)]
+struct Namespace {
+    namespaces: HashMap<String, Namespace>,
+    functions: HashMap<String, FunctionInfo>,
+    struct_constructors: HashMap<String, StructConstructor>,
 }
 
 #[derive(Clone)]
 struct FunctionInfo {
+    /// Keyword needed to call this function, if any.
+    kind: FunctionKind,
+    name_span: Span,
     param_types: Vec<Type>,
     param_spans: Vec<Span>,
     return_type: Type,
-    kind: FunctionKind,
-    name_span: Span,
-}
-
-struct EventRegistry {
-    entries: HashMap<String, EventInfo>,
-}
-
-impl EventRegistry {
-    fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-        }
-    }
-
-    fn insert(&mut self, name: String, info: EventInfo) {
-        self.entries.insert(name, info);
-    }
-
-    fn get(&self, name: &str) -> Option<&EventInfo> {
-        self.entries.get(name)
-    }
+    callee: Option<StaticFunction>,
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
-struct EventInfo {
-    param_types: Vec<Type>,
-    param_spans: Vec<Span>,
-    name_span: Span,
+struct StructConstructor {
+    ty: Type,
+    enum_variant: usize,
+}
+
+impl StructConstructor {
+    fn record_ty(&self) -> &RecordType {
+        let Type::Record(r) = &self.ty else {
+            unreachable!()
+        };
+        r
+    }
 }
 
 struct AbiRegistry {
@@ -770,42 +768,10 @@ struct AbiCallTracker {
     first_call_span: Option<Span>,
 }
 
-/// Registry for namespace imports like `import cardano from starstream:std/cardano;`
-struct NamespaceRegistry {
-    /// Maps namespace alias -> (function_name -> FunctionInfo)
-    entries: HashMap<String, HashMap<String, FunctionInfo>>,
-}
-
-impl NamespaceRegistry {
-    fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-        }
-    }
-
-    fn insert(&mut self, namespace: String, functions: HashMap<String, FunctionInfo>) {
-        self.entries.insert(namespace, functions);
-    }
-
-    fn get(&self, namespace: &str) -> Option<&HashMap<String, FunctionInfo>> {
-        self.entries.get(namespace)
-    }
-
-    fn contains(&self, namespace: &str) -> bool {
-        self.entries.contains_key(namespace)
-    }
-}
-
 struct FunctionCtx {
     expected_return: Type,
     return_span: Span,
     saw_return: bool,
-    /// Whether we are inside a `raise` expression. Effectful functions can only
-    /// be called inside a raise.
-    inside_raise: bool,
-    /// Whether we are inside a `runtime` expression. Runtime functions can only
-    /// be called inside a runtime.
-    inside_runtime: bool,
     /// Declaration spans for function parameters that are private (non-`pub`).
     private_param_decl_spans: Vec<Span>,
     is_coroutine: bool,
@@ -820,10 +786,9 @@ impl Inferencer {
             subst: HashMap::new(),
             int_vars: HashSet::new(),
             int_literal_values: HashMap::new(),
+            root: Namespace::default(),
             types: TypeRegistry::new(),
-            events: EventRegistry::new(),
             abis: AbiRegistry::new(),
-            namespaces: NamespaceRegistry::new(),
             builtins: BuiltinRegistry::new(),
             warnings: Vec::new(),
             abi_call_trackers: Vec::new(),
@@ -897,7 +862,7 @@ impl Inferencer {
                     *vname,
                     fields
                         .iter()
-                        .map(|f| TypeRecordField::new(f.name.name.clone(), f.ty.clone()))
+                        .map(|f| TypeRecordField::new(f.name.clone(), f.ty.clone()))
                         .collect(),
                 ),
             })
@@ -1114,9 +1079,9 @@ impl Inferencer {
                     })?;
 
                 // Build a map of all functions in this interface
-                let mut functions = HashMap::new();
+                let mut namespace = Namespace::default();
                 for (name, builtin) in interface_funcs {
-                    functions.insert(
+                    namespace.functions.insert(
                         name.clone(),
                         FunctionInfo {
                             param_types: builtin.params.clone(),
@@ -1124,11 +1089,12 @@ impl Inferencer {
                             return_type: builtin.return_type.clone(),
                             kind: builtin.kind,
                             name_span: alias.span(),
+                            callee: Some(StaticFunction::Named(name.clone())),
                         },
                     );
                 }
 
-                self.namespaces.insert(alias.name.clone(), functions);
+                self.root.namespaces.insert(alias.name.clone(), namespace);
             }
         }
 
@@ -1185,12 +1151,15 @@ impl Inferencer {
             param_types.push(ty);
             param_spans.push(param.ty.name.span());
         }
-        self.events.insert(
+        self.root.functions.insert(
             name,
-            EventInfo {
+            FunctionInfo {
+                kind: FunctionKind::Emit,
+                name_span,
                 param_types,
                 param_spans,
-                name_span,
+                return_type: Type::Unit,
+                callee: None,
             },
         );
         Ok(())
@@ -1231,18 +1200,25 @@ impl Inferencer {
 
         let type_fields = fields
             .iter()
-            .map(|field| TypeRecordField::new(field.name.name.clone(), field.ty.clone()))
+            .map(|field| TypeRecordField::new(field.name.clone(), field.ty.clone()))
             .collect();
         let ty = Type::record(def.name.name.clone(), type_fields);
         self.types.insert(
             def.name.name.clone(),
             TypeEntry {
-                ty,
-                kind: TypeEntryKind::Struct { fields },
+                ty: ty.clone(),
+                kind: TypeEntryKind::Struct,
                 span: def.name.span(),
                 type_params: vec![],
                 doc: None,
                 variant_docs: HashMap::new(),
+            },
+        );
+        self.root.struct_constructors.insert(
+            def.name.name.clone(),
+            StructConstructor {
+                ty,
+                enum_variant: 0,
             },
         );
         Ok(())
@@ -1329,25 +1305,66 @@ impl Inferencer {
                     variant.name.name.clone(),
                     fields
                         .iter()
-                        .map(|field| {
-                            TypeRecordField::new(field.name.name.clone(), field.ty.clone())
-                        })
+                        .map(|field| TypeRecordField::new(field.name.clone(), field.ty.clone()))
                         .collect(),
                 ),
             })
             .collect();
         let ty = Type::enum_type(def.name.name.clone(), type_variants);
-        self.types.insert(
-            def.name.name.clone(),
-            TypeEntry {
-                ty,
-                kind: TypeEntryKind::Enum { variants },
-                span: def.name.span(),
-                type_params: vec![],
-                doc: None,
-                variant_docs: HashMap::new(),
-            },
-        );
+        let ty = &self
+            .types
+            .insert(
+                def.name.name.clone(),
+                TypeEntry {
+                    ty,
+                    kind: TypeEntryKind::Enum { variants },
+                    span: def.name.span(),
+                    type_params: vec![],
+                    doc: None,
+                    variant_docs: HashMap::new(),
+                },
+            )
+            .ty;
+        let Type::Enum(enum_type) = ty else {
+            unreachable!()
+        };
+
+        let namespace = self
+            .root
+            .namespaces
+            .entry(def.name.name.clone())
+            .or_default();
+        for (i, variant) in enum_type.variants.iter().enumerate() {
+            match &variant.kind {
+                TypeEnumVariantKind::Unit => {
+                    // TODO
+                }
+                TypeEnumVariantKind::Tuple(items) => {
+                    namespace.functions.insert(
+                        variant.name.to_string(),
+                        FunctionInfo {
+                            kind: FunctionKind::Normal,
+                            // TODO: non-dummy spans here
+                            name_span: DUMMY_SPAN,
+                            param_types: items.clone(),
+                            param_spans: vec![DUMMY_SPAN; items.len()],
+                            return_type: ty.clone(),
+                            callee: Some(StaticFunction::Constructor { variant: i }),
+                        },
+                    );
+                }
+                TypeEnumVariantKind::Struct(_fields) => {
+                    namespace.struct_constructors.insert(
+                        variant.name.to_string(),
+                        StructConstructor {
+                            ty: ty.clone(),
+                            enum_variant: i,
+                        },
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1368,16 +1385,10 @@ impl Inferencer {
     }
 
     fn build_typed_struct(&self, def: &StructDef) -> Result<TypedStructDef, TypeError> {
-        let info = self.types.struct_info(&def.name.name).ok_or_else(|| {
-            TypeError::new(
-                TypeErrorKind::UnknownStruct {
-                    name: def.name.name.clone(),
-                },
-                def.name.span(),
-            )
-        })?;
+        let info = self.lookup_struct_info(std::slice::from_ref(&def.name))?;
 
         let fields = info
+            .record_ty()
             .fields
             .iter()
             .map(|field| TypedStructField {
@@ -1389,7 +1400,7 @@ impl Inferencer {
         Ok(TypedStructDef {
             name: def.name.clone(),
             fields,
-            ty: info.ty,
+            ty: info.ty.clone(),
         })
     }
 
@@ -1540,14 +1551,15 @@ impl Inferencer {
         for part in &def.parts {
             match part {
                 AbiPart::Event(event) => {
-                    let event_info = self.events.get(&event.name.name).ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::UnknownEvent {
-                                name: event.name.name.clone(),
-                            },
-                            event.name.span(),
-                        )
-                    })?;
+                    let event_info =
+                        self.root.functions.get(&event.name.name).ok_or_else(|| {
+                            TypeError::new(
+                                TypeErrorKind::UnknownEvent {
+                                    name: event.name.name.clone(),
+                                },
+                                event.name.span(),
+                            )
+                        })?;
 
                     let params = event_info
                         .param_types
@@ -1748,13 +1760,28 @@ impl Inferencer {
         })
     }
 
-    fn lookup_struct_info(&self, name: &Identifier) -> Result<StructInfo, TypeError> {
-        self.types.struct_info(&name.name).ok_or_else(|| {
+    fn lookup_struct_info(&self, name: &[Identifier]) -> Result<&StructConstructor, TypeError> {
+        let (last, path) = name.split_last().unwrap();
+        let mut ns = &self.root;
+        for each in path {
+            match ns.namespaces.get(each.as_str()) {
+                Some(next) => ns = next,
+                None => {
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnknownStruct {
+                            name: each.to_string(),
+                        },
+                        each.span,
+                    ));
+                }
+            }
+        }
+        ns.struct_constructors.get(last.as_str()).ok_or_else(|| {
             TypeError::new(
                 TypeErrorKind::UnknownStruct {
-                    name: name.name.clone(),
+                    name: last.to_string(),
                 },
-                name.span(),
+                last.span(),
             )
         })
     }
@@ -2063,7 +2090,8 @@ impl Inferencer {
                 ))
             }
             Pattern::Struct { name, fields } => {
-                let info = self.lookup_struct_info(name)?;
+                // TODO: support ScopedName here
+                let info = self.lookup_struct_info(std::slice::from_ref(name))?.clone();
                 let (.., unify_trace) = self.unify(
                     expected_ty.clone(),
                     info.ty.clone(),
@@ -2077,9 +2105,10 @@ impl Inferencer {
                 let mut traces = vec![unify_trace];
 
                 let mut expected_fields = info
+                    .record_ty()
                     .fields
                     .iter()
-                    .map(|field| (field.name.name.clone(), field.clone()))
+                    .map(|field| (field.name.to_string(), field.clone()))
                     .collect::<HashMap<_, _>>();
 
                 let mut typed_fields = Vec::with_capacity(fields.len());
@@ -2098,7 +2127,7 @@ impl Inferencer {
                     seen.insert(field.name.name.clone(), field.name.span());
 
                     let expected_field =
-                        expected_fields.remove(&field.name.name).ok_or_else(|| {
+                        expected_fields.remove(field.name.as_str()).ok_or_else(|| {
                             TypeError::new(
                                 TypeErrorKind::UnknownStructField {
                                     struct_name: name.name.clone(),
@@ -2238,6 +2267,7 @@ impl Inferencer {
                     result: Box::new(expected_return.clone()),
                     kind: FunctionKind::Normal,
                     name_span: function.name.span,
+                    callee: None,
                 }),
                 class: BindingClass::Local,
                 visibility: BindingVisibility::Private,
@@ -2277,8 +2307,6 @@ impl Inferencer {
             expected_return: expected_return.clone(),
             return_span,
             saw_return: false,
-            inside_raise: false,
-            inside_runtime: false,
             private_param_decl_spans,
             is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
         };
@@ -2310,7 +2338,6 @@ impl Inferencer {
                 name: function.name.clone(),
                 params: typed_params,
                 return_type: ctx.expected_return,
-                kind: FunctionKind::Normal,
                 body: typed_body,
             },
             trace,
@@ -2717,20 +2744,20 @@ impl Inferencer {
                 );
                 Ok((typed, tree))
             }
-            Expr::Identifier(ident) => {
-                let ty = if let Some(binding) = env.get(ident.as_str()).cloned() {
+            Expr::ScopedName(name) => {
+                let ty = if let Some(binding) = env.get_scoped(name).cloned() {
                     self.instantiate(&binding.scheme)
                 } else {
-                    let span = ident.span_or(expr.span);
+                    let span = name.last().unwrap().span_or(expr.span);
                     return Err(TypeError::new(
                         TypeErrorKind::UnknownVariable {
-                            name: ident.name.clone(),
+                            name: name.last().unwrap().to_string(),
                         },
                         span,
                     ));
                 };
                 let typed = Spanned::new(
-                    TypedExpr::new(ty.clone(), TypedExprKind::Identifier(ident.clone())),
+                    TypedExpr::new(ty.clone(), TypedExprKind::ScopedName(name.clone())),
                     expr.span,
                 );
                 let result_repr = self.maybe_string(|| self.format_type(&ty));
@@ -3013,12 +3040,13 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
-            Expr::StructLiteral { name, fields } => {
-                let info = self.lookup_struct_info(name)?;
+            Expr::StructConstructor { name, fields } => {
+                let info = self.lookup_struct_info(name)?.clone();
                 let mut expected = info
+                    .record_ty()
                     .fields
                     .iter()
-                    .map(|field| (field.name.name.clone(), (field.ty.clone(), field.span)))
+                    .map(|field| (field.name.to_string(), (field.ty.clone(), field.name.span)))
                     .collect::<HashMap<_, _>>();
                 let mut typed_fields = Vec::with_capacity(fields.len());
                 let mut children = Vec::new();
@@ -3040,7 +3068,7 @@ impl Inferencer {
                     let (expected_ty, _) = expected.remove(&field.name.name).ok_or_else(|| {
                         TypeError::new(
                             TypeErrorKind::UnknownStructField {
-                                struct_name: name.name.clone(),
+                                struct_name: name.last().unwrap().to_string(),
                                 field_name: field.name.name.clone(),
                             },
                             field.name.span(),
@@ -3062,7 +3090,7 @@ impl Inferencer {
                     children.push(value_trace);
                     children.push(unify_trace);
 
-                    typed_fields.push(TypedStructLiteralField {
+                    typed_fields.push(TypedStructFieldInitializer {
                         name: field.name.clone(),
                         value: typed_value,
                     });
@@ -3071,18 +3099,19 @@ impl Inferencer {
                 if let Some((field_name, _)) = expected.into_iter().next() {
                     return Err(TypeError::new(
                         TypeErrorKind::MissingStructField {
-                            struct_name: name.name.clone(),
+                            struct_name: name.last().unwrap().to_string(),
                             field_name,
                         },
-                        name.span(),
+                        name.last().unwrap().span(),
                     ));
                 }
 
                 let typed = Spanned::new(
                     TypedExpr::new(
                         info.ty.clone(),
-                        TypedExprKind::StructLiteral {
+                        TypedExprKind::StructConstructor {
                             name: name.clone(),
+                            enum_variant: info.enum_variant,
                             fields: typed_fields,
                         },
                     ),
@@ -3105,7 +3134,7 @@ impl Inferencer {
                     Type::Record(record) => record
                         .fields
                         .into_iter()
-                        .find(|entry| entry.name == field.name)
+                        .find(|entry| entry.name.as_str() == field.name.as_str())
                         .map(|entry| entry.ty)
                         .ok_or_else(|| {
                             TypeError::new(
@@ -3136,6 +3165,7 @@ impl Inferencer {
                             result: Box::new(method.return_type.clone()),
                             kind: FunctionKind::Normal,
                             name_span: method.name.span,
+                            callee: None,
                         }
                     }
                     _ => {
@@ -3168,6 +3198,7 @@ impl Inferencer {
                 );
                 Ok((typed, tree))
             }
+            /*
             Expr::EnumConstructor {
                 enum_name,
                 variant,
@@ -3516,6 +3547,7 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
+            */
             Expr::Block(block) => {
                 let (typed_block, block_traces) = self.infer_block(env, block, ctx, false)?;
                 let unit_result = self.maybe_string(|| "()".to_string());
@@ -3888,318 +3920,163 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::Call { callee, args } => {
-                let (typed_callee, callee_trace) = self.infer_expr(env, callee, ctx)?;
-                let callee_ty = self.apply_for_display(&typed_callee.node.ty);
-
-                let callee_name = if let TypedExprKind::Identifier(Identifier { name, .. }) =
-                    &typed_callee.node.kind
-                {
-                    Some(name.as_str())
-                } else {
-                    None
-                };
-
-                let Type::Function {
-                    params: ref param_types,
-                    ref param_spans,
-                    result: ref return_type,
-                    kind,
-                    name_span: _,
-                } = callee_ty
-                else {
-                    return Err(TypeError::new(
-                        TypeErrorKind::NotAFunction { found: callee_ty },
-                        callee.span,
-                    ));
-                };
-
-                // Check effect: effectful functions can only be called inside `raise`
-                if kind == FunctionKind::Raise && !ctx.inside_raise {
-                    let func_name = callee_name.unwrap_or("<anonymous>").to_string();
-                    return Err(TypeError::new(
-                        TypeErrorKind::EffectfulWithoutRaise {
-                            function_name: func_name,
-                        },
-                        callee.span,
-                    )
-                    .with_help(
-                        "use `raise` to call effectful functions, e.g., `raise someEffect()`",
-                    ));
-                }
-
-                // Check effect: runtime functions can only be called inside `runtime`
-                if kind == FunctionKind::Runtime && !ctx.inside_runtime {
-                    let func_name = callee_name.unwrap_or("<anonymous>").to_string();
-                    return Err(TypeError::new(
-                        TypeErrorKind::RuntimeWithoutKeyword {
-                            function_name: func_name,
-                        },
-                        callee.span,
-                    )
-                    .with_help(
-                        "use `runtime` to call runtime functions, e.g., `runtime blockHeight()`",
-                    ));
-                }
-
-                // Check linearity: if the callee is a field access on an AbiNarrow target,
-                // enforce the one-method-call-per-block constraint.
-                if let TypedExprKind::FieldAccess { target, .. } = &typed_callee.node.kind
-                    && let Type::AbiNarrow(_) = &target.node.ty
-                    && let TypedExprKind::Identifier(ident) = &target.node.kind
-                {
-                    for tracker in self.abi_call_trackers.iter_mut().rev() {
-                        if tracker.var_name == ident.name {
-                            if let Some(first_span) = tracker.first_call_span {
-                                return Err(TypeError::new(
-                                    TypeErrorKind::LinearMethodCallViolation {
-                                        var_name: tracker.var_name.clone(),
-                                        abi_name: tracker.abi_name.clone(),
-                                    },
-                                    expr.span,
-                                )
-                                .with_secondary(first_span, "first method call here"));
-                            }
-                            tracker.first_call_span = Some(expr.span);
-                            break;
-                        }
-                    }
-                }
-
-                if args.len() != param_types.len() {
-                    return Err(TypeError::new(
-                        TypeErrorKind::ArityMismatch {
-                            expected: param_types.len(),
-                            found: args.len(),
-                        },
-                        expr.span,
-                    ));
-                }
-
-                let mut children = vec![callee_trace];
-                let mut typed_args = Vec::with_capacity(args.len());
-
-                for (index, (arg, expected_ty)) in args.iter().zip(param_types.iter()).enumerate() {
-                    let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
-                    let actual_ty = typed_arg.node.ty.clone();
-
-                    let param_span = param_spans.get(index).copied();
-
-                    let (_, unify_trace) = self.unify(
-                        actual_ty.clone(),
-                        expected_ty.clone(),
-                        arg.span,
-                        arg.span,
-                        TypeErrorKind::ArgumentTypeMismatch {
-                            expected: expected_ty.clone(),
-                            found: self.apply_for_display(&actual_ty),
-                            position: index + 1,
-                            param_span,
-                        },
-                    )?;
-
-                    children.push(arg_trace);
-                    children.push(unify_trace);
-                    typed_args.push(typed_arg);
-                }
-
-                let typed = Spanned::new(
-                    TypedExpr::new(
-                        (**return_type).clone(),
-                        TypedExprKind::Call {
-                            callee: Box::new(typed_callee),
-                            args: typed_args,
-                        },
-                    ),
-                    expr.span,
-                );
-
-                let result_repr = self.maybe_string(|| self.format_type(return_type));
-
-                let tree =
-                    self.make_trace("T-Call", env_context, subject_repr, result_repr, || {
-                        children
-                    });
-
-                Ok((typed, tree))
+                self.infer_call(env, ctx, expr, callee, args, FunctionKind::Normal)
             }
-            Expr::Emit { event, args } => {
-                let event_info = self.events.get(&event.name).ok_or_else(|| {
-                    TypeError::new(
-                        TypeErrorKind::UnknownEvent {
-                            name: event.name.clone(),
-                        },
-                        event.span_or(expr.span),
-                    )
-                })?;
-
-                let param_types = event_info.param_types.clone();
-                let param_spans = event_info.param_spans.clone();
-                let event_name = event.name.clone();
-
-                if args.len() != param_types.len() {
-                    return Err(TypeError::new(
-                        TypeErrorKind::EventArityMismatch {
-                            event_name,
-                            expected: param_types.len(),
-                            found: args.len(),
-                        },
-                        expr.span,
-                    ));
-                }
-
-                let mut children = Vec::new();
-                let mut typed_args = Vec::with_capacity(args.len());
-
-                for (index, (arg, expected_ty)) in args.iter().zip(param_types.iter()).enumerate() {
-                    let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
-                    let actual_ty = typed_arg.node.ty.clone();
-
-                    let param_span = param_spans.get(index).copied();
-
-                    let (_, unify_trace) = self.unify(
-                        actual_ty.clone(),
-                        expected_ty.clone(),
-                        arg.span,
-                        arg.span,
-                        TypeErrorKind::EventArgumentTypeMismatch {
-                            event_name: event_name.clone(),
-                            expected: expected_ty.clone(),
-                            found: self.apply_for_display(&actual_ty),
-                            position: index + 1,
-                            param_span,
-                        },
-                    )?;
-
-                    children.push(arg_trace);
-                    children.push(unify_trace);
-                    typed_args.push(typed_arg);
-                }
-
-                let typed = Spanned::new(
-                    TypedExpr::new(
-                        Type::Unit,
-                        TypedExprKind::Emit {
-                            event: event.clone(),
-                            args: typed_args,
-                        },
-                    ),
-                    expr.span,
-                );
-
-                let result_repr = self.maybe_string(|| self.format_type(&Type::Unit));
-
-                let tree =
-                    self.make_trace("T-Emit", env_context, subject_repr, result_repr, || {
-                        children
-                    });
-
-                Ok((typed, tree))
+            Expr::Emit { callee, args } => {
+                self.infer_call(env, ctx, expr, callee, args, FunctionKind::Emit)
             }
-            Expr::Raise { expr: inner_expr } => {
-                // Set inside_raise for the inner expression
-                let was_inside_raise = ctx.inside_raise;
-                ctx.inside_raise = true;
-
-                let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
-
-                ctx.inside_raise = was_inside_raise;
-
-                // Validate that the inner expression is an effectful call
-                let is_effectful_call =
-                    if let TypedExprKind::Call { callee, .. } = &typed_inner.node.kind {
-                        matches!(
-                            callee.node.ty,
-                            Type::Function {
-                                kind: FunctionKind::Raise,
-                                ..
-                            }
-                        )
-                    } else {
-                        false
-                    };
-
-                if !is_effectful_call {
-                    return Err(TypeError::new(
-                        TypeErrorKind::RaiseRequiresEffectful,
-                        inner_expr.span,
-                    )
-                    .with_help("`raise` should wrap an effectful function call"));
-                }
-
-                let result_ty = typed_inner.node.ty.clone();
-
-                let typed = Spanned::new(
-                    TypedExpr::new(
-                        result_ty.clone(),
-                        TypedExprKind::Raise {
-                            expr: Box::new(typed_inner),
-                        },
-                    ),
-                    expr.span,
-                );
-
-                let result_repr = self.maybe_string(|| self.format_type(&result_ty));
-
-                let tree =
-                    self.make_trace("T-Raise", env_context, subject_repr, result_repr, || {
-                        vec![inner_trace]
-                    });
-
-                Ok((typed, tree))
+            Expr::Raise { callee, args } => {
+                self.infer_call(env, ctx, expr, callee, args, FunctionKind::Raise)
             }
-            Expr::Runtime { expr: inner_expr } => {
-                // Set inside_runtime for the inner expression
-                let was_inside_runtime = ctx.inside_runtime;
-                ctx.inside_runtime = true;
-
-                let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
-
-                ctx.inside_runtime = was_inside_runtime;
-
-                // Validate that the inner expression is a runtime call
-                let is_runtime_call =
-                    if let TypedExprKind::Call { callee, .. } = &typed_inner.node.kind {
-                        matches!(
-                            callee.node.ty,
-                            Type::Function {
-                                kind: FunctionKind::Runtime,
-                                ..
-                            }
-                        )
-                    } else {
-                        false
-                    };
-
-                if !is_runtime_call {
-                    return Err(TypeError::new(
-                        TypeErrorKind::RuntimeRequiresRuntime,
-                        inner_expr.span,
-                    )
-                    .with_help("`runtime` should wrap a runtime function call"));
-                }
-
-                let result_ty = typed_inner.node.ty.clone();
-
-                let typed = Spanned::new(
-                    TypedExpr::new(
-                        result_ty.clone(),
-                        TypedExprKind::Runtime {
-                            expr: Box::new(typed_inner),
-                        },
-                    ),
-                    expr.span,
-                );
-
-                let result_repr = self.maybe_string(|| self.format_type(&result_ty));
-
-                let tree =
-                    self.make_trace("T-Runtime", env_context, subject_repr, result_repr, || {
-                        vec![inner_trace]
-                    });
-
-                Ok((typed, tree))
+            Expr::Runtime { callee, args } => {
+                self.infer_call(env, ctx, expr, callee, args, FunctionKind::Runtime)
             }
         }
+    }
+
+    fn infer_call(
+        &mut self,
+        env: &mut TypeEnv,
+        ctx: &mut FunctionCtx,
+        expr: &Spanned<Expr>,
+        callee: &Spanned<Expr>,
+        args: &Arguments,
+        used_kind: FunctionKind,
+    ) -> Result<(Spanned<TypedExpr>, InferenceTree), TypeError> {
+        let (typed_callee, callee_trace) = self.infer_expr(env, callee, ctx)?;
+        let callee_ty = self.apply_for_display(&typed_callee.node.ty);
+        let callee_name = callee.node.name().unwrap_or("<anonymous>");
+
+        let Type::Function {
+            params: ref param_types,
+            ref param_spans,
+            result: ref return_type,
+            kind,
+            name_span: _,
+            callee: _,
+        } = callee_ty
+        else {
+            return Err(TypeError::new(
+                TypeErrorKind::NotAFunction { found: callee_ty },
+                callee.span,
+            ));
+        };
+
+        // Check kind: `event` requires `emit`; `effect` requires `raise`; runtime fns require `runtime`
+        if used_kind != kind {
+            if used_kind == FunctionKind::Normal {
+                // Called without keyword, a keyword is required
+                return Err(TypeError::new(
+                    TypeErrorKind::EmitRaiseRuntimeNeeded {
+                        function_name: callee_name.to_owned(),
+                        needed_keyword: kind,
+                    },
+                    callee.span,
+                ));
+            } else if kind == FunctionKind::Normal {
+                // Called with a keyword, but the function is normal
+                return Err(TypeError::new(
+                    TypeErrorKind::EmitRaiseRuntimeUnneeded {
+                        function_name: callee_name.to_owned(),
+                        unneeded_keyword: used_kind,
+                    },
+                    callee.span,
+                ));
+            } else {
+                // Total mismatch
+                return Err(TypeError::new(
+                    TypeErrorKind::EmitRaiseRuntimeMismatch {
+                        function_name: callee_name.to_owned(),
+                        needed_keyword: kind,
+                        wrong_keyword: used_kind,
+                    },
+                    callee.span,
+                ));
+            }
+        }
+
+        // Check linearity: if the callee is a field access on an AbiNarrow target,
+        // enforce the one-method-call-per-block constraint.
+        if let TypedExprKind::FieldAccess { target, .. } = &typed_callee.node.kind
+            && let Type::AbiNarrow(_) = &target.node.ty
+            && let TypedExprKind::ScopedName(name) = &target.node.kind
+            && name.len() == 1
+        {
+            for tracker in self.abi_call_trackers.iter_mut().rev() {
+                if tracker.var_name == name[0].as_str() {
+                    if let Some(first_span) = tracker.first_call_span {
+                        return Err(TypeError::new(
+                            TypeErrorKind::LinearMethodCallViolation {
+                                var_name: tracker.var_name.clone(),
+                                abi_name: tracker.abi_name.clone(),
+                            },
+                            expr.span,
+                        )
+                        .with_secondary(first_span, "first method call here"));
+                    }
+                    tracker.first_call_span = Some(expr.span);
+                    break;
+                }
+            }
+        }
+
+        if args.len() != param_types.len() {
+            return Err(TypeError::new(
+                TypeErrorKind::ArityMismatch {
+                    expected: param_types.len(),
+                    found: args.len(),
+                },
+                expr.span,
+            ));
+        }
+
+        let mut children = vec![callee_trace];
+        let mut typed_args = Vec::with_capacity(args.len());
+
+        for (index, (arg, expected_ty)) in args.iter().zip(param_types.iter()).enumerate() {
+            let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
+            let actual_ty = typed_arg.node.ty.clone();
+
+            let param_span = param_spans.get(index).copied();
+
+            let (_, unify_trace) = self.unify(
+                actual_ty.clone(),
+                expected_ty.clone(),
+                arg.span,
+                arg.span,
+                TypeErrorKind::ArgumentTypeMismatch {
+                    expected: expected_ty.clone(),
+                    found: self.apply_for_display(&actual_ty),
+                    position: index + 1,
+                    param_span,
+                },
+            )?;
+
+            children.push(arg_trace);
+            children.push(unify_trace);
+            typed_args.push(typed_arg);
+        }
+
+        let typed = Spanned::new(
+            TypedExpr::new(
+                (**return_type).clone(),
+                TypedExprKind::Call {
+                    callee: Box::new(typed_callee),
+                    args: typed_args,
+                },
+            ),
+            callee.span,
+        );
+
+        let result_repr = self.maybe_string(|| self.format_type(return_type));
+
+        let env_context = self.maybe_string(|| self.format_env(env));
+        let subject_repr = self.maybe_string(|| self.format_expr_src(expr));
+        let tree = self.make_trace("T-Call", env_context, subject_repr, result_repr, || {
+            children
+        });
+
+        Ok((typed, tree))
     }
 
     fn private_parameter_rhs_name(
@@ -4208,12 +4085,12 @@ impl Inferencer {
         expr: &Spanned<Expr>,
         ctx: &FunctionCtx,
     ) -> Option<String> {
-        let Expr::Identifier(ident) = &expr.node else {
+        let Expr::ScopedName(name) = &expr.node else {
             return None;
         };
-        let binding = env.get(&ident.name)?;
+        let binding = env.get_scoped(name)?;
         if ctx.private_param_decl_spans.contains(&binding.decl_span) {
-            Some(ident.name.clone())
+            Some(name.last().unwrap().to_string())
         } else {
             None
         }
@@ -4223,8 +4100,8 @@ impl Inferencer {
     fn source_expr_visibility(&self, env: &TypeEnv, expr: &Spanned<Expr>) -> BindingVisibility {
         match &expr.node {
             Expr::Literal(_) => BindingVisibility::Public,
-            Expr::Identifier(ident) => env
-                .get(&ident.name)
+            Expr::ScopedName(name) => env
+                .get_scoped(&name)
                 .map(|binding| binding.visibility)
                 .unwrap_or(BindingVisibility::Private),
             Expr::Unary { expr, .. } | Expr::Grouping(expr) => {
@@ -4239,7 +4116,7 @@ impl Inferencer {
                     BindingVisibility::Private
                 }
             }
-            Expr::StructLiteral { fields, .. } => {
+            Expr::StructConstructor { fields, .. } => {
                 if fields.iter().all(|field| {
                     self.source_expr_visibility(env, &field.value) == BindingVisibility::Public
                 }) {
@@ -4249,6 +4126,7 @@ impl Inferencer {
                 }
             }
             Expr::FieldAccess { target, .. } => self.source_expr_visibility(env, target),
+            /*
             Expr::EnumConstructor { payload, .. } => match payload {
                 EnumConstructorPayload::Unit => BindingVisibility::Public,
                 EnumConstructorPayload::Tuple(values) => {
@@ -4270,6 +4148,7 @@ impl Inferencer {
                     }
                 }
             },
+            */
             Expr::Disclose { .. } => BindingVisibility::Public,
             Expr::Call { .. } => BindingVisibility::Private,
             Expr::Block(_)
@@ -4547,12 +4426,14 @@ impl Inferencer {
                 result,
                 kind,
                 name_span,
+                callee,
             } => Type::Function {
                 params: params.iter().map(|t| self.apply_for_display(t)).collect(),
                 param_spans: param_spans.clone(),
                 result: Box::new(self.apply_for_display(result)),
                 kind: *kind,
                 name_span: *name_span,
+                callee: callee.clone(),
             },
             Type::Tuple(items) => {
                 Type::Tuple(items.iter().map(|t| self.apply_for_display(t)).collect())
@@ -4620,12 +4501,14 @@ impl Inferencer {
                 result,
                 kind,
                 name_span,
+                callee,
             } => Type::Function {
                 params: params.iter().map(|t| self.apply(t)).collect(),
                 param_spans: param_spans.clone(),
                 result: Box::new(self.apply(result)),
                 kind: *kind,
                 name_span: *name_span,
+                callee: callee.clone(),
             },
             Type::Tuple(items) => Type::Tuple(items.iter().map(|t| self.apply(t)).collect()),
             Type::Record(record) => Type::Record(RecordType {
@@ -4767,32 +4650,19 @@ impl Inferencer {
     fn apply_expr(&self, expr: &mut Spanned<TypedExpr>) {
         expr.node.ty = self.apply(&expr.node.ty);
         match &mut expr.node.kind {
-            TypedExprKind::Literal(_) | TypedExprKind::Identifier(_) => {}
+            TypedExprKind::Literal(_) | TypedExprKind::ScopedName(_) => {}
             TypedExprKind::Unary { expr: inner, .. } => self.apply_expr(inner),
             TypedExprKind::Binary { left, right, .. } => {
                 self.apply_expr(left);
                 self.apply_expr(right);
             }
             TypedExprKind::Grouping(inner) => self.apply_expr(inner),
-            TypedExprKind::StructLiteral { fields, .. } => {
+            TypedExprKind::StructConstructor { fields, .. } => {
                 for field in fields {
                     self.apply_expr(&mut field.value);
                 }
             }
             TypedExprKind::FieldAccess { target, .. } => self.apply_expr(target),
-            TypedExprKind::EnumConstructor { payload, .. } => match payload {
-                TypedEnumConstructorPayload::Unit => {}
-                TypedEnumConstructorPayload::Tuple(values) => {
-                    for expr in values {
-                        self.apply_expr(expr);
-                    }
-                }
-                TypedEnumConstructorPayload::Struct(fields) => {
-                    for field in fields {
-                        self.apply_expr(&mut field.value);
-                    }
-                }
-            },
             TypedExprKind::Block(block) => self.apply_block(block),
             TypedExprKind::If {
                 branches,
@@ -4825,14 +4695,25 @@ impl Inferencer {
                     self.apply_expr(arg);
                 }
             }
-            TypedExprKind::Emit { args, .. } => {
+            TypedExprKind::Disclose { expr } => self.apply_expr(expr),
+            TypedExprKind::Emit { callee, args } => {
+                self.apply_expr(callee);
                 for arg in args {
                     self.apply_expr(arg);
                 }
             }
-            TypedExprKind::Disclose { expr: inner } => self.apply_expr(inner),
-            TypedExprKind::Raise { expr: inner } => self.apply_expr(inner),
-            TypedExprKind::Runtime { expr: inner } => self.apply_expr(inner),
+            TypedExprKind::Raise { callee, args } => {
+                self.apply_expr(callee);
+                for arg in args {
+                    self.apply_expr(arg);
+                }
+            }
+            TypedExprKind::Runtime { callee, args } => {
+                self.apply_expr(callee);
+                for arg in args {
+                    self.apply_expr(arg);
+                }
+            }
         }
     }
 
@@ -5084,10 +4965,12 @@ impl Inferencer {
                     result: lr,
                     kind: le,
                     name_span: lns,
+                    callee: lcl,
                 },
                 Type::Function {
                     params: rp,
                     result: rr,
+                    callee: rcl,
                     ..
                 },
             ) if lp.len() == rp.len() => {
@@ -5105,6 +4988,7 @@ impl Inferencer {
                         result: lr,
                         kind: le,
                         name_span: lns,
+                        callee: if lcl == rcl { lcl.clone() } else { None },
                     },
                     children,
                     "Unify-Arrow",
@@ -5270,10 +5154,12 @@ impl Inferencer {
                     result: lr,
                     kind: le,
                     name_span: lns,
+                    callee: lcl,
                 },
                 Type::Function {
                     params: rp,
                     result: rr,
+                    callee: rcl,
                     ..
                 },
             ) => {
@@ -5316,14 +5202,17 @@ impl Inferencer {
                         result: lr,
                         kind: le,
                         name_span: lns,
+                        callee: if lcl == rcl { lcl.clone() } else { None },
                     },
                     arrow_children,
                     "Unify-Arrow",
                 )
             }
             (Type::Record(mut ls), Type::Record(mut rs)) => {
-                ls.fields.sort_by(|a, b| a.name.cmp(&b.name));
-                rs.fields.sort_by(|a, b| a.name.cmp(&b.name));
+                ls.fields
+                    .sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
+                rs.fields
+                    .sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
                 if ls.fields.len() != rs.fields.len()
                     || ls
                         .fields
@@ -5521,6 +5410,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             result,
             kind,
             name_span,
+            callee,
         } => Type::Function {
             params: params
                 .iter()
@@ -5530,6 +5420,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             result: Box::new(substitute_type(result, mapping)),
             kind: *kind,
             name_span: *name_span,
+            callee: callee.clone(),
         },
         Type::Tuple(items) => Type::Tuple(
             items
@@ -5694,14 +5585,6 @@ fn enum_payload_kind_from_variant(kind: &EnumVariantInfoKind) -> EnumPayloadKind
         EnumVariantInfoKind::Unit => EnumPayloadKind::unit(),
         EnumVariantInfoKind::Tuple(payload) => EnumPayloadKind::tuple(payload.len()),
         EnumVariantInfoKind::Struct(fields) => EnumPayloadKind::struct_payload(fields.len()),
-    }
-}
-
-fn enum_payload_kind_from_constructor(payload: &EnumConstructorPayload) -> EnumPayloadKind {
-    match payload {
-        EnumConstructorPayload::Unit => EnumPayloadKind::unit(),
-        EnumConstructorPayload::Tuple(values) => EnumPayloadKind::tuple(values.len()),
-        EnumConstructorPayload::Struct(fields) => EnumPayloadKind::struct_payload(fields.len()),
     }
 }
 

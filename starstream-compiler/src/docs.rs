@@ -79,6 +79,7 @@ impl From<&Type> for TypeRef {
                 result,
                 kind,
                 name_span: _,
+                callee: _,
             } => TypeRef::Function {
                 params: params.iter().map(TypeRef::from).collect(),
                 return_type: Box::new(TypeRef::from(result.as_ref())),
@@ -108,8 +109,8 @@ pub struct FunctionDoc {
     pub params: Vec<ParamDoc>,
     #[serde(rename = "returnType")]
     pub return_type: TypeRef,
-    pub kind: String,
-    pub export: Option<String>,
+    pub kind: &'static str,
+    pub export: Option<&'static str>,
 }
 
 /// Documentation for a function parameter.
@@ -219,8 +220,8 @@ fn function_doc(f: &TypedFunctionDef, doc: Option<String>) -> FunctionDoc {
             })
             .collect(),
         return_type: TypeRef::from(&f.return_type),
-        kind: f.kind.declaration_keyword().to_string(),
-        export: f.export.as_ref().map(|e| format!("{:?}", e).to_lowercase()),
+        kind: "",
+        export: f.export.as_ref().map(|e| e.keyword()),
     }
 }
 

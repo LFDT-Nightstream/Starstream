@@ -22,7 +22,7 @@ const KEYWORDS: &[&str] = &[
     "match", "abi", "emit", "import", "from", "as", "raise", "runtime", "disclose", "is", "yield",
     "resume",
 ];
-pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> {
+pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> + Clone {
     text::ident()
         .try_map(|ident: &'a str, span| {
             if KEYWORDS.contains(&ident) {

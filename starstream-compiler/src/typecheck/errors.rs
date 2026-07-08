@@ -2,7 +2,7 @@ use std::fmt;
 
 use miette::{Diagnostic, LabeledSpan};
 use starstream_types::{
-    ErrorCode, Span, Type,
+    ErrorCode, FunctionKind, Span, Type,
     ast::{BinaryOp, UnaryOp},
     error_code,
 };
@@ -240,18 +240,23 @@ pub enum TypeErrorKind {
         path: String,
         name: String,
     },
-    /// Raise must wrap an effectful function call.
-    RaiseRequiresEffectful,
-    /// Effectful function called without raise.
-    EffectfulWithoutRaise {
+    /// Keyword `raise`, `emit`, or `runtime` used to call a normal function.
+    EmitRaiseRuntimeUnneeded {
         function_name: String,
+        unneeded_keyword: FunctionKind,
     },
-    /// Runtime keyword must wrap a runtime function call.
-    RuntimeRequiresRuntime,
-    /// Runtime function called without runtime keyword.
-    RuntimeWithoutKeyword {
+    /// Keyword `raise`, `emit`, or `runtime` needed to call a function.
+    EmitRaiseRuntimeNeeded {
         function_name: String,
+        needed_keyword: FunctionKind,
     },
+    /// Function requires keyword, but the wrong one was used.
+    EmitRaiseRuntimeMismatch {
+        function_name: String,
+        needed_keyword: FunctionKind,
+        wrong_keyword: FunctionKind,
+    },
+    // E0041 removed
     /// Writing or initializing a public binding requires explicit disclosure of private data.
     ExplicitDisclosureRequiredForPublicBinding {
         variable_name: String,
@@ -340,10 +345,10 @@ impl TypeErrorKind {
             TypeErrorKind::UnknownImportPackage { .. } => error_code!(E0035),
             TypeErrorKind::UnknownImportInterface { .. } => error_code!(E0036),
             TypeErrorKind::UnknownImportFunction { .. } => error_code!(E0037),
-            TypeErrorKind::RaiseRequiresEffectful => error_code!(E0038),
-            TypeErrorKind::EffectfulWithoutRaise { .. } => error_code!(E0039),
-            TypeErrorKind::RuntimeRequiresRuntime => error_code!(E0040),
-            TypeErrorKind::RuntimeWithoutKeyword { .. } => error_code!(E0041),
+            TypeErrorKind::EmitRaiseRuntimeUnneeded { .. } => error_code!(E0038),
+            TypeErrorKind::EmitRaiseRuntimeNeeded { .. } => error_code!(E0039),
+            TypeErrorKind::EmitRaiseRuntimeMismatch { .. } => error_code!(E0040),
+            // E0041 removed
             TypeErrorKind::WrongGenericArity { .. } => error_code!(E0042),
             TypeErrorKind::ReturnTypeNotAllowed => error_code!(E0043),
             TypeErrorKind::LiteralOutOfRange { .. } => error_code!(E0044),
@@ -647,24 +652,44 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::UnknownImportFunction { path, name } => {
                 write!(f, "unknown function `{name}` in `{path}`")
             }
-            TypeErrorKind::RaiseRequiresEffectful => {
-                write!(f, "`raise` can only be used with effectful function calls")
-            }
-            TypeErrorKind::EffectfulWithoutRaise { function_name } => {
+            TypeErrorKind::EmitRaiseRuntimeUnneeded {
+                function_name,
+                unneeded_keyword,
+            } => {
                 write!(
                     f,
-                    "effectful function `{function_name}` must be called with `raise`"
+                    "`{}` keyword not required to call normal function `{}`",
+                    unneeded_keyword.call_keyword(),
+                    function_name,
                 )
             }
-            TypeErrorKind::RuntimeRequiresRuntime => {
-                write!(f, "`runtime` can only be used with runtime function calls")
-            }
-            TypeErrorKind::RuntimeWithoutKeyword { function_name } => {
+            TypeErrorKind::EmitRaiseRuntimeNeeded {
+                function_name,
+                needed_keyword,
+            } => {
                 write!(
                     f,
-                    "runtime function `{function_name}` must be called with `runtime`"
+                    "`{}` keyword required to call `{} {}`",
+                    needed_keyword.call_keyword(),
+                    needed_keyword.declaration_keyword(),
+                    function_name,
                 )
             }
+            TypeErrorKind::EmitRaiseRuntimeMismatch {
+                function_name,
+                needed_keyword,
+                wrong_keyword,
+            } => {
+                write!(
+                    f,
+                    "`{}` keyword used instead of `{}` required to call `{} {}`",
+                    wrong_keyword.call_keyword(),
+                    needed_keyword.call_keyword(),
+                    needed_keyword.declaration_keyword(),
+                    function_name,
+                )
+            }
+            // E0041 removed
             TypeErrorKind::ExplicitDisclosureRequiredForPublicBinding { variable_name } => {
                 write!(
                     f,

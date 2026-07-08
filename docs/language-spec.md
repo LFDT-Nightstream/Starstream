@@ -203,8 +203,8 @@ primary_expression ::=
   | emit_expression
   | raise_expression
   | runtime_expression
-  | block
   | yield_expression
+  | block
   | if_expression
   | match_expression
 

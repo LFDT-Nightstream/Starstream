@@ -4,8 +4,8 @@ use std::ops::{Add, ControlFlow, Div, Mul, Neg, Not, Rem, Sub};
 use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 
 use starstream_types::{
-    BinaryOp, Identifier, Literal, TypedBlock, TypedDefinition, TypedExpr, TypedExprKind,
-    TypedFunctionDef, TypedIfCondition, TypedProgram, TypedStatement, UnaryOp,
+    BinaryOp, Literal, TypedBlock, TypedDefinition, TypedExpr, TypedExprKind, TypedFunctionDef,
+    TypedIfCondition, TypedProgram, TypedStatement, UnaryOp,
 };
 
 #[cfg(test)]
@@ -82,7 +82,7 @@ fn eval_block(block: &TypedBlock, locals: &Locals) -> ControlFlow<Value, Value> 
 pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
     ControlFlow::Continue(match &expr.kind {
         // Identifiers
-        TypedExprKind::Identifier(Identifier { name, .. }) => locals.get(name),
+        TypedExprKind::ScopedName(name) => locals.get(name.last().unwrap().as_str()),
         // Literals
         TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(*i as i64),
         TypedExprKind::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
@@ -209,9 +209,8 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
                 Value::Unit
             }
         }
-        TypedExprKind::StructLiteral { .. }
+        TypedExprKind::StructConstructor { .. }
         | TypedExprKind::FieldAccess { .. }
-        | TypedExprKind::EnumConstructor { .. }
         | TypedExprKind::Call { .. }
         | TypedExprKind::Match { .. }
         | TypedExprKind::Emit { .. }
@@ -249,8 +248,8 @@ fn eval_math() {
 
 #[test]
 fn eval_locals() {
-    let foo = Identifier::anon("foo");
-    let bar = Identifier::anon("bar");
+    let foo = starstream_types::Identifier::anon("foo");
+    let bar = starstream_types::Identifier::anon("bar");
     let block = TypedBlock {
         statements: vec![
             TypedStatement::VariableDeclaration {
@@ -270,7 +269,7 @@ fn eval_locals() {
                         op: BinaryOp::Multiply,
                         left: Box::new(Spanned::none(TypedExpr::new(
                             Type::int(),
-                            TypedExprKind::Identifier(foo.clone()),
+                            TypedExprKind::from(foo.clone()),
                         ))),
                         right: Box::new(Spanned::none(TypedExpr::new(
                             Type::int(),
@@ -283,7 +282,7 @@ fn eval_locals() {
                 target: bar.clone(),
                 value: Spanned::none(TypedExpr::new(
                     Type::int(),
-                    TypedExprKind::Identifier(foo.clone()),
+                    TypedExprKind::from(foo.clone()),
                 )),
             },
         ],

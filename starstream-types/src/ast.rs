@@ -251,6 +251,17 @@ pub enum FunctionExport {
     TokenBurn,
 }
 
+impl FunctionExport {
+    pub fn keyword(&self) -> &'static str {
+        match self {
+            FunctionExport::Script => "script",
+            FunctionExport::UtxoMain => "main",
+            FunctionExport::TokenMint => "mint",
+            FunctionExport::TokenBurn => "burn",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct FunctionParam {
     pub public: bool,
@@ -472,33 +483,47 @@ pub enum IfCondition {
     },
 }
 
+/// Identifiers separated by `::`. Non-empty.
+pub type ScopedName = Vec<Identifier>;
+
+/// Expressions within parentheses and separated by commas.
+pub type Arguments = Vec<Spanned<Expr>>;
+
 /// An expression that evaluates to a value of a particular type.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Expr {
+    // Primary expressions ----------
+    Grouping(Box<Spanned<Expr>>),
+    ScopedName(ScopedName),
     Literal(Literal),
-    Identifier(Identifier),
-    Unary {
-        op: UnaryOp,
+    StructConstructor {
+        name: ScopedName,
+        fields: Vec<StructFieldInitializer>,
+    },
+    /// Visibility-lifting expression: `disclose(expr)`
+    Disclose {
         expr: Box<Spanned<Expr>>,
     },
-    Binary {
-        op: BinaryOp,
-        left: Box<Spanned<Expr>>,
-        right: Box<Spanned<Expr>>,
+    /// Event emission expression: `emit some_emit_fn(args...)`
+    Emit {
+        callee: Box<Spanned<Expr>>,
+        args: Arguments,
     },
-    Grouping(Box<Spanned<Expr>>),
-    StructLiteral {
-        name: Identifier,
-        fields: Vec<StructLiteralField>,
+    /// Effectful call: `raise some_effect_fn(...)`
+    Raise {
+        callee: Box<Spanned<Expr>>,
+        args: Arguments,
     },
-    FieldAccess {
-        target: Box<Spanned<Expr>>,
-        field: Identifier,
+    /// Runtime call: `runtime some_runtime_fn(...)`
+    Runtime {
+        callee: Box<Spanned<Expr>>,
+        args: Arguments,
     },
-    EnumConstructor {
-        enum_name: Identifier,
-        variant: Identifier,
-        payload: EnumConstructorPayload,
+    // Control-flow primary expressions ----------
+    /// `yield` and `yield(AbiName, ...)`
+    Yield {
+        /// Empty for bare `yield`, or list of abi names
+        abis: Vec<Identifier>,
     },
     Block(Box<Block>),
     If {
@@ -509,32 +534,49 @@ pub enum Expr {
         scrutinee: Box<Spanned<Expr>>,
         arms: Vec<MatchArm>,
     },
-    /// `yield` and `yield(AbiName, ...)`
-    Yield {
-        /// Empty for bare `yield`, or list of abi names
-        abis: Vec<Identifier>,
-    },
+    // Postfix expressions ----------
     Call {
         callee: Box<Spanned<Expr>>,
-        args: Vec<Spanned<Expr>>,
+        args: Arguments,
     },
-    /// Visibility-lifting expression: `disclose(expr)`
-    Disclose {
+    FieldAccess {
+        target: Box<Spanned<Expr>>,
+        field: Identifier,
+    },
+    // Operators ----------
+    Unary {
+        op: UnaryOp,
         expr: Box<Spanned<Expr>>,
     },
-    /// Event emission expression: `emit EventName(args...)`
-    Emit {
-        event: Identifier,
-        args: Vec<Spanned<Expr>>,
+    Binary {
+        op: BinaryOp,
+        left: Box<Spanned<Expr>>,
+        right: Box<Spanned<Expr>>,
     },
-    /// Effectful call: `raise some_effectful_fn(...)`
-    Raise {
-        expr: Box<Spanned<Expr>>,
-    },
-    /// Runtime call: `runtime some_runtime_fn(...)`
-    Runtime {
-        expr: Box<Spanned<Expr>>,
-    },
+}
+
+impl Expr {
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Expr::Grouping(inner) => inner.node.name(),
+            Expr::ScopedName(name) => Some(name.last().unwrap().as_str()),
+            Expr::FieldAccess { target: _, field } => Some(field.as_str()),
+            _ => None,
+        }
+    }
+}
+
+impl From<Identifier> for Expr {
+    fn from(value: Identifier) -> Self {
+        Expr::ScopedName(vec![value])
+    }
+}
+
+impl From<Identifier> for Spanned<Expr> {
+    fn from(value: Identifier) -> Self {
+        let span = value.span;
+        Spanned::new(Expr::from(value), span)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -568,16 +610,9 @@ pub enum BinaryOp {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct StructLiteralField {
+pub struct StructFieldInitializer {
     pub name: Identifier,
     pub value: Spanned<Expr>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub enum EnumConstructorPayload {
-    Unit,
-    Tuple(Vec<Spanned<Expr>>),
-    Struct(Vec<StructLiteralField>),
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

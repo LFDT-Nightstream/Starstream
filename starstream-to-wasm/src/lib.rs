@@ -9,11 +9,10 @@ use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
     BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned, Type,
-    TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
-    TypedEnumDef, TypedEnumPatternPayload, TypedExpr, TypedExprKind, TypedFunctionDef,
-    TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedImportItems, TypedImportSource,
-    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedUtxoDef,
-    TypedUtxoPart, UnaryOp,
+    TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef, TypedEnumPatternPayload,
+    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
+    TypedImportDef, TypedImportItems, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
+    TypedStatement, TypedStructDef, TypedUtxoDef, TypedUtxoPart, UnaryOp,
 };
 use thiserror::Error;
 use wasm_encoder::{
@@ -1349,6 +1348,7 @@ impl Compiler {
                     result,
                     kind: _,
                     name_span: _,
+                    callee: _, // We know it's an import.
                 } => {
                     let mut core_params = Vec::with_capacity(16);
                     let mut core_results = Vec::with_capacity(1);
@@ -1930,7 +1930,7 @@ impl Compiler {
         // TODO: Warn on expressions that have no effect.
         match &expr.kind {
             TypedExprKind::Literal(_) => {}
-            TypedExprKind::Identifier(_) => {}
+            TypedExprKind::ScopedName(_) => {}
             TypedExprKind::Unary { op: _, expr } => {
                 self.visit_expr_drop(func, bb, locals, expr.span, &expr.node)?;
             }
@@ -1998,7 +1998,11 @@ impl Compiler {
             TypedExprKind::Grouping(spanned) => {
                 self.visit_expr_drop(func, bb, locals, spanned.span, &spanned.node)?;
             }
-            TypedExprKind::StructLiteral { name: _, fields } => {
+            TypedExprKind::StructConstructor {
+                name: _,
+                fields,
+                enum_variant: _,
+            } => {
                 for field in fields {
                     self.visit_expr_drop(func, bb, locals, field.value.span, &field.value.node)?;
                 }
@@ -2006,29 +2010,6 @@ impl Compiler {
             TypedExprKind::FieldAccess { target, field: _ } => {
                 self.visit_expr_drop(func, bb, locals, target.span, &target.node)?;
             }
-            TypedExprKind::EnumConstructor {
-                enum_name: _,
-                variant: _,
-                payload,
-            } => match payload {
-                TypedEnumConstructorPayload::Unit => {}
-                TypedEnumConstructorPayload::Tuple(fields) => {
-                    for field in fields {
-                        self.visit_expr_drop(func, bb, locals, field.span, &field.node)?;
-                    }
-                }
-                TypedEnumConstructorPayload::Struct(fields) => {
-                    for field in fields {
-                        self.visit_expr_drop(
-                            func,
-                            bb,
-                            locals,
-                            field.value.span,
-                            &field.value.node,
-                        )?;
-                    }
-                }
-            },
             TypedExprKind::Block(block) => self.visit_block_drop(func, bb, locals, block)?,
             TypedExprKind::If {
                 branches,
@@ -2121,7 +2102,10 @@ impl Compiler {
     ) -> Result<()> {
         match &expr.kind {
             // Identifiers
-            TypedExprKind::Identifier(ident) => {
+            TypedExprKind::ScopedName(ident) => {
+                // TODO: support namespaces
+                assert!(ident.len() == 1);
+                let ident = &ident[0];
                 if let Some(var) = locals.get(&ident.name) {
                     match var {
                         Var::Local(local) => {
@@ -2760,23 +2744,69 @@ impl Compiler {
                 self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)
             }
             // Data constructors
-            TypedExprKind::StructLiteral { name: _, fields } => {
-                let Type::Record(record) = &expr.ty else {
-                    panic!("StructLiteral type must be a Record");
-                };
-                let fields = fields
-                    .iter()
-                    .map(|f| (f.name.as_str(), &f.value))
-                    .collect::<HashMap<_, _>>();
-                // NB: currently compiles in declaration order, not the order written in source.
-                for field in &record.fields {
-                    let expr = fields
-                        .get(field.name.as_str())
-                        .expect("StructLiteral missing field");
-                    self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
+            TypedExprKind::StructConstructor {
+                name: _,
+                enum_variant,
+                fields,
+            } => {
+                match &expr.ty {
+                    Type::Record(record) => {
+                        let fields = fields
+                            .iter()
+                            .map(|f| (f.name.as_str(), &f.value))
+                            .collect::<HashMap<_, _>>();
+                        // NB: currently compiles in declaration order, not the order written in source.
+                        for field in &record.fields {
+                            let expr = fields
+                                .get(field.name.as_str())
+                                .expect("StructLiteral missing field");
+                            self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
+                        }
+                    }
+                    Type::Enum(enum_) => {
+                        let mut dest_types = Vec::new();
+                        _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
+                        let mut iter = dest_types.into_iter();
+
+                        // Push the discriminant
+                        assert_eq!(iter.next().unwrap(), ValType::I32);
+                        func.instructions(bb)
+                            .i32_const(i32::try_from(*enum_variant).unwrap());
+
+                        // Push the values
+                        let fields = fields
+                            .iter()
+                            .map(|f| (f.name.as_str(), &f.value))
+                            .collect::<HashMap<_, _>>();
+                        let EnumVariantKind::Struct(struct_) = &enum_.variants[*enum_variant].kind
+                        else {
+                            unreachable!()
+                        };
+                        // NB: currently compiles in declaration order, not the order written in source.
+                        for field in struct_ {
+                            let expr = fields
+                                .get(field.name.as_str())
+                                .expect("StructConstructor missing field");
+                            self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
+                            self.enum_promote(func, bb, expr.span, &expr.node.ty, &mut iter);
+                        }
+
+                        // Push 0 for the rest
+                        for ty in iter {
+                            match ty {
+                                ValType::I32 => func.instructions(bb).i32_const(0),
+                                ValType::I64 => func.instructions(bb).i64_const(0),
+                                ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
+                                ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
+                                _ => todo!(),
+                            };
+                        }
+                    }
+                    _ => panic!("StructConstructor type must be a Record or Enum"),
                 }
                 Ok(())
             }
+            /*
             TypedExprKind::EnumConstructor {
                 enum_name: _,
                 variant,
@@ -2847,48 +2877,19 @@ impl Compiler {
 
                 Ok(())
             }
+             */
             // Function calls
-            TypedExprKind::Call { callee, args } => {
-                let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.push_error(span, "cannot call non-identifier"));
+            TypedExprKind::Call { callee, args }
+            | TypedExprKind::Emit { callee, args }
+            | TypedExprKind::Raise { callee, args }
+            | TypedExprKind::Runtime { callee, args } => {
+                // TODO: handle namespacing in `callables`
+                let TypedExprKind::ScopedName(i) = &callee.node.kind else {
+                    return Err(self.push_error(span, "TODO: cannot call non-identifier"));
                 };
-                let target = *self
-                    .callables
-                    .get(i.as_str())
-                    .expect("no callable found for identifier");
-                self.visit_call(func, bb, locals, span, target, args)
-            }
-            TypedExprKind::Emit { event, args } => {
-                let target = *self
-                    .callables
-                    .get(event.as_str())
-                    .expect("no callable found for identifier");
-                self.visit_call(func, bb, locals, span, target, args)
-            }
-            TypedExprKind::Raise { expr: inner } => {
-                let TypedExprKind::Call { callee, args } = &inner.node.kind else {
-                    panic!("raise expr must be a call");
+                let Some(&target) = self.callables.get(i.last().unwrap().as_str()) else {
+                    return Err(self.push_error(span, "no callable found for identifier"));
                 };
-                let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.push_error(span, "`raise` expr cannot call non-identifier"));
-                };
-                let target = *self
-                    .callables
-                    .get(i.as_str())
-                    .expect("no callable found for identifier");
-                self.visit_call(func, bb, locals, span, target, args)
-            }
-            TypedExprKind::Runtime { expr: inner } => {
-                let TypedExprKind::Call { callee, args } = &inner.node.kind else {
-                    panic!("runtime expr must be a call");
-                };
-                let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.push_error(span, "`runtime` expr cannot call non-identifier"));
-                };
-                let target = *self
-                    .callables
-                    .get(i.as_str())
-                    .expect("no callable found for identifier");
                 self.visit_call(func, bb, locals, span, target, args)
             }
             TypedExprKind::Match { scrutinee, arms } => {
@@ -3171,7 +3172,7 @@ impl Compiler {
                             .map(|fd| {
                                 let sf = fields
                                     .iter()
-                                    .find(|sf| sf.name.as_str() == fd.name)
+                                    .find(|sf| sf.name.as_str() == fd.name.as_str())
                                     .expect("missing field in struct pattern");
                                 self.lower_pattern(&sf.pattern, arm_idx, &fd.ty)
                             })
@@ -3191,8 +3192,9 @@ impl Compiler {
                     .fields
                     .iter()
                     .map(|field_def| {
-                        if let Some(sf) =
-                            fields.iter().find(|sf| sf.name.as_str() == field_def.name)
+                        if let Some(sf) = fields
+                            .iter()
+                            .find(|sf| sf.name.as_str() == field_def.name.as_str())
                         {
                             self.lower_pattern(&sf.pattern, arm_idx, &field_def.ty)
                         } else {

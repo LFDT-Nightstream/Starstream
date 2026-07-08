@@ -631,7 +631,7 @@ pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
                         .map(|type_field| {
                             fields
                                 .iter()
-                                .find(|f| f.name.name == type_field.name)
+                                .find(|f| f.name.as_str() == type_field.name.as_str())
                                 .map(|f| lower_pattern(&f.pattern, &type_field.ty))
                                 .unwrap_or(SimplePat::Wildcard)
                         })
@@ -661,7 +661,7 @@ pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
                 .map(|type_field| {
                     fields
                         .iter()
-                        .find(|f| f.name.name == type_field.name)
+                        .find(|f| f.name.as_str() == type_field.name.as_str())
                         .map(|f| lower_pattern(&f.pattern, &type_field.ty))
                         .unwrap_or(SimplePat::Wildcard)
                 })

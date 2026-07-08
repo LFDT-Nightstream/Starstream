@@ -190,6 +190,12 @@ pub struct Abi {
     pub methods: Vec<TypedAbiMethodDecl>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum StaticFunction {
+    Named(String),
+    Constructor { variant: usize },
+}
+
 /// Starstream type.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -204,11 +210,13 @@ pub enum Type {
     Unit,
     /// Function type `(params) -> result` with an optional effect.
     Function {
+        kind: FunctionKind,
+        name_span: Span,
         params: Vec<Type>,
         param_spans: Vec<Span>,
         result: Box<Type>,
-        kind: FunctionKind,
-        name_span: Span,
+        /// Optional statically-known callee. Otherwise it's a pointer.
+        callee: Option<StaticFunction>,
     },
     /// Tuple type `(T0, T1, …)`.
     Tuple(Vec<Type>),
@@ -274,6 +282,7 @@ impl Type {
             result: Box::new(result),
             kind: FunctionKind::Normal,
             name_span: DUMMY_SPAN,
+            callee: None,
         }
     }
 }
@@ -319,6 +328,7 @@ impl Type {
                 result,
                 kind,
                 name_span: _,
+                callee,
             } => {
                 let params_doc = if fn_params.is_empty() {
                     RcDoc::text("()")
@@ -336,6 +346,16 @@ impl Type {
                     .append(params_doc)
                     .append(RcDoc::text(" -> "))
                     .append(result.to_doc(TypeDocMode::Compact, params))
+                    .append(match callee {
+                        Some(StaticFunction::Named(name)) => {
+                            RcDoc::text(" {").append(name.to_owned()).append("}")
+                        }
+                        Some(StaticFunction::Constructor { variant }) => {
+                            // TODO: use variant name here by inspecting `result`
+                            RcDoc::text(" <").append(variant.to_string()).append(">")
+                        }
+                        None => todo!(),
+                    })
             }
             Type::Tuple(items) => RcDoc::text("(")
                 .append(comma_separated_docs(
@@ -398,7 +418,7 @@ fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc
     } else {
         let fields = RcDoc::intersperse(
             record.fields.iter().map(|field| {
-                RcDoc::text(field.name.clone())
+                RcDoc::text(field.name.to_string())
                     .append(RcDoc::text(": "))
                     .append(field.ty.to_doc(TypeDocMode::Compact, params))
                     .append(RcDoc::text(","))
@@ -485,7 +505,7 @@ fn enum_variant_struct_doc(
     } else {
         let body = RcDoc::intersperse(
             fields.iter().map(|field| {
-                RcDoc::text(field.name.clone())
+                RcDoc::text(field.name.to_string())
                     .append(RcDoc::text(": "))
                     .append(field.ty.to_doc(TypeDocMode::Compact, params))
                     .append(RcDoc::text(","))
@@ -539,16 +559,13 @@ pub struct RecordType {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordFieldType {
-    pub name: String,
+    pub name: Identifier,
     pub ty: Type,
 }
 
 impl RecordFieldType {
-    pub fn new(name: impl Into<String>, ty: Type) -> Self {
-        Self {
-            name: name.into(),
-            ty,
-        }
+    pub fn new(name: Identifier, ty: Type) -> Self {
+        Self { name, ty }
     }
 }
 

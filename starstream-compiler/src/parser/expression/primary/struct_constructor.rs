@@ -1,12 +1,12 @@
 use chumsky::prelude::*;
-use starstream_types::ast::{Expr, Spanned, StructLiteralField};
+use starstream_types::ast::{Expr, Spanned, StructFieldInitializer};
 
-use crate::parser::{ParserExt, context::Extra, primitives};
+use crate::parser::{ParserExt, context::Extra, expression::primary::scoped_name, primitives};
 
-pub fn parser<'a>(
+pub fn struct_constructor<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    primitives::identifier()
+    scoped_name()
         .then(
             field_initializer(expression)
                 .separated_by(just(',').padded())
@@ -14,17 +14,17 @@ pub fn parser<'a>(
                 .collect::<Vec<_>>()
                 .delimited_by(just('{').padded(), just('}').padded()),
         )
-        .map(|(name, fields)| Expr::StructLiteral { name, fields })
+        .map(|(name, fields)| Expr::StructConstructor { name, fields })
         .spanned()
 }
 
 pub fn field_initializer<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, StructLiteralField, Extra<'a>> {
+) -> impl Parser<'a, &'a str, StructFieldInitializer, Extra<'a>> {
     primitives::identifier()
         .then_ignore(just(':').padded())
         .then(expression)
-        .map(|(name, value)| StructLiteralField { name, value })
+        .map(|(name, value)| StructFieldInitializer { name, value })
 }
 
 #[cfg(test)]
