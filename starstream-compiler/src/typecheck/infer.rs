@@ -2745,17 +2745,7 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::ScopedName(name) => {
-                let ty = if let Some(binding) = env.get_scoped(name).cloned() {
-                    self.instantiate(&binding.scheme)
-                } else {
-                    let span = name.last().unwrap().span_or(expr.span);
-                    return Err(TypeError::new(
-                        TypeErrorKind::UnknownVariable {
-                            name: name.last().unwrap().to_string(),
-                        },
-                        span,
-                    ));
-                };
+                let ty = self.instantiate(&env.get_scoped(name)?.scheme);
                 let typed = Spanned::new(
                     TypedExpr::new(ty.clone(), TypedExprKind::ScopedName(name.clone())),
                     expr.span,
@@ -4088,7 +4078,7 @@ impl Inferencer {
         let Expr::ScopedName(name) = &expr.node else {
             return None;
         };
-        let binding = env.get_scoped(name)?;
+        let binding = env.get_scoped(name).ok()?;
         if ctx.private_param_decl_spans.contains(&binding.decl_span) {
             Some(name.last().unwrap().to_string())
         } else {
