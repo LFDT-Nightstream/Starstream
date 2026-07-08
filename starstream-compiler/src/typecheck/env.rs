@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use starstream_types::{Scheme, ScopedName, Span, Type, TypeVarId, types::EnumVariantKind};
-
-use crate::typecheck::{TypeError, TypeErrorKind};
+use starstream_types::{Scheme, Span, Type, TypeVarId, types::EnumVariantKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BindingClass {
@@ -59,33 +57,6 @@ impl TypeEnv {
             }
         }
         None
-    }
-
-    pub fn get_scoped(&self, scoped: &ScopedName) -> Result<&Binding, TypeError> {
-        let (last, path) = scoped.split_last().unwrap();
-        if path.is_empty() {
-            // Get it like normal
-            self.get(last.as_str()).ok_or_else(|| {
-                TypeError::new(
-                    TypeErrorKind::UnknownVariable {
-                        name: last.to_string(),
-                    },
-                    last.span,
-                )
-            })
-        } else {
-            // TODO: traverse namespaces
-            for each in path {
-                return Err(TypeError::new(
-                    TypeErrorKind::UnknownNamespace {
-                        name: each.to_string(),
-                    },
-                    each.span,
-                ));
-                // TODO: "did you forget to import? try: `import {} from starstream:std/{};`" if it seems to exist
-            }
-            unreachable!()
-        }
     }
 
     pub fn get_in_current_scope(&self, name: &str) -> Option<&Binding> {

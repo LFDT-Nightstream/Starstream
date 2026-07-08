@@ -348,11 +348,11 @@ impl Type {
                     .append(result.to_doc(TypeDocMode::Compact, params))
                     .append(match callee {
                         Some(StaticFunction::Named(name)) => {
-                            RcDoc::text(" {").append(name.to_owned()).append("}")
+                            RcDoc::text(" [").append(name.to_owned()).append("]")
                         }
                         Some(StaticFunction::Constructor { variant }) => {
                             // TODO: use variant name here by inspecting `result`
-                            RcDoc::text(" <").append(variant.to_string()).append(">")
+                            RcDoc::text(" [").append(variant.to_string()).append("]")
                         }
                         None => RcDoc::nil(),
                     })

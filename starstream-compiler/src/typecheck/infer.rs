@@ -8,8 +8,9 @@ use std::{
 
 use starstream_types::{
     Abi, AbiDef, AbiPart, Arguments, DUMMY_SPAN, EventDef, FunctionKind, GenericTypeDef,
-    IfCondition, IntWidth, Scheme, Span, Spanned, StaticFunction, Type, TypeParam, TypeVarId,
-    TypedTokenDef, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    IfCondition, IntWidth, Scheme, ScopedName, Span, Spanned, StaticFunction, Type, TypeParam,
+    TypeVarId, TypedTokenDef, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal,
+    UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumPatternPayload, EnumVariantPayload, Expr,
         FunctionDef, Identifier, ImportDef, ImportItems, ImportSource, Literal, Pattern, Program,
@@ -297,17 +298,6 @@ impl ExportedFunction {
             params: self.param_types.clone(),
             param_spans: self.param_spans.clone(),
             result: Box::new(self.return_type.clone()),
-            kind: self.kind,
-            name_span: self.name_span,
-            callee: None,
-        }
-    }
-
-    fn to_function_info(&self) -> FunctionInfo {
-        FunctionInfo {
-            param_types: self.param_types.clone(),
-            param_spans: self.param_spans.clone(),
-            return_type: self.return_type.clone(),
             kind: self.kind,
             name_span: self.name_span,
             callee: None,
@@ -602,8 +592,8 @@ fn resolve_path_imports(
                 let mut typed_items = Vec::with_capacity(target_exports.functions.len());
                 for (name, func) in &target_exports.functions {
                     namespace
-                        .functions
-                        .insert(name.clone(), func.to_function_info());
+                        .constants
+                        .insert(name.clone(), ConstantInfo::from(func.to_function_type()));
                     typed_items.push(TypedImportNamedItem {
                         imported: Identifier::anon(name),
                         local: Identifier::anon(name),
@@ -710,20 +700,48 @@ struct Inferencer {
 /// Namespace
 #[derive(Clone, Default)]
 struct Namespace {
+    /// Child namespaces.
     namespaces: HashMap<String, Namespace>,
-    functions: HashMap<String, FunctionInfo>,
+    /// Constants in the value namespace, namely functions and unit enum variants.
+    constants: HashMap<String, ConstantInfo>,
+    /// Struct constructors, including those for struct enum variants.
     struct_constructors: HashMap<String, StructConstructor>,
 }
 
+impl Namespace {
+    fn get_child(&self, path: &[Identifier]) -> Result<&Namespace, TypeError> {
+        let mut ns = self;
+        for each in path {
+            match ns.namespaces.get(each.as_str()) {
+                Some(next) => ns = next,
+                None => {
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnknownNamespace {
+                            name: each.to_string(),
+                        },
+                        each.span,
+                    ));
+                }
+            }
+        }
+        Ok(ns)
+    }
+}
+
 #[derive(Clone)]
-struct FunctionInfo {
-    /// Keyword needed to call this function, if any.
-    kind: FunctionKind,
-    name_span: Span,
-    param_types: Vec<Type>,
-    param_spans: Vec<Span>,
-    return_type: Type,
-    callee: Option<StaticFunction>,
+struct ConstantInfo {
+    ty: Type,
+    /// If this is a constant of an enum type, which unit variant it is.
+    variant: usize,
+}
+
+impl From<Type> for ConstantInfo {
+    fn from(value: Type) -> Self {
+        ConstantInfo {
+            ty: value,
+            variant: 0,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1081,16 +1099,16 @@ impl Inferencer {
                 // Build a map of all functions in this interface
                 let mut namespace = Namespace::default();
                 for (name, builtin) in interface_funcs {
-                    namespace.functions.insert(
+                    namespace.constants.insert(
                         name.clone(),
-                        FunctionInfo {
-                            param_types: builtin.params.clone(),
-                            param_spans: vec![],
-                            return_type: builtin.return_type.clone(),
+                        ConstantInfo::from(Type::Function {
                             kind: builtin.kind,
                             name_span: alias.span(),
+                            params: builtin.params.clone(),
+                            param_spans: vec![],
+                            result: Box::new(builtin.return_type.clone()),
                             callee: Some(StaticFunction::Named(name.clone())),
-                        },
+                        }),
                     );
                 }
 
@@ -1151,16 +1169,16 @@ impl Inferencer {
             param_types.push(ty);
             param_spans.push(param.ty.name.span());
         }
-        self.root.functions.insert(
-            name,
-            FunctionInfo {
+        self.root.constants.insert(
+            name.clone(),
+            ConstantInfo::from(Type::Function {
                 kind: FunctionKind::Emit,
                 name_span,
-                param_types,
+                params: param_types,
                 param_spans,
-                return_type: Type::Unit,
-                callee: None,
-            },
+                result: Box::new(Type::Unit),
+                callee: Some(StaticFunction::Named(name)),
+            }),
         );
         Ok(())
     }
@@ -1337,23 +1355,31 @@ impl Inferencer {
         for (i, variant) in enum_type.variants.iter().enumerate() {
             match &variant.kind {
                 TypeEnumVariantKind::Unit => {
-                    // TODO
-                }
-                TypeEnumVariantKind::Tuple(items) => {
-                    namespace.functions.insert(
+                    // Unit variants are constants
+                    namespace.constants.insert(
                         variant.name.to_string(),
-                        FunctionInfo {
-                            kind: FunctionKind::Normal,
-                            // TODO: non-dummy spans here
-                            name_span: DUMMY_SPAN,
-                            param_types: items.clone(),
-                            param_spans: vec![DUMMY_SPAN; items.len()],
-                            return_type: ty.clone(),
-                            callee: Some(StaticFunction::Constructor { variant: i }),
+                        ConstantInfo {
+                            ty: ty.clone(),
+                            variant: i,
                         },
                     );
                 }
+                TypeEnumVariantKind::Tuple(params) => {
+                    // Tuple variants are functions
+                    namespace.constants.insert(
+                        variant.name.to_string(),
+                        ConstantInfo::from(Type::Function {
+                            kind: FunctionKind::Normal,
+                            name_span: DUMMY_SPAN,
+                            params: params.clone(),
+                            param_spans: vec![],
+                            result: Box::new(ty.clone()),
+                            callee: Some(StaticFunction::Constructor { variant: i }),
+                        }),
+                    );
+                }
                 TypeEnumVariantKind::Struct(_fields) => {
+                    // Struct variants are constructors
                     namespace.struct_constructors.insert(
                         variant.name.to_string(),
                         StructConstructor {
@@ -1552,7 +1578,7 @@ impl Inferencer {
             match part {
                 AbiPart::Event(event) => {
                     let event_info =
-                        self.root.functions.get(&event.name.name).ok_or_else(|| {
+                        self.root.constants.get(&event.name.name).ok_or_else(|| {
                             TypeError::new(
                                 TypeErrorKind::UnknownEvent {
                                     name: event.name.name.clone(),
@@ -1561,8 +1587,11 @@ impl Inferencer {
                             )
                         })?;
 
-                    let params = event_info
-                        .param_types
+                    let Type::Function { params, .. } = &event_info.ty else {
+                        unreachable!()
+                    };
+
+                    let params = params
                         .iter()
                         .zip(&event.params)
                         .map(|(ty, param)| TypedFunctionParam {
@@ -1762,20 +1791,7 @@ impl Inferencer {
 
     fn lookup_struct_info(&self, name: &[Identifier]) -> Result<&StructConstructor, TypeError> {
         let (last, path) = name.split_last().unwrap();
-        let mut ns = &self.root;
-        for each in path {
-            match ns.namespaces.get(each.as_str()) {
-                Some(next) => ns = next,
-                None => {
-                    return Err(TypeError::new(
-                        TypeErrorKind::UnknownStruct {
-                            name: each.to_string(),
-                        },
-                        each.span,
-                    ));
-                }
-            }
-        }
+        let ns = self.root.get_child(path)?;
         ns.struct_constructors.get(last.as_str()).ok_or_else(|| {
             TypeError::new(
                 TypeErrorKind::UnknownStruct {
@@ -2699,6 +2715,27 @@ impl Inferencer {
         Ok((TypedBlock::new(typed_statements, tail_expression), traces))
     }
 
+    fn lookup_name(&mut self, env: &TypeEnv, name: &ScopedName) -> Result<Type, TypeError> {
+        let (last, path) = name.split_last().unwrap();
+        if path.is_empty()
+            && let Some(local) = env.get(last.as_str())
+        {
+            return Ok(self.instantiate(&local.scheme));
+        }
+
+        let ns = self.root.get_child(path)?;
+        if let Some(constant) = ns.constants.get(last.as_str()) {
+            Ok(constant.ty.clone())
+        } else {
+            Err(TypeError::new(
+                TypeErrorKind::UnknownVariable {
+                    name: last.to_string(),
+                },
+                last.span,
+            ))
+        }
+    }
+
     /// Type-check an expression, returning the typed node and corresponding trace tree.
     fn infer_expr(
         &mut self,
@@ -2745,12 +2782,12 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::ScopedName(name) => {
-                let ty = self.instantiate(&env.get_scoped(name)?.scheme);
+                let ty = self.lookup_name(env, name)?;
+                let result_repr = self.maybe_string(|| self.format_type(&ty));
                 let typed = Spanned::new(
-                    TypedExpr::new(ty.clone(), TypedExprKind::ScopedName(name.clone())),
+                    TypedExpr::new(ty, TypedExprKind::ScopedName(name.clone())),
                     expr.span,
                 );
-                let result_repr = self.maybe_string(|| self.format_type(&ty));
                 let tree = self.make_trace(
                     "T-Var",
                     env_context.clone(),
@@ -4078,9 +4115,10 @@ impl Inferencer {
         let Expr::ScopedName(name) = &expr.node else {
             return None;
         };
-        let binding = env.get_scoped(name).ok()?;
+        let [solo] = &name[..] else { return None };
+        let binding = env.get(solo.as_str())?;
         if ctx.private_param_decl_spans.contains(&binding.decl_span) {
-            Some(name.last().unwrap().to_string())
+            Some(solo.to_string())
         } else {
             None
         }
@@ -4090,10 +4128,15 @@ impl Inferencer {
     fn source_expr_visibility(&self, env: &TypeEnv, expr: &Spanned<Expr>) -> BindingVisibility {
         match &expr.node {
             Expr::Literal(_) => BindingVisibility::Public,
-            Expr::ScopedName(name) => env
-                .get_scoped(&name)
-                .map(|binding| binding.visibility)
-                .unwrap_or(BindingVisibility::Private),
+            Expr::ScopedName(name) => {
+                if name.len() == 1 {
+                    env.get(name[0].as_str())
+                        .map(|binding| binding.visibility)
+                        .unwrap_or(BindingVisibility::Private)
+                } else {
+                    BindingVisibility::Private
+                }
+            }
             Expr::Unary { expr, .. } | Expr::Grouping(expr) => {
                 self.source_expr_visibility(env, expr)
             }

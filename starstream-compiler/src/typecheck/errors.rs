@@ -256,7 +256,7 @@ pub enum TypeErrorKind {
         needed_keyword: FunctionKind,
         wrong_keyword: FunctionKind,
     },
-    // E0041 removed
+    // E0041 was RuntimeWithoutKeyword, replaced with EmitRaiseRuntimeNeeded
     /// Writing or initializing a public binding requires explicit disclosure of private data.
     ExplicitDisclosureRequiredForPublicBinding {
         variable_name: String,
@@ -424,7 +424,7 @@ impl fmt::Display for EnumPayloadKind {
 impl fmt::Display for TypeErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TypeErrorKind::UnknownVariable { name } => write!(f, "unknown variable `{name}`"),
+            TypeErrorKind::UnknownVariable { name } => write!(f, "unknown name `{name}`"),
             TypeErrorKind::Redeclaration { name } => {
                 write!(f, "variable `{name}` is already defined in this scope")
             }

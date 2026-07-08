@@ -4,5 +4,5 @@ description: "Source:\n\nimport cardano from starstream:std/cardano;\n\nfn main(
 ---
 T-Fn: main => ()
   T-Let: {main: fn() -> ()} ⊢ let x = runtime cardano::blockHeight(); ⇒ i64
-    T-Runtime: {main: fn() -> ()} ⊢ runtime cardano::blockHeight() ⇒ i64
-      T-NamespaceCall: {main: fn() -> ()} ⊢ cardano::blockHeight() ⇒ i64
+    T-Call: {main: fn() -> ()} ⊢ runtime cardano::blockHeight() ⇒ i64
+      T-Var: {main: fn() -> ()} ⊢ cardano::blockHeight ⇒ runtime fn() -> i64 [blockHeight]
