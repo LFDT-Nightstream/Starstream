@@ -867,8 +867,8 @@ impl Inferencer {
         self.register_prelude_enum(
             "Option",
             vec![
-                ("Some", EnumVariantInfoKind::Tuple(vec![Type::Var(t)])),
                 ("None", EnumVariantInfoKind::Unit),
+                ("Some", EnumVariantInfoKind::Tuple(vec![Type::Var(t)])),
             ],
             vec![TypeParam {
                 id: t,
