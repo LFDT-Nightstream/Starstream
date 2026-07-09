@@ -17,25 +17,27 @@ Spanned {
         },
         arms: [
             MatchArm {
-                pattern: EnumVariant {
-                    enum_name: Identifier {
-                        name: "Result",
-                        span: 18..24,
-                    },
-                    variant: Identifier {
-                        name: "Ok",
-                        span: 26..28,
-                    },
-                    payload: Tuple(
-                        [
-                            Binding(
+                pattern: Tuple {
+                    name: [
+                        Identifier {
+                            name: "Result",
+                            span: 18..24,
+                        },
+                        Identifier {
+                            name: "Ok",
+                            span: 26..28,
+                        },
+                    ],
+                    fields: [
+                        Name(
+                            [
                                 Identifier {
                                     name: "inner",
                                     span: 29..34,
                                 },
-                            ),
-                        ],
-                    ),
+                            ],
+                        ),
+                    ],
                 },
                 body: Block {
                     statements: [],
@@ -57,25 +59,27 @@ Spanned {
                 span: 18..60,
             },
             MatchArm {
-                pattern: EnumVariant {
-                    enum_name: Identifier {
-                        name: "Result",
-                        span: 66..72,
-                    },
-                    variant: Identifier {
-                        name: "Err",
-                        span: 74..77,
-                    },
-                    payload: Tuple(
-                        [
-                            Binding(
+                pattern: Tuple {
+                    name: [
+                        Identifier {
+                            name: "Result",
+                            span: 66..72,
+                        },
+                        Identifier {
+                            name: "Err",
+                            span: 74..77,
+                        },
+                    ],
+                    fields: [
+                        Name(
+                            [
                                 Identifier {
                                     name: "reason",
                                     span: 78..84,
                                 },
-                            ),
-                        ],
-                    ),
+                            ],
+                        ),
+                    ],
                 },
                 body: Block {
                     statements: [],

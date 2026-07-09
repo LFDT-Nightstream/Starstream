@@ -3,10 +3,11 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let x: Result<i64, bool> = Result::Ok(42);\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {test: fn() -> ()} ⊢ let x: Result<i64, bool> = Result::Ok(42); ⇒ Result<i64, bool>
-    T-EnumCtor: {test: fn() -> ()} ⊢ Result::Ok(42) ⇒ Result<i64, t4>
-      T-Int: {test: fn() -> ()} ⊢ 42 ⇒ i64
-      Unify-Var: i64 ~ t3 => {i64/t5}
-    Unify-Enum: Result<i64, bool> ~ Result<i64, t4> => {bool/t4, i64/t3}
-      Unify-Var: bool ~ t4 => {bool/t4}
-      Unify-Var: i64 ~ i64 => {i64/t3}
+  T-Let: {test: fn() -> () [test]} ⊢ let x: Result<i64, bool> = Result::Ok(42); ⇒ Result<i64, bool>
+    T-Call: {test: fn() -> () [test]} ⊢ Result::Ok(42) ⇒ Result
+      T-Var: {test: fn() -> () [test]} ⊢ Result::Ok ⇒ fn(t1) -> Result [0]
+      T-Int: {test: fn() -> () [test]} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t1 => {i64/t3}
+    Unify-Enum: Result<i64, bool> ~ Result => {bool/t2, i64/t1}
+      Unify-Var: bool ~ t2 => {bool/t2}
+      Unify-Var: i64 ~ i64 => {i64/t1}

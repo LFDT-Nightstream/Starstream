@@ -87,7 +87,7 @@ impl Diagnostic for TypeError {
 
 #[derive(Debug, Clone)]
 pub enum TypeErrorKind {
-    UnknownVariable {
+    UnknownName {
         name: String,
     },
     Redeclaration {
@@ -308,7 +308,7 @@ impl TypeErrorKind {
     /// Returns the numeric error code for this error kind.
     pub fn error_code(&self) -> &'static ErrorCode {
         match self {
-            TypeErrorKind::UnknownVariable { .. } => error_code!(E0001),
+            TypeErrorKind::UnknownName { .. } => error_code!(E0001),
             TypeErrorKind::Redeclaration { .. } => error_code!(E0002),
             TypeErrorKind::AssignmentMismatch { .. } => error_code!(E0003),
             TypeErrorKind::AssignmentToImmutable { .. } => error_code!(E0004),
@@ -424,7 +424,7 @@ impl fmt::Display for EnumPayloadKind {
 impl fmt::Display for TypeErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TypeErrorKind::UnknownVariable { name } => write!(f, "unknown variable `{name}`"),
+            TypeErrorKind::UnknownName { name } => write!(f, "unknown name `{name}`"),
             TypeErrorKind::Redeclaration { name } => {
                 write!(f, "variable `{name}` is already defined in this scope")
             }

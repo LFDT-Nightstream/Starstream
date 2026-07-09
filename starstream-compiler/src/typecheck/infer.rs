@@ -1876,7 +1876,7 @@ impl Inferencer {
                 } else {
                     // Scoped identifier not matching any constant is not valid.
                     Err(TypeError::new(
-                        TypeErrorKind::UnknownVariable {
+                        TypeErrorKind::UnknownName {
                             name: last.to_string(),
                         },
                         last.span,
@@ -1990,7 +1990,7 @@ impl Inferencer {
                 let ns = self.root.get_child(rest)?;
                 let Some(callee) = ns.constants.get(last.as_str()) else {
                     return Err(TypeError::new(
-                        TypeErrorKind::UnknownVariable {
+                        TypeErrorKind::UnknownName {
                             name: last.to_string(),
                         },
                         last.span,
@@ -2004,7 +2004,7 @@ impl Inferencer {
                 } = &callee.ty
                 else {
                     return Err(TypeError::new(
-                        TypeErrorKind::UnknownVariable {
+                        TypeErrorKind::UnknownName {
                             name: last.to_string(),
                         },
                         last.span,
@@ -2343,7 +2343,7 @@ impl Inferencer {
             Statement::Assignment { target, value } => {
                 let binding = env.get(&target.name).cloned().ok_or_else(|| {
                     TypeError::new(
-                        TypeErrorKind::UnknownVariable {
+                        TypeErrorKind::UnknownName {
                             name: target.name.clone(),
                         },
                         target.span_or(value.span),
@@ -2601,7 +2601,7 @@ impl Inferencer {
             Ok(constant.ty.clone())
         } else {
             Err(TypeError::new(
-                TypeErrorKind::UnknownVariable {
+                TypeErrorKind::UnknownName {
                     name: last.to_string(),
                 },
                 last.span,
@@ -3349,7 +3349,7 @@ impl Inferencer {
                         IfCondition::Is { name, abi_name } => {
                             let binding = env.get(&name.name).ok_or_else(|| {
                                 TypeError::new(
-                                    TypeErrorKind::UnknownVariable {
+                                    TypeErrorKind::UnknownName {
                                         name: name.name.clone(),
                                     },
                                     name.span(),

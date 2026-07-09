@@ -3,6 +3,6 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nimport cardano from starstream:std/cardano;\n\nfn main() {\n    let x = runtime cardano::blockHeight();\n}\n"
 ---
 T-Fn: main => ()
-  T-Let: {main: fn() -> ()} ⊢ let x = runtime cardano::blockHeight(); ⇒ i64
-    T-Call: {main: fn() -> ()} ⊢ runtime cardano::blockHeight() ⇒ i64
-      T-Var: {main: fn() -> ()} ⊢ cardano::blockHeight ⇒ runtime fn() -> i64 [blockHeight]
+  T-Let: {main: fn() -> () [main]} ⊢ let x = runtime cardano::blockHeight(); ⇒ i64
+    T-Call: {main: fn() -> () [main]} ⊢ runtime cardano::blockHeight() ⇒ i64
+      T-Var: {main: fn() -> () [main]} ⊢ cardano::blockHeight ⇒ runtime fn() -> i64 [blockHeight]
