@@ -7,10 +7,10 @@ use std::{
 };
 
 use starstream_types::{
-    Abi, AbiDef, AbiPart, Arguments, DUMMY_SPAN, EventDef, FunctionKind, GenericTypeDef,
+    Abi, AbiDef, AbiPart, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionKind, GenericTypeDef,
     IfCondition, IntWidth, Scheme, ScopedName, Span, Spanned, StaticFunction, Type, TypeParam,
-    TypeVarId, TypedTokenDef, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal,
-    UtxoPart,
+    TypeVarId, TypedEffectDef, TypedTokenDef, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart,
+    UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportDef, ImportItems, ImportSource, Literal, Pattern, Program, Statement, StructDef,
@@ -1115,7 +1115,7 @@ impl Inferencer {
         for part in &def.parts {
             match part {
                 AbiPart::Event(event) => self.register_event(event)?,
-                AbiPart::Effect(_effect) => {}
+                AbiPart::Effect(effect) => self.register_effect(effect)?,
                 AbiPart::FnDecl(method) => {
                     let mut params = Vec::with_capacity(method.params.len());
                     for param in &method.params {
@@ -1168,6 +1168,35 @@ impl Inferencer {
                 params: param_types,
                 param_spans,
                 result: Box::new(Type::Unit),
+                callee: Some(StaticFunction::Named(name)),
+            }),
+        );
+        Ok(())
+    }
+
+    fn register_effect(&mut self, effect: &EffectDef) -> Result<(), TypeError> {
+        let name = effect.name.name.clone();
+        let name_span = effect.name.span();
+
+        let mut param_types = Vec::with_capacity(effect.params.len());
+        let mut param_spans = Vec::with_capacity(effect.params.len());
+        for param in &effect.params {
+            let ty = self.type_from_annotation(&param.ty)?;
+            param_types.push(ty);
+            param_spans.push(param.ty.name.span());
+        }
+        let return_type = match &effect.return_type {
+            Some(ann) => self.type_from_annotation(ann)?,
+            None => Type::Unit,
+        };
+        self.root.constants.insert(
+            name.clone(),
+            ConstantInfo::from(Type::Function {
+                kind: FunctionKind::Raise,
+                name_span,
+                params: param_types,
+                param_spans,
+                result: Box::new(return_type),
                 callee: Some(StaticFunction::Named(name)),
             }),
         );
@@ -1574,7 +1603,36 @@ impl Inferencer {
                         params,
                     }));
                 }
-                AbiPart::Effect(_effect) => {}
+                AbiPart::Effect(effect) => {
+                    let info = self.root.constants.get(&effect.name.name).ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownEvent {
+                                name: effect.name.name.clone(),
+                            },
+                            effect.name.span(),
+                        )
+                    })?;
+
+                    let Type::Function { params, result, .. } = &info.ty else {
+                        unreachable!()
+                    };
+
+                    let params = params
+                        .iter()
+                        .zip(&effect.params)
+                        .map(|(ty, param)| TypedFunctionParam {
+                            public: param.public,
+                            name: param.name.clone(),
+                            ty: ty.clone(),
+                        })
+                        .collect();
+
+                    typed_parts.push(TypedAbiPart::Effect(TypedEffectDef {
+                        name: effect.name.clone(),
+                        params,
+                        return_type: (**result).clone(),
+                    }));
+                }
                 AbiPart::FnDecl(method) => {
                     let abi_info = self.abis.get(&def.name.name).expect("abi registered");
                     let method_info = abi_info
