@@ -2103,10 +2103,9 @@ impl Compiler {
         match &expr.kind {
             // Identifiers
             TypedExprKind::ScopedName(ident) => {
-                // TODO: support namespaces
-                assert!(ident.len() == 1);
-                let ident = &ident[0];
-                if let Some(var) = locals.get(&ident.name) {
+                if let [solo] = &ident[..]
+                    && let Some(var) = locals.get(solo.as_str())
+                {
                     match var {
                         Var::Local(local) => {
                             for i in 0..self.star_count_core_types(&expr.ty) {
@@ -2122,8 +2121,8 @@ impl Compiler {
                     Ok(())
                 } else {
                     Err(self.push_error(
-                        ident.span_or(span),
-                        format!("unknown name {:?}", &ident.name),
+                        ident.last().unwrap().span_or(span),
+                        format!("unknown name {:?}", ident),
                     ))
                 }
             }

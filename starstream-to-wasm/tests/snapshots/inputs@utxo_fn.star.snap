@@ -52,8 +52,15 @@ Program {
                                             node: Expression(
                                                 Spanned {
                                                     node: Emit {
-                                                        event: Identifier {
-                                                            name: "HelloEvent",
+                                                        callee: Spanned {
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "HelloEvent",
+                                                                        span: 89..99,
+                                                                    },
+                                                                ],
+                                                            ),
                                                             span: 89..99,
                                                         },
                                                         args: [],
@@ -87,11 +94,13 @@ Program {
                                                 Spanned {
                                                     node: Call {
                                                         callee: Spanned {
-                                                            node: Identifier(
-                                                                Identifier {
-                                                                    name: "private_fn",
-                                                                    span: 144..154,
-                                                                },
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "private_fn",
+                                                                        span: 144..154,
+                                                                    },
+                                                                ],
                                                             ),
                                                             span: 144..154,
                                                         },
@@ -120,12 +129,13 @@ Program {
 
 T-Utxo: MyUtxo => 
   T-Fn: private_fn => ()
-    T-Expr: {private_fn: fn() -> ()} ⊢ emit HelloEvent(); ⇒ ()
-      T-Emit: {private_fn: fn() -> ()} ⊢ emit HelloEvent() ⇒ ()
+    T-Expr: {private_fn: fn() -> () [private_fn]} ⊢ emit HelloEvent(); ⇒ ()
+      T-Call: {private_fn: fn() -> () [private_fn]} ⊢ emit HelloEvent() ⇒ ()
+        T-Var: {private_fn: fn() -> () [private_fn]} ⊢ HelloEvent ⇒ event() -> () [HelloEvent]
   T-Fn: hello_utxo => ()
-    T-Expr: {hello_utxo: fn() -> (), private_fn: fn() -> ()} ⊢ private_fn(); ⇒ ()
-      T-Call: {hello_utxo: fn() -> (), private_fn: fn() -> ()} ⊢ private_fn() ⇒ ()
-        T-Var: {hello_utxo: fn() -> (), private_fn: fn() -> ()} ⊢ private_fn ⇒ fn() -> ()
+    T-Expr: {hello_utxo: fn() -> () [hello_utxo], private_fn: fn() -> () [private_fn]} ⊢ private_fn(); ⇒ ()
+      T-Call: {hello_utxo: fn() -> () [hello_utxo], private_fn: fn() -> () [private_fn]} ⊢ private_fn() ⇒ ()
+        T-Var: {hello_utxo: fn() -> () [hello_utxo], private_fn: fn() -> () [private_fn]} ⊢ private_fn ⇒ fn() -> () [private_fn]
 
 ==== Typed AST ====
 TypedProgram {
@@ -166,22 +176,42 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Expression(
                                         Spanned {
                                             node: TypedExpr {
                                                 ty: Unit,
-                                                kind: Emit {
-                                                    event: Identifier {
-                                                        name: "HelloEvent",
+                                                kind: Call {
+                                                    callee: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Function {
+                                                                kind: Emit,
+                                                                name_span: 23..33,
+                                                                params: [],
+                                                                param_spans: [],
+                                                                result: Unit,
+                                                                callee: Some(
+                                                                    Named(
+                                                                        "HelloEvent",
+                                                                    ),
+                                                                ),
+                                                            },
+                                                            kind: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "HelloEvent",
+                                                                        span: 89..99,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                        },
                                                         span: 89..99,
                                                     },
                                                     args: [],
                                                 },
                                             },
-                                            span: 84..101,
+                                            span: 89..99,
                                         },
                                     ),
                                 ],
@@ -200,7 +230,6 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Expression(
@@ -211,17 +240,24 @@ TypedProgram {
                                                     callee: Spanned {
                                                         node: TypedExpr {
                                                             ty: Function {
+                                                                kind: Normal,
+                                                                name_span: 61..71,
                                                                 params: [],
                                                                 param_spans: [],
                                                                 result: Unit,
-                                                                effect: Pure,
-                                                                name_span: 61..71,
+                                                                callee: Some(
+                                                                    Named(
+                                                                        "private_fn",
+                                                                    ),
+                                                                ),
                                                             },
-                                                            kind: Identifier(
-                                                                Identifier {
-                                                                    name: "private_fn",
-                                                                    span: 144..154,
-                                                                },
+                                                            kind: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "private_fn",
+                                                                        span: 144..154,
+                                                                    },
+                                                                ],
                                                             ),
                                                         },
                                                         span: 144..154,
@@ -229,7 +265,7 @@ TypedProgram {
                                                     args: [],
                                                 },
                                             },
-                                            span: 144..156,
+                                            span: 144..154,
                                         },
                                     ),
                                 ],

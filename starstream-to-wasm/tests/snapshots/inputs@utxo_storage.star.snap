@@ -67,11 +67,13 @@ Program {
                                                     node: Binary {
                                                         op: Add,
                                                         left: Spanned {
-                                                            node: Identifier(
-                                                                Identifier {
-                                                                    name: "counter",
-                                                                    span: 141..148,
-                                                                },
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "counter",
+                                                                        span: 141..148,
+                                                                    },
+                                                                ],
                                                             ),
                                                             span: 141..149,
                                                         },
@@ -118,11 +120,13 @@ Program {
                                                     node: Binary {
                                                         op: Add,
                                                         left: Spanned {
-                                                            node: Identifier(
-                                                                Identifier {
-                                                                    name: "multiplier",
-                                                                    span: 212..222,
-                                                                },
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "multiplier",
+                                                                        span: 212..222,
+                                                                    },
+                                                                ],
                                                             ),
                                                             span: 212..223,
                                                         },
@@ -157,17 +161,17 @@ Program {
 ==== Inference trace ====
 T-Utxo: MyUtxo => 
   T-Fn: increment => ()
-    T-Assign: {counter: i64, increment: fn() -> (), multiplier: i64} ⊢ counter = counter + 1; ⇒ i64
-      T-Bin-Add: {counter: i64, increment: fn() -> (), multiplier: i64} ⊢ counter + 1 ⇒ i64
-        T-Var: {counter: i64, increment: fn() -> (), multiplier: i64} ⊢ counter ⇒ i64
-        T-Int: {counter: i64, increment: fn() -> (), multiplier: i64} ⊢ 1 ⇒ i64
+    T-Assign: {counter: i64, increment: fn() -> () [increment], multiplier: i64} ⊢ counter = counter + 1; ⇒ i64
+      T-Bin-Add: {counter: i64, increment: fn() -> () [increment], multiplier: i64} ⊢ counter + 1 ⇒ i64
+        T-Var: {counter: i64, increment: fn() -> () [increment], multiplier: i64} ⊢ counter ⇒ i64
+        T-Int: {counter: i64, increment: fn() -> () [increment], multiplier: i64} ⊢ 1 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t3}
       Unify-Const: i64 ~ i64 => {}
   T-Fn: increment_mult => ()
-    T-Assign: {counter: i64, increment: fn() -> (), increment_mult: fn() -> (), multiplier: i64} ⊢ multiplier = multiplier + 1; ⇒ i64
-      T-Bin-Add: {counter: i64, increment: fn() -> (), increment_mult: fn() -> (), multiplier: i64} ⊢ multiplier + 1 ⇒ i64
-        T-Var: {counter: i64, increment: fn() -> (), increment_mult: fn() -> (), multiplier: i64} ⊢ multiplier ⇒ i64
-        T-Int: {counter: i64, increment: fn() -> (), increment_mult: fn() -> (), multiplier: i64} ⊢ 1 ⇒ i64
+    T-Assign: {counter: i64, increment: fn() -> () [increment], increment_mult: fn() -> () [increment_mult], multiplier: i64} ⊢ multiplier = multiplier + 1; ⇒ i64
+      T-Bin-Add: {counter: i64, increment: fn() -> () [increment], increment_mult: fn() -> () [increment_mult], multiplier: i64} ⊢ multiplier + 1 ⇒ i64
+        T-Var: {counter: i64, increment: fn() -> () [increment], increment_mult: fn() -> () [increment_mult], multiplier: i64} ⊢ multiplier ⇒ i64
+        T-Int: {counter: i64, increment: fn() -> () [increment], increment_mult: fn() -> () [increment_mult], multiplier: i64} ⊢ 1 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t4}
       Unify-Const: i64 ~ i64 => {}
 
@@ -215,7 +219,6 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -235,11 +238,13 @@ TypedProgram {
                                                             ty: Int(
                                                                 I64,
                                                             ),
-                                                            kind: Identifier(
-                                                                Identifier {
-                                                                    name: "counter",
-                                                                    span: 141..148,
-                                                                },
+                                                            kind: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "counter",
+                                                                        span: 141..148,
+                                                                    },
+                                                                ],
                                                             ),
                                                         },
                                                         span: 141..149,
@@ -278,7 +283,6 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -298,11 +302,13 @@ TypedProgram {
                                                             ty: Int(
                                                                 I64,
                                                             ),
-                                                            kind: Identifier(
-                                                                Identifier {
-                                                                    name: "multiplier",
-                                                                    span: 212..222,
-                                                                },
+                                                            kind: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "multiplier",
+                                                                        span: 212..222,
+                                                                    },
+                                                                ],
                                                             ),
                                                         },
                                                         span: 212..223,
