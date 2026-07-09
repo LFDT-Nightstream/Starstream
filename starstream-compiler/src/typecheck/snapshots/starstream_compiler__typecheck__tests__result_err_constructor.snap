@@ -5,6 +5,6 @@ description: "Source:\n\nfn test() {\n    let x = Result::Err(false);\n}\n"
 T-Fn: test => ()
   T-Let: {test: fn() -> () [test]} ⊢ let x = Result::Err(false); ⇒ Result
     T-Call: {test: fn() -> () [test]} ⊢ Result::Err(false) ⇒ Result
-      T-Var: {test: fn() -> () [test]} ⊢ Result::Err ⇒ fn(t2) -> Result [1]
+      T-Var: {test: fn() -> () [test]} ⊢ Result::Err ⇒ fn(t4) -> Result [1]
       T-Bool: {test: fn() -> () [test]} ⊢ false ⇒ bool
-      Unify-Var: bool ~ t2 => {bool/t2}
+      Unify-Var: bool ~ t4 => {bool/t4}

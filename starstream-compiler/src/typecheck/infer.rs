@@ -683,6 +683,7 @@ impl Namespace {
 #[derive(Clone)]
 struct ConstantInfo {
     ty: Type,
+    type_params: Vec<TypeParam>,
     /// If this is a constant of an enum type, which unit variant it is.
     variant: usize,
 }
@@ -691,6 +692,7 @@ impl From<Type> for ConstantInfo {
     fn from(value: Type) -> Self {
         ConstantInfo {
             ty: value,
+            type_params: vec![],
             variant: 0,
         }
     }
@@ -699,6 +701,7 @@ impl From<Type> for ConstantInfo {
 #[derive(Clone)]
 struct StructConstructor {
     ty: Type,
+    type_params: Vec<TypeParam>,
     enum_variant: usize,
 }
 
@@ -842,7 +845,7 @@ impl Inferencer {
                 TypeEntry {
                     ty: Type::enum_type(name, type_variants),
                     span: DUMMY_SPAN,
-                    type_params,
+                    type_params: type_params.clone(),
                     doc: Some(doc.into()),
                     variant_docs: variant_docs
                         .iter()
@@ -862,6 +865,7 @@ impl Inferencer {
                         name.to_string(),
                         ConstantInfo {
                             ty: ty.clone(),
+                            type_params: type_params.clone(),
                             variant: i,
                         },
                     );
@@ -870,14 +874,18 @@ impl Inferencer {
                     // Tuple variants are functions
                     namespace.constants.insert(
                         name.to_string(),
-                        ConstantInfo::from(Type::Function {
-                            kind: FunctionKind::Normal,
-                            name_span: DUMMY_SPAN,
-                            params: params.clone(),
-                            param_spans: vec![],
-                            result: Box::new(ty.clone()),
-                            callee: Some(StaticFunction::Constructor { variant: i }),
-                        }),
+                        ConstantInfo {
+                            ty: Type::Function {
+                                kind: FunctionKind::Normal,
+                                name_span: DUMMY_SPAN,
+                                params: params.clone(),
+                                param_spans: vec![],
+                                result: Box::new(ty.clone()),
+                                callee: Some(StaticFunction::Constructor { variant: i }),
+                            },
+                            type_params: type_params.clone(),
+                            variant: 0,
+                        },
                     );
                 }
                 EnumVariantKind::Struct(_fields) => {
@@ -886,6 +894,7 @@ impl Inferencer {
                         name.to_string(),
                         StructConstructor {
                             ty: ty.clone(),
+                            type_params: type_params.clone(),
                             enum_variant: i,
                         },
                     );
@@ -1216,6 +1225,7 @@ impl Inferencer {
             def.name.name.clone(),
             StructConstructor {
                 ty,
+                type_params: vec![],
                 enum_variant: 0,
             },
         );
@@ -1322,6 +1332,7 @@ impl Inferencer {
                         variant.name.to_string(),
                         ConstantInfo {
                             ty: ty.clone(),
+                            type_params: vec![],
                             variant: i,
                         },
                     );
@@ -1346,6 +1357,7 @@ impl Inferencer {
                         variant.name.to_string(),
                         StructConstructor {
                             ty: ty.clone(),
+                            type_params: vec![],
                             enum_variant: i,
                         },
                     );
@@ -1758,57 +1770,34 @@ impl Inferencer {
         })
     }
 
-    /// Instantiate a (possibly generic) enum type entry, creating fresh type
-    /// variables for any type parameters.
-    fn get_type_and_refresh_params(&mut self, name: &str) -> Option<Type> {
-        let entry = self.types.get(name)?;
-        if entry.type_params.is_empty() {
-            return Some(entry.ty.clone());
+    fn refresh_type_params(next_type_var: &mut u32, ty: &Type, type_params: &[TypeParam]) -> Type {
+        if type_params.is_empty() {
+            return ty.clone();
         }
-
-        let fresh_args: Vec<Type> = entry
-            .type_params
-            .clone()
-            .iter()
-            .map(|_| {
-                // Inline fresh_var to avoid borrowing issues
-                let var = TypeVarId(self.next_type_var);
-                self.next_type_var += 1;
-                Type::Var(var)
-            })
-            .collect();
-        Some(Self::apply_type_args(
-            &entry.type_params,
-            &fresh_args,
-            &entry.ty,
-        ))
-    }
-
-    fn refresh_params(&mut self, ty: &Type, type_params: &[TypeParam]) -> Type {
         let fresh_args: Vec<Type> = type_params
             .iter()
             .map(|_| {
                 // Inline fresh_var to avoid borrowing issues
-                let var = TypeVarId(self.next_type_var);
-                self.next_type_var += 1;
+                let var = TypeVarId(*next_type_var);
+                *next_type_var += 1;
                 Type::Var(var)
             })
             .collect();
-        Self::apply_type_args(type_params, &fresh_args, ty)
+        Self::apply_type_args(ty, type_params, &fresh_args)
     }
 
     /// Instantiate a generic enum with explicit type arguments.
     fn get_type_and_apply_args(&mut self, name: &str, type_args: &[Type]) -> Option<Type> {
         let entry = self.types.get(name)?;
         Some(Self::apply_type_args(
+            &entry.ty,
             &entry.type_params,
             type_args,
-            &entry.ty,
         ))
     }
 
     /// Substitute type parameters with concrete args in a template.
-    fn apply_type_args(type_params: &[TypeParam], type_args: &[Type], template_ty: &Type) -> Type {
+    fn apply_type_args(template_ty: &Type, type_params: &[TypeParam], type_args: &[Type]) -> Type {
         let mapping: HashMap<TypeVarId, Type> = type_params
             .iter()
             .zip(type_args.iter())
@@ -2609,7 +2598,11 @@ impl Inferencer {
 
         let ns = self.root.get_child(path)?;
         if let Some(constant) = ns.constants.get(last.as_str()) {
-            Ok(constant.ty.clone())
+            Ok(Self::refresh_type_params(
+                &mut self.next_type_var,
+                &constant.ty,
+                &constant.type_params,
+            ))
         } else {
             Err(TypeError::new(
                 TypeErrorKind::UnknownName {
@@ -3018,7 +3011,11 @@ impl Inferencer {
 
                 let typed = Spanned::new(
                     TypedExpr::new(
-                        info.ty.clone(),
+                        Self::refresh_type_params(
+                            &mut self.next_type_var,
+                            &info.ty,
+                            &info.type_params,
+                        ),
                         TypedExprKind::StructConstructor {
                             name: name.clone(),
                             enum_variant: info.enum_variant,
@@ -3108,210 +3105,6 @@ impl Inferencer {
                 );
                 Ok((typed, tree))
             }
-            /*
-            Expr::EnumConstructor {
-                enum_name,
-                variant,
-                payload,
-            } => {
-                // First, check if this is a namespace-qualified function call
-                // e.g., `cardano::blockHeight()` where `cardano` is an imported namespace
-                let ns_func_info = self
-                    .namespaces
-                    .get(&enum_name.name)
-                    .and_then(|funcs| funcs.get(&variant.name))
-                    .cloned();
-
-                // Not a namespace - check for enum
-                // Use casing heuristic for better error messages
-                let is_likely_namespace = enum_name
-                    .name
-                    .chars()
-                    .next()
-                    .map(|c| c.is_lowercase())
-                    .unwrap_or(false);
-
-                let info = self.instantiate_enum_info(&enum_name.name).ok_or_else(|| {
-                    if is_likely_namespace {
-                        TypeError::new(
-                            TypeErrorKind::UnknownImportPackage {
-                                namespace: enum_name.name.clone(),
-                                package: "".to_string(),
-                            },
-                            enum_name.span(),
-                        )
-                        .with_primary_message(format!("unknown namespace `{}`", enum_name.name))
-                        .with_help(format!(
-                            "did you forget to import? try: `import {} from starstream:std/{};`",
-                            enum_name.name, enum_name.name
-                        ))
-                    } else {
-                        TypeError::new(
-                            TypeErrorKind::UnknownEnum {
-                                name: enum_name.name.clone(),
-                            },
-                            enum_name.span(),
-                        )
-                    }
-                })?;
-                let variant_info = info
-                    .variants
-                    .iter()
-                    .find(|entry| entry.name.name == variant.name)
-                    .ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::UnknownEnumVariant {
-                                enum_name: enum_name.name.clone(),
-                                variant_name: variant.name.clone(),
-                            },
-                            variant.span(),
-                        )
-                    })?;
-
-                let mut children = Vec::new();
-                let typed_payload = match (&payload, &variant_info.kind) {
-                    (EnumConstructorPayload::Unit, EnumVariantInfoKind::Unit) => {
-                        TypedEnumConstructorPayload::Unit
-                    }
-                    (
-                        EnumConstructorPayload::Tuple(values),
-                        EnumVariantInfoKind::Tuple(expected),
-                    ) => {
-                        if values.len() != expected.len() {
-                            return Err(TypeError::new(
-                                TypeErrorKind::EnumPayloadMismatch {
-                                    enum_name: enum_name.name.clone(),
-                                    variant_name: variant.name.clone(),
-                                    expected: EnumPayloadKind::tuple(expected.len()),
-                                    found: EnumPayloadKind::tuple(values.len()),
-                                },
-                                variant.span(),
-                            ));
-                        }
-
-                        let mut typed_values = Vec::with_capacity(values.len());
-                        for (expr, expected_ty) in values.iter().zip(expected.iter()) {
-                            let (typed_expr, value_trace) = self.infer_expr(env, expr, ctx)?;
-                            let actual_ty = typed_expr.node.ty.clone();
-                            let (_, unify_trace) = self.unify(
-                                actual_ty.clone(),
-                                expected_ty.clone(),
-                                expr.span,
-                                variant.span_or(expr.span),
-                                TypeErrorKind::GeneralMismatch {
-                                    expected: expected_ty.clone(),
-                                    found: self.apply_for_display(&actual_ty),
-                                },
-                            )?;
-                            children.push(value_trace);
-                            children.push(unify_trace);
-                            typed_values.push(typed_expr);
-                        }
-                        TypedEnumConstructorPayload::Tuple(typed_values)
-                    }
-                    (
-                        EnumConstructorPayload::Struct(fields),
-                        EnumVariantInfoKind::Struct(expected),
-                    ) => {
-                        let mut expected_fields = expected
-                            .iter()
-                            .map(|field| (field.name.name.clone(), field.clone()))
-                            .collect::<HashMap<_, _>>();
-                        let mut seen = HashMap::new();
-                        let mut typed_fields = Vec::with_capacity(fields.len());
-                        let struct_name =
-                            format!("{}::{}", enum_name.name.clone(), variant.name.clone());
-
-                        for field in fields {
-                            if let Some(previous_span) = seen.get(&field.name.name) {
-                                return Err(TypeError::new(
-                                    TypeErrorKind::DuplicateStructLiteralField {
-                                        field_name: field.name.name.clone(),
-                                    },
-                                    field.name.span(),
-                                )
-                                .with_primary_message("duplicate")
-                                .with_secondary(*previous_span, "first used here"));
-                            }
-                            seen.insert(field.name.name.clone(), field.name.span());
-
-                            let expected_field =
-                                expected_fields.remove(&field.name.name).ok_or_else(|| {
-                                    TypeError::new(
-                                        TypeErrorKind::UnknownStructField {
-                                            struct_name: struct_name.clone(),
-                                            field_name: field.name.name.clone(),
-                                        },
-                                        field.name.span(),
-                                    )
-                                })?;
-
-                            let (typed_value, value_trace) =
-                                self.infer_expr(env, &field.value, ctx)?;
-                            let actual_ty = typed_value.node.ty.clone();
-                            let (_, unify_trace) = self.unify(
-                                actual_ty.clone(),
-                                expected_field.ty.clone(),
-                                field.value.span,
-                                field.name.span_or(field.value.span),
-                                TypeErrorKind::GeneralMismatch {
-                                    expected: expected_field.ty.clone(),
-                                    found: self.apply_for_display(&actual_ty),
-                                },
-                            )?;
-                            children.push(value_trace);
-                            children.push(unify_trace);
-
-                            typed_fields.push(TypedStructLiteralField {
-                                name: field.name.clone(),
-                                value: typed_value,
-                            });
-                        }
-
-                        if let Some((missing_field, _)) = expected_fields.into_iter().next() {
-                            return Err(TypeError::new(
-                                TypeErrorKind::MissingStructField {
-                                    struct_name,
-                                    field_name: missing_field,
-                                },
-                                variant.span(),
-                            ));
-                        }
-
-                        TypedEnumConstructorPayload::Struct(typed_fields)
-                    }
-                    (found_payload, expected_kind) => {
-                        return Err(TypeError::new(
-                            TypeErrorKind::EnumPayloadMismatch {
-                                enum_name: enum_name.name.clone(),
-                                variant_name: variant.name.clone(),
-                                expected: enum_payload_kind_from_variant(expected_kind),
-                                found: enum_payload_kind_from_constructor(found_payload),
-                            },
-                            variant.span(),
-                        ));
-                    }
-                };
-
-                let typed = Spanned::new(
-                    TypedExpr::new(
-                        info.ty.clone(),
-                        TypedExprKind::EnumConstructor {
-                            enum_name: enum_name.clone(),
-                            variant: variant.clone(),
-                            payload: typed_payload,
-                        },
-                    ),
-                    expr.span,
-                );
-                let result_repr = self.maybe_string(|| self.format_type(&typed.node.ty));
-                let tree =
-                    self.make_trace("T-EnumCtor", env_context, subject_repr, result_repr, || {
-                        children
-                    });
-                Ok((typed, tree))
-            }
-            */
             Expr::Block(block) => {
                 let (typed_block, block_traces) = self.infer_block(env, block, ctx, false)?;
                 let unit_result = self.maybe_string(|| "()".to_string());
