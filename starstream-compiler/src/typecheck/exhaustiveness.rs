@@ -81,7 +81,11 @@ impl CtorSet {
             // We represent this as an empty constructor set.
             Type::Int(_) | Type::Unit | Type::Var(_) => Some(Self::infinite()),
             Type::Function { .. } | Type::Tuple(_) => Some(Self::infinite()),
-            Type::UtxoAny | Type::UtxoNamed(_) | Type::AbiNarrow(_) => Some(Self::infinite()),
+            Type::UtxoAny
+            | Type::UtxoNamed(_)
+            | Type::TokenAny
+            | Type::TokenNamed(_)
+            | Type::AbiNarrow(_) => Some(Self::infinite()),
         }
     }
 

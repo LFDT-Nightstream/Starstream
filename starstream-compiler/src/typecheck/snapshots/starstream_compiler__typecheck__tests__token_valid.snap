@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\ntoken MyToken {\n    storage {\n        indexed let mut supply: u32;\n        let mut owner: u64;\n    }\n\n    mint fn mint() {\n        supply = 1;\n    }\n\n    burn fn burn() {\n        supply = 0;\n    }\n\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n\n    fn helper() {}\n}\n"
+---
+T-Token: MyToken => 
+  T-Fn: mint => ()
+    T-Assign: {mint: fn() -> (), owner: u64, supply: u32} ⊢ supply = 1; ⇒ u32
+      T-Int: {mint: fn() -> (), owner: u64, supply: u32} ⊢ 1 ⇒ i64
+      Unify-Var: i64 ~ u32 => {u32/t3}
+  T-Fn: burn => ()
+    T-Assign: {burn: fn() -> (), mint: fn() -> (), owner: u64, supply: u32} ⊢ supply = 0; ⇒ u32
+      T-Int: {burn: fn() -> (), mint: fn() -> (), owner: u64, supply: u32} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ u32 => {u32/t4}
+  T-Fn: attach => ()
+  T-Fn: detach => ()
+  T-Fn: helper => ()

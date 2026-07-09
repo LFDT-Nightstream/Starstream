@@ -1,0 +1,19 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\ntoken MyToken {\n    mint fn mint() {}\n\n    impl Token {\n        fn attach(to: i64) {}\n        fn detach(source: Utxo) {}\n    }\n}\n"
+---
+E0031 (https://starstream.nightstream.dev/errors/E0031)
+
+  x argument 0 has type `i64` but `Utxo` was expected
+   ,-[test.star:1:1]
+ 1 | token MyToken {
+   : ^
+   : `-- parameter expects `Utxo`
+ 2 |     mint fn mint() {}
+   `----
+   ,-[test.star:5:19]
+ 4 |     impl Token {
+ 5 |         fn attach(to: i64) {}
+   :                   ^^
+ 6 |         fn detach(source: Utxo) {}
+   `----

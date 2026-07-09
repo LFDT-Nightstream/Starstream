@@ -6,6 +6,7 @@ members = [
   "starstream-interpreter",
   "starstream-language-server",
   "starstream-language-server-web",
+  "starstream-runtime-next",
   "starstream-sandbox-web",
   "starstream-to-wasm",
   "starstream-types",
@@ -14,7 +15,7 @@ members = [
   "interleaving/starstream-component-runtime",
   "interleaving/starstream-runtime",
   "ark-poseidon2",
-  "ark-goldilocks"
+  "ark-goldilocks",
 ]
 
 [workspace.package]
@@ -35,6 +36,7 @@ serde = "1.0.219"
 serde_json = "1.0"
 starstream-compiler = { path = "starstream-compiler" }
 starstream-language-server = { path = "starstream-language-server" }
+starstream-runtime-next = { path = "starstream-runtime-next" }
 starstream-to-wasm = { path = "starstream-to-wasm" }
 starstream-types = { path = "starstream-types" }
 thiserror = "2.0.17"
@@ -44,7 +46,7 @@ tower-lsp-server = { version = "0.22.1", default-features = false, features = [
 wasm-encoder = "0.240.0"
 wasmprinter = "0.240.0"
 wasmparser = "0.240.0"
-wasmtime = { version = "45.0", default-features = false }
+wasmtime = { version = "46.0", default-features = false }
 wit-component = "0.240.0"
 
 neo-fold = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "8b32cc8fa7cbb3e28fff34a6f6d0160ee7bc61fb" }

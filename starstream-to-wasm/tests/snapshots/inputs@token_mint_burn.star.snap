@@ -1,0 +1,644 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/token_mint_burn.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Token(
+                TokenDef {
+                    name: Identifier {
+                        name: "MyToken",
+                        span: 6..13,
+                    },
+                    parts: [
+                        Storage(
+                            [
+                                TokenGlobal {
+                                    indexed: false,
+                                    name: Identifier {
+                                        name: "total",
+                                        span: 46..51,
+                                    },
+                                    ty: TypeAnnotation {
+                                        name: Identifier {
+                                            name: "u64",
+                                            span: 53..56,
+                                        },
+                                        generics: [],
+                                    },
+                                },
+                            ],
+                        ),
+                        Function(
+                            FunctionDef {
+                                export: Some(
+                                    TokenMint,
+                                ),
+                                name: Identifier {
+                                    name: "mint",
+                                    span: 76..80,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Assignment {
+                                                target: Identifier {
+                                                    name: "total",
+                                                    span: 93..98,
+                                                },
+                                                value: Spanned {
+                                                    node: Binary {
+                                                        op: Add,
+                                                        left: Spanned {
+                                                            node: Identifier(
+                                                                Identifier {
+                                                                    name: "total",
+                                                                    span: 101..106,
+                                                                },
+                                                            ),
+                                                            span: 101..107,
+                                                        },
+                                                        right: Spanned {
+                                                            node: Literal(
+                                                                Integer(
+                                                                    1,
+                                                                ),
+                                                            ),
+                                                            span: 109..110,
+                                                        },
+                                                    },
+                                                    span: 101..110,
+                                                },
+                                            },
+                                            span: 93..116,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 83..122,
+                                },
+                            },
+                        ),
+                        Function(
+                            FunctionDef {
+                                export: Some(
+                                    TokenBurn,
+                                ),
+                                name: Identifier {
+                                    name: "burn",
+                                    span: 130..134,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Assignment {
+                                                target: Identifier {
+                                                    name: "total",
+                                                    span: 147..152,
+                                                },
+                                                value: Spanned {
+                                                    node: Binary {
+                                                        op: Subtract,
+                                                        left: Spanned {
+                                                            node: Identifier(
+                                                                Identifier {
+                                                                    name: "total",
+                                                                    span: 155..160,
+                                                                },
+                                                            ),
+                                                            span: 155..161,
+                                                        },
+                                                        right: Spanned {
+                                                            node: Literal(
+                                                                Integer(
+                                                                    1,
+                                                                ),
+                                                            ),
+                                                            span: 163..164,
+                                                        },
+                                                    },
+                                                    span: 155..164,
+                                                },
+                                            },
+                                            span: 147..170,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 137..176,
+                                },
+                            },
+                        ),
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "Token",
+                                span: 181..186,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "attach",
+                                        span: 200..206,
+                                    },
+                                    params: [
+                                        FunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "to",
+                                                span: 207..209,
+                                            },
+                                            ty: TypeAnnotation {
+                                                name: Identifier {
+                                                    name: "Utxo",
+                                                    span: 211..215,
+                                                },
+                                                generics: [],
+                                            },
+                                        },
+                                    ],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [],
+                                        tail_expression: None,
+                                        span: 217..229,
+                                    },
+                                },
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "detach",
+                                        span: 232..238,
+                                    },
+                                    params: [
+                                        FunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "source",
+                                                span: 239..245,
+                                            },
+                                            ty: TypeAnnotation {
+                                                name: Identifier {
+                                                    name: "Utxo",
+                                                    span: 247..251,
+                                                },
+                                                generics: [],
+                                            },
+                                        },
+                                    ],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [],
+                                        tail_expression: None,
+                                        span: 253..261,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 0..265,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Token: MyToken => 
+  T-Fn: mint => ()
+    T-Assign: {mint: fn() -> (), total: u64} ⊢ total = total + 1; ⇒ u64
+      T-Bin-Add: {mint: fn() -> (), total: u64} ⊢ total + 1 ⇒ u64
+        T-Var: {mint: fn() -> (), total: u64} ⊢ total ⇒ u64
+        T-Int: {mint: fn() -> (), total: u64} ⊢ 1 ⇒ i64
+        Unify-Var: u64 ~ i64 => {u64/t3}
+      Unify-Const: u64 ~ u64 => {}
+  T-Fn: burn => ()
+    T-Assign: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ total = total - 1; ⇒ u64
+      T-Bin-Sub: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ total - 1 ⇒ u64
+        T-Var: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ total ⇒ u64
+        T-Int: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ 1 ⇒ i64
+        Unify-Var: u64 ~ i64 => {u64/t4}
+      Unify-Const: u64 ~ u64 => {}
+  T-Fn: attach => ()
+  T-Fn: detach => ()
+
+==== Typed AST ====
+TypedProgram {
+    has_yields: false,
+    definitions: [
+        Token(
+            TypedTokenDef {
+                name: Identifier {
+                    name: "MyToken",
+                    span: 6..13,
+                },
+                parts: [
+                    Storage(
+                        [
+                            TypedTokenGlobal {
+                                indexed: false,
+                                name: Identifier {
+                                    name: "total",
+                                    span: 46..51,
+                                },
+                                ty: Int(
+                                    U64,
+                                ),
+                            },
+                        ],
+                    ),
+                    Function(
+                        TypedFunctionDef {
+                            export: Some(
+                                TokenMint,
+                            ),
+                            name: Identifier {
+                                name: "mint",
+                                span: 76..80,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            effect: Pure,
+                            body: TypedBlock {
+                                statements: [
+                                    Assignment {
+                                        target: Identifier {
+                                            name: "total",
+                                            span: 93..98,
+                                        },
+                                        value: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                kind: Binary {
+                                                    op: Add,
+                                                    left: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                U64,
+                                                            ),
+                                                            kind: Identifier(
+                                                                Identifier {
+                                                                    name: "total",
+                                                                    span: 101..106,
+                                                                },
+                                                            ),
+                                                        },
+                                                        span: 101..107,
+                                                    },
+                                                    right: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                U64,
+                                                            ),
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    1,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 109..110,
+                                                    },
+                                                },
+                                            },
+                                            span: 101..110,
+                                        },
+                                    },
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                    Function(
+                        TypedFunctionDef {
+                            export: Some(
+                                TokenBurn,
+                            ),
+                            name: Identifier {
+                                name: "burn",
+                                span: 130..134,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            effect: Pure,
+                            body: TypedBlock {
+                                statements: [
+                                    Assignment {
+                                        target: Identifier {
+                                            name: "total",
+                                            span: 147..152,
+                                        },
+                                        value: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                kind: Binary {
+                                                    op: Subtract,
+                                                    left: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                U64,
+                                                            ),
+                                                            kind: Identifier(
+                                                                Identifier {
+                                                                    name: "total",
+                                                                    span: 155..160,
+                                                                },
+                                                            ),
+                                                        },
+                                                        span: 155..161,
+                                                    },
+                                                    right: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                U64,
+                                                            ),
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    1,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 163..164,
+                                                    },
+                                                },
+                                            },
+                                            span: 155..164,
+                                        },
+                                    },
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                    AbiImpl {
+                        span: 181..186,
+                        abi: AbiNarrow(
+                            Abi {
+                                name: Identifier {
+                                    name: "Token",
+                                    span: 0..0,
+                                },
+                                methods: [
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "attach",
+                                            span: 0..0,
+                                        },
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                            },
+                                        ],
+                                        return_type: Unit,
+                                        span: 0..0,
+                                    },
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "detach",
+                                            span: 0..0,
+                                        },
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                            },
+                                        ],
+                                        return_type: Unit,
+                                        span: 0..0,
+                                    },
+                                ],
+                            },
+                        ),
+                        parts: [
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "attach",
+                                    span: 200..206,
+                                },
+                                params: [
+                                    TypedFunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "to",
+                                            span: 207..209,
+                                        },
+                                        ty: UtxoAny,
+                                    },
+                                ],
+                                return_type: Unit,
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [],
+                                    tail_expression: None,
+                                },
+                            },
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "detach",
+                                    span: 232..238,
+                                },
+                                params: [
+                                    TypedFunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "source",
+                                            span: 239..245,
+                                        },
+                                        ty: UtxoAny,
+                                    },
+                                ],
+                                return_type: Unit,
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [],
+                                    tail_expression: None,
+                                },
+                            },
+                        ],
+                    },
+                ],
+                ty: TokenNamed(
+                    "MyToken",
+                ),
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i32) (result i32)))
+  (type (;1;) (func (param i32)))
+  (type (;2;) (func (param i64 i64) (result i64)))
+  (type (;3;) (func (result i32)))
+  (type (;4;) (func))
+  (type (;5;) (func (param i32 i32)))
+  (type (;6;) (func (param i32) (result i64)))
+  (type (;7;) (func (param i64) (result i32)))
+  (import "[export]my-token" "[resource-new]token" (func (;0;) (type 0)))
+  (import "[export]my-token" "[resource-drop]token" (func (;1;) (type 1)))
+  (global (;0;) (mut i64) (i64.const 0))
+  (export "my-token#[static]token.mint" (func 3))
+  (export "my-token#[static]token.burn" (func 5))
+  (export "my-token#[method]token.attach" (func 6))
+  (export "my-token#[method]token.detach" (func 7))
+  (export "my-token#get-storage" (func 8))
+  (export "my-token#set-storage" (func 9))
+  (func (;2;) (type 2) (param i64 i64) (result i64)
+    (local i64)
+    (local.tee 2
+      (i64.add
+        (local.get 0)
+        (local.get 1)))
+    (if ;; label = @1
+      (i32.ne
+        (i32.and
+          (i64.ge_s
+            (i64.xor
+              (local.get 0)
+              (local.get 1))
+            (i64.const 0))
+          (i64.lt_s
+            (i64.xor
+              (local.get 2)
+              (local.get 0))
+            (i64.const 0)))
+        (i32.const 0))
+      (then
+        (unreachable)))
+  )
+  (func (;3;) (type 3) (result i32)
+    (local i32)
+    (local.set 0
+      (call 0
+        (i32.const 0)))
+    (global.set 0
+      (call 2
+        (global.get 0)
+        (i64.const 1)))
+    (local.get 0)
+  )
+  (func (;4;) (type 2) (param i64 i64) (result i64)
+    (local i64)
+    (local.tee 2
+      (i64.sub
+        (local.get 0)
+        (local.get 1)))
+    (if ;; label = @1
+      (i32.ne
+        (i32.and
+          (i64.lt_s
+            (i64.xor
+              (local.get 0)
+              (local.get 1))
+            (i64.const 0))
+          (i64.lt_s
+            (i64.xor
+              (local.get 2)
+              (local.get 0))
+            (i64.const 0)))
+        (i32.const 0))
+      (then
+        (unreachable)))
+  )
+  (func (;5;) (type 4)
+    (global.set 0
+      (call 4
+        (global.get 0)
+        (i64.const 1)))
+  )
+  (func (;6;) (type 5) (param i32 i32))
+  (func (;7;) (type 5) (param i32 i32))
+  (func (;8;) (type 6) (param i32) (result i64)
+    (local i32)
+    (global.get 0)
+  )
+  (func (;9;) (type 7) (param i64) (result i32)
+    (local i64)
+    (global.set 0
+      (local.get 0))
+    (return_call 0
+      (i32.const 0))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (import "utxo" (type (;0;) (sub resource)))
+              (type (;1;)
+                (instance
+                  (export (;0;) "token" (type (sub resource)))
+                  (type (;1;) (own 0))
+                  (type (;2;) (func (result 1)))
+                  (export (;0;) "[static]token.mint" (func (type 2)))
+                  (type (;3;) (func))
+                  (export (;1;) "[static]token.burn" (func (type 3)))
+                  (type (;4;) (borrow 0))
+                  (type (;5;) (func (param "self" 4) (param "to" 4)))
+                  (export (;2;) "[method]token.attach" (func (type 5)))
+                  (type (;6;) (func (param "self" 4) (param "source" 4)))
+                  (export (;3;) "[method]token.detach" (func (type 6)))
+                  (type (;7;) (record (field "total" s64)))
+                  (export (;8;) "storage" (type (eq 7)))
+                  (type (;9;) (func (param "self" 4) (result 8)))
+                  (export (;4;) "get-storage" (func (type 9)))
+                  (type (;10;) (func (param "storage" 8) (result 1)))
+                  (export (;5;) "set-storage" (func (type 10)))
+                )
+              )
+              (export (;0;) "my-token" (instance (type 1)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  resource utxo;
+
+  export my-token: interface {
+    resource token {
+      mint: static func() -> token;
+      burn: static func();
+      attach: func(to: borrow<token>);
+      detach: func(source: borrow<token>);
+    }
+
+    record storage {
+      total: s64,
+    }
+
+    get-storage: func(self: borrow<token>) -> storage;
+
+    set-storage: func(storage: storage) -> token;
+  }
+}

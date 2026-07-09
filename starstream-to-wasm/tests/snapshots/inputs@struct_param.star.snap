@@ -10,42 +10,42 @@ Program {
             node: Struct(
                 StructDef {
                     name: Identifier {
-                        name: "Token",
-                        span: 7..12,
+                        name: "Item",
+                        span: 7..11,
                     },
                     fields: [
                         StructField {
                             name: Identifier {
                                 name: "amount",
-                                span: 19..25,
+                                span: 18..24,
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
-                                    span: 27..30,
+                                    span: 26..29,
                                 },
                                 generics: [],
                             },
-                            span: 19..30,
+                            span: 18..29,
                         },
                         StructField {
                             name: Identifier {
                                 name: "price",
-                                span: 36..41,
+                                span: 35..40,
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
-                                    span: 43..46,
+                                    span: 42..45,
                                 },
                                 generics: [],
                             },
-                            span: 36..46,
+                            span: 35..45,
                         },
                     ],
                 },
             ),
-            span: 0..51,
+            span: 0..50,
         },
         Spanned {
             node: Function(
@@ -55,19 +55,19 @@ Program {
                     ),
                     name: Identifier {
                         name: "total_value",
-                        span: 61..72,
+                        span: 60..71,
                     },
                     params: [
                         FunctionParam {
                             public: false,
                             name: Identifier {
-                                name: "token",
-                                span: 73..78,
+                                name: "item",
+                                span: 72..76,
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
-                                    name: "Token",
-                                    span: 80..85,
+                                    name: "Item",
+                                    span: 78..82,
                                 },
                                 generics: [],
                             },
@@ -77,7 +77,7 @@ Program {
                         TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: 90..93,
+                                span: 87..90,
                             },
                             generics: [],
                         },
@@ -93,46 +93,46 @@ Program {
                                             target: Spanned {
                                                 node: Identifier(
                                                     Identifier {
-                                                        name: "token",
-                                                        span: 100..105,
+                                                        name: "item",
+                                                        span: 97..101,
                                                     },
                                                 ),
-                                                span: 100..105,
+                                                span: 97..101,
                                             },
                                             field: Identifier {
                                                 name: "amount",
-                                                span: 106..112,
+                                                span: 102..108,
                                             },
                                         },
-                                        span: 100..113,
+                                        span: 97..109,
                                     },
                                     right: Spanned {
                                         node: FieldAccess {
                                             target: Spanned {
                                                 node: Identifier(
                                                     Identifier {
-                                                        name: "token",
-                                                        span: 115..120,
+                                                        name: "item",
+                                                        span: 111..115,
                                                     },
                                                 ),
-                                                span: 115..120,
+                                                span: 111..115,
                                             },
                                             field: Identifier {
                                                 name: "price",
-                                                span: 121..126,
+                                                span: 116..121,
                                             },
                                         },
-                                        span: 115..127,
+                                        span: 111..122,
                                     },
                                 },
-                                span: 100..127,
+                                span: 97..122,
                             },
                         ),
-                        span: 94..129,
+                        span: 91..124,
                     },
                 },
             ),
-            span: 51..129,
+            span: 50..124,
         },
     ],
 }
@@ -140,12 +140,12 @@ Program {
 ==== Inference trace ====
 
 T-Fn: total_value => i64
-  T-ReturnTail: token.amount * token.price => i64
-    T-Bin-Mul: {token: Token, total_value: fn(Token) -> i64} ⊢ token.amount * token.price ⇒ i64
-      T-FieldAccess: {token: Token, total_value: fn(Token) -> i64} ⊢ token.amount ⇒ i64
-        T-Var: {token: Token, total_value: fn(Token) -> i64} ⊢ token ⇒ Token
-      T-FieldAccess: {token: Token, total_value: fn(Token) -> i64} ⊢ token.price ⇒ i64
-        T-Var: {token: Token, total_value: fn(Token) -> i64} ⊢ token ⇒ Token
+  T-ReturnTail: item.amount * item.price => i64
+    T-Bin-Mul: {item: Item, total_value: fn(Item) -> i64} ⊢ item.amount * item.price ⇒ i64
+      T-FieldAccess: {item: Item, total_value: fn(Item) -> i64} ⊢ item.amount ⇒ i64
+        T-Var: {item: Item, total_value: fn(Item) -> i64} ⊢ item ⇒ Item
+      T-FieldAccess: {item: Item, total_value: fn(Item) -> i64} ⊢ item.price ⇒ i64
+        T-Var: {item: Item, total_value: fn(Item) -> i64} ⊢ item ⇒ Item
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
 
@@ -156,14 +156,14 @@ TypedProgram {
         Struct(
             TypedStructDef {
                 name: Identifier {
-                    name: "Token",
-                    span: 7..12,
+                    name: "Item",
+                    span: 7..11,
                 },
                 fields: [
                     TypedStructField {
                         name: Identifier {
                             name: "amount",
-                            span: 19..25,
+                            span: 18..24,
                         },
                         ty: Int(
                             I64,
@@ -172,7 +172,7 @@ TypedProgram {
                     TypedStructField {
                         name: Identifier {
                             name: "price",
-                            span: 36..41,
+                            span: 35..40,
                         },
                         ty: Int(
                             I64,
@@ -181,7 +181,7 @@ TypedProgram {
                 ],
                 ty: Record(
                     RecordType {
-                        name: "Token",
+                        name: "Item",
                         fields: [
                             RecordFieldType {
                                 name: "amount",
@@ -207,18 +207,18 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "total_value",
-                    span: 61..72,
+                    span: 60..71,
                 },
                 params: [
                     TypedFunctionParam {
                         public: false,
                         name: Identifier {
-                            name: "token",
-                            span: 73..78,
+                            name: "item",
+                            span: 72..76,
                         },
                         ty: Record(
                             RecordType {
-                                name: "Token",
+                                name: "Item",
                                 fields: [
                                     RecordFieldType {
                                         name: "amount",
@@ -261,7 +261,7 @@ TypedProgram {
                                                     node: TypedExpr {
                                                         ty: Record(
                                                             RecordType {
-                                                                name: "Token",
+                                                                name: "Item",
                                                                 fields: [
                                                                     RecordFieldType {
                                                                         name: "amount",
@@ -280,20 +280,20 @@ TypedProgram {
                                                         ),
                                                         kind: Identifier(
                                                             Identifier {
-                                                                name: "token",
-                                                                span: 100..105,
+                                                                name: "item",
+                                                                span: 97..101,
                                                             },
                                                         ),
                                                     },
-                                                    span: 100..105,
+                                                    span: 97..101,
                                                 },
                                                 field: Identifier {
                                                     name: "amount",
-                                                    span: 106..112,
+                                                    span: 102..108,
                                                 },
                                             },
                                         },
-                                        span: 100..113,
+                                        span: 97..109,
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
@@ -305,7 +305,7 @@ TypedProgram {
                                                     node: TypedExpr {
                                                         ty: Record(
                                                             RecordType {
-                                                                name: "Token",
+                                                                name: "Item",
                                                                 fields: [
                                                                     RecordFieldType {
                                                                         name: "amount",
@@ -324,24 +324,24 @@ TypedProgram {
                                                         ),
                                                         kind: Identifier(
                                                             Identifier {
-                                                                name: "token",
-                                                                span: 115..120,
+                                                                name: "item",
+                                                                span: 111..115,
                                                             },
                                                         ),
                                                     },
-                                                    span: 115..120,
+                                                    span: 111..115,
                                                 },
                                                 field: Identifier {
                                                     name: "price",
-                                                    span: 121..126,
+                                                    span: 116..121,
                                                 },
                                             },
                                         },
-                                        span: 115..127,
+                                        span: 111..122,
                                     },
                                 },
                             },
-                            span: 100..127,
+                            span: 97..122,
                         },
                     ),
                 },
@@ -414,8 +414,8 @@ TypedProgram {
           (type (;0;)
             (component
               (type (;0;) (record (field "amount" s64) (field "price" s64)))
-              (import "token" (type (;1;) (eq 0)))
-              (type (;2;) (func (param "token" 1) (result s64)))
+              (import "item" (type (;1;) (eq 0)))
+              (type (;2;) (func (param "item" 1) (result s64)))
               (export (;0;) "total-value" (func (type 2)))
             )
           )
@@ -431,10 +431,10 @@ TypedProgram {
 package root:component;
 
 world root {
-  record token {
+  record item {
     amount: s64,
     price: s64,
   }
 
-  export total-value: func(token: token) -> s64;
+  export total-value: func(item: item) -> s64;
 }
