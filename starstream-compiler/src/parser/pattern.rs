@@ -1,5 +1,5 @@
 use chumsky::{prelude::*, recursive::recursive};
-use starstream_types::ast::{EnumPatternPayload, Pattern, StructPatternField};
+use starstream_types::ast::{Pattern, StructPatternField};
 
 use super::{context::Extra, primitives};
 
@@ -33,7 +33,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
             .clone()
             .then(just(':').padded().ignore_then(pattern.clone()).or_not())
             .map(|(name, pattern)| {
-                let fallback = Pattern::Binding(name.clone());
+                let fallback = Pattern::Name(vec![name.clone()]);
 
                 StructPatternField {
                     name,
@@ -41,38 +41,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
                 }
             });
 
-        let tuple_payload = pattern
-            .clone()
-            .separated_by(just(',').padded())
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just('(').padded(), just(')').padded())
-            .map(EnumPatternPayload::Tuple);
-
-        let struct_payload = struct_field
-            .clone()
-            .separated_by(just(',').padded())
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just('{').padded(), just('}').padded())
-            .map(EnumPatternPayload::Struct);
-
-        let enum_variant = identifier
-            .clone()
-            .then_ignore(just("::").padded())
-            .then(identifier.clone())
-            .then(
-                choice((struct_payload, tuple_payload))
-                    .or_not()
-                    .map(|payload| payload.unwrap_or(EnumPatternPayload::Unit)),
-            )
-            .map(|((enum_name, variant), payload)| Pattern::EnumVariant {
-                enum_name,
-                variant,
-                payload,
-            });
-
-        let struct_pattern = identifier
+        let struct_pattern = primitives::scoped_name()
             .clone()
             .then(
                 struct_field
@@ -83,15 +52,26 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
             )
             .map(|(name, fields)| Pattern::Struct { name, fields });
 
-        let binding = identifier.map(Pattern::Binding);
+        let tuple_pattern = primitives::scoped_name()
+            .clone()
+            .then(
+                pattern
+                    .separated_by(just(',').padded())
+                    .allow_trailing()
+                    .collect::<Vec<_>>()
+                    .delimited_by(just('(').padded(), just(')').padded()),
+            )
+            .map(|(name, fields)| Pattern::Tuple { name, fields });
+
+        let binding = primitives::scoped_name().map(Pattern::Name);
 
         choice((
             wildcard,
             integer_literal,
             boolean_literal,
             unit_literal,
-            enum_variant,
             struct_pattern,
+            tuple_pattern,
             binding,
         ))
         .padded()

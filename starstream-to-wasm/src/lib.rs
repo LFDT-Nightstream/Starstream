@@ -10,10 +10,9 @@ use sha2::Digest;
 use starstream_types::{
     BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned,
     StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
-    TypedEnumPatternPayload, TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam,
-    TypedIfCondition, TypedImportDef, TypedImportItems, TypedImportSource, TypedMatchArm,
-    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedUtxoDef, TypedUtxoPart,
-    UnaryOp,
+    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
+    TypedImportDef, TypedImportItems, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
+    TypedStatement, TypedStructDef, TypedUtxoDef, TypedUtxoPart, UnaryOp,
 };
 use thiserror::Error;
 use wasm_encoder::{
@@ -3109,39 +3108,41 @@ impl Compiler {
                 ctor: Ctor::Unit,
                 args: vec![],
             },
-            TypedPattern::EnumVariant {
-                enum_name: _,
-                variant,
-                payload,
-            } => {
-                let Type::Enum(enum_ty) = ty else {
-                    return Pat::Wildcard { binding: None };
-                };
-                let variant_index = enum_ty
-                    .variants
-                    .iter()
-                    .position(|v| v.name == variant.as_str())
-                    .expect("variant not found in enum type");
-
-                let sub_pats = match payload {
-                    TypedEnumPatternPayload::Unit => vec![],
-                    TypedEnumPatternPayload::Tuple(pats) => {
-                        let variant_ty = &enum_ty.variants[variant_index];
-                        let EnumVariantKind::Tuple(field_types) = &variant_ty.kind else {
-                            return Pat::Wildcard { binding: None };
-                        };
-                        pats.iter()
-                            .zip(field_types.iter())
-                            .map(|(p, ft)| self.lower_pattern(p, arm_idx, ft))
-                            .collect()
+            TypedPattern::Struct { name, fields } => {
+                match ty {
+                    Type::Record(record) => {
+                        let args = record
+                            .fields
+                            .iter()
+                            .map(|field_def| {
+                                if let Some(sf) = fields
+                                    .iter()
+                                    .find(|sf| sf.name.as_str() == field_def.name.as_str())
+                                {
+                                    self.lower_pattern(&sf.pattern, arm_idx, &field_def.ty)
+                                } else {
+                                    Pat::Wildcard { binding: None }
+                                }
+                            })
+                            .collect();
+                        Pat::Ctor {
+                            ctor: Ctor::Struct,
+                            args,
+                        }
                     }
-                    TypedEnumPatternPayload::Struct(fields) => {
+                    Type::Enum(enum_ty) => {
+                        let variant_index = enum_ty
+                            .variants
+                            .iter()
+                            .position(|v| v.name == name.last().unwrap().as_str())
+                            .expect("variant not found in enum type");
+
                         let variant_ty = &enum_ty.variants[variant_index];
                         let EnumVariantKind::Struct(field_defs) = &variant_ty.kind else {
                             return Pat::Wildcard { binding: None };
                         };
                         // Lower in declaration order
-                        field_defs
+                        let args = field_defs
                             .iter()
                             .map(|fd| {
                                 let sf = fields
@@ -3150,37 +3151,45 @@ impl Compiler {
                                     .expect("missing field in struct pattern");
                                 self.lower_pattern(&sf.pattern, arm_idx, &fd.ty)
                             })
-                            .collect()
+                            .collect();
+                        Pat::Ctor {
+                            ctor: Ctor::EnumVariant { variant_index },
+                            args,
+                        }
                     }
-                };
-                Pat::Ctor {
-                    ctor: Ctor::EnumVariant { variant_index },
-                    args: sub_pats,
+                    _ => unreachable!(),
                 }
             }
-            TypedPattern::Struct { name: _, fields } => {
-                let Type::Record(record) = ty else {
-                    return Pat::Wildcard { binding: None };
+            TypedPattern::Tuple { name, fields } => {
+                let Type::Enum(enum_ty) = ty else {
+                    unreachable!()
                 };
-                let sub_pats = record
-                    .fields
+                let variant_index = enum_ty
+                    .variants
                     .iter()
-                    .map(|field_def| {
-                        if let Some(sf) = fields
-                            .iter()
-                            .find(|sf| sf.name.as_str() == field_def.name.as_str())
-                        {
-                            self.lower_pattern(&sf.pattern, arm_idx, &field_def.ty)
-                        } else {
-                            Pat::Wildcard { binding: None }
-                        }
-                    })
+                    .position(|v| v.name == name.last().unwrap().as_str())
+                    .expect("variant not found in enum type");
+
+                let variant_ty = &enum_ty.variants[variant_index];
+                let EnumVariantKind::Tuple(field_types) = &variant_ty.kind else {
+                    unreachable!()
+                };
+                let args = fields
+                    .iter()
+                    .zip(field_types.iter())
+                    .map(|(p, ft)| self.lower_pattern(p, arm_idx, ft))
                     .collect();
                 Pat::Ctor {
-                    ctor: Ctor::Struct,
-                    args: sub_pats,
+                    ctor: Ctor::EnumVariant { variant_index },
+                    args,
                 }
             }
+            TypedPattern::Constant { name: _, variant } => Pat::Ctor {
+                ctor: Ctor::EnumVariant {
+                    variant_index: *variant,
+                },
+                args: vec![],
+            },
         }
     }
 

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ropey::Rope;
+use starstream_types::TypedEnumVariantPayload;
 use tower_lsp_server::lsp_types::{
     DocumentSymbol, DocumentSymbolResponse, Hover, HoverContents, Location, MarkupContent,
     MarkupKind, Position, Range, SymbolKind, TextEdit, Uri,
@@ -23,10 +24,10 @@ use starstream_types::{
     TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
-        TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
-        TypedEnumPatternPayload, TypedEnumVariantPayload, TypedExpr, TypedExprKind,
-        TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedImportItems, TypedMatchArm,
-        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
+        TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
+        TypedExprKind, TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedImportItems,
+        TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
+        TypedStructFieldInitializer,
     },
     types::{EnumType, EnumVariantKind, Type},
 };
@@ -94,6 +95,7 @@ pub struct DocumentState {
     comment_map: CommentMap,
 }
 
+#[allow(unused)]
 impl DocumentState {
     /// Create initial document state from raw text. `workspace_folders` is
     /// the list of roots the editor announced during `initialize`; the
@@ -1352,6 +1354,8 @@ impl DocumentState {
                 // Literal patterns don't introduce bindings or references
             }
             TypedPattern::Struct { name, fields } => {
+                // TODO: in `Foo::Bar`, add usage for `Foo` too
+                let name = name.last().unwrap();
                 self.add_type_usage(name.opt_span(), &name.name);
 
                 // Add hover for struct name with doc comment
@@ -1380,77 +1384,11 @@ impl DocumentState {
                     self.collect_pattern(&field.pattern, scopes, field_ty);
                 }
             }
-            TypedPattern::EnumVariant {
-                enum_name,
-                variant,
-                payload,
-            } => {
-                self.add_type_usage(enum_name.opt_span(), &enum_name.name);
-
-                if let Some(span) = enum_name.opt_span() {
-                    // Include enum doc comment for the enum name in pattern
-                    let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
-                    self.add_generic_or_concrete_type_hover(
-                        span,
-                        &enum_name.name,
-                        expected_ty.as_ref(),
-                        enum_doc,
-                    );
-                }
-
-                self.add_enum_variant_usage(variant.opt_span(), &enum_name.name, &variant.name);
-                self.add_variant_hover(
-                    variant.opt_span(),
-                    &enum_name.name,
-                    &variant.name,
-                    expected_ty.as_ref(),
-                );
-
-                match payload {
-                    TypedEnumPatternPayload::Unit => {}
-                    TypedEnumPatternPayload::Tuple(patterns) => {
-                        let types = self
-                            .lookup_enum_tuple_types(&enum_name.name, &variant.name)
-                            .or_else(|| {
-                                expected_ty.as_ref().and_then(|ty| {
-                                    Self::enum_variant_tuple_types_from_type(ty, &variant.name)
-                                })
-                            });
-                        if let Some(types) = types {
-                            for (pattern, ty) in patterns.iter().zip(types) {
-                                self.collect_pattern(pattern, scopes, Some(ty));
-                            }
-                        } else {
-                            for pattern in patterns {
-                                self.collect_pattern(pattern, scopes, None);
-                            }
-                        }
-                    }
-                    TypedEnumPatternPayload::Struct(fields) => {
-                        for field in fields {
-                            self.add_enum_variant_field_usage(
-                                field.name.opt_span(),
-                                &enum_name.name,
-                                &variant.name,
-                                &field.name.name,
-                            );
-
-                            let field_ty = self.lookup_enum_struct_field_type(
-                                &enum_name.name,
-                                &variant.name,
-                                &field.name.name,
-                            );
-
-                            if let Some(span) = field.name.opt_span()
-                                && let Some(ty) = field_ty.as_ref()
-                            {
-                                self.add_hover_span(span, ty);
-                            }
-
-                            self.collect_pattern(&field.pattern, scopes, field_ty);
-                        }
-                    }
-                }
+            TypedPattern::Tuple { .. } => {
+                // TODO
+            }
+            TypedPattern::Constant { .. } => {
+                // TODO
             }
         }
     }

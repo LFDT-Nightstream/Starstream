@@ -384,14 +384,15 @@ pub enum TypedPattern {
     /// A literal pattern that matches a specific value.
     Literal(Literal),
     Struct {
-        name: Identifier,
+        name: ScopedName,
         fields: Vec<TypedStructPatternField>,
     },
-    EnumVariant {
-        enum_name: Identifier,
-        variant: Identifier,
-        payload: TypedEnumPatternPayload,
+    Tuple {
+        name: ScopedName,
+        fields: Vec<TypedPattern>,
     },
+    /// `Enum::UnitVariant` constant.
+    Constant { name: ScopedName, variant: usize },
 }
 
 #[derive(Clone, Debug)]
@@ -399,13 +400,6 @@ pub enum TypedEnumVariantPayload {
     Unit,
     Tuple(Vec<Type>),
     Struct(Vec<TypedStructField>),
-}
-
-#[derive(Clone, Debug)]
-pub enum TypedEnumPatternPayload {
-    Unit,
-    Tuple(Vec<TypedPattern>),
-    Struct(Vec<TypedStructPatternField>),
 }
 
 #[derive(Clone, Debug)]

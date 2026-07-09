@@ -626,8 +626,9 @@ pub struct MatchArm {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Pattern {
-    /// A binding pattern that captures the matched value (e.g., `x`).
-    Binding(Identifier),
+    /// A binding using a name. Might be a lone name that captures the matched
+    /// value, or might be an `EnumName::UnitVariant` constant.
+    Name(ScopedName),
     /// A wildcard pattern that matches anything but doesn't bind (e.g., `_`).
     Wildcard {
         #[serde(skip)]
@@ -640,13 +641,12 @@ pub enum Pattern {
         span: Span,
     },
     Struct {
-        name: Identifier,
+        name: ScopedName,
         fields: Vec<StructPatternField>,
     },
-    EnumVariant {
-        enum_name: Identifier,
-        variant: Identifier,
-        payload: EnumPatternPayload,
+    Tuple {
+        name: ScopedName,
+        fields: Vec<Pattern>,
     },
 }
 
@@ -654,13 +654,6 @@ pub enum Pattern {
 pub struct StructPatternField {
     pub name: Identifier,
     pub pattern: Box<Pattern>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub enum EnumPatternPayload {
-    Unit,
-    Tuple(Vec<Pattern>),
-    Struct(Vec<StructPatternField>),
 }
 
 #[cfg(test)]

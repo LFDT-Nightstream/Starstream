@@ -5,9 +5,9 @@ use starstream_types::{
     ScopedName, Spanned, Statement, TokenDef, TokenGlobal, TokenPart, TypeAnnotation, UnaryOp,
     UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
-        EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload, Identifier, ImportDef,
-        ImportItems, ImportNamedItem, ImportSource, MatchArm, Pattern, Program, StructDef,
-        StructField, StructFieldInitializer, StructPatternField,
+        EnumDef, EnumVariant, EnumVariantPayload, Identifier, ImportDef, ImportItems,
+        ImportNamedItem, ImportSource, MatchArm, Pattern, Program, StructDef, StructField,
+        StructFieldInitializer, StructPatternField,
     },
 };
 use std::fmt;
@@ -966,40 +966,19 @@ fn match_arm_to_doc<'a>(arm: &MatchArm, source: &'a str, comments: &CommentMap) 
 
 fn pattern_to_doc<'a>(pattern: &Pattern, source: &'a str) -> RcDoc<'a, ()> {
     match pattern {
-        Pattern::Binding(name) => identifier_to_doc(name, source),
+        Pattern::Name(name) => scoped_name_to_doc(name, source),
         Pattern::Wildcard { .. } => RcDoc::text("_"),
         Pattern::Literal { value, .. } => literal_to_doc(value, source),
-        Pattern::Struct { name, fields } => identifier_to_doc(name, source)
+        Pattern::Struct { name, fields } => scoped_name_to_doc(name, source)
             .append(RcDoc::space())
             .append(struct_pattern_fields_to_doc(fields, source)),
-        Pattern::EnumVariant {
-            enum_name,
-            variant,
-            payload,
-        } => {
-            let doc = identifier_to_doc(enum_name, source)
-                .append(RcDoc::text("::"))
-                .append(identifier_to_doc(variant, source));
-            match payload {
-                EnumPatternPayload::Unit => doc,
-                EnumPatternPayload::Tuple(items) => {
-                    if items.is_empty() {
-                        doc.append(RcDoc::text("()"))
-                    } else {
-                        let inner = RcDoc::intersperse(
-                            items.iter().map(|x| pattern_to_doc(x, source)),
-                            RcDoc::text(", "),
-                        );
-                        doc.append(RcDoc::text("("))
-                            .append(inner)
-                            .append(RcDoc::text(")"))
-                    }
-                }
-                EnumPatternPayload::Struct(fields) => doc
-                    .append(RcDoc::space())
-                    .append(struct_pattern_fields_to_doc(fields, source)),
-            }
-        }
+        Pattern::Tuple { name, fields } => scoped_name_to_doc(name, source)
+            .append(RcDoc::text("("))
+            .append(RcDoc::intersperse(
+                fields.iter().map(|x| pattern_to_doc(x, source)),
+                RcDoc::text(", "),
+            ))
+            .append(RcDoc::text(")")),
     }
 }
 
@@ -1012,8 +991,9 @@ fn struct_pattern_fields_to_doc<'a>(
     } else {
         let items = RcDoc::intersperse(
             fields.iter().map(|field| {
-                if let Pattern::Binding(binding) = field.pattern.as_ref()
-                    && binding.name == field.name.name
+                if let Pattern::Name(binding) = field.pattern.as_ref()
+                    && let [solo] = &binding[..]
+                    && solo.as_str() == field.name.as_str()
                 {
                     return identifier_to_doc(&field.name, source);
                 }

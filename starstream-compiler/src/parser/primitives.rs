@@ -1,5 +1,8 @@
 use chumsky::{error::Rich, prelude::*};
-use starstream_types::ast::{Identifier, Literal};
+use starstream_types::{
+    ScopedName,
+    ast::{Identifier, Literal},
+};
 
 use super::context::Extra;
 
@@ -55,4 +58,11 @@ pub fn boolean_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + C
 
 pub fn unit_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
     just("()").padded().to(Literal::Unit).boxed()
+}
+
+pub fn scoped_name<'a>() -> impl Parser<'a, &'a str, ScopedName, Extra<'a>> + Clone {
+    identifier()
+        .separated_by(just("::"))
+        .at_least(1)
+        .collect::<Vec<_>>()
 }

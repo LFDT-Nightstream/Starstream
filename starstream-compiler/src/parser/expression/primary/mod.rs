@@ -1,10 +1,7 @@
 use chumsky::prelude::*;
-use starstream_types::{
-    ScopedName,
-    ast::{Block, Expr, Spanned},
-};
+use starstream_types::ast::{Block, Expr, Spanned};
 
-use crate::parser::{ParserExt, context::Extra, primitives};
+use crate::parser::{ParserExt, context::Extra, primitives::scoped_name};
 
 mod disclose;
 mod emit_raise_runtime;
@@ -57,13 +54,6 @@ pub fn primary<'a>(
 
 fn scoped_name_expr<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
     scoped_name().map(|x| Expr::ScopedName(x)).spanned()
-}
-
-pub fn scoped_name<'a>() -> impl Parser<'a, &'a str, ScopedName, Extra<'a>> + Clone {
-    primitives::identifier()
-        .separated_by(just("::"))
-        .at_least(1)
-        .collect::<Vec<_>>()
 }
 
 #[cfg(test)]

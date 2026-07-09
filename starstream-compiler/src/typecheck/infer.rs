@@ -12,22 +12,19 @@ use starstream_types::{
     TypeVarId, TypedTokenDef, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal,
     UtxoPart,
     ast::{
-        BinaryOp, Block, Definition, EnumDef, EnumPatternPayload, EnumVariantPayload, Expr,
-        FunctionDef, Identifier, ImportDef, ImportItems, ImportSource, Literal, Pattern, Program,
-        Statement, StructDef, TypeAnnotation, UnaryOp,
+        BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
+        ImportDef, ImportItems, ImportSource, Literal, Pattern, Program, Statement, StructDef,
+        TypeAnnotation, UnaryOp,
     },
     typed_ast::{
         TypedAbiDef, TypedAbiMethodDecl, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
-        TypedEnumPatternPayload, TypedEnumVariant, TypedEnumVariantPayload, TypedEventDef,
-        TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
-        TypedImportDef, TypedImportItems, TypedImportNamedItem, TypedImportSource, TypedMatchArm,
-        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructField,
-        TypedStructFieldInitializer, TypedStructPatternField,
+        TypedEnumVariant, TypedEnumVariantPayload, TypedEventDef, TypedExpr, TypedExprKind,
+        TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedImportItems,
+        TypedImportNamedItem, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
+        TypedStatement, TypedStructDef, TypedStructField, TypedStructFieldInitializer,
+        TypedStructPatternField,
     },
-    types::{
-        EnumType, EnumVariantKind as TypeEnumVariantKind, EnumVariantType as TypeEnumVariant,
-        RecordFieldType as TypeRecordField, RecordType,
-    },
+    types::{EnumType, EnumVariantKind, EnumVariantType, RecordFieldType, RecordType},
 };
 
 use super::{
@@ -100,60 +97,15 @@ impl TypeRegistry {
     fn get(&self, name: &str) -> Option<&TypeEntry> {
         self.entries.get(name)
     }
-
-    fn enum_info(&self, name: &str) -> Option<EnumInfo> {
-        self.entries.get(name).and_then(|entry| match &entry.kind {
-            TypeEntryKind::Enum { variants } => Some(EnumInfo {
-                ty: entry.ty.clone(),
-                variants: variants.clone(),
-            }),
-            _ => None,
-        })
-    }
 }
 
 #[derive(Clone)]
 struct TypeEntry {
     ty: Type,
-    kind: TypeEntryKind,
     span: Span,
     type_params: Vec<TypeParam>,
     doc: Option<String>,
     variant_docs: HashMap<String, String>,
-}
-
-// TODO: Fold this into Type
-#[derive(Clone)]
-enum TypeEntryKind {
-    Struct,
-    Enum { variants: Vec<EnumVariantInfo> },
-    Handle,
-}
-
-#[derive(Clone)]
-struct StructFieldInfo {
-    name: Identifier,
-    ty: Type,
-    span: Span,
-}
-
-#[derive(Clone)]
-struct EnumInfo {
-    ty: Type,
-    variants: Vec<EnumVariantInfo>,
-}
-
-#[derive(Clone)]
-struct EnumVariantInfo {
-    name: Identifier,
-    kind: EnumVariantInfoKind,
-}
-
-#[derive(Clone)]
-enum EnumVariantInfoKind {
-    Unit,
-    Tuple(Vec<Type>),
-    Struct(Vec<StructFieldInfo>),
 }
 
 /// Run Hindley–Milner style inference over the parsed program and return the
@@ -751,11 +703,12 @@ struct StructConstructor {
 }
 
 impl StructConstructor {
+    /// Assuming this constructor corresponds to a `struct` type, get that type.
     fn record_ty(&self) -> &RecordType {
-        let Type::Record(r) = &self.ty else {
-            unreachable!()
-        };
-        r
+        match &self.ty {
+            Type::Record(r) => r,
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -823,8 +776,8 @@ impl Inferencer {
         self.register_prelude_enum(
             "Option",
             &[
-                ("None", EnumVariantInfoKind::Unit),
-                ("Some", EnumVariantInfoKind::Tuple(vec![Type::Var(t)])),
+                ("None", EnumVariantKind::Unit),
+                ("Some", EnumVariantKind::Tuple(vec![Type::Var(t)])),
             ],
             vec![TypeParam {
                 id: t,
@@ -840,8 +793,8 @@ impl Inferencer {
         self.register_prelude_enum(
             "Result",
             &[
-                ("Ok", EnumVariantInfoKind::Tuple(vec![Type::Var(t2)])),
-                ("Err", EnumVariantInfoKind::Tuple(vec![Type::Var(e)])),
+                ("Ok", EnumVariantKind::Tuple(vec![Type::Var(t2)])),
+                ("Err", EnumVariantKind::Tuple(vec![Type::Var(e)])),
             ],
             vec![
                 TypeParam {
@@ -866,30 +819,15 @@ impl Inferencer {
     fn register_prelude_enum(
         &mut self,
         name: &str,
-        variants: &[(&str, EnumVariantInfoKind)],
+        variants: &[(&str, EnumVariantKind)],
         type_params: Vec<TypeParam>,
         doc: &str,
         variant_docs: &[(&str, &str)],
     ) {
-        let type_variants: Vec<TypeEnumVariant> = variants
+        let type_variants: Vec<EnumVariantType> = variants
             .iter()
-            .map(|(vname, kind)| match kind {
-                EnumVariantInfoKind::Unit => TypeEnumVariant::unit(*vname),
-                EnumVariantInfoKind::Tuple(types) => TypeEnumVariant::tuple(*vname, types.clone()),
-                EnumVariantInfoKind::Struct(fields) => TypeEnumVariant::struct_variant(
-                    *vname,
-                    fields
-                        .iter()
-                        .map(|f| TypeRecordField::new(f.name.clone(), f.ty.clone()))
-                        .collect(),
-                ),
-            })
-            .collect();
-
-        let info_variants: Vec<EnumVariantInfo> = variants
-            .into_iter()
-            .map(|(vname, kind)| EnumVariantInfo {
-                name: Identifier::anon(vname.to_owned()),
+            .map(|(vname, kind)| EnumVariantType {
+                name: vname.to_string(),
                 kind: kind.clone(),
             })
             .collect();
@@ -900,9 +838,6 @@ impl Inferencer {
                 name.to_string(),
                 TypeEntry {
                     ty: Type::enum_type(name, type_variants),
-                    kind: TypeEntryKind::Enum {
-                        variants: info_variants,
-                    },
                     span: DUMMY_SPAN,
                     type_params,
                     doc: Some(doc.into()),
@@ -918,7 +853,7 @@ impl Inferencer {
         let namespace = self.root.namespaces.entry(name.to_string()).or_default();
         for (i, (name, kind)) in variants.iter().enumerate() {
             match kind {
-                EnumVariantInfoKind::Unit => {
+                EnumVariantKind::Unit => {
                     // Unit variants are constants
                     namespace.constants.insert(
                         name.to_string(),
@@ -928,7 +863,7 @@ impl Inferencer {
                         },
                     );
                 }
-                EnumVariantInfoKind::Tuple(params) => {
+                EnumVariantKind::Tuple(params) => {
                     // Tuple variants are functions
                     namespace.constants.insert(
                         name.to_string(),
@@ -942,7 +877,7 @@ impl Inferencer {
                         }),
                     );
                 }
-                EnumVariantInfoKind::Struct(_fields) => {
+                EnumVariantKind::Struct(_fields) => {
                     // Struct variants are constructors
                     namespace.struct_constructors.insert(
                         name.to_string(),
@@ -1253,23 +1188,21 @@ impl Inferencer {
             }
             seen.insert(field.name.name.clone(), field.name.span());
             let ty = self.type_from_annotation(&field.ty)?;
-            fields.push(StructFieldInfo {
+            fields.push(TypedStructField {
                 name: field.name.clone(),
                 ty,
-                span: field.name.span(),
             });
         }
 
         let type_fields = fields
             .iter()
-            .map(|field| TypeRecordField::new(field.name.clone(), field.ty.clone()))
+            .map(|field| RecordFieldType::new(field.name.clone(), field.ty.clone()))
             .collect();
         let ty = Type::record(def.name.name.clone(), type_fields);
         self.types.insert(
             def.name.name.clone(),
             TypeEntry {
                 ty: ty.clone(),
-                kind: TypeEntryKind::Struct,
                 span: def.name.span(),
                 type_params: vec![],
                 doc: None,
@@ -1312,13 +1245,13 @@ impl Inferencer {
             }
             seen.insert(variant.name.name.clone(), variant.name.span());
             let kind = match &variant.payload {
-                EnumVariantPayload::Unit => EnumVariantInfoKind::Unit,
+                EnumVariantPayload::Unit => EnumVariantKind::Unit,
                 EnumVariantPayload::Tuple(items) => {
                     let mut payload = Vec::with_capacity(items.len());
                     for ty in items {
                         payload.push(self.type_from_annotation(ty)?);
                     }
-                    EnumVariantInfoKind::Tuple(payload)
+                    EnumVariantKind::Tuple(payload)
                 }
                 EnumVariantPayload::Struct(fields) => {
                     let mut seen_fields = HashMap::new();
@@ -1340,46 +1273,28 @@ impl Inferencer {
                         }
                         seen_fields.insert(field.name.name.clone(), field.name.span());
                         let ty = self.type_from_annotation(&field.ty)?;
-                        payload.push(StructFieldInfo {
+                        payload.push(RecordFieldType {
                             name: field.name.clone(),
                             ty,
-                            span: field.name.span(),
                         });
                     }
-                    EnumVariantInfoKind::Struct(payload)
+                    EnumVariantKind::Struct(payload)
                 }
             };
 
-            variants.push(EnumVariantInfo {
-                name: variant.name.clone(),
+            variants.push(EnumVariantType {
+                name: variant.name.to_string(),
                 kind,
             });
         }
 
-        let type_variants = variants
-            .iter()
-            .map(|variant| match &variant.kind {
-                EnumVariantInfoKind::Unit => TypeEnumVariant::unit(variant.name.name.clone()),
-                EnumVariantInfoKind::Tuple(payload) => {
-                    TypeEnumVariant::tuple(variant.name.name.clone(), payload.clone())
-                }
-                EnumVariantInfoKind::Struct(fields) => TypeEnumVariant::struct_variant(
-                    variant.name.name.clone(),
-                    fields
-                        .iter()
-                        .map(|field| TypeRecordField::new(field.name.clone(), field.ty.clone()))
-                        .collect(),
-                ),
-            })
-            .collect();
-        let ty = Type::enum_type(def.name.name.clone(), type_variants);
+        let ty = Type::enum_type(def.name.name.clone(), variants);
         let ty = &self
             .types
             .insert(
                 def.name.name.clone(),
                 TypeEntry {
                     ty,
-                    kind: TypeEntryKind::Enum { variants },
                     span: def.name.span(),
                     type_params: vec![],
                     doc: None,
@@ -1398,7 +1313,7 @@ impl Inferencer {
             .or_default();
         for (i, variant) in enum_type.variants.iter().enumerate() {
             match &variant.kind {
-                TypeEnumVariantKind::Unit => {
+                EnumVariantKind::Unit => {
                     // Unit variants are constants
                     namespace.constants.insert(
                         variant.name.to_string(),
@@ -1408,7 +1323,7 @@ impl Inferencer {
                         },
                     );
                 }
-                TypeEnumVariantKind::Tuple(params) => {
+                EnumVariantKind::Tuple(params) => {
                     // Tuple variants are functions
                     namespace.constants.insert(
                         variant.name.to_string(),
@@ -1422,7 +1337,7 @@ impl Inferencer {
                         }),
                     );
                 }
-                TypeEnumVariantKind::Struct(_fields) => {
+                EnumVariantKind::Struct(_fields) => {
                     // Struct variants are constructors
                     namespace.struct_constructors.insert(
                         variant.name.to_string(),
@@ -1444,7 +1359,6 @@ impl Inferencer {
             def.name.to_string(),
             TypeEntry {
                 ty,
-                kind: TypeEntryKind::Handle,
                 span: def.name.span(),
                 type_params: vec![],
                 doc: None,
@@ -1475,26 +1389,22 @@ impl Inferencer {
     }
 
     fn build_typed_enum(&self, def: &EnumDef) -> Result<TypedEnumDef, TypeError> {
-        let info = self.types.enum_info(&def.name.name).ok_or_else(|| {
-            TypeError::new(
-                TypeErrorKind::UnknownNamespace {
-                    name: def.name.name.clone(),
-                },
-                def.name.span(),
-            )
-        })?;
+        let info = self.types.get(&def.name.name).unwrap();
+        let Type::Enum(EnumType { variants, .. }) = &info.ty else {
+            unreachable!()
+        };
 
-        let variants = info
-            .variants
+        let variants = variants
             .iter()
-            .map(|variant| TypedEnumVariant {
-                name: variant.name.clone(),
+            .zip(&def.variants)
+            .map(|(variant, ast_variant)| TypedEnumVariant {
+                name: ast_variant.name.clone(),
                 payload: match &variant.kind {
-                    EnumVariantInfoKind::Unit => TypedEnumVariantPayload::Unit,
-                    EnumVariantInfoKind::Tuple(payload) => {
+                    EnumVariantKind::Unit => TypedEnumVariantPayload::Unit,
+                    EnumVariantKind::Tuple(payload) => {
                         TypedEnumVariantPayload::Tuple(payload.clone())
                     }
-                    EnumVariantInfoKind::Struct(fields) => TypedEnumVariantPayload::Struct(
+                    EnumVariantKind::Struct(fields) => TypedEnumVariantPayload::Struct(
                         fields
                             .iter()
                             .map(|field| TypedStructField {
@@ -1510,7 +1420,7 @@ impl Inferencer {
         Ok(TypedEnumDef {
             name: def.name.clone(),
             variants,
-            ty: info.ty,
+            ty: info.ty.clone(),
         })
     }
 
@@ -1846,63 +1756,57 @@ impl Inferencer {
         })
     }
 
-    fn lookup_enum_info(&mut self, name: &Identifier) -> Result<EnumInfo, TypeError> {
-        self.instantiate_enum_info(&name.name).ok_or_else(|| {
-            TypeError::new(
-                TypeErrorKind::UnknownNamespace {
-                    name: name.name.clone(),
-                },
-                name.span(),
-            )
-        })
-    }
-
     /// Instantiate a (possibly generic) enum type entry, creating fresh type
     /// variables for any type parameters.
-    fn instantiate_enum_info(&mut self, name: &str) -> Option<EnumInfo> {
+    fn get_type_and_refresh_params(&mut self, name: &str) -> Option<Type> {
         let entry = self.types.get(name)?;
-        let TypeEntryKind::Enum { variants } = &entry.kind else {
-            return None;
-        };
-
         if entry.type_params.is_empty() {
-            return Some(EnumInfo {
-                ty: entry.ty.clone(),
-                variants: variants.clone(),
-            });
+            return Some(entry.ty.clone());
         }
 
-        // Extract data before borrowing self mutably for fresh_var()
-        let type_params = entry.type_params.clone();
-        let template_ty = entry.ty.clone();
-        let template_variants = variants.clone();
+        let fresh_args: Vec<Type> = entry
+            .type_params
+            .clone()
+            .iter()
+            .map(|_| {
+                // Inline fresh_var to avoid borrowing issues
+                let var = TypeVarId(self.next_type_var);
+                self.next_type_var += 1;
+                Type::Var(var)
+            })
+            .collect();
+        Some(Self::apply_type_args(
+            &entry.type_params,
+            &fresh_args,
+            &entry.ty,
+        ))
+    }
 
-        let fresh_args: Vec<Type> = type_params.iter().map(|_| self.fresh_var()).collect();
-        Self::apply_enum_substitution(&type_params, &fresh_args, &template_ty, &template_variants)
+    fn refresh_params(&mut self, ty: &Type, type_params: &[TypeParam]) -> Type {
+        let fresh_args: Vec<Type> = type_params
+            .iter()
+            .map(|_| {
+                // Inline fresh_var to avoid borrowing issues
+                let var = TypeVarId(self.next_type_var);
+                self.next_type_var += 1;
+                Type::Var(var)
+            })
+            .collect();
+        Self::apply_type_args(type_params, &fresh_args, ty)
     }
 
     /// Instantiate a generic enum with explicit type arguments.
-    fn instantiate_enum_with_args(&mut self, name: &str, type_args: &[Type]) -> Option<EnumInfo> {
+    fn get_type_and_apply_args(&mut self, name: &str, type_args: &[Type]) -> Option<Type> {
         let entry = self.types.get(name)?;
-        let TypeEntryKind::Enum { variants } = &entry.kind else {
-            return None;
-        };
-
-        let type_params = entry.type_params.clone();
-        let template_ty = entry.ty.clone();
-        let template_variants = variants.clone();
-
-        Self::apply_enum_substitution(&type_params, type_args, &template_ty, &template_variants)
+        Some(Self::apply_type_args(
+            &entry.type_params,
+            type_args,
+            &entry.ty,
+        ))
     }
 
-    /// Substitute type parameters with concrete args in an enum template,
-    /// returning the instantiated `EnumInfo`.
-    fn apply_enum_substitution(
-        type_params: &[TypeParam],
-        type_args: &[Type],
-        template_ty: &Type,
-        template_variants: &[EnumVariantInfo],
-    ) -> Option<EnumInfo> {
+    /// Substitute type parameters with concrete args in a template.
+    fn apply_type_args(type_params: &[TypeParam], type_args: &[Type], template_ty: &Type) -> Type {
         let mapping: HashMap<TypeVarId, Type> = type_params
             .iter()
             .zip(type_args.iter())
@@ -1913,38 +1817,8 @@ impl Inferencer {
         if let Type::Enum(ref mut enum_type) = ty {
             enum_type.type_args = type_args.to_vec();
         }
-        let variants = Self::substitute_variants(template_variants, &mapping);
 
-        Some(EnumInfo { ty, variants })
-    }
-
-    /// Apply a type variable substitution to enum variant info.
-    fn substitute_variants(
-        variants: &[EnumVariantInfo],
-        mapping: &HashMap<TypeVarId, Type>,
-    ) -> Vec<EnumVariantInfo> {
-        variants
-            .iter()
-            .map(|v| EnumVariantInfo {
-                name: v.name.clone(),
-                kind: match &v.kind {
-                    EnumVariantInfoKind::Unit => EnumVariantInfoKind::Unit,
-                    EnumVariantInfoKind::Tuple(types) => EnumVariantInfoKind::Tuple(
-                        types.iter().map(|t| substitute_type(t, mapping)).collect(),
-                    ),
-                    EnumVariantInfoKind::Struct(fields) => EnumVariantInfoKind::Struct(
-                        fields
-                            .iter()
-                            .map(|f| StructFieldInfo {
-                                name: f.name.clone(),
-                                ty: substitute_type(&f.ty, mapping),
-                                span: f.span,
-                            })
-                            .collect(),
-                    ),
-                },
-            })
-            .collect()
+        ty
     }
 
     fn bind_pattern_identifier(
@@ -1983,9 +1857,31 @@ impl Inferencer {
         value_span: Span,
     ) -> Result<(TypedPattern, Vec<InferenceTree>), TypeError> {
         match pattern {
-            Pattern::Binding(ident) => {
-                self.bind_pattern_identifier(env, ident, expected_ty.clone())?;
-                Ok((TypedPattern::Binding(ident.clone()), Vec::new()))
+            Pattern::Name(name) => {
+                let (last, rest) = name.split_last().unwrap();
+                let ns = self.root.get_child(rest)?;
+                if let Some(constant) = ns.constants.get(last.as_str()) {
+                    // Identifier matching a constant is a test against that constant.
+                    Ok((
+                        TypedPattern::Constant {
+                            name: name.clone(),
+                            variant: constant.variant,
+                        },
+                        Vec::new(),
+                    ))
+                } else if rest.is_empty() {
+                    // Unscoped identifier not matching any constant is a binding.
+                    self.bind_pattern_identifier(env, last, expected_ty.clone())?;
+                    Ok((TypedPattern::Binding(last.clone()), Vec::new()))
+                } else {
+                    // Scoped identifier not matching any constant is not valid.
+                    Err(TypeError::new(
+                        TypeErrorKind::UnknownVariable {
+                            name: last.to_string(),
+                        },
+                        last.span,
+                    ))
+                }
             }
             Pattern::Wildcard { .. } => {
                 // Wildcard matches anything but doesn't introduce a binding
@@ -2010,153 +1906,13 @@ impl Inferencer {
                 )?;
                 Ok((TypedPattern::Literal(value.clone()), vec![unify_trace]))
             }
-            Pattern::EnumVariant {
-                enum_name,
-                variant,
-                payload,
-            } => {
-                let info = self.lookup_enum_info(enum_name)?;
-                let (.., unify_trace) = self.unify(
-                    expected_ty.clone(),
-                    info.ty.clone(),
-                    value_span,
-                    enum_name.span(),
-                    TypeErrorKind::PatternEnumMismatch {
-                        enum_name: enum_name.name.clone(),
-                        found: self.apply_for_display(&expected_ty),
-                    },
-                )?;
-                let mut traces = vec![unify_trace];
-
-                let variant_info = info
-                    .variants
-                    .iter()
-                    .find(|v| v.name.name == variant.name)
-                    .ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::UnknownEnumVariant {
-                                enum_name: enum_name.name.clone(),
-                                variant_name: variant.name.clone(),
-                            },
-                            variant.span(),
-                        )
-                    })?;
-
-                let typed_payload = match (payload, &variant_info.kind) {
-                    (EnumPatternPayload::Unit, EnumVariantInfoKind::Unit) => {
-                        TypedEnumPatternPayload::Unit
-                    }
-                    (EnumPatternPayload::Tuple(patterns), EnumVariantInfoKind::Tuple(expected)) => {
-                        if patterns.len() != expected.len() {
-                            return Err(TypeError::new(
-                                TypeErrorKind::EnumPayloadMismatch {
-                                    enum_name: enum_name.name.clone(),
-                                    variant_name: variant.name.clone(),
-                                    expected: EnumPayloadKind::tuple(expected.len()),
-                                    found: EnumPayloadKind::tuple(patterns.len()),
-                                },
-                                variant.span(),
-                            ));
-                        }
-
-                        let mut typed = Vec::with_capacity(patterns.len());
-                        for (pattern, ty) in patterns.iter().zip(expected.iter()) {
-                            let (typed_pattern, mut pattern_traces) =
-                                self.infer_pattern(env, pattern, ty.clone(), value_span)?;
-                            traces.append(&mut pattern_traces);
-                            typed.push(typed_pattern);
-                        }
-                        TypedEnumPatternPayload::Tuple(typed)
-                    }
-                    (EnumPatternPayload::Struct(fields), EnumVariantInfoKind::Struct(expected)) => {
-                        let mut expected_fields = expected
-                            .iter()
-                            .map(|field| (field.name.name.clone(), field.clone()))
-                            .collect::<HashMap<_, _>>();
-                        let mut seen = HashMap::new();
-                        let mut typed_fields = Vec::with_capacity(fields.len());
-                        let struct_name =
-                            format!("{}::{}", enum_name.name.clone(), variant.name.clone());
-
-                        for field in fields {
-                            if let Some(previous_span) = seen.get(&field.name.name) {
-                                return Err(TypeError::new(
-                                    TypeErrorKind::DuplicateStructLiteralField {
-                                        field_name: field.name.name.clone(),
-                                    },
-                                    field.name.span(),
-                                )
-                                .with_primary_message("duplicate")
-                                .with_secondary(*previous_span, "first used here"));
-                            }
-                            seen.insert(field.name.name.clone(), field.name.span());
-
-                            let expected_field =
-                                expected_fields.remove(&field.name.name).ok_or_else(|| {
-                                    TypeError::new(
-                                        TypeErrorKind::UnknownStructField {
-                                            struct_name: struct_name.clone(),
-                                            field_name: field.name.name.clone(),
-                                        },
-                                        field.name.span(),
-                                    )
-                                })?;
-
-                            let (typed_pattern, mut pattern_traces) = self.infer_pattern(
-                                env,
-                                &field.pattern,
-                                expected_field.ty.clone(),
-                                value_span,
-                            )?;
-                            traces.append(&mut pattern_traces);
-                            typed_fields.push(TypedStructPatternField {
-                                name: field.name.clone(),
-                                pattern: Box::new(typed_pattern),
-                            });
-                        }
-
-                        if let Some((missing_field, _)) = expected_fields.into_iter().next() {
-                            return Err(TypeError::new(
-                                TypeErrorKind::MissingStructField {
-                                    struct_name,
-                                    field_name: missing_field,
-                                },
-                                variant.span(),
-                            ));
-                        }
-
-                        TypedEnumPatternPayload::Struct(typed_fields)
-                    }
-                    (found_payload, expected_kind) => {
-                        return Err(TypeError::new(
-                            TypeErrorKind::EnumPayloadMismatch {
-                                enum_name: enum_name.name.clone(),
-                                variant_name: variant.name.clone(),
-                                expected: enum_payload_kind_from_variant(expected_kind),
-                                found: enum_payload_kind_from_pattern(found_payload),
-                            },
-                            variant.span(),
-                        ));
-                    }
-                };
-
-                Ok((
-                    TypedPattern::EnumVariant {
-                        enum_name: enum_name.clone(),
-                        variant: variant.clone(),
-                        payload: typed_payload,
-                    },
-                    traces,
-                ))
-            }
             Pattern::Struct { name, fields } => {
-                // TODO: support ScopedName here
-                let info = self.lookup_struct_info(std::slice::from_ref(name))?.clone();
+                let info = self.lookup_struct_info(name)?.clone();
                 let (.., unify_trace) = self.unify(
                     expected_ty.clone(),
                     info.ty.clone(),
                     value_span,
-                    name.span(),
+                    name.last().unwrap().span(),
                     TypeErrorKind::GeneralMismatch {
                         expected: info.ty.clone(),
                         found: expected_ty.clone(),
@@ -2190,8 +1946,8 @@ impl Inferencer {
                         expected_fields.remove(field.name.as_str()).ok_or_else(|| {
                             TypeError::new(
                                 TypeErrorKind::UnknownStructField {
-                                    struct_name: name.name.clone(),
-                                    field_name: field.name.name.clone(),
+                                    struct_name: name.last().unwrap().to_string(),
+                                    field_name: field.name.to_string(),
                                 },
                                 field.name.span(),
                             )
@@ -2213,10 +1969,10 @@ impl Inferencer {
                 if let Some((field_name, _)) = expected_fields.into_iter().next() {
                     return Err(TypeError::new(
                         TypeErrorKind::MissingStructField {
-                            struct_name: name.name.clone(),
+                            struct_name: name.last().unwrap().to_string(),
                             field_name,
                         },
-                        name.span(),
+                        name.last().unwrap().span(),
                     ));
                 }
 
@@ -2224,6 +1980,79 @@ impl Inferencer {
                     TypedPattern::Struct {
                         name: name.clone(),
                         fields: typed_fields,
+                    },
+                    traces,
+                ))
+            }
+            Pattern::Tuple { name, fields } => {
+                let (last, rest) = name.split_last().unwrap();
+                let enum_name = rest.last().map(|n| n.as_str()).unwrap_or("<anonymous>>");
+                let ns = self.root.get_child(rest)?;
+                let Some(callee) = ns.constants.get(last.as_str()) else {
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnknownVariable {
+                            name: last.to_string(),
+                        },
+                        last.span,
+                    ));
+                };
+                let Type::Function {
+                    params,
+                    result,
+                    callee,
+                    ..
+                } = &callee.ty
+                else {
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnknownVariable {
+                            name: last.to_string(),
+                        },
+                        last.span,
+                    ));
+                };
+                let Some(StaticFunction::Constructor { .. }) = &callee else {
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnknownEnumVariant {
+                            enum_name: enum_name.to_owned(),
+                            variant_name: last.to_string(),
+                        },
+                        last.span,
+                    ));
+                };
+                if fields.len() != params.len() {
+                    return Err(TypeError::new(
+                        TypeErrorKind::EnumPayloadMismatch {
+                            enum_name: enum_name.to_owned(),
+                            variant_name: last.to_string(),
+                            expected: EnumPayloadKind::tuple(params.len()),
+                            found: EnumPayloadKind::tuple(fields.len()),
+                        },
+                        last.span,
+                    ));
+                }
+                let params = params.clone();
+                let (_, unify_trace) = self.unify(
+                    expected_ty.clone(),
+                    (**result).clone(),
+                    value_span,
+                    last.span,
+                    TypeErrorKind::PatternEnumMismatch {
+                        enum_name: enum_name.to_owned(),
+                        found: self.apply_for_display(&expected_ty),
+                    },
+                )?;
+                let mut traces = vec![unify_trace];
+                let mut typed = Vec::with_capacity(fields.len());
+                for (pattern, ty) in fields.iter().zip(params) {
+                    let (typed_pattern, mut pattern_traces) =
+                        self.infer_pattern(env, pattern, ty, value_span)?;
+                    traces.append(&mut pattern_traces);
+                    typed.push(typed_pattern);
+                }
+                Ok((
+                    TypedPattern::Tuple {
+                        name: name.clone(),
+                        fields: typed,
                     },
                     traces,
                 ))
@@ -4108,8 +3937,7 @@ impl Inferencer {
                 .map(|g| self.type_from_annotation(g))
                 .collect::<Result<_, _>>()?;
 
-            let info = self.instantiate_enum_with_args(name, &type_args).unwrap();
-            return Ok(info.ty);
+            return Ok(self.get_type_and_apply_args(name, &type_args).unwrap());
         }
 
         match annotation.name.name.as_str() {
@@ -4351,7 +4179,7 @@ impl Inferencer {
                 fields: record
                     .fields
                     .iter()
-                    .map(|field| TypeRecordField {
+                    .map(|field| RecordFieldType {
                         name: field.name.clone(),
                         ty: self.apply_for_display(&field.ty),
                     })
@@ -4367,21 +4195,21 @@ impl Inferencer {
                 variants: enum_type
                     .variants
                     .iter()
-                    .map(|variant| TypeEnumVariant {
+                    .map(|variant| EnumVariantType {
                         name: variant.name.clone(),
                         kind: match &variant.kind {
-                            TypeEnumVariantKind::Unit => TypeEnumVariantKind::Unit,
-                            TypeEnumVariantKind::Tuple(payload) => TypeEnumVariantKind::Tuple(
+                            EnumVariantKind::Unit => EnumVariantKind::Unit,
+                            EnumVariantKind::Tuple(payload) => EnumVariantKind::Tuple(
                                 payload
                                     .iter()
                                     .map(|ty| self.apply_for_display(ty))
                                     .collect(),
                             ),
-                            TypeEnumVariantKind::Struct(fields) => TypeEnumVariantKind::Struct(
+                            EnumVariantKind::Struct(fields) => EnumVariantKind::Struct(
                                 fields
                                     .iter()
                                     .map(|field| {
-                                        TypeRecordField::new(
+                                        RecordFieldType::new(
                                             field.name.clone(),
                                             self.apply_for_display(&field.ty),
                                         )
@@ -4424,7 +4252,7 @@ impl Inferencer {
                 fields: record
                     .fields
                     .iter()
-                    .map(|field| TypeRecordField {
+                    .map(|field| RecordFieldType {
                         name: field.name.clone(),
                         ty: self.apply(&field.ty),
                     })
@@ -4435,18 +4263,18 @@ impl Inferencer {
                 variants: enum_type
                     .variants
                     .iter()
-                    .map(|variant| TypeEnumVariant {
+                    .map(|variant| EnumVariantType {
                         name: variant.name.clone(),
                         kind: match &variant.kind {
-                            TypeEnumVariantKind::Unit => TypeEnumVariantKind::Unit,
-                            TypeEnumVariantKind::Tuple(payload) => TypeEnumVariantKind::Tuple(
+                            EnumVariantKind::Unit => EnumVariantKind::Unit,
+                            EnumVariantKind::Tuple(payload) => EnumVariantKind::Tuple(
                                 payload.iter().map(|ty| self.apply(ty)).collect(),
                             ),
-                            TypeEnumVariantKind::Struct(fields) => TypeEnumVariantKind::Struct(
+                            EnumVariantKind::Struct(fields) => EnumVariantKind::Struct(
                                 fields
                                     .iter()
                                     .map(|field| {
-                                        TypeRecordField::new(
+                                        RecordFieldType::new(
                                             field.name.clone(),
                                             self.apply(&field.ty),
                                         )
@@ -4926,8 +4754,8 @@ impl Inferencer {
                         return Err(());
                     }
                     match (&lv.kind, &rv.kind) {
-                        (TypeEnumVariantKind::Unit, TypeEnumVariantKind::Unit) => {}
-                        (TypeEnumVariantKind::Tuple(lt), TypeEnumVariantKind::Tuple(rt))
+                        (EnumVariantKind::Unit, EnumVariantKind::Unit) => {}
+                        (EnumVariantKind::Tuple(lt), EnumVariantKind::Tuple(rt))
                             if lt.len() == rt.len() =>
                         {
                             for (l, r) in lt.iter().zip(rt.iter()) {
@@ -4935,7 +4763,7 @@ impl Inferencer {
                                 children.extend(c);
                             }
                         }
-                        (TypeEnumVariantKind::Struct(lf), TypeEnumVariantKind::Struct(rf))
+                        (EnumVariantKind::Struct(lf), EnumVariantKind::Struct(rf))
                             if lf.len() == rf.len() =>
                         {
                             for (l, r) in lf.iter().zip(rf.iter()) {
@@ -5165,10 +4993,10 @@ impl Inferencer {
                 let mut enum_children = Vec::new();
                 for (left_variant, right_variant) in ls.variants.iter().zip(rs.variants.iter()) {
                     match (&left_variant.kind, &right_variant.kind) {
-                        (TypeEnumVariantKind::Unit, TypeEnumVariantKind::Unit) => {}
+                        (EnumVariantKind::Unit, EnumVariantKind::Unit) => {}
                         (
-                            TypeEnumVariantKind::Tuple(left_payload),
-                            TypeEnumVariantKind::Tuple(right_payload),
+                            EnumVariantKind::Tuple(left_payload),
+                            EnumVariantKind::Tuple(right_payload),
                         ) => {
                             if left_payload.len() != right_payload.len() {
                                 return Err(TypeError::new(error_kind.clone(), left_span)
@@ -5190,8 +5018,8 @@ impl Inferencer {
                             }
                         }
                         (
-                            TypeEnumVariantKind::Struct(left_fields),
-                            TypeEnumVariantKind::Struct(right_fields),
+                            EnumVariantKind::Struct(left_fields),
+                            EnumVariantKind::Struct(right_fields),
                         ) => {
                             if left_fields.len() != right_fields.len()
                                 || left_fields
@@ -5341,7 +5169,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             fields: record
                 .fields
                 .iter()
-                .map(|field| TypeRecordField {
+                .map(|field| RecordFieldType {
                     name: field.name.clone(),
                     ty: substitute_type(&field.ty, mapping),
                 })
@@ -5352,21 +5180,21 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             variants: enum_type
                 .variants
                 .iter()
-                .map(|variant| TypeEnumVariant {
+                .map(|variant| EnumVariantType {
                     name: variant.name.clone(),
                     kind: match &variant.kind {
-                        TypeEnumVariantKind::Unit => TypeEnumVariantKind::Unit,
-                        TypeEnumVariantKind::Tuple(payload) => TypeEnumVariantKind::Tuple(
+                        EnumVariantKind::Unit => EnumVariantKind::Unit,
+                        EnumVariantKind::Tuple(payload) => EnumVariantKind::Tuple(
                             payload
                                 .iter()
                                 .map(|ty| substitute_type(ty, mapping))
                                 .collect(),
                         ),
-                        TypeEnumVariantKind::Struct(fields) => TypeEnumVariantKind::Struct(
+                        EnumVariantKind::Struct(fields) => EnumVariantKind::Struct(
                             fields
                                 .iter()
                                 .map(|field| {
-                                    TypeRecordField::new(
+                                    RecordFieldType::new(
                                         field.name.clone(),
                                         substitute_type(&field.ty, mapping),
                                     )
@@ -5416,11 +5244,11 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
             .variants
             .iter()
             .any(|variant| match &variant.kind {
-                TypeEnumVariantKind::Unit => false,
-                TypeEnumVariantKind::Tuple(payload) => {
+                EnumVariantKind::Unit => false,
+                EnumVariantKind::Tuple(payload) => {
                     payload.iter().any(|ty| occurs_in(var, ty, subst))
                 }
-                TypeEnumVariantKind::Struct(fields) => {
+                EnumVariantKind::Struct(fields) => {
                     fields.iter().any(|field| occurs_in(var, &field.ty, subst))
                 }
             }),
@@ -5465,13 +5293,13 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
         Type::Enum(enum_type) => {
             for variant in &enum_type.variants {
                 match &variant.kind {
-                    TypeEnumVariantKind::Unit => {}
-                    TypeEnumVariantKind::Tuple(payload) => {
+                    EnumVariantKind::Unit => {}
+                    EnumVariantKind::Tuple(payload) => {
                         for ty in payload {
                             collect_free_type_vars(ty, set);
                         }
                     }
-                    TypeEnumVariantKind::Struct(fields) => {
+                    EnumVariantKind::Struct(fields) => {
                         for field in fields {
                             collect_free_type_vars(&field.ty, set);
                         }
@@ -5485,21 +5313,5 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
         | Type::UtxoAny
         | Type::UtxoNamed(_)
         | Type::AbiNarrow(_) => {}
-    }
-}
-
-fn enum_payload_kind_from_variant(kind: &EnumVariantInfoKind) -> EnumPayloadKind {
-    match kind {
-        EnumVariantInfoKind::Unit => EnumPayloadKind::unit(),
-        EnumVariantInfoKind::Tuple(payload) => EnumPayloadKind::tuple(payload.len()),
-        EnumVariantInfoKind::Struct(fields) => EnumPayloadKind::struct_payload(fields.len()),
-    }
-}
-
-fn enum_payload_kind_from_pattern(payload: &EnumPatternPayload) -> EnumPayloadKind {
-    match payload {
-        EnumPatternPayload::Unit => EnumPayloadKind::unit(),
-        EnumPatternPayload::Tuple(patterns) => EnumPayloadKind::tuple(patterns.len()),
-        EnumPatternPayload::Struct(fields) => EnumPayloadKind::struct_payload(fields.len()),
     }
 }

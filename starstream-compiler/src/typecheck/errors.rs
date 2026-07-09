@@ -424,7 +424,7 @@ impl fmt::Display for EnumPayloadKind {
 impl fmt::Display for TypeErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TypeErrorKind::UnknownVariable { name } => write!(f, "unknown name `{name}`"),
+            TypeErrorKind::UnknownVariable { name } => write!(f, "unknown variable `{name}`"),
             TypeErrorKind::Redeclaration { name } => {
                 write!(f, "variable `{name}` is already defined in this scope")
             }

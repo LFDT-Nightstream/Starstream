@@ -14,7 +14,7 @@
 use starstream_types::{
     Span,
     ast::Literal,
-    typed_ast::{TypedEnumPatternPayload, TypedMatchArm, TypedPattern},
+    typed_ast::{TypedMatchArm, TypedPattern},
     types::{EnumType, EnumVariantKind, EnumVariantType, RecordType, Type},
 };
 
@@ -588,45 +588,14 @@ pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
             };
             SimplePat::Literal(simple_lit)
         }
-        TypedPattern::EnumVariant {
-            enum_name,
-            variant,
-            payload,
-        } => {
-            // Find the variant index
-            let (variant_index, variant_info) = match ty {
-                Type::Enum(enum_type) => enum_type
-                    .variants
-                    .iter()
-                    .enumerate()
-                    .find(|(_, v)| v.name == variant.name)
-                    .map(|(i, v)| (i, v.clone())),
-                _ => None,
-            }
-            .unwrap_or((0, EnumVariantType::unit(&variant.name)));
-
-            let args = match payload {
-                TypedEnumPatternPayload::Unit => vec![],
-                TypedEnumPatternPayload::Tuple(patterns) => {
-                    let field_types = match &variant_info.kind {
-                        EnumVariantKind::Tuple(types) => types.clone(),
-                        _ => vec![Type::Unit; patterns.len()],
-                    };
-                    patterns
-                        .iter()
-                        .zip(field_types.iter())
-                        .map(|(p, t)| lower_pattern(p, t))
-                        .collect()
-                }
-                TypedEnumPatternPayload::Struct(fields) => {
-                    // Get field order from the type definition
-                    let type_fields = match &variant_info.kind {
-                        EnumVariantKind::Struct(fs) => fs.clone(),
-                        _ => vec![],
-                    };
-
+        TypedPattern::Struct { name, fields } => {
+            let last_name = name.last().unwrap();
+            // Get field order from the type definition
+            match ty {
+                Type::Record(record) => {
                     // Build args in type-definition order
-                    type_fields
+                    let args = record
+                        .fields
                         .iter()
                         .map(|type_field| {
                             fields
@@ -635,43 +604,102 @@ pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
                                 .map(|f| lower_pattern(&f.pattern, &type_field.ty))
                                 .unwrap_or(SimplePat::Wildcard)
                         })
-                        .collect()
-                }
-            };
+                        .collect();
 
-            SimplePat::Ctor {
-                ctor: Ctor::EnumVariant {
-                    enum_name: enum_name.name.clone(),
-                    variant_index,
-                    variant_name: variant.name.clone(),
-                },
-                args,
+                    SimplePat::Ctor {
+                        ctor: Ctor::Record {
+                            record_name: last_name.to_string(),
+                        },
+                        args,
+                    }
+                }
+                Type::Enum(enum_) => {
+                    // Find the variant index
+                    let (variant_index, variant_info) = enum_
+                        .variants
+                        .iter()
+                        .enumerate()
+                        .find(|(_, v)| v.name == last_name.as_str())
+                        .map(|(i, v)| (i, v.clone()))
+                        .unwrap_or((0, EnumVariantType::unit(last_name.as_str())));
+
+                    // Get field order from the type definition
+                    let type_fields = match &variant_info.kind {
+                        EnumVariantKind::Struct(fs) => fs.clone(),
+                        _ => vec![],
+                    };
+
+                    // Build args in type-definition order
+                    let args = type_fields
+                        .iter()
+                        .map(|type_field| {
+                            fields
+                                .iter()
+                                .find(|f| f.name.as_str() == type_field.name.as_str())
+                                .map(|f| lower_pattern(&f.pattern, &type_field.ty))
+                                .unwrap_or(SimplePat::Wildcard)
+                        })
+                        .collect();
+
+                    SimplePat::Ctor {
+                        ctor: Ctor::EnumVariant {
+                            enum_name: enum_.name.to_string(),
+                            variant_index,
+                            variant_name: last_name.to_string(),
+                        },
+                        args,
+                    }
+                }
+                _ => panic!(),
             }
         }
-        TypedPattern::Struct { name, fields } => {
-            // Get field order from the type definition
-            let type_fields = match ty {
-                Type::Record(record) => record.fields.clone(),
-                _ => vec![],
-            };
-
-            // Build args in type-definition order
-            let args = type_fields
-                .iter()
-                .map(|type_field| {
-                    fields
+        TypedPattern::Tuple { name, fields } => {
+            let last_name = name.last().unwrap();
+            match ty {
+                Type::Enum(enum_) => {
+                    // Find the variant index
+                    let (variant_index, variant_info) = enum_
+                        .variants
                         .iter()
-                        .find(|f| f.name.as_str() == type_field.name.as_str())
-                        .map(|f| lower_pattern(&f.pattern, &type_field.ty))
-                        .unwrap_or(SimplePat::Wildcard)
-                })
-                .collect();
+                        .enumerate()
+                        .find(|(_, v)| v.name == last_name.as_str())
+                        .map(|(i, v)| (i, v.clone()))
+                        .unwrap_or((0, EnumVariantType::unit(last_name.as_str())));
 
-            SimplePat::Ctor {
-                ctor: Ctor::Record {
-                    record_name: name.name.clone(),
+                    let field_types = match &variant_info.kind {
+                        EnumVariantKind::Tuple(types) => types.clone(),
+                        _ => vec![Type::Unit; fields.len()],
+                    };
+                    let args = fields
+                        .iter()
+                        .zip(field_types.iter())
+                        .map(|(p, t)| lower_pattern(p, t))
+                        .collect();
+
+                    SimplePat::Ctor {
+                        ctor: Ctor::EnumVariant {
+                            enum_name: enum_.name.to_string(),
+                            variant_index,
+                            variant_name: last_name.to_string(),
+                        },
+                        args,
+                    }
+                }
+                _ => panic!(),
+            }
+        }
+        TypedPattern::Constant { name, variant } => {
+            let last_name = name.last().unwrap();
+            match ty {
+                Type::Enum(enum_) => SimplePat::Ctor {
+                    ctor: Ctor::EnumVariant {
+                        enum_name: enum_.name.to_string(),
+                        variant_index: *variant,
+                        variant_name: last_name.to_string(),
+                    },
+                    args: vec![],
                 },
-                args,
+                _ => panic!(),
             }
         }
     }
@@ -786,33 +814,22 @@ fn pattern_span(pattern: &TypedPattern) -> Option<Span> {
         TypedPattern::Literal(_) => None, // Literals don't have spans in TypedPattern
         TypedPattern::Struct { name, fields } => {
             // Try to span from name to the last field
-            let start = name.span();
+            let start = name.first().unwrap().span();
             let end = fields
                 .last()
                 .and_then(|f| pattern_span(&f.pattern))
                 .unwrap_or(start);
             Some(merge_spans(start, end))
         }
-        TypedPattern::EnumVariant {
-            enum_name,
-            variant,
-            payload,
-        } => {
-            let start = enum_name.span();
-            // Find the end span: payload fields/patterns, or variant name
-            let end = match payload {
-                TypedEnumPatternPayload::Unit => variant.span_or(start),
-                TypedEnumPatternPayload::Tuple(patterns) => patterns
-                    .last()
-                    .and_then(pattern_span)
-                    .unwrap_or_else(|| variant.span_or(start)),
-                TypedEnumPatternPayload::Struct(fields) => fields
-                    .last()
-                    .and_then(|f| pattern_span(&f.pattern))
-                    .unwrap_or_else(|| variant.span_or(start)),
-            };
+        TypedPattern::Tuple { name, fields } => {
+            let start = name.first().unwrap().span();
+            let end = fields.last().and_then(pattern_span).unwrap_or(start);
             Some(merge_spans(start, end))
         }
+        TypedPattern::Constant { name, variant: _ } => Some(merge_spans(
+            name.first().unwrap().span(),
+            name.last().unwrap().span(),
+        )),
     }
 }
 
