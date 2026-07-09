@@ -703,10 +703,13 @@ struct StructConstructor {
 }
 
 impl StructConstructor {
-    /// Assuming this constructor corresponds to a `struct` type, get that type.
-    fn record_ty(&self) -> &RecordType {
+    fn fields(&self) -> &[RecordFieldType] {
         match &self.ty {
-            Type::Record(r) => r,
+            Type::Record(r) => &r.fields,
+            Type::Enum(enum_) => match &enum_.variants[self.enum_variant].kind {
+                EnumVariantKind::Struct(r) => r,
+                _ => unreachable!(),
+            },
             _ => unreachable!(),
         }
     }
@@ -1372,8 +1375,7 @@ impl Inferencer {
         let info = self.lookup_struct_info(std::slice::from_ref(&def.name))?;
 
         let fields = info
-            .record_ty()
-            .fields
+            .fields()
             .iter()
             .map(|field| TypedStructField {
                 name: field.name.clone(),
@@ -1931,8 +1933,7 @@ impl Inferencer {
                 let mut traces = vec![unify_trace];
 
                 let mut expected_fields = info
-                    .record_ty()
-                    .fields
+                    .fields()
                     .iter()
                     .map(|field| (field.name.to_string(), field.clone()))
                     .collect::<HashMap<_, _>>();
@@ -2953,8 +2954,7 @@ impl Inferencer {
             Expr::StructConstructor { name, fields } => {
                 let info = self.lookup_struct_info(name)?.clone();
                 let mut expected = info
-                    .record_ty()
-                    .fields
+                    .fields()
                     .iter()
                     .map(|field| (field.name.to_string(), (field.ty.clone(), field.name.span)))
                     .collect::<HashMap<_, _>>();
