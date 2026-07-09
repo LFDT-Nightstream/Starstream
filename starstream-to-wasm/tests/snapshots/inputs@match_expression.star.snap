@@ -190,39 +190,41 @@ Program {
                                     },
                                     arms: [
                                         MatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Foo",
-                                                    span: 184..187,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Thing",
-                                                    span: 189..194,
-                                                },
-                                                payload: Tuple(
-                                                    [
-                                                        EnumVariant {
-                                                            enum_name: Identifier {
+                                            pattern: Tuple {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Foo",
+                                                        span: 184..187,
+                                                    },
+                                                    Identifier {
+                                                        name: "Thing",
+                                                        span: 189..194,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    Tuple {
+                                                        name: [
+                                                            Identifier {
                                                                 name: "Thing",
                                                                 span: 195..200,
                                                             },
-                                                            variant: Identifier {
+                                                            Identifier {
                                                                 name: "Wow",
                                                                 span: 202..205,
                                                             },
-                                                            payload: Tuple(
+                                                        ],
+                                                        fields: [
+                                                            Name(
                                                                 [
-                                                                    Binding(
-                                                                        Identifier {
-                                                                            name: "ctx",
-                                                                            span: 206..209,
-                                                                        },
-                                                                    ),
+                                                                    Identifier {
+                                                                        name: "ctx",
+                                                                        span: 206..209,
+                                                                    },
                                                                 ],
                                                             ),
-                                                        },
-                                                    ],
-                                                ),
+                                                        ],
+                                                    },
+                                                ],
                                             },
                                             body: Block {
                                                 statements: [],
@@ -253,25 +255,27 @@ Program {
                                             span: 184..244,
                                         },
                                         MatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Foo",
-                                                    span: 254..257,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Bar",
-                                                    span: 259..262,
-                                                },
-                                                payload: Tuple(
-                                                    [
-                                                        Binding(
+                                            pattern: Tuple {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Foo",
+                                                        span: 254..257,
+                                                    },
+                                                    Identifier {
+                                                        name: "Bar",
+                                                        span: 259..262,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    Name(
+                                                        [
                                                             Identifier {
                                                                 name: "b",
                                                                 span: 263..264,
                                                             },
-                                                        ),
-                                                    ],
-                                                ),
+                                                        ],
+                                                    ),
+                                                ],
                                             },
                                             body: Block {
                                                 statements: [],
@@ -290,25 +294,27 @@ Program {
                                             span: 254..294,
                                         },
                                         MatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Foo",
-                                                    span: 304..307,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Baz",
-                                                    span: 309..312,
-                                                },
-                                                payload: Tuple(
-                                                    [
-                                                        Binding(
+                                            pattern: Tuple {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Foo",
+                                                        span: 304..307,
+                                                    },
+                                                    Identifier {
+                                                        name: "Baz",
+                                                        span: 309..312,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    Name(
+                                                        [
                                                             Identifier {
                                                                 name: "n",
                                                                 span: 313..314,
                                                             },
-                                                        ),
-                                                    ],
-                                                ),
+                                                        ],
+                                                    ),
+                                                ],
                                             },
                                             body: Block {
                                                 statements: [],
@@ -411,25 +417,27 @@ Program {
                                     },
                                     arms: [
                                         MatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Foo",
-                                                    span: 461..464,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Bar",
-                                                    span: 466..469,
-                                                },
-                                                payload: Tuple(
-                                                    [
-                                                        Binding(
+                                            pattern: Tuple {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Foo",
+                                                        span: 461..464,
+                                                    },
+                                                    Identifier {
+                                                        name: "Bar",
+                                                        span: 466..469,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    Name(
+                                                        [
                                                             Identifier {
                                                                 name: "b",
                                                                 span: 470..471,
                                                             },
-                                                        ),
-                                                    ],
-                                                ),
+                                                        ],
+                                                    ),
+                                                ],
                                             },
                                             body: Block {
                                                 statements: [],
@@ -693,43 +701,47 @@ Program {
                                     },
                                     arms: [
                                         MatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Message",
-                                                    span: 810..817,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Point",
-                                                    span: 819..824,
-                                                },
-                                                payload: Struct(
-                                                    [
-                                                        StructPatternField {
-                                                            name: Identifier {
-                                                                name: "x",
-                                                                span: 827..828,
-                                                            },
-                                                            pattern: Binding(
+                                            pattern: Struct {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Message",
+                                                        span: 810..817,
+                                                    },
+                                                    Identifier {
+                                                        name: "Point",
+                                                        span: 819..824,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    StructPatternField {
+                                                        name: Identifier {
+                                                            name: "x",
+                                                            span: 827..828,
+                                                        },
+                                                        pattern: Name(
+                                                            [
                                                                 Identifier {
                                                                     name: "x",
                                                                     span: 827..828,
                                                                 },
-                                                            ),
+                                                            ],
+                                                        ),
+                                                    },
+                                                    StructPatternField {
+                                                        name: Identifier {
+                                                            name: "y",
+                                                            span: 830..831,
                                                         },
-                                                        StructPatternField {
-                                                            name: Identifier {
-                                                                name: "y",
-                                                                span: 830..831,
-                                                            },
-                                                            pattern: Binding(
+                                                        pattern: Name(
+                                                            [
                                                                 Identifier {
                                                                     name: "y",
                                                                     span: 830..831,
                                                                 },
-                                                            ),
-                                                        },
-                                                    ],
-                                                ),
+                                                            ],
+                                                        ),
+                                                    },
+                                                ],
                                             },
                                             body: Block {
                                                 statements: [],
@@ -1492,39 +1504,39 @@ TypedProgram {
                                     },
                                     arms: [
                                         TypedMatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Foo",
-                                                    span: 184..187,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Thing",
-                                                    span: 189..194,
-                                                },
-                                                payload: Tuple(
-                                                    [
-                                                        EnumVariant {
-                                                            enum_name: Identifier {
+                                            pattern: Tuple {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Foo",
+                                                        span: 184..187,
+                                                    },
+                                                    Identifier {
+                                                        name: "Thing",
+                                                        span: 189..194,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    Tuple {
+                                                        name: [
+                                                            Identifier {
                                                                 name: "Thing",
                                                                 span: 195..200,
                                                             },
-                                                            variant: Identifier {
+                                                            Identifier {
                                                                 name: "Wow",
                                                                 span: 202..205,
                                                             },
-                                                            payload: Tuple(
-                                                                [
-                                                                    Binding(
-                                                                        Identifier {
-                                                                            name: "ctx",
-                                                                            span: 206..209,
-                                                                        },
-                                                                    ),
-                                                                ],
+                                                        ],
+                                                        fields: [
+                                                            Binding(
+                                                                Identifier {
+                                                                    name: "ctx",
+                                                                    span: 206..209,
+                                                                },
                                                             ),
-                                                        },
-                                                    ],
-                                                ),
+                                                        ],
+                                                    },
+                                                ],
                                             },
                                             body: TypedBlock {
                                                 statements: [],
@@ -1576,25 +1588,25 @@ TypedProgram {
                                             },
                                         },
                                         TypedMatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Foo",
-                                                    span: 254..257,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Bar",
-                                                    span: 259..262,
-                                                },
-                                                payload: Tuple(
-                                                    [
-                                                        Binding(
-                                                            Identifier {
-                                                                name: "b",
-                                                                span: 263..264,
-                                                            },
-                                                        ),
-                                                    ],
-                                                ),
+                                            pattern: Tuple {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Foo",
+                                                        span: 254..257,
+                                                    },
+                                                    Identifier {
+                                                        name: "Bar",
+                                                        span: 259..262,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    Binding(
+                                                        Identifier {
+                                                            name: "b",
+                                                            span: 263..264,
+                                                        },
+                                                    ),
+                                                ],
                                             },
                                             body: TypedBlock {
                                                 statements: [],
@@ -1616,25 +1628,25 @@ TypedProgram {
                                             },
                                         },
                                         TypedMatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Foo",
-                                                    span: 304..307,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Baz",
-                                                    span: 309..312,
-                                                },
-                                                payload: Tuple(
-                                                    [
-                                                        Binding(
-                                                            Identifier {
-                                                                name: "n",
-                                                                span: 313..314,
-                                                            },
-                                                        ),
-                                                    ],
-                                                ),
+                                            pattern: Tuple {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Foo",
+                                                        span: 304..307,
+                                                    },
+                                                    Identifier {
+                                                        name: "Baz",
+                                                        span: 309..312,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    Binding(
+                                                        Identifier {
+                                                            name: "n",
+                                                            span: 313..314,
+                                                        },
+                                                    ),
+                                                ],
                                             },
                                             body: TypedBlock {
                                                 statements: [],
@@ -1867,25 +1879,25 @@ TypedProgram {
                                     },
                                     arms: [
                                         TypedMatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Foo",
-                                                    span: 461..464,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Bar",
-                                                    span: 466..469,
-                                                },
-                                                payload: Tuple(
-                                                    [
-                                                        Binding(
-                                                            Identifier {
-                                                                name: "b",
-                                                                span: 470..471,
-                                                            },
-                                                        ),
-                                                    ],
-                                                ),
+                                            pattern: Tuple {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Foo",
+                                                        span: 461..464,
+                                                    },
+                                                    Identifier {
+                                                        name: "Bar",
+                                                        span: 466..469,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    Binding(
+                                                        Identifier {
+                                                            name: "b",
+                                                            span: 470..471,
+                                                        },
+                                                    ),
+                                                ],
                                             },
                                             body: TypedBlock {
                                                 statements: [],
@@ -2238,43 +2250,43 @@ TypedProgram {
                                     },
                                     arms: [
                                         TypedMatchArm {
-                                            pattern: EnumVariant {
-                                                enum_name: Identifier {
-                                                    name: "Message",
-                                                    span: 810..817,
-                                                },
-                                                variant: Identifier {
-                                                    name: "Point",
-                                                    span: 819..824,
-                                                },
-                                                payload: Struct(
-                                                    [
-                                                        TypedStructPatternField {
-                                                            name: Identifier {
+                                            pattern: Struct {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Message",
+                                                        span: 810..817,
+                                                    },
+                                                    Identifier {
+                                                        name: "Point",
+                                                        span: 819..824,
+                                                    },
+                                                ],
+                                                fields: [
+                                                    TypedStructPatternField {
+                                                        name: Identifier {
+                                                            name: "x",
+                                                            span: 827..828,
+                                                        },
+                                                        pattern: Binding(
+                                                            Identifier {
                                                                 name: "x",
                                                                 span: 827..828,
                                                             },
-                                                            pattern: Binding(
-                                                                Identifier {
-                                                                    name: "x",
-                                                                    span: 827..828,
-                                                                },
-                                                            ),
+                                                        ),
+                                                    },
+                                                    TypedStructPatternField {
+                                                        name: Identifier {
+                                                            name: "y",
+                                                            span: 830..831,
                                                         },
-                                                        TypedStructPatternField {
-                                                            name: Identifier {
+                                                        pattern: Binding(
+                                                            Identifier {
                                                                 name: "y",
                                                                 span: 830..831,
                                                             },
-                                                            pattern: Binding(
-                                                                Identifier {
-                                                                    name: "y",
-                                                                    span: 830..831,
-                                                                },
-                                                            ),
-                                                        },
-                                                    ],
-                                                ),
+                                                        ),
+                                                    },
+                                                ],
                                             },
                                             body: TypedBlock {
                                                 statements: [],

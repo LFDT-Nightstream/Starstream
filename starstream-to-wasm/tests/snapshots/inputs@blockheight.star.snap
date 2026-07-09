@@ -166,18 +166,18 @@ Program {
 ==== Inference trace ====
 
 T-Fn: reexport => i64
-  T-Expr: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ runtime blockHeight(); ⇒ ()
-    T-Call: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
-      T-Var: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
+  T-Expr: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ runtime blockHeight(); ⇒ ()
+    T-Call: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ runtime blockHeight() ⇒ i64
+      T-Var: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ blockHeight ⇒ runtime fn() -> i64 [blockHeight]
   T-ReturnTail: runtime blockHeight() => i64
-    T-Call: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
-      T-Var: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
+    T-Call: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ runtime blockHeight() ⇒ i64
+      T-Var: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ blockHeight ⇒ runtime fn() -> i64 [blockHeight]
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: second => i64
   T-ReturnTail: reexport() => i64
-    T-Call: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64, second: fn() -> i64} ⊢ reexport() ⇒ i64
-      T-Var: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64, second: fn() -> i64} ⊢ reexport ⇒ fn() -> i64
+    T-Call: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport], second: fn() -> i64 [second]} ⊢ reexport() ⇒ i64
+      T-Var: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport], second: fn() -> i64 [second]} ⊢ reexport ⇒ fn() -> i64 [reexport]
     Unify-Const: i64 ~ i64 => {}
 
 ==== Typed AST ====
@@ -205,7 +205,11 @@ TypedProgram {
                                 result: Int(
                                     I64,
                                 ),
-                                callee: None,
+                                callee: Some(
+                                    Named(
+                                        "blockHeight",
+                                    ),
+                                ),
                             },
                         },
                     ],
@@ -260,7 +264,11 @@ TypedProgram {
                                                     result: Int(
                                                         I64,
                                                     ),
-                                                    callee: None,
+                                                    callee: Some(
+                                                        Named(
+                                                            "blockHeight",
+                                                        ),
+                                                    ),
                                                 },
                                                 kind: ScopedName(
                                                     [
@@ -297,7 +305,11 @@ TypedProgram {
                                                 result: Int(
                                                     I64,
                                                 ),
-                                                callee: None,
+                                                callee: Some(
+                                                    Named(
+                                                        "blockHeight",
+                                                    ),
+                                                ),
                                             },
                                             kind: ScopedName(
                                                 [
@@ -351,7 +363,11 @@ TypedProgram {
                                                 result: Int(
                                                     I64,
                                                 ),
-                                                callee: None,
+                                                callee: Some(
+                                                    Named(
+                                                        "reexport",
+                                                    ),
+                                                ),
                                             },
                                             kind: ScopedName(
                                                 [

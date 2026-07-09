@@ -241,7 +241,7 @@ struct ExportedFunction {
     param_spans: Vec<Span>,
     return_type: Type,
     kind: FunctionKind,
-    name_span: Span,
+    name: Identifier,
 }
 
 impl ExportedFunction {
@@ -251,8 +251,8 @@ impl ExportedFunction {
             param_spans: self.param_spans.clone(),
             result: Box::new(self.return_type.clone()),
             kind: self.kind,
-            name_span: self.name_span,
-            callee: None,
+            name_span: self.name.span,
+            callee: Some(StaticFunction::Named(self.name.to_string())),
         }
     }
 }
@@ -594,7 +594,7 @@ fn collect_exports(typed_definitions: &[TypedDefinition]) -> ModuleExports {
                         param_spans,
                         return_type: func.return_type.clone(),
                         kind: FunctionKind::Normal,
-                        name_span: func.name.span(),
+                        name: func.name.clone(),
                     },
                 );
             }
@@ -3072,7 +3072,7 @@ impl Inferencer {
                             result: Box::new(method.return_type.clone()),
                             kind: FunctionKind::Normal,
                             name_span: method.name.span,
-                            callee: None,
+                            callee: Some(StaticFunction::Named(method.name.to_string())),
                         }
                     }
                     _ => {

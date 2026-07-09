@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::{DUMMY_SPAN, Identifier, Span, TypedAbiMethodDecl};
+use crate::{Identifier, Span, TypedAbiMethodDecl};
 
 const TYPE_FORMAT_WIDTH: usize = 80;
 
@@ -271,21 +271,6 @@ impl Type {
             variants,
             type_args: vec![],
         })
-    }
-
-    /// Anonymous pure function type helper.
-    ///
-    /// Use `Type::Function { ... }` directly to set full details.
-    #[must_use]
-    pub fn function(params: Vec<Type>, result: Type) -> Self {
-        Type::Function {
-            params,
-            param_spans: Vec::new(),
-            result: Box::new(result),
-            kind: FunctionKind::Normal,
-            name_span: DUMMY_SPAN,
-            callee: None,
-        }
     }
 }
 

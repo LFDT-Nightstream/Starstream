@@ -10,6 +10,7 @@ use starstream_types::{DUMMY_SPAN, FunctionKind, Type};
 /// Information about a built-in function from the standard library.
 #[derive(Clone, Debug)]
 pub struct BuiltinFunction {
+    pub name: String,
     pub params: Vec<Type>,
     pub return_type: Type,
     pub kind: FunctionKind,
@@ -23,7 +24,7 @@ impl BuiltinFunction {
             result: Box::new(self.return_type.clone()),
             kind: self.kind,
             name_span: DUMMY_SPAN,
-            callee: None,
+            callee: Some(starstream_types::StaticFunction::Named(self.name.clone())),
         }
     }
 }
@@ -100,6 +101,7 @@ impl BuiltinRegistry {
                 params: vec![],
                 return_type: Type::int(),
                 kind: FunctionKind::Runtime,
+                name: "blockHeight".to_string(),
             },
         );
 
@@ -110,6 +112,7 @@ impl BuiltinRegistry {
                 params: vec![],
                 return_type: Type::int(),
                 kind: FunctionKind::Runtime,
+                name: "currentSlot".to_string(),
             },
         );
 
