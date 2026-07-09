@@ -1860,14 +1860,24 @@ impl Inferencer {
             Pattern::Name(name) => {
                 let (last, rest) = name.split_last().unwrap();
                 let ns = self.root.get_child(rest)?;
-                if let Some(constant) = ns.constants.get(last.as_str()) {
+                if let Some(constant) = ns.constants.get(last.as_str()).cloned() {
                     // Identifier matching a constant is a test against that constant.
+                    let (.., unify_trace) = self.unify(
+                        expected_ty.clone(),
+                        constant.ty.clone(),
+                        value_span,
+                        last.span,
+                        TypeErrorKind::PatternEnumMismatch {
+                            enum_name: rest.last().unwrap_or(last).to_string(),
+                            found: expected_ty.clone(),
+                        },
+                    )?;
                     Ok((
                         TypedPattern::Constant {
                             name: name.clone(),
                             variant: constant.variant,
                         },
-                        Vec::new(),
+                        vec![unify_trace],
                     ))
                 } else if rest.is_empty() {
                     // Unscoped identifier not matching any constant is a binding.

@@ -10,7 +10,7 @@ E0025 (https://starstream.nightstream.dev/errors/E0025)
  10 |     match value {
     :           ^^^^^^
  11 |         Second::Beta => {
-    :         ^^^|^^
-    :            `-- enum variant mismatch
+    :                 ^^|^
+    :                   `-- enum variant mismatch
  12 |             ()
     `----

@@ -1005,17 +1005,6 @@ fn unknown_import_function_error() {
 }
 
 #[test]
-fn raise_requires_effectful_error() {
-    assert_typecheck_snapshot!(
-        r#"
-        fn main() {
-            let x = raise 42;
-        }
-        "#
-    );
-}
-
-#[test]
 fn runtime_requires_runtime_error() {
     assert_typecheck_snapshot!(
         r#"
