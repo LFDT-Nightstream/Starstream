@@ -82,7 +82,7 @@ fn eval_block(block: &TypedBlock, locals: &Locals) -> ControlFlow<Value, Value> 
 pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
     ControlFlow::Continue(match &expr.kind {
         // Identifiers
-        TypedExprKind::ScopedName(name) => locals.get(name.last().unwrap().as_str()),
+        TypedExprKind::ScopedName { name, .. } => locals.get(name.last().unwrap().as_str()),
         // Literals
         TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(*i as i64),
         TypedExprKind::Literal(Literal::Boolean(b)) => Value::Boolean(*b),

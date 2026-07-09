@@ -299,14 +299,15 @@ TypedProgram {
                                                                 ],
                                                             },
                                                         ),
-                                                        kind: ScopedName(
-                                                            [
+                                                        kind: ScopedName {
+                                                            name: [
                                                                 Identifier {
                                                                     name: "token",
                                                                     span: 100..105,
                                                                 },
                                                             ],
-                                                        ),
+                                                            constant: None,
+                                                        },
                                                     },
                                                     span: 100..105,
                                                 },
@@ -351,14 +352,15 @@ TypedProgram {
                                                                 ],
                                                             },
                                                         ),
-                                                        kind: ScopedName(
-                                                            [
+                                                        kind: ScopedName {
+                                                            name: [
                                                                 Identifier {
                                                                     name: "token",
                                                                     span: 115..120,
                                                                 },
                                                             ],
-                                                        ),
+                                                            constant: None,
+                                                        },
                                                     },
                                                     span: 115..120,
                                                 },

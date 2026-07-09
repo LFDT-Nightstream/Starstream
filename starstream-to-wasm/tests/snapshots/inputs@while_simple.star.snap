@@ -190,14 +190,15 @@ TypedProgram {
                                                 ty: Int(
                                                     I64,
                                                 ),
-                                                kind: ScopedName(
-                                                    [
+                                                kind: ScopedName {
+                                                    name: [
                                                         Identifier {
                                                             name: "foo",
                                                             span: 51..54,
                                                         },
                                                     ],
-                                                ),
+                                                    constant: None,
+                                                },
                                             },
                                             span: 51..55,
                                         },
@@ -237,14 +238,15 @@ TypedProgram {
                                                             ty: Int(
                                                                 I64,
                                                             ),
-                                                            kind: ScopedName(
-                                                                [
+                                                            kind: ScopedName {
+                                                                name: [
                                                                     Identifier {
                                                                         name: "foo",
                                                                         span: 77..80,
                                                                     },
                                                                 ],
-                                                            ),
+                                                                constant: None,
+                                                            },
                                                         },
                                                         span: 77..81,
                                                     },

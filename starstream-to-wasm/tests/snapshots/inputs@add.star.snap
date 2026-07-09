@@ -158,14 +158,15 @@ TypedProgram {
                                             ty: Int(
                                                 I64,
                                             ),
-                                            kind: ScopedName(
-                                                [
+                                            kind: ScopedName {
+                                                name: [
                                                     Identifier {
                                                         name: "x",
                                                         span: 43..44,
                                                     },
                                                 ],
-                                            ),
+                                                constant: None,
+                                            },
                                         },
                                         span: 43..45,
                                     },
@@ -174,14 +175,15 @@ TypedProgram {
                                             ty: Int(
                                                 I64,
                                             ),
-                                            kind: ScopedName(
-                                                [
+                                            kind: ScopedName {
+                                                name: [
                                                     Identifier {
                                                         name: "y",
                                                         span: 47..48,
                                                     },
                                                 ],
-                                            ),
+                                                constant: None,
+                                            },
                                         },
                                         span: 47..49,
                                     },

@@ -156,14 +156,17 @@ TypedProgram {
                                                                     ),
                                                                 ),
                                                             },
-                                                            kind: ScopedName(
-                                                                [
+                                                            kind: ScopedName {
+                                                                name: [
                                                                     Identifier {
                                                                         name: "HelloEvent",
                                                                         span: 94..104,
                                                                     },
                                                                 ],
-                                                            ),
+                                                                constant: Some(
+                                                                    0,
+                                                                ),
+                                                            },
                                                         },
                                                         span: 94..104,
                                                     },

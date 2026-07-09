@@ -251,14 +251,15 @@ TypedProgram {
                                                 Spanned {
                                                     node: TypedExpr {
                                                         ty: Bool,
-                                                        kind: ScopedName(
-                                                            [
+                                                        kind: ScopedName {
+                                                            name: [
                                                                 Identifier {
                                                                     name: "flag",
                                                                     span: 41..45,
                                                                 },
                                                             ],
-                                                        ),
+                                                            constant: None,
+                                                        },
                                                     },
                                                     span: 41..45,
                                                 },
@@ -339,14 +340,15 @@ TypedProgram {
                                             ty: Int(
                                                 I64,
                                             ),
-                                            kind: ScopedName(
-                                                [
+                                            kind: ScopedName {
+                                                name: [
                                                     Identifier {
                                                         name: "base",
                                                         span: 148..152,
                                                     },
                                                 ],
-                                            ),
+                                                constant: None,
+                                            },
                                         },
                                         span: 148..153,
                                     },

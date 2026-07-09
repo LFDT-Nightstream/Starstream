@@ -270,14 +270,15 @@ TypedProgram {
                                                         ),
                                                     ),
                                                 },
-                                                kind: ScopedName(
-                                                    [
+                                                kind: ScopedName {
+                                                    name: [
                                                         Identifier {
                                                             name: "blockHeight",
                                                             span: 95..106,
                                                         },
                                                     ],
-                                                ),
+                                                    constant: None,
+                                                },
                                             },
                                             span: 95..106,
                                         },
@@ -311,14 +312,15 @@ TypedProgram {
                                                     ),
                                                 ),
                                             },
-                                            kind: ScopedName(
-                                                [
+                                            kind: ScopedName {
+                                                name: [
                                                     Identifier {
                                                         name: "blockHeight",
                                                         span: 122..133,
                                                     },
                                                 ],
-                                            ),
+                                                constant: None,
+                                            },
                                         },
                                         span: 122..133,
                                     },
@@ -369,14 +371,15 @@ TypedProgram {
                                                     ),
                                                 ),
                                             },
-                                            kind: ScopedName(
-                                                [
+                                            kind: ScopedName {
+                                                name: [
                                                     Identifier {
                                                         name: "reexport",
                                                         span: 171..179,
                                                     },
                                                 ],
-                                            ),
+                                                constant: None,
+                                            },
                                         },
                                         span: 171..179,
                                     },

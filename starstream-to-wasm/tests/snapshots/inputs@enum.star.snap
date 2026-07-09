@@ -444,14 +444,15 @@ TypedProgram {
                                                         ),
                                                     ),
                                                 },
-                                                kind: ScopedName(
-                                                    [
+                                                kind: ScopedName {
+                                                    name: [
                                                         Identifier {
                                                             name: "accepts_foo",
                                                             span: 99..110,
                                                         },
                                                     ],
-                                                ),
+                                                    constant: None,
+                                                },
                                             },
                                             span: 99..110,
                                         },
@@ -526,8 +527,8 @@ TypedProgram {
                                                                         },
                                                                     ),
                                                                 },
-                                                                kind: ScopedName(
-                                                                    [
+                                                                kind: ScopedName {
+                                                                    name: [
                                                                         Identifier {
                                                                             name: "Foo",
                                                                             span: 111..114,
@@ -537,7 +538,10 @@ TypedProgram {
                                                                             span: 116..119,
                                                                         },
                                                                     ],
-                                                                ),
+                                                                    constant: Some(
+                                                                        0,
+                                                                    ),
+                                                                },
                                                             },
                                                             span: 111..119,
                                                         },
@@ -630,14 +634,15 @@ TypedProgram {
                                                         ),
                                                     ),
                                                 },
-                                                kind: ScopedName(
-                                                    [
+                                                kind: ScopedName {
+                                                    name: [
                                                         Identifier {
                                                             name: "accepts_foo",
                                                             span: 157..168,
                                                         },
                                                     ],
-                                                ),
+                                                    constant: None,
+                                                },
                                             },
                                             span: 157..168,
                                         },
@@ -714,8 +719,8 @@ TypedProgram {
                                                                         },
                                                                     ),
                                                                 },
-                                                                kind: ScopedName(
-                                                                    [
+                                                                kind: ScopedName {
+                                                                    name: [
                                                                         Identifier {
                                                                             name: "Foo",
                                                                             span: 169..172,
@@ -725,7 +730,10 @@ TypedProgram {
                                                                             span: 174..177,
                                                                         },
                                                                     ],
-                                                                ),
+                                                                    constant: Some(
+                                                                        0,
+                                                                    ),
+                                                                },
                                                             },
                                                             span: 169..177,
                                                         },

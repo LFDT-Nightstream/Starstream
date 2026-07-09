@@ -287,7 +287,11 @@ pub type TypedArguments = Vec<Spanned<TypedExpr>>;
 pub enum TypedExprKind {
     // Primary expressions ----------
     Grouping(Box<Spanned<TypedExpr>>),
-    ScopedName(ScopedName),
+    ScopedName {
+        name: ScopedName,
+        /// Enum variant ID if constant.
+        constant: Option<usize>,
+    },
     Literal(Literal),
     StructConstructor {
         name: ScopedName,
@@ -352,7 +356,10 @@ pub enum TypedExprKind {
 
 impl From<Identifier> for TypedExprKind {
     fn from(value: Identifier) -> Self {
-        TypedExprKind::ScopedName(vec![value])
+        TypedExprKind::ScopedName {
+            name: vec![value],
+            constant: None,
+        }
     }
 }
 

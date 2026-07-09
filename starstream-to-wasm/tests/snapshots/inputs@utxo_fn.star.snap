@@ -197,14 +197,17 @@ TypedProgram {
                                                                     ),
                                                                 ),
                                                             },
-                                                            kind: ScopedName(
-                                                                [
+                                                            kind: ScopedName {
+                                                                name: [
                                                                     Identifier {
                                                                         name: "HelloEvent",
                                                                         span: 89..99,
                                                                     },
                                                                 ],
-                                                            ),
+                                                                constant: Some(
+                                                                    0,
+                                                                ),
+                                                            },
                                                         },
                                                         span: 89..99,
                                                     },
@@ -251,14 +254,15 @@ TypedProgram {
                                                                     ),
                                                                 ),
                                                             },
-                                                            kind: ScopedName(
-                                                                [
+                                                            kind: ScopedName {
+                                                                name: [
                                                                     Identifier {
                                                                         name: "private_fn",
                                                                         span: 144..154,
                                                                     },
                                                                 ],
-                                                            ),
+                                                                constant: None,
+                                                            },
                                                         },
                                                         span: 144..154,
                                                     },

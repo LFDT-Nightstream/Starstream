@@ -1104,7 +1104,7 @@ impl DocumentState {
         self.add_hover_label_with_doc(expr.span, expr.node.ty.to_compact_string(), doc);
 
         match &expr.node.kind {
-            TypedExprKind::ScopedName(name) => {
+            TypedExprKind::ScopedName { name, .. } => {
                 // TODO: handle scoping properly
                 let name = name.last().unwrap();
                 let usage_span = name.span_or(expr.span);
@@ -1265,9 +1265,9 @@ impl DocumentState {
             }
             TypedExprKind::Call { callee, args } => {
                 // Check if callee is an identifier to look up function doc
-                if let TypedExprKind::ScopedName(identifier) = &callee.node.kind {
+                if let TypedExprKind::ScopedName { name, .. } = &callee.node.kind {
                     // TODO: handle scoping properly
-                    let identifier = identifier.last().unwrap();
+                    let identifier = name.last().unwrap();
                     if let Some((signature, doc)) =
                         self.function_docs.get(&identifier.name).cloned()
                     {

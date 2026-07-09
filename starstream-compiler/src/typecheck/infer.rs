@@ -2588,20 +2588,27 @@ impl Inferencer {
         Ok((TypedBlock::new(typed_statements, tail_expression), traces))
     }
 
-    fn lookup_name(&mut self, env: &TypeEnv, name: &ScopedName) -> Result<Type, TypeError> {
+    fn lookup_name(
+        &mut self,
+        env: &TypeEnv,
+        name: &ScopedName,
+    ) -> Result<(Type, Option<usize>), TypeError> {
         let (last, path) = name.split_last().unwrap();
         if path.is_empty()
             && let Some(local) = env.get(last.as_str())
         {
-            return Ok(self.instantiate(&local.scheme));
+            return Ok((self.instantiate(&local.scheme), None));
         }
 
         let ns = self.root.get_child(path)?;
         if let Some(constant) = ns.constants.get(last.as_str()) {
-            Ok(Self::refresh_type_params(
-                &mut self.next_type_var,
-                &constant.ty,
-                &constant.type_params,
+            Ok((
+                Self::refresh_type_params(
+                    &mut self.next_type_var,
+                    &constant.ty,
+                    &constant.type_params,
+                ),
+                Some(constant.variant),
             ))
         } else {
             Err(TypeError::new(
@@ -2659,10 +2666,16 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::ScopedName(name) => {
-                let ty = self.lookup_name(env, name)?;
+                let (ty, constant) = self.lookup_name(env, name)?;
                 let result_repr = self.maybe_string(|| self.format_type(&ty));
                 let typed = Spanned::new(
-                    TypedExpr::new(ty, TypedExprKind::ScopedName(name.clone())),
+                    TypedExpr::new(
+                        ty,
+                        TypedExprKind::ScopedName {
+                            name: name.clone(),
+                            constant,
+                        },
+                    ),
                     expr.span,
                 );
                 let tree = self.make_trace(
@@ -3556,7 +3569,7 @@ impl Inferencer {
         // enforce the one-method-call-per-block constraint.
         if let TypedExprKind::FieldAccess { target, .. } = &typed_callee.node.kind
             && let Type::AbiNarrow(_) = &target.node.ty
-            && let TypedExprKind::ScopedName(name) = &target.node.kind
+            && let TypedExprKind::ScopedName { name, .. } = &target.node.kind
             && name.len() == 1
         {
             for tracker in self.abi_call_trackers.iter_mut().rev() {
@@ -4189,7 +4202,7 @@ impl Inferencer {
     fn apply_expr(&self, expr: &mut Spanned<TypedExpr>) {
         expr.node.ty = self.apply(&expr.node.ty);
         match &mut expr.node.kind {
-            TypedExprKind::Literal(_) | TypedExprKind::ScopedName(_) => {}
+            TypedExprKind::Literal(_) | TypedExprKind::ScopedName { .. } => {}
             TypedExprKind::Unary { expr: inner, .. } => self.apply_expr(inner),
             TypedExprKind::Binary { left, right, .. } => {
                 self.apply_expr(left);

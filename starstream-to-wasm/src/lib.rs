@@ -1930,7 +1930,7 @@ impl Compiler {
         // TODO: Warn on expressions that have no effect.
         match &expr.kind {
             TypedExprKind::Literal(_) => {}
-            TypedExprKind::ScopedName(_) => {}
+            TypedExprKind::ScopedName { .. } => {}
             TypedExprKind::Unary { op: _, expr } => {
                 self.visit_expr_drop(func, bb, locals, expr.span, &expr.node)?;
             }
@@ -2102,8 +2102,8 @@ impl Compiler {
     ) -> Result<()> {
         match &expr.kind {
             // Identifiers
-            TypedExprKind::ScopedName(ident) => {
-                if let [solo] = &ident[..]
+            TypedExprKind::ScopedName { name, constant } => {
+                if let [solo] = &name[..]
                     && let Some(var) = locals.get(solo.as_str())
                 {
                     match var {
@@ -2119,10 +2119,39 @@ impl Compiler {
                         }
                     }
                     Ok(())
+                } else if let Type::Enum(enum_) = &expr.ty
+                    && let Some(variant) = *constant
+                {
+                    assert!(matches!(
+                        enum_.variants[variant].kind,
+                        EnumVariantKind::Unit
+                    ));
+
+                    let mut dest_types = Vec::new();
+                    _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
+                    let mut iter = dest_types.into_iter();
+
+                    // Push the discriminant
+                    assert_eq!(iter.next(), Some(ValType::I32));
+                    func.instructions(bb)
+                        .i32_const(i32::try_from(variant).unwrap());
+
+                    // Push 0 for the rest
+                    for ty in iter {
+                        match ty {
+                            ValType::I32 => func.instructions(bb).i32_const(0),
+                            ValType::I64 => func.instructions(bb).i64_const(0),
+                            ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
+                            ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
+                            _ => todo!(),
+                        };
+                    }
+
+                    Ok(())
                 } else {
                     Err(self.push_error(
-                        ident.last().unwrap().span_or(span),
-                        format!("unknown name {:?}", ident),
+                        name.last().unwrap().span_or(span),
+                        format!("unknown name {}", name.last().unwrap().as_str()),
                     ))
                 }
             }
@@ -2768,7 +2797,7 @@ impl Compiler {
                         let mut iter = dest_types.into_iter();
 
                         // Push the discriminant
-                        assert_eq!(iter.next().unwrap(), ValType::I32);
+                        assert_eq!(iter.next(), Some(ValType::I32));
                         func.instructions(bb)
                             .i32_const(i32::try_from(*enum_variant).unwrap());
 
@@ -2836,7 +2865,7 @@ impl Compiler {
                         let mut iter = dest_types.into_iter();
 
                         // Push the discriminant
-                        assert_eq!(iter.next().unwrap(), ValType::I32);
+                        assert_eq!(iter.next(), Some(ValType::I32));
                         func.instructions(bb)
                             .i32_const(i32::try_from(*variant).unwrap());
 

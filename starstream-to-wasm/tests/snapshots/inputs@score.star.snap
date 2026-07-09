@@ -815,14 +815,17 @@ TypedProgram {
                                                                     ),
                                                                 ),
                                                             },
-                                                            kind: ScopedName(
-                                                                [
+                                                            kind: ScopedName {
+                                                                name: [
                                                                     Identifier {
                                                                         name: "Finish",
                                                                         span: 306..312,
                                                                     },
                                                                 ],
-                                                            ),
+                                                                constant: Some(
+                                                                    0,
+                                                                ),
+                                                            },
                                                         },
                                                         span: 306..312,
                                                     },
@@ -839,14 +842,15 @@ TypedProgram {
                                                                             ty: Int(
                                                                                 U64,
                                                                             ),
-                                                                            kind: ScopedName(
-                                                                                [
+                                                                            kind: ScopedName {
+                                                                                name: [
                                                                                     Identifier {
                                                                                         name: "chips",
                                                                                         span: 313..318,
                                                                                     },
                                                                                 ],
-                                                                            ),
+                                                                                constant: None,
+                                                                            },
                                                                         },
                                                                         span: 313..319,
                                                                     },
@@ -855,14 +859,15 @@ TypedProgram {
                                                                             ty: Int(
                                                                                 U64,
                                                                             ),
-                                                                            kind: ScopedName(
-                                                                                [
+                                                                            kind: ScopedName {
+                                                                                name: [
                                                                                     Identifier {
                                                                                         name: "mult",
                                                                                         span: 321..325,
                                                                                     },
                                                                                 ],
-                                                                            ),
+                                                                                constant: None,
+                                                                            },
                                                                         },
                                                                         span: 321..325,
                                                                     },
@@ -1001,14 +1006,15 @@ TypedProgram {
                                                                 ty: Int(
                                                                     U64,
                                                                 ),
-                                                                kind: ScopedName(
-                                                                    [
+                                                                kind: ScopedName {
+                                                                    name: [
                                                                         Identifier {
                                                                             name: "chips",
                                                                             span: 412..417,
                                                                         },
                                                                     ],
-                                                                ),
+                                                                    constant: None,
+                                                                },
                                                             },
                                                             span: 412..418,
                                                         },
@@ -1017,14 +1023,15 @@ TypedProgram {
                                                                 ty: Int(
                                                                     U64,
                                                                 ),
-                                                                kind: ScopedName(
-                                                                    [
+                                                                kind: ScopedName {
+                                                                    name: [
                                                                         Identifier {
                                                                             name: "chips2",
                                                                             span: 420..426,
                                                                         },
                                                                     ],
-                                                                ),
+                                                                    constant: None,
+                                                                },
                                                             },
                                                             span: 420..426,
                                                         },
@@ -1075,14 +1082,15 @@ TypedProgram {
                                                                 ty: Int(
                                                                     U64,
                                                                 ),
-                                                                kind: ScopedName(
-                                                                    [
+                                                                kind: ScopedName {
+                                                                    name: [
                                                                         Identifier {
                                                                             name: "mult",
                                                                             span: 496..500,
                                                                         },
                                                                     ],
-                                                                ),
+                                                                    constant: None,
+                                                                },
                                                             },
                                                             span: 496..501,
                                                         },
@@ -1091,14 +1099,15 @@ TypedProgram {
                                                                 ty: Int(
                                                                     U64,
                                                                 ),
-                                                                kind: ScopedName(
-                                                                    [
+                                                                kind: ScopedName {
+                                                                    name: [
                                                                         Identifier {
                                                                             name: "mult2",
                                                                             span: 503..508,
                                                                         },
                                                                     ],
-                                                                ),
+                                                                    constant: None,
+                                                                },
                                                             },
                                                             span: 503..508,
                                                         },
@@ -1156,14 +1165,15 @@ TypedProgram {
                                                                             ty: Int(
                                                                                 U64,
                                                                             ),
-                                                                            kind: ScopedName(
-                                                                                [
+                                                                            kind: ScopedName {
+                                                                                name: [
                                                                                     Identifier {
                                                                                         name: "mult",
                                                                                         span: 581..585,
                                                                                     },
                                                                                 ],
-                                                                            ),
+                                                                                constant: None,
+                                                                            },
                                                                         },
                                                                         span: 581..586,
                                                                     },
@@ -1172,14 +1182,15 @@ TypedProgram {
                                                                             ty: Int(
                                                                                 U64,
                                                                             ),
-                                                                            kind: ScopedName(
-                                                                                [
+                                                                            kind: ScopedName {
+                                                                                name: [
                                                                                     Identifier {
                                                                                         name: "mult_pct",
                                                                                         span: 588..596,
                                                                                     },
                                                                                 ],
-                                                                            ),
+                                                                                constant: None,
+                                                                            },
                                                                         },
                                                                         span: 588..597,
                                                                     },

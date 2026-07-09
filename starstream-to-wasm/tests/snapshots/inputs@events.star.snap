@@ -138,14 +138,17 @@ TypedProgram {
                                                         ),
                                                     ),
                                                 },
-                                                kind: ScopedName(
-                                                    [
+                                                kind: ScopedName {
+                                                    name: [
                                                         Identifier {
                                                             name: "Hello",
                                                             span: 60..65,
                                                         },
                                                     ],
-                                                ),
+                                                    constant: Some(
+                                                        0,
+                                                    ),
+                                                },
                                             },
                                             span: 60..65,
                                         },

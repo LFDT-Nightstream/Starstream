@@ -11,7 +11,7 @@ T-Fn: test => ()
 } ⇒ ()
       T-Expr: {test: fn(Utxo) -> () [test], x: TokenAbi} ⊢ x.transfer(100); ⇒ ()
         T-Call: {test: fn(Utxo) -> () [test], x: TokenAbi} ⊢ x.transfer(100) ⇒ bool
-          T-FieldAccess: {test: fn(Utxo) -> () [test], x: TokenAbi} ⊢ x.transfer ⇒ fn(i64) -> bool
+          T-FieldAccess: {test: fn(Utxo) -> () [test], x: TokenAbi} ⊢ x.transfer ⇒ fn(i64) -> bool [transfer]
             T-Var: {test: fn(Utxo) -> () [test], x: TokenAbi} ⊢ x ⇒ TokenAbi
           T-Int: {test: fn(Utxo) -> () [test], x: TokenAbi} ⊢ 100 ⇒ i64
           Unify-Var: i64 ~ i64 => {i64/t3}

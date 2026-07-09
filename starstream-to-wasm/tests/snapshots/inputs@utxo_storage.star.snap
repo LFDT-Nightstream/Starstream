@@ -238,14 +238,15 @@ TypedProgram {
                                                             ty: Int(
                                                                 I64,
                                                             ),
-                                                            kind: ScopedName(
-                                                                [
+                                                            kind: ScopedName {
+                                                                name: [
                                                                     Identifier {
                                                                         name: "counter",
                                                                         span: 141..148,
                                                                     },
                                                                 ],
-                                                            ),
+                                                                constant: None,
+                                                            },
                                                         },
                                                         span: 141..149,
                                                     },
@@ -302,14 +303,15 @@ TypedProgram {
                                                             ty: Int(
                                                                 I64,
                                                             ),
-                                                            kind: ScopedName(
-                                                                [
+                                                            kind: ScopedName {
+                                                                name: [
                                                                     Identifier {
                                                                         name: "multiplier",
                                                                         span: 212..222,
                                                                     },
                                                                 ],
-                                                            ),
+                                                                constant: None,
+                                                            },
                                                         },
                                                         span: 212..223,
                                                     },

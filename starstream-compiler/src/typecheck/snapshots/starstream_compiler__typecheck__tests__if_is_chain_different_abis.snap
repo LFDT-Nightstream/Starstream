@@ -15,11 +15,11 @@ T-Fn: test => ()
 } ⇒ ()
       T-Expr: {test: fn(Utxo) -> () [test], x: AbiA} ⊢ x.foo(); ⇒ ()
         T-Call: {test: fn(Utxo) -> () [test], x: AbiA} ⊢ x.foo() ⇒ i64
-          T-FieldAccess: {test: fn(Utxo) -> () [test], x: AbiA} ⊢ x.foo ⇒ fn() -> i64
+          T-FieldAccess: {test: fn(Utxo) -> () [test], x: AbiA} ⊢ x.foo ⇒ fn() -> i64 [foo]
             T-Var: {test: fn(Utxo) -> () [test], x: AbiA} ⊢ x ⇒ AbiA
       T-Expr: {test: fn(Utxo) -> () [test], x: AbiB} ⊢ x.bar(); ⇒ ()
         T-Call: {test: fn(Utxo) -> () [test], x: AbiB} ⊢ x.bar() ⇒ bool
-          T-FieldAccess: {test: fn(Utxo) -> () [test], x: AbiB} ⊢ x.bar ⇒ fn() -> bool
+          T-FieldAccess: {test: fn(Utxo) -> () [test], x: AbiB} ⊢ x.bar ⇒ fn() -> bool [bar]
             T-Var: {test: fn(Utxo) -> () [test], x: AbiB} ⊢ x ⇒ AbiB
       Unify-Const: () ~ () => {}
       Unify-Const: () ~ () => {}
