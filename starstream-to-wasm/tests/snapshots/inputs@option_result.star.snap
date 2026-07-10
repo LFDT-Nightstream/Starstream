@@ -932,43 +932,45 @@ TypedProgram {
                                 kind: Call {
                                     callee: Spanned {
                                         node: TypedExpr {
-                                            ty: Function {
-                                                kind: Normal,
-                                                name_span: 0..0,
-                                                params: [
-                                                    Int(
-                                                        I64,
+                                            ty: Function(
+                                                FunctionType {
+                                                    kind: Normal,
+                                                    name_span: 0..0,
+                                                    params: [
+                                                        Int(
+                                                            I64,
+                                                        ),
+                                                    ],
+                                                    param_spans: [],
+                                                    result: Enum(
+                                                        EnumType {
+                                                            name: "Option",
+                                                            variants: [
+                                                                EnumVariantType {
+                                                                    name: "None",
+                                                                    kind: Unit,
+                                                                },
+                                                                EnumVariantType {
+                                                                    name: "Some",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                            ],
+                                                            type_args: [],
+                                                        },
                                                     ),
-                                                ],
-                                                param_spans: [],
-                                                result: Enum(
-                                                    EnumType {
-                                                        name: "Option",
-                                                        variants: [
-                                                            EnumVariantType {
-                                                                name: "None",
-                                                                kind: Unit,
-                                                            },
-                                                            EnumVariantType {
-                                                                name: "Some",
-                                                                kind: Tuple(
-                                                                    [
-                                                                        Int(
-                                                                            I64,
-                                                                        ),
-                                                                    ],
-                                                                ),
-                                                            },
-                                                        ],
-                                                        type_args: [],
-                                                    },
-                                                ),
-                                                callee: Some(
-                                                    Constructor {
-                                                        variant: 1,
-                                                    },
-                                                ),
-                                            },
+                                                    callee: Some(
+                                                        Constructor {
+                                                            variant: 1,
+                                                        },
+                                                    ),
+                                                },
+                                            ),
                                             kind: ScopedName {
                                                 name: [
                                                     Identifier {
@@ -1351,47 +1353,49 @@ TypedProgram {
                                 kind: Call {
                                     callee: Spanned {
                                         node: TypedExpr {
-                                            ty: Function {
-                                                kind: Normal,
-                                                name_span: 0..0,
-                                                params: [
-                                                    Int(
-                                                        I64,
+                                            ty: Function(
+                                                FunctionType {
+                                                    kind: Normal,
+                                                    name_span: 0..0,
+                                                    params: [
+                                                        Int(
+                                                            I64,
+                                                        ),
+                                                    ],
+                                                    param_spans: [],
+                                                    result: Enum(
+                                                        EnumType {
+                                                            name: "Result",
+                                                            variants: [
+                                                                EnumVariantType {
+                                                                    name: "Ok",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                                EnumVariantType {
+                                                                    name: "Err",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Bool,
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                            ],
+                                                            type_args: [],
+                                                        },
                                                     ),
-                                                ],
-                                                param_spans: [],
-                                                result: Enum(
-                                                    EnumType {
-                                                        name: "Result",
-                                                        variants: [
-                                                            EnumVariantType {
-                                                                name: "Ok",
-                                                                kind: Tuple(
-                                                                    [
-                                                                        Int(
-                                                                            I64,
-                                                                        ),
-                                                                    ],
-                                                                ),
-                                                            },
-                                                            EnumVariantType {
-                                                                name: "Err",
-                                                                kind: Tuple(
-                                                                    [
-                                                                        Bool,
-                                                                    ],
-                                                                ),
-                                                            },
-                                                        ],
-                                                        type_args: [],
-                                                    },
-                                                ),
-                                                callee: Some(
-                                                    Constructor {
-                                                        variant: 0,
-                                                    },
-                                                ),
-                                            },
+                                                    callee: Some(
+                                                        Constructor {
+                                                            variant: 0,
+                                                        },
+                                                    ),
+                                                },
+                                            ),
                                             kind: ScopedName {
                                                 name: [
                                                     Identifier {
@@ -1506,45 +1510,47 @@ TypedProgram {
                                 kind: Call {
                                     callee: Spanned {
                                         node: TypedExpr {
-                                            ty: Function {
-                                                kind: Normal,
-                                                name_span: 0..0,
-                                                params: [
-                                                    Bool,
-                                                ],
-                                                param_spans: [],
-                                                result: Enum(
-                                                    EnumType {
-                                                        name: "Result",
-                                                        variants: [
-                                                            EnumVariantType {
-                                                                name: "Ok",
-                                                                kind: Tuple(
-                                                                    [
-                                                                        Int(
-                                                                            I64,
-                                                                        ),
-                                                                    ],
-                                                                ),
-                                                            },
-                                                            EnumVariantType {
-                                                                name: "Err",
-                                                                kind: Tuple(
-                                                                    [
-                                                                        Bool,
-                                                                    ],
-                                                                ),
-                                                            },
-                                                        ],
-                                                        type_args: [],
-                                                    },
-                                                ),
-                                                callee: Some(
-                                                    Constructor {
-                                                        variant: 1,
-                                                    },
-                                                ),
-                                            },
+                                            ty: Function(
+                                                FunctionType {
+                                                    kind: Normal,
+                                                    name_span: 0..0,
+                                                    params: [
+                                                        Bool,
+                                                    ],
+                                                    param_spans: [],
+                                                    result: Enum(
+                                                        EnumType {
+                                                            name: "Result",
+                                                            variants: [
+                                                                EnumVariantType {
+                                                                    name: "Ok",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                                EnumVariantType {
+                                                                    name: "Err",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Bool,
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                            ],
+                                                            type_args: [],
+                                                        },
+                                                    ),
+                                                    callee: Some(
+                                                        Constructor {
+                                                            variant: 1,
+                                                        },
+                                                    ),
+                                                },
+                                            ),
                                             kind: ScopedName {
                                                 name: [
                                                     Identifier {
@@ -1970,49 +1976,51 @@ TypedProgram {
                                     kind: Call {
                                         callee: Spanned {
                                             node: TypedExpr {
-                                                ty: Function {
-                                                    kind: Normal,
-                                                    name_span: 111..124,
-                                                    params: [
-                                                        Enum(
-                                                            EnumType {
-                                                                name: "Option",
-                                                                variants: [
-                                                                    EnumVariantType {
-                                                                        name: "None",
-                                                                        kind: Unit,
-                                                                    },
-                                                                    EnumVariantType {
-                                                                        name: "Some",
-                                                                        kind: Tuple(
-                                                                            [
-                                                                                Int(
-                                                                                    I64,
-                                                                                ),
-                                                                            ],
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 111..124,
+                                                        params: [
+                                                            Enum(
+                                                                EnumType {
+                                                                    name: "Option",
+                                                                    variants: [
+                                                                        EnumVariantType {
+                                                                            name: "None",
+                                                                            kind: Unit,
+                                                                        },
+                                                                        EnumVariantType {
+                                                                            name: "Some",
+                                                                            kind: Tuple(
+                                                                                [
+                                                                                    Int(
+                                                                                        I64,
+                                                                                    ),
+                                                                                ],
+                                                                            ),
+                                                                        },
+                                                                    ],
+                                                                    type_args: [
+                                                                        Int(
+                                                                            I64,
                                                                         ),
-                                                                    },
-                                                                ],
-                                                                type_args: [
-                                                                    Int(
-                                                                        I64,
-                                                                    ),
-                                                                ],
-                                                            },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                        ],
+                                                        param_spans: [
+                                                            130..136,
+                                                        ],
+                                                        result: Int(
+                                                            I64,
                                                         ),
-                                                    ],
-                                                    param_spans: [
-                                                        130..136,
-                                                    ],
-                                                    result: Int(
-                                                        I64,
-                                                    ),
-                                                    callee: Some(
-                                                        Named(
-                                                            "unwrap_option",
+                                                        callee: Some(
+                                                            Named(
+                                                                "unwrap_option",
+                                                            ),
                                                         ),
-                                                    ),
-                                                },
+                                                    },
+                                                ),
                                                 kind: ScopedName {
                                                     name: [
                                                         Identifier {
@@ -2057,43 +2065,45 @@ TypedProgram {
                                                     kind: Call {
                                                         callee: Spanned {
                                                             node: TypedExpr {
-                                                                ty: Function {
-                                                                    kind: Normal,
-                                                                    name_span: 3..12,
-                                                                    params: [],
-                                                                    param_spans: [],
-                                                                    result: Enum(
-                                                                        EnumType {
-                                                                            name: "Option",
-                                                                            variants: [
-                                                                                EnumVariantType {
-                                                                                    name: "None",
-                                                                                    kind: Unit,
-                                                                                },
-                                                                                EnumVariantType {
-                                                                                    name: "Some",
-                                                                                    kind: Tuple(
-                                                                                        [
-                                                                                            Int(
-                                                                                                I64,
-                                                                                            ),
-                                                                                        ],
+                                                                ty: Function(
+                                                                    FunctionType {
+                                                                        kind: Normal,
+                                                                        name_span: 3..12,
+                                                                        params: [],
+                                                                        param_spans: [],
+                                                                        result: Enum(
+                                                                            EnumType {
+                                                                                name: "Option",
+                                                                                variants: [
+                                                                                    EnumVariantType {
+                                                                                        name: "None",
+                                                                                        kind: Unit,
+                                                                                    },
+                                                                                    EnumVariantType {
+                                                                                        name: "Some",
+                                                                                        kind: Tuple(
+                                                                                            [
+                                                                                                Int(
+                                                                                                    I64,
+                                                                                                ),
+                                                                                            ],
+                                                                                        ),
+                                                                                    },
+                                                                                ],
+                                                                                type_args: [
+                                                                                    Int(
+                                                                                        I64,
                                                                                     ),
-                                                                                },
-                                                                            ],
-                                                                            type_args: [
-                                                                                Int(
-                                                                                    I64,
-                                                                                ),
-                                                                            ],
-                                                                        },
-                                                                    ),
-                                                                    callee: Some(
-                                                                        Named(
-                                                                            "make_some",
+                                                                                ],
+                                                                            },
                                                                         ),
-                                                                    ),
-                                                                },
+                                                                        callee: Some(
+                                                                            Named(
+                                                                                "make_some",
+                                                                            ),
+                                                                        ),
+                                                                    },
+                                                                ),
                                                                 kind: ScopedName {
                                                                     name: [
                                                                         Identifier {
@@ -2126,54 +2136,56 @@ TypedProgram {
                                     kind: Call {
                                         callee: Spanned {
                                             node: TypedExpr {
-                                                ty: Function {
-                                                    kind: Normal,
-                                                    name_span: 406..419,
-                                                    params: [
-                                                        Enum(
-                                                            EnumType {
-                                                                name: "Result",
-                                                                variants: [
-                                                                    EnumVariantType {
-                                                                        name: "Ok",
-                                                                        kind: Tuple(
-                                                                            [
-                                                                                Int(
-                                                                                    I64,
-                                                                                ),
-                                                                            ],
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 406..419,
+                                                        params: [
+                                                            Enum(
+                                                                EnumType {
+                                                                    name: "Result",
+                                                                    variants: [
+                                                                        EnumVariantType {
+                                                                            name: "Ok",
+                                                                            kind: Tuple(
+                                                                                [
+                                                                                    Int(
+                                                                                        I64,
+                                                                                    ),
+                                                                                ],
+                                                                            ),
+                                                                        },
+                                                                        EnumVariantType {
+                                                                            name: "Err",
+                                                                            kind: Tuple(
+                                                                                [
+                                                                                    Bool,
+                                                                                ],
+                                                                            ),
+                                                                        },
+                                                                    ],
+                                                                    type_args: [
+                                                                        Int(
+                                                                            I64,
                                                                         ),
-                                                                    },
-                                                                    EnumVariantType {
-                                                                        name: "Err",
-                                                                        kind: Tuple(
-                                                                            [
-                                                                                Bool,
-                                                                            ],
-                                                                        ),
-                                                                    },
-                                                                ],
-                                                                type_args: [
-                                                                    Int(
-                                                                        I64,
-                                                                    ),
-                                                                    Bool,
-                                                                ],
-                                                            },
+                                                                        Bool,
+                                                                    ],
+                                                                },
+                                                            ),
+                                                        ],
+                                                        param_spans: [
+                                                            425..431,
+                                                        ],
+                                                        result: Int(
+                                                            I64,
                                                         ),
-                                                    ],
-                                                    param_spans: [
-                                                        425..431,
-                                                    ],
-                                                    result: Int(
-                                                        I64,
-                                                    ),
-                                                    callee: Some(
-                                                        Named(
-                                                            "unwrap_result",
+                                                        callee: Some(
+                                                            Named(
+                                                                "unwrap_result",
+                                                            ),
                                                         ),
-                                                    ),
-                                                },
+                                                    },
+                                                ),
                                                 kind: ScopedName {
                                                     name: [
                                                         Identifier {
@@ -2223,48 +2235,50 @@ TypedProgram {
                                                     kind: Call {
                                                         callee: Spanned {
                                                             node: TypedExpr {
-                                                                ty: Function {
-                                                                    kind: Normal,
-                                                                    name_span: 285..292,
-                                                                    params: [],
-                                                                    param_spans: [],
-                                                                    result: Enum(
-                                                                        EnumType {
-                                                                            name: "Result",
-                                                                            variants: [
-                                                                                EnumVariantType {
-                                                                                    name: "Ok",
-                                                                                    kind: Tuple(
-                                                                                        [
-                                                                                            Int(
-                                                                                                I64,
-                                                                                            ),
-                                                                                        ],
+                                                                ty: Function(
+                                                                    FunctionType {
+                                                                        kind: Normal,
+                                                                        name_span: 285..292,
+                                                                        params: [],
+                                                                        param_spans: [],
+                                                                        result: Enum(
+                                                                            EnumType {
+                                                                                name: "Result",
+                                                                                variants: [
+                                                                                    EnumVariantType {
+                                                                                        name: "Ok",
+                                                                                        kind: Tuple(
+                                                                                            [
+                                                                                                Int(
+                                                                                                    I64,
+                                                                                                ),
+                                                                                            ],
+                                                                                        ),
+                                                                                    },
+                                                                                    EnumVariantType {
+                                                                                        name: "Err",
+                                                                                        kind: Tuple(
+                                                                                            [
+                                                                                                Bool,
+                                                                                            ],
+                                                                                        ),
+                                                                                    },
+                                                                                ],
+                                                                                type_args: [
+                                                                                    Int(
+                                                                                        I64,
                                                                                     ),
-                                                                                },
-                                                                                EnumVariantType {
-                                                                                    name: "Err",
-                                                                                    kind: Tuple(
-                                                                                        [
-                                                                                            Bool,
-                                                                                        ],
-                                                                                    ),
-                                                                                },
-                                                                            ],
-                                                                            type_args: [
-                                                                                Int(
-                                                                                    I64,
-                                                                                ),
-                                                                                Bool,
-                                                                            ],
-                                                                        },
-                                                                    ),
-                                                                    callee: Some(
-                                                                        Named(
-                                                                            "make_ok",
+                                                                                    Bool,
+                                                                                ],
+                                                                            },
                                                                         ),
-                                                                    ),
-                                                                },
+                                                                        callee: Some(
+                                                                            Named(
+                                                                                "make_ok",
+                                                                            ),
+                                                                        ),
+                                                                    },
+                                                                ),
                                                                 kind: ScopedName {
                                                                     name: [
                                                                         Identifier {

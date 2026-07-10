@@ -144,18 +144,20 @@ TypedProgram {
                                                 kind: Call {
                                                     callee: Spanned {
                                                         node: TypedExpr {
-                                                            ty: Function {
-                                                                kind: Emit,
-                                                                name_span: 23..33,
-                                                                params: [],
-                                                                param_spans: [],
-                                                                result: Unit,
-                                                                callee: Some(
-                                                                    Named(
-                                                                        "HelloEvent",
+                                                            ty: Function(
+                                                                FunctionType {
+                                                                    kind: Emit,
+                                                                    name_span: 23..33,
+                                                                    params: [],
+                                                                    param_spans: [],
+                                                                    result: Unit,
+                                                                    callee: Some(
+                                                                        Named(
+                                                                            "HelloEvent",
+                                                                        ),
                                                                     ),
-                                                                ),
-                                                            },
+                                                                },
+                                                            ),
                                                             kind: ScopedName {
                                                                 name: [
                                                                     Identifier {

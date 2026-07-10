@@ -2397,91 +2397,93 @@ TypedProgram {
                                     kind: Call {
                                         callee: Spanned {
                                             node: TypedExpr {
-                                                ty: Function {
-                                                    kind: Normal,
-                                                    name_span: 131..140,
-                                                    params: [
-                                                        Enum(
-                                                            EnumType {
-                                                                name: "Foo",
-                                                                variants: [
-                                                                    EnumVariantType {
-                                                                        name: "Bar",
-                                                                        kind: Tuple(
-                                                                            [
-                                                                                Bool,
-                                                                            ],
-                                                                        ),
-                                                                    },
-                                                                    EnumVariantType {
-                                                                        name: "Baz",
-                                                                        kind: Tuple(
-                                                                            [
-                                                                                Int(
-                                                                                    I64,
-                                                                                ),
-                                                                            ],
-                                                                        ),
-                                                                    },
-                                                                    EnumVariantType {
-                                                                        name: "Thing",
-                                                                        kind: Tuple(
-                                                                            [
-                                                                                Enum(
-                                                                                    EnumType {
-                                                                                        name: "Thing",
-                                                                                        variants: [
-                                                                                            EnumVariantType {
-                                                                                                name: "Wow",
-                                                                                                kind: Tuple(
-                                                                                                    [
-                                                                                                        Record(
-                                                                                                            RecordType {
-                                                                                                                name: "Ctx",
-                                                                                                                fields: [
-                                                                                                                    RecordFieldType {
-                                                                                                                        name: Identifier {
-                                                                                                                            name: "x",
-                                                                                                                            span: 17..18,
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 131..140,
+                                                        params: [
+                                                            Enum(
+                                                                EnumType {
+                                                                    name: "Foo",
+                                                                    variants: [
+                                                                        EnumVariantType {
+                                                                            name: "Bar",
+                                                                            kind: Tuple(
+                                                                                [
+                                                                                    Bool,
+                                                                                ],
+                                                                            ),
+                                                                        },
+                                                                        EnumVariantType {
+                                                                            name: "Baz",
+                                                                            kind: Tuple(
+                                                                                [
+                                                                                    Int(
+                                                                                        I64,
+                                                                                    ),
+                                                                                ],
+                                                                            ),
+                                                                        },
+                                                                        EnumVariantType {
+                                                                            name: "Thing",
+                                                                            kind: Tuple(
+                                                                                [
+                                                                                    Enum(
+                                                                                        EnumType {
+                                                                                            name: "Thing",
+                                                                                            variants: [
+                                                                                                EnumVariantType {
+                                                                                                    name: "Wow",
+                                                                                                    kind: Tuple(
+                                                                                                        [
+                                                                                                            Record(
+                                                                                                                RecordType {
+                                                                                                                    name: "Ctx",
+                                                                                                                    fields: [
+                                                                                                                        RecordFieldType {
+                                                                                                                            name: Identifier {
+                                                                                                                                name: "x",
+                                                                                                                                span: 17..18,
+                                                                                                                            },
+                                                                                                                            ty: Int(
+                                                                                                                                I64,
+                                                                                                                            ),
                                                                                                                         },
-                                                                                                                        ty: Int(
-                                                                                                                            I64,
-                                                                                                                        ),
-                                                                                                                    },
-                                                                                                                ],
-                                                                                                            },
-                                                                                                        ),
-                                                                                                    ],
-                                                                                                ),
-                                                                                            },
-                                                                                            EnumVariantType {
-                                                                                                name: "Who",
-                                                                                                kind: Unit,
-                                                                                            },
-                                                                                        ],
-                                                                                        type_args: [],
-                                                                                    },
-                                                                                ),
-                                                                            ],
-                                                                        ),
-                                                                    },
-                                                                ],
-                                                                type_args: [],
-                                                            },
+                                                                                                                    ],
+                                                                                                                },
+                                                                                                            ),
+                                                                                                        ],
+                                                                                                    ),
+                                                                                                },
+                                                                                                EnumVariantType {
+                                                                                                    name: "Who",
+                                                                                                    kind: Unit,
+                                                                                                },
+                                                                                            ],
+                                                                                            type_args: [],
+                                                                                        },
+                                                                                    ),
+                                                                                ],
+                                                                            ),
+                                                                        },
+                                                                    ],
+                                                                    type_args: [],
+                                                                },
+                                                            ),
+                                                        ],
+                                                        param_spans: [
+                                                            146..149,
+                                                        ],
+                                                        result: Int(
+                                                            I64,
                                                         ),
-                                                    ],
-                                                    param_spans: [
-                                                        146..149,
-                                                    ],
-                                                    result: Int(
-                                                        I64,
-                                                    ),
-                                                    callee: Some(
-                                                        Named(
-                                                            "match_foo",
+                                                        callee: Some(
+                                                            Named(
+                                                                "match_foo",
+                                                            ),
                                                         ),
-                                                    ),
-                                                },
+                                                    },
+                                                ),
                                                 kind: ScopedName {
                                                     name: [
                                                         Identifier {
@@ -2568,87 +2570,89 @@ TypedProgram {
                                                     kind: Call {
                                                         callee: Spanned {
                                                             node: TypedExpr {
-                                                                ty: Function {
-                                                                    kind: Normal,
-                                                                    name_span: 0..0,
-                                                                    params: [
-                                                                        Bool,
-                                                                    ],
-                                                                    param_spans: [],
-                                                                    result: Enum(
-                                                                        EnumType {
-                                                                            name: "Foo",
-                                                                            variants: [
-                                                                                EnumVariantType {
-                                                                                    name: "Bar",
-                                                                                    kind: Tuple(
-                                                                                        [
-                                                                                            Bool,
-                                                                                        ],
-                                                                                    ),
-                                                                                },
-                                                                                EnumVariantType {
-                                                                                    name: "Baz",
-                                                                                    kind: Tuple(
-                                                                                        [
-                                                                                            Int(
-                                                                                                I64,
-                                                                                            ),
-                                                                                        ],
-                                                                                    ),
-                                                                                },
-                                                                                EnumVariantType {
-                                                                                    name: "Thing",
-                                                                                    kind: Tuple(
-                                                                                        [
-                                                                                            Enum(
-                                                                                                EnumType {
-                                                                                                    name: "Thing",
-                                                                                                    variants: [
-                                                                                                        EnumVariantType {
-                                                                                                            name: "Wow",
-                                                                                                            kind: Tuple(
-                                                                                                                [
-                                                                                                                    Record(
-                                                                                                                        RecordType {
-                                                                                                                            name: "Ctx",
-                                                                                                                            fields: [
-                                                                                                                                RecordFieldType {
-                                                                                                                                    name: Identifier {
-                                                                                                                                        name: "x",
-                                                                                                                                        span: 17..18,
+                                                                ty: Function(
+                                                                    FunctionType {
+                                                                        kind: Normal,
+                                                                        name_span: 0..0,
+                                                                        params: [
+                                                                            Bool,
+                                                                        ],
+                                                                        param_spans: [],
+                                                                        result: Enum(
+                                                                            EnumType {
+                                                                                name: "Foo",
+                                                                                variants: [
+                                                                                    EnumVariantType {
+                                                                                        name: "Bar",
+                                                                                        kind: Tuple(
+                                                                                            [
+                                                                                                Bool,
+                                                                                            ],
+                                                                                        ),
+                                                                                    },
+                                                                                    EnumVariantType {
+                                                                                        name: "Baz",
+                                                                                        kind: Tuple(
+                                                                                            [
+                                                                                                Int(
+                                                                                                    I64,
+                                                                                                ),
+                                                                                            ],
+                                                                                        ),
+                                                                                    },
+                                                                                    EnumVariantType {
+                                                                                        name: "Thing",
+                                                                                        kind: Tuple(
+                                                                                            [
+                                                                                                Enum(
+                                                                                                    EnumType {
+                                                                                                        name: "Thing",
+                                                                                                        variants: [
+                                                                                                            EnumVariantType {
+                                                                                                                name: "Wow",
+                                                                                                                kind: Tuple(
+                                                                                                                    [
+                                                                                                                        Record(
+                                                                                                                            RecordType {
+                                                                                                                                name: "Ctx",
+                                                                                                                                fields: [
+                                                                                                                                    RecordFieldType {
+                                                                                                                                        name: Identifier {
+                                                                                                                                            name: "x",
+                                                                                                                                            span: 17..18,
+                                                                                                                                        },
+                                                                                                                                        ty: Int(
+                                                                                                                                            I64,
+                                                                                                                                        ),
                                                                                                                                     },
-                                                                                                                                    ty: Int(
-                                                                                                                                        I64,
-                                                                                                                                    ),
-                                                                                                                                },
-                                                                                                                            ],
-                                                                                                                        },
-                                                                                                                    ),
-                                                                                                                ],
-                                                                                                            ),
-                                                                                                        },
-                                                                                                        EnumVariantType {
-                                                                                                            name: "Who",
-                                                                                                            kind: Unit,
-                                                                                                        },
-                                                                                                    ],
-                                                                                                    type_args: [],
-                                                                                                },
-                                                                                            ),
-                                                                                        ],
-                                                                                    ),
-                                                                                },
-                                                                            ],
-                                                                            type_args: [],
-                                                                        },
-                                                                    ),
-                                                                    callee: Some(
-                                                                        Constructor {
-                                                                            variant: 0,
-                                                                        },
-                                                                    ),
-                                                                },
+                                                                                                                                ],
+                                                                                                                            },
+                                                                                                                        ),
+                                                                                                                    ],
+                                                                                                                ),
+                                                                                                            },
+                                                                                                            EnumVariantType {
+                                                                                                                name: "Who",
+                                                                                                                kind: Unit,
+                                                                                                            },
+                                                                                                        ],
+                                                                                                        type_args: [],
+                                                                                                    },
+                                                                                                ),
+                                                                                            ],
+                                                                                        ),
+                                                                                    },
+                                                                                ],
+                                                                                type_args: [],
+                                                                            },
+                                                                        ),
+                                                                        callee: Some(
+                                                                            Constructor {
+                                                                                variant: 0,
+                                                                            },
+                                                                        ),
+                                                                    },
+                                                                ),
                                                                 kind: ScopedName {
                                                                     name: [
                                                                         Identifier {

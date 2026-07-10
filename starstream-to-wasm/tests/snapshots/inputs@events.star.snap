@@ -126,18 +126,20 @@ TypedProgram {
                                     kind: Call {
                                         callee: Spanned {
                                             node: TypedExpr {
-                                                ty: Function {
-                                                    kind: Emit,
-                                                    name_span: 20..25,
-                                                    params: [],
-                                                    param_spans: [],
-                                                    result: Unit,
-                                                    callee: Some(
-                                                        Named(
-                                                            "Hello",
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Emit,
+                                                        name_span: 20..25,
+                                                        params: [],
+                                                        param_spans: [],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                "Hello",
+                                                            ),
                                                         ),
-                                                    ),
-                                                },
+                                                    },
+                                                ),
                                                 kind: ScopedName {
                                                     name: [
                                                         Identifier {

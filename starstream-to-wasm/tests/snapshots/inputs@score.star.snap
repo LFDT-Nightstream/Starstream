@@ -797,24 +797,26 @@ TypedProgram {
                                                 kind: Call {
                                                     callee: Spanned {
                                                         node: TypedExpr {
-                                                            ty: Function {
-                                                                kind: Emit,
-                                                                name_span: 132..138,
-                                                                params: [
-                                                                    Int(
-                                                                        U64,
+                                                            ty: Function(
+                                                                FunctionType {
+                                                                    kind: Emit,
+                                                                    name_span: 132..138,
+                                                                    params: [
+                                                                        Int(
+                                                                            U64,
+                                                                        ),
+                                                                    ],
+                                                                    param_spans: [
+                                                                        146..149,
+                                                                    ],
+                                                                    result: Unit,
+                                                                    callee: Some(
+                                                                        Named(
+                                                                            "Finish",
+                                                                        ),
                                                                     ),
-                                                                ],
-                                                                param_spans: [
-                                                                    146..149,
-                                                                ],
-                                                                result: Unit,
-                                                                callee: Some(
-                                                                    Named(
-                                                                        "Finish",
-                                                                    ),
-                                                                ),
-                                                            },
+                                                                },
+                                                            ),
                                                             kind: ScopedName {
                                                                 name: [
                                                                     Identifier {

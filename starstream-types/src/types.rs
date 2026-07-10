@@ -211,15 +211,7 @@ pub enum Type {
     /// conceptually return nothing.
     Unit,
     /// Function type `(params) -> result` with an optional effect.
-    Function {
-        kind: FunctionKind,
-        name_span: Span,
-        params: Vec<Type>,
-        param_spans: Vec<Span>,
-        result: Box<Type>,
-        /// Optional statically-known callee. Otherwise it's a pointer.
-        callee: Option<StaticFunction>,
-    },
+    Function(FunctionType),
     /// Tuple type `(T0, T1, …)`.
     Tuple(Vec<Type>),
     /// Struct/record type with named fields.
@@ -233,6 +225,17 @@ pub enum Type {
     /// The type created by an `abi` definition. Also the type of a Utxo
     /// narrowed via `if x is AbiName`.
     AbiNarrow(Arc<Abi>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FunctionType {
+    pub kind: FunctionKind,
+    pub name_span: Span,
+    pub params: Vec<Type>,
+    pub param_spans: Vec<Span>,
+    pub result: Box<Type>,
+    /// Optional statically-known callee. Otherwise it's a pointer.
+    pub callee: Option<StaticFunction>,
 }
 
 impl Type {
@@ -309,14 +312,14 @@ impl Type {
             Type::Int(w) => RcDoc::text(w.display_name()),
             Type::Bool => RcDoc::text("bool"),
             Type::Unit => RcDoc::text("()"),
-            Type::Function {
+            Type::Function(FunctionType {
                 params: fn_params,
                 param_spans: _,
                 result,
                 kind,
                 name_span: _,
                 callee,
-            } => {
+            }) => {
                 let params_doc = if fn_params.is_empty() {
                     RcDoc::text("()")
                 } else {

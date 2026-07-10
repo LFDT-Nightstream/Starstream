@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use starstream_types::{DUMMY_SPAN, FunctionKind, Type};
+use starstream_types::{DUMMY_SPAN, FunctionKind, FunctionType, Type};
 
 /// Information about a built-in function from the standard library.
 #[derive(Clone, Debug)]
@@ -18,14 +18,14 @@ pub struct BuiltinFunction {
 
 impl BuiltinFunction {
     pub fn to_function_type(&self) -> Type {
-        Type::Function {
+        Type::Function(FunctionType {
             params: self.params.clone(),
             param_spans: Vec::new(),
             result: Box::new(self.return_type.clone()),
             kind: self.kind,
             name_span: DUMMY_SPAN,
             callee: Some(starstream_types::StaticFunction::Named(self.name.clone())),
-        }
+        })
     }
 }
 

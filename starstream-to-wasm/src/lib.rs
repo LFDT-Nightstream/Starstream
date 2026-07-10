@@ -8,9 +8,9 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
-    BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned,
-    StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
-    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
+    BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionType, IntWidth, Literal, Span,
+    Spanned, StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition,
+    TypedEnumDef, TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
     TypedImportDef, TypedImportItems, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
     TypedStatement, TypedStructDef, TypedUtxoDef, TypedUtxoPart, UnaryOp,
 };
@@ -1342,14 +1342,14 @@ impl Compiler {
             };
 
             match &item.ty {
-                Type::Function {
+                Type::Function(FunctionType {
                     params,
                     param_spans: _,
                     result,
                     kind: _,
                     name_span: _,
                     callee: _, // We know it's an import.
-                } => {
+                }) => {
                     let mut core_params = Vec::with_capacity(16);
                     let mut core_results = Vec::with_capacity(1);
                     let span = item.local.span();
@@ -2840,7 +2840,7 @@ impl Compiler {
             | TypedExprKind::Raise { callee, args }
             | TypedExprKind::Runtime { callee, args } => {
                 let callee_span = callee.span;
-                let Type::Function { callee, .. } = &callee.node.ty else {
+                let Type::Function(FunctionType { callee, .. }) = &callee.node.ty else {
                     unreachable!()
                 };
                 match callee {

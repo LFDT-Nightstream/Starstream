@@ -128,18 +128,20 @@ TypedProgram {
                                     kind: Call {
                                         callee: Spanned {
                                             node: TypedExpr {
-                                                ty: Function {
-                                                    kind: Raise,
-                                                    name_span: 21..26,
-                                                    params: [],
-                                                    param_spans: [],
-                                                    result: Unit,
-                                                    callee: Some(
-                                                        Named(
-                                                            "Hello",
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Raise,
+                                                        name_span: 21..26,
+                                                        params: [],
+                                                        param_spans: [],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                "Hello",
+                                                            ),
                                                         ),
-                                                    ),
-                                                },
+                                                    },
+                                                ),
                                                 kind: ScopedName {
                                                     name: [
                                                         Identifier {

@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use starstream_types::{
-    CommentMap,
+    CommentMap, FunctionType,
     ast::{Definition, EnumDef, Program, StructDef},
     typed_ast::{
         TypedDefinition, TypedEnumDef, TypedEnumVariantPayload, TypedFunctionDef, TypedProgram,
@@ -73,14 +73,14 @@ impl From<&Type> for TypeRef {
             Type::Tuple(types) => TypeRef::Tuple {
                 tuple: types.iter().map(TypeRef::from).collect(),
             },
-            Type::Function {
+            Type::Function(FunctionType {
                 params,
                 param_spans: _,
                 result,
                 kind,
                 name_span: _,
                 callee: _,
-            } => TypeRef::Function {
+            }) => TypeRef::Function {
                 params: params.iter().map(TypeRef::from).collect(),
                 return_type: Box::new(TypeRef::from(result.as_ref())),
                 kind: kind.call_keyword(),
