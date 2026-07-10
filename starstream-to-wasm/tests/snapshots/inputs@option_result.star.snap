@@ -839,6 +839,10 @@ TypedProgram {
                         name: "Option",
                         variants: [
                             EnumVariantType {
+                                name: "None",
+                                kind: Unit,
+                            },
+                            EnumVariantType {
                                 name: "Some",
                                 kind: Tuple(
                                     [
@@ -847,10 +851,6 @@ TypedProgram {
                                         ),
                                     ],
                                 ),
-                            },
-                            EnumVariantType {
-                                name: "None",
-                                kind: Unit,
                             },
                         ],
                         type_args: [
@@ -871,6 +871,10 @@ TypedProgram {
                                         name: "Option",
                                         variants: [
                                             EnumVariantType {
+                                                name: "None",
+                                                kind: Unit,
+                                            },
+                                            EnumVariantType {
                                                 name: "Some",
                                                 kind: Tuple(
                                                     [
@@ -879,10 +883,6 @@ TypedProgram {
                                                         ),
                                                     ],
                                                 ),
-                                            },
-                                            EnumVariantType {
-                                                name: "None",
-                                                kind: Unit,
                                             },
                                         ],
                                         type_args: [
@@ -939,6 +939,10 @@ TypedProgram {
                         name: "Option",
                         variants: [
                             EnumVariantType {
+                                name: "None",
+                                kind: Unit,
+                            },
+                            EnumVariantType {
                                 name: "Some",
                                 kind: Tuple(
                                     [
@@ -947,10 +951,6 @@ TypedProgram {
                                         ),
                                     ],
                                 ),
-                            },
-                            EnumVariantType {
-                                name: "None",
-                                kind: Unit,
                             },
                         ],
                         type_args: [
@@ -971,6 +971,10 @@ TypedProgram {
                                         name: "Option",
                                         variants: [
                                             EnumVariantType {
+                                                name: "None",
+                                                kind: Unit,
+                                            },
+                                            EnumVariantType {
                                                 name: "Some",
                                                 kind: Tuple(
                                                     [
@@ -979,10 +983,6 @@ TypedProgram {
                                                         ),
                                                     ],
                                                 ),
-                                            },
-                                            EnumVariantType {
-                                                name: "None",
-                                                kind: Unit,
                                             },
                                         ],
                                         type_args: [
@@ -1029,6 +1029,10 @@ TypedProgram {
                                 name: "Option",
                                 variants: [
                                     EnumVariantType {
+                                        name: "None",
+                                        kind: Unit,
+                                    },
+                                    EnumVariantType {
                                         name: "Some",
                                         kind: Tuple(
                                             [
@@ -1037,10 +1041,6 @@ TypedProgram {
                                                 ),
                                             ],
                                         ),
-                                    },
-                                    EnumVariantType {
-                                        name: "None",
-                                        kind: Unit,
                                     },
                                 ],
                                 type_args: [
@@ -1072,6 +1072,10 @@ TypedProgram {
                                                     name: "Option",
                                                     variants: [
                                                         EnumVariantType {
+                                                            name: "None",
+                                                            kind: Unit,
+                                                        },
+                                                        EnumVariantType {
                                                             name: "Some",
                                                             kind: Tuple(
                                                                 [
@@ -1080,10 +1084,6 @@ TypedProgram {
                                                                     ),
                                                                 ],
                                                             ),
-                                                        },
-                                                        EnumVariantType {
-                                                            name: "None",
-                                                            kind: Unit,
                                                         },
                                                     ],
                                                     type_args: [
@@ -1612,6 +1612,10 @@ TypedProgram {
                                 name: "Option",
                                 variants: [
                                     EnumVariantType {
+                                        name: "None",
+                                        kind: Unit,
+                                    },
+                                    EnumVariantType {
                                         name: "Some",
                                         kind: Tuple(
                                             [
@@ -1620,10 +1624,6 @@ TypedProgram {
                                                 ),
                                             ],
                                         ),
-                                    },
-                                    EnumVariantType {
-                                        name: "None",
-                                        kind: Unit,
                                     },
                                 ],
                                 type_args: [
@@ -1646,6 +1646,10 @@ TypedProgram {
                                         name: "Option",
                                         variants: [
                                             EnumVariantType {
+                                                name: "None",
+                                                kind: Unit,
+                                            },
+                                            EnumVariantType {
                                                 name: "Some",
                                                 kind: Tuple(
                                                     [
@@ -1654,10 +1658,6 @@ TypedProgram {
                                                         ),
                                                     ],
                                                 ),
-                                            },
-                                            EnumVariantType {
-                                                name: "None",
-                                                kind: Unit,
                                             },
                                         ],
                                         type_args: [
@@ -1700,6 +1700,10 @@ TypedProgram {
                                                 name: "Option",
                                                 variants: [
                                                     EnumVariantType {
+                                                        name: "None",
+                                                        kind: Unit,
+                                                    },
+                                                    EnumVariantType {
                                                         name: "Some",
                                                         kind: Tuple(
                                                             [
@@ -1708,10 +1712,6 @@ TypedProgram {
                                                                 ),
                                                             ],
                                                         ),
-                                                    },
-                                                    EnumVariantType {
-                                                        name: "None",
-                                                        kind: Unit,
                                                     },
                                                 ],
                                                 type_args: [
@@ -1785,6 +1785,10 @@ TypedProgram {
                                                                 name: "Option",
                                                                 variants: [
                                                                     EnumVariantType {
+                                                                        name: "None",
+                                                                        kind: Unit,
+                                                                    },
+                                                                    EnumVariantType {
                                                                         name: "Some",
                                                                         kind: Tuple(
                                                                             [
@@ -1793,10 +1797,6 @@ TypedProgram {
                                                                                 ),
                                                                             ],
                                                                         ),
-                                                                    },
-                                                                    EnumVariantType {
-                                                                        name: "None",
-                                                                        kind: Unit,
                                                                     },
                                                                 ],
                                                                 type_args: [
@@ -1833,6 +1833,10 @@ TypedProgram {
                                                             name: "Option",
                                                             variants: [
                                                                 EnumVariantType {
+                                                                    name: "None",
+                                                                    kind: Unit,
+                                                                },
+                                                                EnumVariantType {
                                                                     name: "Some",
                                                                     kind: Tuple(
                                                                         [
@@ -1841,10 +1845,6 @@ TypedProgram {
                                                                             ),
                                                                         ],
                                                                     ),
-                                                                },
-                                                                EnumVariantType {
-                                                                    name: "None",
-                                                                    kind: Unit,
                                                                 },
                                                             ],
                                                             type_args: [
@@ -1865,6 +1865,10 @@ TypedProgram {
                                                                             name: "Option",
                                                                             variants: [
                                                                                 EnumVariantType {
+                                                                                    name: "None",
+                                                                                    kind: Unit,
+                                                                                },
+                                                                                EnumVariantType {
                                                                                     name: "Some",
                                                                                     kind: Tuple(
                                                                                         [
@@ -1873,10 +1877,6 @@ TypedProgram {
                                                                                             ),
                                                                                         ],
                                                                                     ),
-                                                                                },
-                                                                                EnumVariantType {
-                                                                                    name: "None",
-                                                                                    kind: Unit,
                                                                                 },
                                                                             ],
                                                                             type_args: [
@@ -2079,11 +2079,11 @@ TypedProgram {
   (type (;2;) (func (param i32 i64 i32 i64)))
   (export "run" (func 6))
   (func (;0;) (type 0) (result i32 i64)
-    (i32.const 0)
+    (i32.const 1)
     (i64.const 42)
   )
   (func (;1;) (type 0) (result i32 i64)
-    (i32.const 1)
+    (i32.const 0)
     (i64.const 0)
   )
   (func (;2;) (type 1) (param i32 i64) (result i64)
@@ -2097,12 +2097,12 @@ TypedProgram {
         (br_if 0 (;@2;)
           (i32.eq
             (local.get 2)
-            (i32.const 0)))
+            (i32.const 1)))
         (block ;; label = @3
           (br_if 0 (;@3;)
             (i32.eq
               (local.get 2)
-              (i32.const 1)))
+              (i32.const 0)))
           (unreachable))
         (br 1 (;@1;)
           (i64.const 0)))
