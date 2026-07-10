@@ -222,6 +222,10 @@ pub enum Type {
     UtxoAny,
     /// The type created by a `utxo` definition.
     UtxoNamed(String),
+    /// The built-in `Token` type.
+    TokenAny,
+    /// The type created by a `token` definition.
+    TokenNamed(String),
     /// The type created by an `abi` definition. Also the type of a Utxo
     /// narrowed via `if x is AbiName`.
     AbiNarrow(Arc<Abi>),
@@ -377,6 +381,8 @@ impl Type {
             },
             Type::UtxoAny => RcDoc::text("Utxo"),
             Type::UtxoNamed(id) => RcDoc::text(id.to_owned()),
+            Type::TokenAny => RcDoc::text("Token"),
+            Type::TokenNamed(id) => RcDoc::text(id.to_owned()),
             Type::AbiNarrow(abi) => RcDoc::text(abi.name.to_string()),
         }
     }

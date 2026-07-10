@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\ntoken MyToken {\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n}\n"
+---
+E0052 (https://starstream.nightstream.dev/errors/E0052)
+
+  x token `MyToken` must have at least one `mint fn`
+   ,-[test.star:1:7]
+ 1 | token MyToken {
+   :       ^^^^^^^
+ 2 |     impl Token {
+   `----

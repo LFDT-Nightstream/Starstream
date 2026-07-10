@@ -15,13 +15,9 @@ pub trait MemoryTag {
     }
 }
 
-// the tags need to be unique right now
-//
-//
-// this is not a twist and shout limitation, but a limitation in the current
-// middleware, where we just have a single namespace for both ROM and RAM
-// tracing
-const ROM_NAMESPACE: u64 = 0;
+// Memory tags share one namespace across ROM and RAM. Tag 0 is reserved for
+// Nebula's scan sentinel and padding rows.
+const ROM_NAMESPACE: u64 = 1;
 const RAM_NAMESPACE: u64 = 1 << 16;
 
 impl MemoryTag for RomMemoryTag {

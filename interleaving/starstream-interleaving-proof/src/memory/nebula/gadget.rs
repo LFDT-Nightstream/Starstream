@@ -201,12 +201,15 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
             .replace(self.scan_monotonic_last_addr_wires.take().unwrap().values());
 
         if is_last_step {
+            // RS/WS is an order-dependent hash chain over active read/write ops;
+            // this catches drift between tracing and circuit synthesis order.
             assert!(
                 self.ic_rs_ws
                     .comm
                     .iter()
                     .zip(self.expected_rw_ws.comm.iter())
-                    .all(|(x, y)| x == y)
+                    .all(|(x, y)| x == y),
+                "nebula ic_rs_ws != expected (trace/synth memory-op order or address mismatch)"
             );
 
             assert!(
@@ -309,12 +312,14 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
             mem.1,
         );
 
-        for ((index, val), expected) in vals.iter().enumerate().zip(wv.values.iter()) {
-            assert_eq!(
-                val.value().unwrap(),
-                expected.value().unwrap(),
-                "write doesn't match expectation at index {index}."
-            );
+        if cond.value()? {
+            for ((index, val), expected) in vals.iter().enumerate().zip(wv.values.iter()) {
+                assert_eq!(
+                    val.value().unwrap(),
+                    expected.value().unwrap(),
+                    "write doesn't match expectation at index {index}."
+                );
+            }
         }
 
         Ok(())
@@ -397,6 +402,7 @@ impl NebulaMemoryConstraints<F> {
         )?;
 
         self.step_ic_rs_ws.as_mut().unwrap().increment(
+            cond,
             address,
             rv,
             self.params.unsound_disable_poseidon_commitment,
@@ -413,6 +419,7 @@ impl NebulaMemoryConstraints<F> {
         )?;
 
         self.step_ic_rs_ws.as_mut().unwrap().increment(
+            cond,
             address,
             wv,
             self.params.unsound_disable_poseidon_commitment,
@@ -455,9 +462,16 @@ impl NebulaMemoryConstraints<F> {
 
             *last_addr = address.clone();
 
+            // Tag-0 padding rows keep scan steps uniform without entering the
+            // IS/FS commitment or fingerprint.
+            let active = !address
+                .tag
+                .is_eq(&FpVar::new_constant(cs.clone(), F::from(0))?)?;
+
             let is_entry = is_v.allocate(cs.clone(), max_segment_size)?;
 
             self.step_ic_is_fs.as_mut().unwrap().increment(
+                &active,
                 &address,
                 &is_entry,
                 self.params.unsound_disable_poseidon_commitment,
@@ -466,13 +480,14 @@ impl NebulaMemoryConstraints<F> {
             let fs_entry = fs_v.allocate(cs.clone(), max_segment_size)?;
 
             self.step_ic_is_fs.as_mut().unwrap().increment(
+                &active,
                 &address,
                 &fs_entry,
                 self.params.unsound_disable_poseidon_commitment,
             )?;
 
             Self::hash_avt(
-                &Boolean::constant(true),
+                &active,
                 &mut self.fingerprint_wires.as_mut().unwrap().is,
                 self.c0_wire.as_ref().unwrap(),
                 self.c1_powers_cache.as_ref().unwrap(),
@@ -482,7 +497,7 @@ impl NebulaMemoryConstraints<F> {
             )?;
 
             Self::hash_avt(
-                &Boolean::constant(true),
+                &active,
                 &mut self.fingerprint_wires.as_mut().unwrap().fs,
                 self.c0_wire.as_ref().unwrap(),
                 self.c1_powers_cache.as_ref().unwrap(),
@@ -537,10 +552,13 @@ fn enforce_monotonic_commitment(
 ) -> Result<(), SynthesisError> {
     let same_segment = &address.tag.is_eq(&last_addr.tag)?;
 
+    // Tags are sparse because ROM and RAM occupy disjoint ranges.
+    // Within a segment, addresses must stay contiguous.
     let next_segment = address
         .tag
-        .is_eq(&(&last_addr.tag + FpVar::new_constant(cs.clone(), F::from(1))?))?;
+        .is_cmp(&last_addr.tag, std::cmp::Ordering::Greater, false)?;
 
+    // Tag 0 is reserved for the pre-scan sentinel and padding filler.
     let is_padding = address
         .tag
         .is_eq(&FpVar::new_constant(cs.clone(), F::from(0))?)?;

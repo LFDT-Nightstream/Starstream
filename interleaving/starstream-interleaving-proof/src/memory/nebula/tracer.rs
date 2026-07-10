@@ -7,9 +7,9 @@ use super::NebulaMemoryConstraints;
 use super::ic::ICPlain;
 use crate::F;
 use crate::memory::IVCMemory;
+use crate::memory::Lanes;
 use crate::memory::MemType;
 use crate::memory::nebula::gadget::FingerPrintPreWires;
-use crate::memory::twist_and_shout::Lanes;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
@@ -63,12 +63,9 @@ impl<const SCAN_BATCH_SIZE: usize> NebulaMemory<SCAN_BATCH_SIZE> {
             MemOp::padding()
         };
 
-        // println!(
-        //     "Tracing: incrementing ic_rs_ws with rv: {:?}, wv: {:?}",
-        //     rv, wv
-        // );
         self.ic_rs_ws
             .increment(
+                cond,
                 address,
                 &rv,
                 self.params.unsound_disable_poseidon_commitment,
@@ -76,6 +73,7 @@ impl<const SCAN_BATCH_SIZE: usize> NebulaMemory<SCAN_BATCH_SIZE> {
             .unwrap();
         self.ic_rs_ws
             .increment(
+                cond,
                 address,
                 &wv,
                 self.params.unsound_disable_poseidon_commitment,
@@ -215,11 +213,22 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
         for (addr, is_v) in self.is.iter() {
             let fs_v = fs.get(addr).unwrap_or(is_v);
 
+            // IS/FS entries are always active (one per initialized address).
             ic_is_fs
-                .increment(addr, is_v, self.params.unsound_disable_poseidon_commitment)
+                .increment(
+                    true,
+                    addr,
+                    is_v,
+                    self.params.unsound_disable_poseidon_commitment,
+                )
                 .unwrap();
             ic_is_fs
-                .increment(addr, fs_v, self.params.unsound_disable_poseidon_commitment)
+                .increment(
+                    true,
+                    addr,
+                    fs_v,
+                    self.params.unsound_disable_poseidon_commitment,
+                )
                 .unwrap();
         }
 

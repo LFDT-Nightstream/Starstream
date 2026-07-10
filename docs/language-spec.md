@@ -406,9 +406,13 @@ displayed in IDE hover tooltips above the type information.
   fields (optionally `indexed`), one or more `mint` functions, zero or more
   `burn` functions, an `impl Token { … }` block (with `attach`/`detach`), and
   ordinary functions.
-  - **Parsing only at this time.** Token definitions are recognized by the parser
-    and formatter but are not yet type-checked or compiled, and the global `Token`
-    type (parallel to the root `Utxo` handle) is not yet part of the type system.
+  - `mint fn` items act as this type's constructors (analogous to a `utxo`'s
+    `main fn`); each produces a handle to the newly minted token.
+  - **Work in progress.** Tokens are parsed, type-checked, and compiled to wasm:
+    the token resource, `mint` constructors, `burn` functions, the `impl Token`
+    methods (`attach`/`detach`, generated exactly like a `utxo`'s `impl <Abi>`,
+    since `Token` is a built-in ABI), and storage get/set are all emitted. Still
+    outstanding: `indexed` storage support and runtime support.
 
 No user-defined generics at this time.
 

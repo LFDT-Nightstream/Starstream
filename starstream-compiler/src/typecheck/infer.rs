@@ -8,9 +8,10 @@ use std::{
 
 use starstream_types::{
     Abi, AbiDef, AbiPart, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionKind, FunctionType,
-    GenericTypeDef, IfCondition, IntWidth, Scheme, ScopedName, Span, Spanned, StaticFunction, Type,
-    TypeParam, TypeVarId, TypedEffectDef, TypedTokenDef, TypedUtxoDef, TypedUtxoGlobal,
-    TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    GenericTypeDef, IfCondition, IntWidth, Scheme, ScopedName, Span, Spanned, StaticFunction,
+    TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId, TypedEffectDef, TypedTokenDef,
+    TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
+    UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportDef, ImportItems, ImportSource, Literal, Pattern, Program, Statement, StructDef,
@@ -610,8 +611,9 @@ fn collect_exports(typed_definitions: &[TypedDefinition]) -> ModuleExports {
             TypedDefinition::Utxo(u) => {
                 exports.types.insert(u.name.name.clone());
             }
-            // `token` is parse-only for now: no exported type yet.
-            TypedDefinition::Token(_) => {}
+            TypedDefinition::Token(t) => {
+                exports.types.insert(t.name.name.clone());
+            }
             TypedDefinition::Import(_) => {}
             TypedDefinition::Contract => {}
         }
@@ -772,7 +774,32 @@ impl Inferencer {
             has_yields: false,
         };
         inferencer.register_prelude_types();
+        inferencer.register_builtin_token_abi();
         inferencer
+    }
+
+    /// Register the built-in `Token` ABI that every `token` definition's
+    /// `impl Token { ... }` block is checked against. It declares
+    /// `attach(Utxo) -> ()` and `detach(Utxo) -> ()`. User code may not
+    /// redeclare `abi Token` (guarded in `register_abi`).
+    fn register_builtin_token_abi(&mut self) {
+        let method = |name: &str| TypedAbiMethodDecl {
+            name: Identifier::new(name, DUMMY_SPAN),
+            params: vec![TypedFunctionParam {
+                public: false,
+                name: Identifier::new("utxo", DUMMY_SPAN),
+                ty: Type::UtxoAny,
+            }],
+            return_type: Type::Unit,
+            span: DUMMY_SPAN,
+        };
+        self.abis.insert(
+            "Token".to_owned(),
+            Abi {
+                name: Identifier::new("Token", DUMMY_SPAN),
+                methods: vec![method("attach"), method("detach")],
+            },
+        );
     }
 
     /// Register builtin prelude types (`Option<T>`, `Result<T, E>`).
@@ -939,9 +966,7 @@ impl Inferencer {
                 Definition::Enum(def) => self.register_enum(def)?,
                 Definition::Function(_) => {}
                 Definition::Utxo(def) => self.register_utxo(def)?,
-                // `token` definitions are parse-only for now: no type is
-                // registered yet (the global `Token` type is a follow-up).
-                Definition::Token(_) => {}
+                Definition::Token(def) => self.register_token(def)?,
                 Definition::Abi(def) => self.register_abi(def)?,
             }
         }
@@ -1111,6 +1136,15 @@ impl Inferencer {
     }
 
     fn register_abi(&mut self, def: &AbiDef) -> Result<(), TypeError> {
+        if def.name.name == "Token" {
+            return Err(TypeError::new(
+                TypeErrorKind::ReservedAbiName {
+                    name: def.name.name.clone(),
+                },
+                def.name.span(),
+            ));
+        }
+
         let mut methods = Vec::new();
         for part in &def.parts {
             match part {
@@ -1399,6 +1433,21 @@ impl Inferencer {
 
     fn register_utxo(&mut self, def: &UtxoDef) -> Result<(), TypeError> {
         let ty = Type::UtxoNamed(def.name.to_string());
+        self.types.insert(
+            def.name.to_string(),
+            TypeEntry {
+                ty,
+                span: def.name.span(),
+                type_params: vec![],
+                doc: None,
+                variant_docs: HashMap::new(),
+            },
+        );
+        Ok(())
+    }
+
+    fn register_token(&mut self, def: &TokenDef) -> Result<(), TypeError> {
+        let ty = Type::TokenNamed(def.name.to_string());
         self.types.insert(
             def.name.to_string(),
             TypeEntry {
@@ -1721,6 +1770,155 @@ impl Inferencer {
             },
             self.make_trace("T-Utxo", None, Some(def.name.to_string()), None, || traces),
         ))
+    }
+
+    fn infer_token(
+        &mut self,
+        env: &mut TypeEnv,
+        def: &TokenDef,
+    ) -> Result<(TypedTokenDef, InferenceTree), TypeError> {
+        // Structural pre-pass: validate the shape (at least one `mint fn`,
+        // exactly one `impl Token`) before inferring any bodies, so these
+        // token-specific diagnostics take precedence over body-level errors
+        // such as the duplicate-function clash from two `impl Token` blocks.
+        let mint_count = def
+            .parts
+            .iter()
+            .filter(|part| {
+                matches!(
+                    part,
+                    TokenPart::Function(f)
+                        if f.export == Some(starstream_types::FunctionExport::TokenMint)
+                )
+            })
+            .count();
+        let token_impl_count = def
+            .parts
+            .iter()
+            .filter(
+                |part| matches!(part, TokenPart::AbiImpl { abi, .. } if abi.as_str() == "Token"),
+            )
+            .count();
+
+        if mint_count == 0 {
+            return Err(TypeError::new(
+                TypeErrorKind::TokenMissingMintFn {
+                    name: def.name.to_string(),
+                },
+                def.name.span(),
+            ));
+        }
+        match token_impl_count {
+            0 => {
+                return Err(TypeError::new(
+                    TypeErrorKind::TokenMissingImpl {
+                        name: def.name.to_string(),
+                    },
+                    def.name.span(),
+                ));
+            }
+            1 => {}
+            _ => {
+                return Err(TypeError::new(
+                    TypeErrorKind::TokenDuplicateImpl {
+                        name: def.name.to_string(),
+                    },
+                    def.name.span(),
+                ));
+            }
+        }
+
+        env.push_scope();
+
+        let mut parts = Vec::with_capacity(def.parts.len());
+        let mut traces = Vec::with_capacity(def.parts.len());
+
+        for part in &def.parts {
+            parts.push(match part {
+                TokenPart::Storage(vars) => TypedTokenPart::Storage(
+                    vars.iter()
+                        .map(|var| self.infer_token_global(env, var))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                TokenPart::Function(function) => {
+                    // `mint fn`s implicitly return unit — the caller-facing
+                    // result (a handle to the minted token) is supplied by the
+                    // runtime, so an explicit return type is rejected.
+                    if function.export == Some(starstream_types::FunctionExport::TokenMint)
+                        && function.return_type.is_some()
+                    {
+                        return Err(TypeError::new(
+                            TypeErrorKind::ReturnTypeNotAllowed,
+                            function.name.span(),
+                        ));
+                    }
+                    let (func, trace) = self.infer_function(env, function)?;
+                    traces.push(trace);
+                    TypedTokenPart::Function(func.into())
+                }
+                TokenPart::AbiImpl { abi, parts } => {
+                    let span = abi.span();
+
+                    let parts = parts
+                        .iter()
+                        .map(|function| {
+                            let (func, trace) = self.infer_function(env, function)?;
+                            traces.push(trace);
+                            Ok(func)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    // Assert that the signature sets match. `Token` resolves to
+                    // the built-in ABI; other names must be user-declared ABIs.
+                    let Some(abi_info) = self.abis.get(abi.as_str()) else {
+                        return Err(TypeError::new(
+                            TypeErrorKind::UnknownAbi {
+                                name: abi.to_string(),
+                            },
+                            span,
+                        ));
+                    };
+                    self.check_abi_impl(abi, abi_info, &parts)?;
+
+                    let abi = Type::AbiNarrow(abi_info.clone());
+                    TypedTokenPart::AbiImpl { abi, span, parts }
+                }
+            });
+        }
+
+        env.pop_scope();
+
+        Ok((
+            TypedTokenDef {
+                name: def.name.clone(),
+                parts,
+                ty: Type::TokenNamed(def.name.to_string()),
+            },
+            self.make_trace("T-Token", None, Some(def.name.to_string()), None, || traces),
+        ))
+    }
+
+    fn infer_token_global(
+        &mut self,
+        env: &mut TypeEnv,
+        var: &TokenGlobal,
+    ) -> Result<TypedTokenGlobal, TypeError> {
+        let ty = self.type_from_annotation(&var.ty)?;
+        env.insert(
+            var.name.name.clone(),
+            Binding {
+                decl_span: var.name.span(),
+                mutable: true,
+                scheme: Scheme::monomorphic(ty.clone()),
+                class: BindingClass::Storage,
+                visibility: BindingVisibility::Public,
+            },
+        );
+        Ok(TypedTokenGlobal {
+            indexed: var.indexed,
+            name: var.name.clone(),
+            ty,
+        })
     }
 
     fn check_abi_impl(
@@ -2152,14 +2350,9 @@ impl Inferencer {
                 Ok((TypedDefinition::Utxo(utxo), trace))
             }
             Definition::Token(def) => {
-                // Parse-only for now: lower to a shallow marker without
-                // type-checking the body. Semantics land in a follow-up.
-                let typed = TypedTokenDef {
-                    name: def.name.clone(),
-                    span: def.name.span(),
-                };
+                let (token, trace) = self.infer_token(env, def)?;
 
-                Ok((TypedDefinition::Token(typed), InferenceTree::default()))
+                Ok((TypedDefinition::Token(token), trace))
             }
             Definition::Abi(def) => {
                 let typed = self.build_typed_abi(def)?;
@@ -3827,6 +4020,7 @@ impl Inferencer {
             "()" => Ok(Type::unit()),
             "_" => Ok(self.fresh_var()),
             "Utxo" => Ok(Type::UtxoAny),
+            "Token" => Ok(Type::TokenAny),
             other => match self.types.get(other) {
                 Some(entry) if !entry.type_params.is_empty() => Err(TypeError::new(
                     TypeErrorKind::WrongGenericArity {
@@ -4169,6 +4363,8 @@ impl Inferencer {
             Type::Unit => Type::Unit,
             Type::UtxoAny => Type::UtxoAny,
             Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
+            Type::TokenAny => Type::TokenAny,
+            Type::TokenNamed(id) => Type::TokenNamed(id.clone()),
             Type::AbiNarrow(name) => Type::AbiNarrow(name.clone()),
         }
     }
@@ -4184,12 +4380,38 @@ impl Inferencer {
         match definition {
             TypedDefinition::Function(function) => self.apply_function(function),
             TypedDefinition::Utxo(utxo) => self.apply_utxo(utxo),
+            TypedDefinition::Token(token) => self.apply_token(token),
             TypedDefinition::Import(_)
             | TypedDefinition::Struct(_)
             | TypedDefinition::Enum(_)
             | TypedDefinition::Abi(_)
-            | TypedDefinition::Token(_)
             | TypedDefinition::Contract => {}
+        }
+    }
+
+    fn apply_token(&self, token: &mut TypedTokenDef) {
+        token.ty = self.apply(&token.ty);
+        for part in &mut token.parts {
+            match part {
+                TypedTokenPart::Storage(vars) => {
+                    for var in vars {
+                        var.ty = self.apply(&var.ty);
+                    }
+                }
+                TypedTokenPart::Function(func) => {
+                    self.apply_function(func);
+                }
+                TypedTokenPart::AbiImpl {
+                    abi,
+                    span: _,
+                    parts,
+                } => {
+                    *abi = self.apply(abi);
+                    for part in parts {
+                        self.apply_function(part);
+                    }
+                }
+            }
         }
     }
 
@@ -5089,6 +5311,8 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
         Type::Unit => Type::Unit,
         Type::UtxoAny => Type::UtxoAny,
         Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
+        Type::TokenAny => Type::TokenAny,
+        Type::TokenNamed(id) => Type::TokenNamed(id.clone()),
         Type::AbiNarrow(name) => Type::AbiNarrow(name.clone()),
     }
 }
@@ -5131,6 +5355,8 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
         | Type::Unit
         | Type::UtxoAny
         | Type::UtxoNamed(_)
+        | Type::TokenAny
+        | Type::TokenNamed(_)
         | Type::AbiNarrow(_) => false,
     }
 }
@@ -5186,6 +5412,8 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
         | Type::Unit
         | Type::UtxoAny
         | Type::UtxoNamed(_)
+        | Type::TokenAny
+        | Type::TokenNamed(_)
         | Type::AbiNarrow(_) => {}
     }
 }

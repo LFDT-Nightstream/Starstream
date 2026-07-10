@@ -9,6 +9,7 @@ use starstream_interleaving_spec::{
 };
 use starstream_interleaving_spec::{REF_GET_WIDTH, REF_PUSH_WIDTH, REF_WRITE_WIDTH};
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use wasmtime::component::{
     Component, Instance as ComponentInstance, Linker as ComponentLinker, Val as ComponentVal,
 };
@@ -928,10 +929,23 @@ impl UnprovenTransaction {
     }
 
     pub fn prove(self) -> Result<ProvenTransaction, Error> {
+        self.prove_with_batch_size(
+            NonZeroUsize::new(starstream_interleaving_proof::DEFAULT_BATCH_SIZE).unwrap(),
+        )
+    }
+
+    pub fn prove_with_batch_size(
+        self,
+        batch_size: NonZeroUsize,
+    ) -> Result<ProvenTransaction, Error> {
         let (instance, state, witness) = self.execute()?;
 
-        let proof = starstream_interleaving_proof::prove(instance.clone(), witness.clone())
-            .map_err(|e| Error::RuntimeError(e.to_string()))?;
+        let proof = starstream_interleaving_proof::prove_with_batch_size(
+            instance.clone(),
+            witness.clone(),
+            batch_size,
+        )
+        .map_err(|e| Error::RuntimeError(e.to_string()))?;
 
         trace_mermaid::emit_trace_mermaid(&instance, &state);
 

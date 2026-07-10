@@ -20,8 +20,8 @@ use starstream_compiler::{
     typecheck::{TypeError, TypeWarning, TypecheckOptions, TypecheckSuccess},
 };
 use starstream_types::{
-    CommentMap, DUMMY_SPAN, FunctionDef, GenericTypeDef, Span, Spanned, TypeVarId, TypedUtxoDef,
-    TypedUtxoPart,
+    CommentMap, DUMMY_SPAN, FunctionDef, GenericTypeDef, Span, Spanned, TypeVarId, TypedTokenDef,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
@@ -630,9 +630,7 @@ impl DocumentState {
                 self.collect_enum(definition, untyped_enum, source, doc.clone());
             }
             TypedDefinition::Utxo(definition) => self.collect_utxo(definition, scopes),
-            TypedDefinition::Token(_) => {
-                // `token` is parse-only for now: no symbols/hover yet.
-            }
+            TypedDefinition::Token(definition) => self.collect_token(definition, scopes),
             TypedDefinition::Abi(definition) => {
                 let untyped_abi = untyped.and_then(|u| match &u.node {
                     untyped_ast::Definition::Abi(a) => Some(a),
@@ -884,6 +882,42 @@ impl DocumentState {
                     self.collect_function(function, scopes, None);
                 }
                 TypedUtxoPart::AbiImpl {
+                    abi: _,
+                    span: _,
+                    parts,
+                } => {
+                    for part in parts {
+                        self.collect_function(part, scopes, None);
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_token(
+        &mut self,
+        definition: &TypedTokenDef,
+        scopes: &mut Vec<HashMap<String, Span>>,
+    ) {
+        for part in &definition.parts {
+            match part {
+                TypedTokenPart::Storage(vars) => {
+                    let global = scopes.first_mut().unwrap();
+                    for var in vars {
+                        if let Some(span) = var.name.opt_span() {
+                            global.insert(var.name.name.clone(), span);
+                            self.definition_entries.push(DefinitionEntry {
+                                usage: span,
+                                target: span,
+                            });
+                            self.add_hover_span(span, &var.ty);
+                        }
+                    }
+                }
+                TypedTokenPart::Function(function) => {
+                    self.collect_function(function, scopes, None);
+                }
+                TypedTokenPart::AbiImpl {
                     abi: _,
                     span: _,
                     parts,
@@ -1680,8 +1714,24 @@ impl DocumentState {
                         }
                     }
                 }
-                untyped_ast::Definition::Token(_) => {
-                    // `token` is parse-only for now: no annotations collected yet.
+                untyped_ast::Definition::Token(definition) => {
+                    for part in &definition.parts {
+                        match part {
+                            untyped_ast::TokenPart::Storage(vars) => {
+                                for var in vars {
+                                    self.collect_type_annotation_node(&var.ty);
+                                }
+                            }
+                            untyped_ast::TokenPart::Function(function) => {
+                                self.collect_type_annotation_function(function);
+                            }
+                            untyped_ast::TokenPart::AbiImpl { abi: _, parts } => {
+                                for part in parts {
+                                    self.collect_type_annotation_function(part);
+                                }
+                            }
+                        }
+                    }
                 }
                 untyped_ast::Definition::Import(_) => {
                     // Imports don't have type annotations to collect
@@ -1964,13 +2014,12 @@ impl DocumentState {
             .definitions
             .iter()
             .filter_map(|definition| match definition {
-                TypedDefinition::Import(_)
-                | TypedDefinition::Token(_)
-                | TypedDefinition::Contract => None,
+                TypedDefinition::Import(_) | TypedDefinition::Contract => None,
                 TypedDefinition::Function(function) => self.function_symbol(function),
                 TypedDefinition::Struct(definition) => self.struct_symbol(definition),
                 TypedDefinition::Enum(definition) => self.enum_symbol(definition),
                 TypedDefinition::Utxo(definition) => self.utxo_symbol(definition),
+                TypedDefinition::Token(definition) => self.token_symbol(definition),
                 TypedDefinition::Abi(definition) => self.abi_symbol(definition),
             })
             .collect()
@@ -2131,6 +2180,71 @@ impl DocumentState {
                     let impl_children = parts
                         .iter()
                         .filter_map(|function| self.function_symbol(function))
+                        .collect::<Vec<_>>();
+                    children.push(DocumentSymbol {
+                        name: abi.to_compact_string(),
+                        detail: Some(abi.to_string()),
+                        kind: SymbolKind::INTERFACE,
+                        tags: None,
+                        #[allow(deprecated)]
+                        deprecated: None,
+                        range: self.span_to_range(*span),
+                        selection_range: self.span_to_range(*span),
+                        children: Some(impl_children),
+                    });
+                }
+            }
+        }
+
+        #[allow(deprecated)]
+        let symbol = DocumentSymbol {
+            name: definition.name.name.clone(),
+            detail: None,
+            kind: SymbolKind::CLASS,
+            tags: None,
+            deprecated: None,
+            range: self.span_to_range(name_span),
+            selection_range: self.span_to_range(name_span),
+            children: if children.is_empty() {
+                None
+            } else {
+                Some(children)
+            },
+        };
+
+        Some(symbol)
+    }
+
+    fn token_symbol(&self, definition: &TypedTokenDef) -> Option<DocumentSymbol> {
+        let name_span = definition.name.opt_span()?;
+        let mut children = Vec::new();
+        for part in &definition.parts {
+            match part {
+                TypedTokenPart::Storage(vars) => {
+                    for var in vars {
+                        if let Some(span) = var.name.opt_span() {
+                            #[allow(deprecated)]
+                            let child = DocumentSymbol {
+                                name: var.name.name.clone(),
+                                detail: Some(var.ty.to_string()),
+                                kind: SymbolKind::ENUM_MEMBER,
+                                tags: None,
+                                deprecated: None,
+                                range: self.span_to_range(span),
+                                selection_range: self.span_to_range(span),
+                                children: None,
+                            };
+                            children.push(child);
+                        }
+                    }
+                }
+                TypedTokenPart::Function(function) => {
+                    children.extend(self.function_symbol(function));
+                }
+                TypedTokenPart::AbiImpl { abi, span, parts } => {
+                    let impl_children = parts
+                        .iter()
+                        .flat_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
                         name: abi.to_compact_string(),

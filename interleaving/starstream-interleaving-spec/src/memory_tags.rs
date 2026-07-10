@@ -8,12 +8,6 @@ pub enum RomMemoryTag {
     IsToken = 4,
 }
 
-impl RomMemoryTag {
-    pub const fn lut_index(self) -> usize {
-        self as usize
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u64)]
 pub enum RamMemoryTag {
@@ -37,10 +31,4 @@ pub enum RamMemoryTag {
     InitCaller = 17,
     MustEnter = 18,
     MustExit = 19,
-}
-
-impl RamMemoryTag {
-    pub const fn mem_index(self) -> usize {
-        self as usize
-    }
 }
