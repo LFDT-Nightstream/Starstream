@@ -137,8 +137,8 @@ mod tests {
         ];
 
         let false_write_vals = vec![
-            FpVar::new_witness(cs.clone(), || Ok(F::from(0))).unwrap(),
-            FpVar::new_witness(cs.clone(), || Ok(F::from(0))).unwrap(),
+            FpVar::new_witness(cs.clone(), || Ok(F::from(999))).unwrap(),
+            FpVar::new_witness(cs.clone(), || Ok(F::from(888))).unwrap(),
         ];
 
         constraints
@@ -205,10 +205,14 @@ mod tests {
                 .unwrap();
 
             let write_vals = vec![
-                FpVar::new_witness(cs.clone(), || Ok(F::from(if write_cond { 123 } else { 0 })))
-                    .unwrap(),
-                FpVar::new_witness(cs.clone(), || Ok(F::from(if write_cond { 456 } else { 0 })))
-                    .unwrap(),
+                FpVar::new_witness(cs.clone(), || {
+                    Ok(F::from(if write_cond { 123 } else { 999 }))
+                })
+                .unwrap(),
+                FpVar::new_witness(cs.clone(), || {
+                    Ok(F::from(if write_cond { 456 } else { 888 }))
+                })
+                .unwrap(),
             ];
 
             constraints

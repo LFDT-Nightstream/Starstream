@@ -7,6 +7,7 @@ use ark_ff::AdditiveGroup as _;
 use ark_r1cs_std::GR1CSVar as _;
 use ark_r1cs_std::alloc::AllocVar as _;
 use ark_r1cs_std::fields::fp::FpVar;
+use ark_r1cs_std::prelude::Boolean;
 use ark_relations::gr1cs::ConstraintSystemRef;
 use ark_relations::gr1cs::SynthesisError;
 use std::array;
@@ -22,11 +23,13 @@ impl ICPlain {
 
     pub fn increment(
         &mut self,
+        cond: bool,
         a: &Address<u64>,
         vt: &MemOp<F>,
         unsound_make_nop: bool,
     ) -> Result<(), SynthesisError> {
-        if !unsound_make_nop {
+        // Inactive ops leave the commitment unchanged, matching the circuit.
+        if cond && !unsound_make_nop {
             let hash_input = array::from_fn(|i| {
                 if i == 0 {
                     F::from(a.addr)
@@ -85,6 +88,7 @@ impl IC {
 
     pub fn increment(
         &mut self,
+        cond: &Boolean<F>,
         a: &AllocatedAddress,
         vt: &MemOpAllocated<F>,
         unsound_make_nop: bool,
@@ -115,7 +119,16 @@ impl IC {
                 }
             });
 
-            self.comm = ark_poseidon2::compress_8(&concat)?;
+            let new_comm = ark_poseidon2::compress_8(&concat)?;
+
+            // Compute the hash unconditionally, then keep the old commitment for
+            // inactive ops.
+            self.comm = [
+                cond.select(&new_comm[0], &self.comm[0])?,
+                cond.select(&new_comm[1], &self.comm[1])?,
+                cond.select(&new_comm[2], &self.comm[2])?,
+                cond.select(&new_comm[3], &self.comm[3])?,
+            ];
         }
 
         Ok(())
