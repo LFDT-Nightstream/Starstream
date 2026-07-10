@@ -282,7 +282,7 @@ fn score_sync() -> wasmtime::Result<()> {
         assert_eq!(
             events,
             [(
-                "score".into(),
+                "starstream:events/score".into(),
                 "finish".into(),
                 [Val::U64(i * i * 2)].into()
             )]

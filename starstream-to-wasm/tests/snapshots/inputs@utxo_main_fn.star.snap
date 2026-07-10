@@ -165,7 +165,7 @@ TypedProgram {
   (type (;1;) (func (param i32) (result i32)))
   (type (;2;) (func (param i32)))
   (type (;3;) (func (result i32)))
-  (import "foo-abi" "hello-event" (func (;0;) (type 0)))
+  (import "starstream:events/foo-abi" "hello-event" (func (;0;) (type 0)))
   (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
   (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
   (export "my-utxo#[static]utxo.hello-utxo" (func 4))
@@ -193,7 +193,7 @@ TypedProgram {
                   (export (;0;) "hello-event" (func (type 0)))
                 )
               )
-              (import "foo-abi" (instance (;0;) (type 0)))
+              (import "starstream:events/foo-abi" (instance (;0;) (type 0)))
               (type (;1;)
                 (instance
                   (export (;0;) "utxo" (type (sub resource)))
@@ -217,13 +217,16 @@ TypedProgram {
 package root:component;
 
 world root {
-  import foo-abi: interface {
-    hello-event: func();
-  }
+  import starstream:events/foo-abi;
 
   export my-utxo: interface {
     resource utxo {
       hello-utxo: static func() -> utxo;
     }
+  }
+}
+package starstream:events {
+  interface foo-abi {
+    hello-event: func();
   }
 }

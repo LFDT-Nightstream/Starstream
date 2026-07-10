@@ -1186,7 +1186,7 @@ TypedProgram {
   (type (;8;) (func (param i32) (result i32 i64 i64 i32)))
   (type (;9;) (func (param i32 i64 i64 i32) (result i32)))
   (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
-  (import "score" "finish" (func (;1;) (type 1)))
+  (import "starstream:events/score" "finish" (func (;1;) (type 1)))
   (import "[export]score-progress" "[resource-new]utxo" (func (;2;) (type 2)))
   (import "[export]score-progress" "[resource-drop]utxo" (func (;3;) (type 3)))
   (memory (;0;) 1)
@@ -1396,7 +1396,7 @@ TypedProgram {
                   (export (;0;) "finish" (func (type 0)))
                 )
               )
-              (import "score" (instance (;0;) (type 0)))
+              (import "starstream:events/score" (instance (;0;) (type 0)))
               (type (;1;)
                 (instance
                   (type (;0;) (tuple u64 u64 u64 u64))
@@ -1443,9 +1443,7 @@ TypedProgram {
 package root:component;
 
 world root {
-  import score: interface {
-    finish: func(x: u64);
-  }
+  import starstream:events/score;
   import starstream:std/builtin;
 
   export score-progress: interface {
@@ -1469,6 +1467,13 @@ world root {
     set-storage: func(storage: storage) -> utxo;
   }
 }
+package starstream:events {
+  interface score {
+    finish: func(x: u64);
+  }
+}
+
+
 package starstream:std {
   interface builtin {
     implements-method: func(hash: tuple<u64, u64, u64, u64>);
