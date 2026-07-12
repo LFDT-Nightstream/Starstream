@@ -5,25 +5,27 @@
 
 use std::collections::HashMap;
 
-use starstream_types::{DUMMY_SPAN, EffectKind, Type};
+use starstream_types::{DUMMY_SPAN, FunctionKind, FunctionType, Type};
 
 /// Information about a built-in function from the standard library.
 #[derive(Clone, Debug)]
 pub struct BuiltinFunction {
+    pub name: String,
     pub params: Vec<Type>,
     pub return_type: Type,
-    pub effect: EffectKind,
+    pub kind: FunctionKind,
 }
 
 impl BuiltinFunction {
     pub fn to_function_type(&self) -> Type {
-        Type::Function {
+        Type::Function(FunctionType {
             params: self.params.clone(),
             param_spans: Vec::new(),
             result: Box::new(self.return_type.clone()),
-            effect: self.effect,
+            kind: self.kind,
             name_span: DUMMY_SPAN,
-        }
+            callee: Some(starstream_types::StaticFunction::Named(self.name.clone())),
+        })
     }
 }
 
@@ -98,7 +100,8 @@ impl BuiltinRegistry {
             BuiltinFunction {
                 params: vec![],
                 return_type: Type::int(),
-                effect: EffectKind::Runtime,
+                kind: FunctionKind::Runtime,
+                name: "blockHeight".to_string(),
             },
         );
 
@@ -108,7 +111,8 @@ impl BuiltinRegistry {
             BuiltinFunction {
                 params: vec![],
                 return_type: Type::int(),
-                effect: EffectKind::Runtime,
+                kind: FunctionKind::Runtime,
+                name: "currentSlot".to_string(),
             },
         );
 
@@ -132,7 +136,7 @@ mod tests {
 
         assert_eq!(func.params, vec![]);
         assert_eq!(func.return_type, Type::int());
-        assert_eq!(func.effect, EffectKind::Runtime);
+        assert_eq!(func.kind, FunctionKind::Runtime);
     }
 
     #[test]

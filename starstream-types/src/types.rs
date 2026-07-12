@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::{DUMMY_SPAN, Identifier, Span, TypedAbiMethodDecl};
+use crate::{Identifier, Span, TypedAbiMethodDecl};
 
 const TYPE_FORMAT_WIDTH: usize = 80;
 
@@ -104,16 +104,38 @@ impl IntWidth {
     }
 }
 
-/// Effect kind for functions - tracks whether a function performs side effects.
+/// Function kind: whether it can be called normally or requires a keyword prefix.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub enum EffectKind {
-    /// Pure function with no side effects.
+pub enum FunctionKind {
+    /// Functions requiring no prefix keyword to call.
     #[default]
-    Pure,
-    /// Effectful function that raises effects which can be caught, handled, and resumed (requires `raise`).
-    Effectful,
-    /// Runtime function that calls external runtime/host functions (requires `runtime`).
+    Normal,
+    /// Functions requiring `emit` keyword to call, generally declared using `event`.
+    Emit,
+    /// Functions requiring `raise` keyword to call, generally declared using `effect`.
+    Raise,
+    /// Functions requruing `runtime` keyword to call, generally imported host functions.
     Runtime,
+}
+
+impl FunctionKind {
+    pub fn declaration_keyword(&self) -> &'static str {
+        match self {
+            FunctionKind::Normal => "fn",
+            FunctionKind::Emit => "event",
+            FunctionKind::Raise => "effect",
+            FunctionKind::Runtime => "runtime fn",
+        }
+    }
+
+    pub fn call_keyword(&self) -> &'static str {
+        match self {
+            FunctionKind::Normal => "",
+            FunctionKind::Emit => "emit",
+            FunctionKind::Raise => "raise",
+            FunctionKind::Runtime => "runtime",
+        }
+    }
 }
 
 /// Identifier for a type variable.
@@ -168,6 +190,14 @@ pub struct Abi {
     pub methods: Vec<TypedAbiMethodDecl>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum StaticFunction {
+    /// A specific function declared in the global namespace.
+    Named(String),
+    /// Tuple variant constructor for the given variant of the function's return type.
+    Constructor { variant: usize },
+}
+
 /// Starstream type.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -181,13 +211,7 @@ pub enum Type {
     /// conceptually return nothing.
     Unit,
     /// Function type `(params) -> result` with an optional effect.
-    Function {
-        params: Vec<Type>,
-        param_spans: Vec<Span>,
-        result: Box<Type>,
-        effect: EffectKind,
-        name_span: Span,
-    },
+    Function(FunctionType),
     /// Tuple type `(T0, T1, …)`.
     Tuple(Vec<Type>),
     /// Struct/record type with named fields.
@@ -205,6 +229,17 @@ pub enum Type {
     /// The type created by an `abi` definition. Also the type of a Utxo
     /// narrowed via `if x is AbiName`.
     AbiNarrow(Arc<Abi>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FunctionType {
+    pub kind: FunctionKind,
+    pub name_span: Span,
+    pub params: Vec<Type>,
+    pub param_spans: Vec<Span>,
+    pub result: Box<Type>,
+    /// Optional statically-known callee. Otherwise it's a pointer.
+    pub callee: Option<StaticFunction>,
 }
 
 impl Type {
@@ -244,20 +279,6 @@ impl Type {
             type_args: vec![],
         })
     }
-
-    /// Anonymous pure function type helper.
-    ///
-    /// Use `Type::Function { ... }` directly to set full details.
-    #[must_use]
-    pub fn function(params: Vec<Type>, result: Type) -> Self {
-        Type::Function {
-            params,
-            param_spans: Vec::new(),
-            result: Box::new(result),
-            effect: EffectKind::Pure,
-            name_span: DUMMY_SPAN,
-        }
-    }
 }
 
 impl fmt::Display for Type {
@@ -295,13 +316,14 @@ impl Type {
             Type::Int(w) => RcDoc::text(w.display_name()),
             Type::Bool => RcDoc::text("bool"),
             Type::Unit => RcDoc::text("()"),
-            Type::Function {
+            Type::Function(FunctionType {
                 params: fn_params,
                 param_spans: _,
                 result,
-                effect,
+                kind,
                 name_span: _,
-            } => {
+                callee,
+            }) => {
                 let params_doc = if fn_params.is_empty() {
                     RcDoc::text("()")
                 } else {
@@ -314,16 +336,20 @@ impl Type {
                         .append(RcDoc::text(")"))
                 };
 
-                let effect_prefix = match effect {
-                    EffectKind::Pure => RcDoc::text("fn"),
-                    EffectKind::Effectful => RcDoc::text("effect fn"),
-                    EffectKind::Runtime => RcDoc::text("runtime fn"),
-                };
-
-                effect_prefix
+                RcDoc::text(kind.declaration_keyword())
                     .append(params_doc)
                     .append(RcDoc::text(" -> "))
                     .append(result.to_doc(TypeDocMode::Compact, params))
+                    .append(match callee {
+                        Some(StaticFunction::Named(name)) => {
+                            RcDoc::text(" [").append(name.to_owned()).append("]")
+                        }
+                        Some(StaticFunction::Constructor { variant }) => {
+                            // TODO: use variant name here by inspecting `result`
+                            RcDoc::text(" [").append(variant.to_string()).append("]")
+                        }
+                        None => RcDoc::nil(),
+                    })
             }
             Type::Tuple(items) => RcDoc::text("(")
                 .append(comma_separated_docs(
@@ -388,7 +414,7 @@ fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc
     } else {
         let fields = RcDoc::intersperse(
             record.fields.iter().map(|field| {
-                RcDoc::text(field.name.clone())
+                RcDoc::text(field.name.to_string())
                     .append(RcDoc::text(": "))
                     .append(field.ty.to_doc(TypeDocMode::Compact, params))
                     .append(RcDoc::text(","))
@@ -475,7 +501,7 @@ fn enum_variant_struct_doc(
     } else {
         let body = RcDoc::intersperse(
             fields.iter().map(|field| {
-                RcDoc::text(field.name.clone())
+                RcDoc::text(field.name.to_string())
                     .append(RcDoc::text(": "))
                     .append(field.ty.to_doc(TypeDocMode::Compact, params))
                     .append(RcDoc::text(","))
@@ -529,16 +555,13 @@ pub struct RecordType {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordFieldType {
-    pub name: String,
+    pub name: Identifier,
     pub ty: Type,
 }
 
 impl RecordFieldType {
-    pub fn new(name: impl Into<String>, ty: Type) -> Self {
-        Self {
-            name: name.into(),
-            ty,
-        }
+    pub fn new(name: Identifier, ty: Type) -> Self {
+        Self { name, ty }
     }
 }
 

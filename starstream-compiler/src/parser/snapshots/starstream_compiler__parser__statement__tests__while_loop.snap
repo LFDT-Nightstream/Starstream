@@ -7,11 +7,13 @@ While {
         node: Binary {
             op: Less,
             left: Spanned {
-                node: Identifier(
-                    Identifier {
-                        name: "count",
-                        span: 7..12,
-                    },
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "count",
+                            span: 7..12,
+                        },
+                    ],
                 ),
                 span: 7..13,
             },
@@ -38,11 +40,13 @@ While {
                         node: Binary {
                             op: Add,
                             left: Spanned {
-                                node: Identifier(
-                                    Identifier {
-                                        name: "count",
-                                        span: 29..34,
-                                    },
+                                node: ScopedName(
+                                    [
+                                        Identifier {
+                                            name: "count",
+                                            span: 29..34,
+                                        },
+                                    ],
                                 ),
                                 span: 29..35,
                             },

@@ -1,0 +1,219 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/effect_raise.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "Foo",
+                        span: 4..7,
+                    },
+                    parts: [
+                        Effect(
+                            EffectDef {
+                                name: Identifier {
+                                    name: "Hello",
+                                    span: 21..26,
+                                },
+                                params: [],
+                                return_type: None,
+                                span: 14..30,
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..33,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "main",
+                        span: 43..47,
+                    },
+                    params: [],
+                    return_type: None,
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Raise {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "Hello",
+                                                            span: 62..67,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 62..67,
+                                            },
+                                            args: [],
+                                        },
+                                        span: 56..69,
+                                    },
+                                ),
+                                span: 56..71,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 50..73,
+                    },
+                },
+            ),
+            span: 33..73,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Fn: main => ()
+  T-Expr: {main: fn() -> () [main]} ⊢ raise Hello(); ⇒ ()
+    T-Call: {main: fn() -> () [main]} ⊢ raise Hello() ⇒ ()
+      T-Var: {main: fn() -> () [main]} ⊢ Hello ⇒ effect() -> () [Hello]
+
+==== Typed AST ====
+TypedProgram {
+    has_yields: false,
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                name: Identifier {
+                    name: "Foo",
+                    span: 4..7,
+                },
+                parts: [
+                    Effect(
+                        TypedEffectDef {
+                            name: Identifier {
+                                name: "Hello",
+                                span: 21..26,
+                            },
+                            params: [],
+                            return_type: Unit,
+                        },
+                    ),
+                ],
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "main",
+                    span: 43..47,
+                },
+                params: [],
+                return_type: Unit,
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Unit,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Raise,
+                                                        name_span: 21..26,
+                                                        params: [],
+                                                        param_spans: [],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                "Hello",
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "Hello",
+                                                            span: 62..67,
+                                                        },
+                                                    ],
+                                                    constant: Some(
+                                                        0,
+                                                    ),
+                                                },
+                                            },
+                                            span: 62..67,
+                                        },
+                                        args: [],
+                                    },
+                                },
+                                span: 62..67,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func))
+  (import "starstream:effects/foo" "hello" (func (;0;) (type 0)))
+  (export "main" (func 1))
+  (func (;1;) (type 0)
+    (call 0)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func))
+              (export (;0;) "main" (func (type 0)))
+              (type (;1;)
+                (instance
+                  (type (;0;) (func))
+                  (export (;0;) "hello" (func (type 0)))
+                )
+              )
+              (import "starstream:effects/foo" (instance (;0;) (type 1)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import starstream:effects/foo;
+
+  export main: func();
+}
+package starstream:effects {
+  interface foo {
+    hello: func();
+  }
+}

@@ -55,11 +55,13 @@ Program {
                                                     node: Binary {
                                                         op: Add,
                                                         left: Spanned {
-                                                            node: Identifier(
-                                                                Identifier {
-                                                                    name: "total",
-                                                                    span: 101..106,
-                                                                },
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "total",
+                                                                        span: 101..106,
+                                                                    },
+                                                                ],
                                                             ),
                                                             span: 101..107,
                                                         },
@@ -106,11 +108,13 @@ Program {
                                                     node: Binary {
                                                         op: Subtract,
                                                         left: Spanned {
-                                                            node: Identifier(
-                                                                Identifier {
-                                                                    name: "total",
-                                                                    span: 155..160,
-                                                                },
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "total",
+                                                                        span: 155..160,
+                                                                    },
+                                                                ],
                                                             ),
                                                             span: 155..161,
                                                         },
@@ -211,17 +215,17 @@ Program {
 ==== Inference trace ====
 T-Token: MyToken => 
   T-Fn: mint => ()
-    T-Assign: {mint: fn() -> (), total: u64} ⊢ total = total + 1; ⇒ u64
-      T-Bin-Add: {mint: fn() -> (), total: u64} ⊢ total + 1 ⇒ u64
-        T-Var: {mint: fn() -> (), total: u64} ⊢ total ⇒ u64
-        T-Int: {mint: fn() -> (), total: u64} ⊢ 1 ⇒ i64
+    T-Assign: {mint: fn() -> () [mint], total: u64} ⊢ total = total + 1; ⇒ u64
+      T-Bin-Add: {mint: fn() -> () [mint], total: u64} ⊢ total + 1 ⇒ u64
+        T-Var: {mint: fn() -> () [mint], total: u64} ⊢ total ⇒ u64
+        T-Int: {mint: fn() -> () [mint], total: u64} ⊢ 1 ⇒ i64
         Unify-Var: u64 ~ i64 => {u64/t3}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: burn => ()
-    T-Assign: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ total = total - 1; ⇒ u64
-      T-Bin-Sub: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ total - 1 ⇒ u64
-        T-Var: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ total ⇒ u64
-        T-Int: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ 1 ⇒ i64
+    T-Assign: {burn: fn() -> () [burn], mint: fn() -> () [mint], total: u64} ⊢ total = total - 1; ⇒ u64
+      T-Bin-Sub: {burn: fn() -> () [burn], mint: fn() -> () [mint], total: u64} ⊢ total - 1 ⇒ u64
+        T-Var: {burn: fn() -> () [burn], mint: fn() -> () [mint], total: u64} ⊢ total ⇒ u64
+        T-Int: {burn: fn() -> () [burn], mint: fn() -> () [mint], total: u64} ⊢ 1 ⇒ i64
         Unify-Var: u64 ~ i64 => {u64/t4}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: attach => ()
@@ -263,7 +267,6 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -283,12 +286,15 @@ TypedProgram {
                                                             ty: Int(
                                                                 U64,
                                                             ),
-                                                            kind: Identifier(
-                                                                Identifier {
-                                                                    name: "total",
-                                                                    span: 101..106,
-                                                                },
-                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "total",
+                                                                        span: 101..106,
+                                                                    },
+                                                                ],
+                                                                constant: None,
+                                                            },
                                                         },
                                                         span: 101..107,
                                                     },
@@ -326,7 +332,6 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -346,12 +351,15 @@ TypedProgram {
                                                             ty: Int(
                                                                 U64,
                                                             ),
-                                                            kind: Identifier(
-                                                                Identifier {
-                                                                    name: "total",
-                                                                    span: 155..160,
-                                                                },
-                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "total",
+                                                                        span: 155..160,
+                                                                    },
+                                                                ],
+                                                                constant: None,
+                                                            },
                                                         },
                                                         span: 155..161,
                                                     },
@@ -444,7 +452,6 @@ TypedProgram {
                                     },
                                 ],
                                 return_type: Unit,
-                                effect: Pure,
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,
@@ -467,7 +474,6 @@ TypedProgram {
                                     },
                                 ],
                                 return_type: Unit,
-                                effect: Pure,
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,

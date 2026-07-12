@@ -4,7 +4,7 @@ description: "Source:\n\nfn test() {\n    missing;\n}\n"
 ---
 E0001 (https://starstream.nightstream.dev/errors/E0001)
 
-  x unknown variable `missing`
+  x unknown name `missing`
    ,-[test.star:2:5]
  1 | fn test() {
  2 |     missing;

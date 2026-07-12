@@ -5,11 +5,13 @@ description: "Code:\n\ndisclose(x)"
 Spanned {
     node: Disclose {
         expr: Spanned {
-            node: Identifier(
-                Identifier {
-                    name: "x",
-                    span: 9..10,
-                },
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "x",
+                        span: 9..10,
+                    },
+                ],
             ),
             span: 9..10,
         },

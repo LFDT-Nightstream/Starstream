@@ -204,8 +204,15 @@ Program {
                                             node: Expression(
                                                 Spanned {
                                                     node: Emit {
-                                                        event: Identifier {
-                                                            name: "Finish",
+                                                        callee: Spanned {
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "Finish",
+                                                                        span: 306..312,
+                                                                    },
+                                                                ],
+                                                            ),
                                                             span: 306..312,
                                                         },
                                                         args: [
@@ -213,20 +220,24 @@ Program {
                                                                 node: Binary {
                                                                     op: Multiply,
                                                                     left: Spanned {
-                                                                        node: Identifier(
-                                                                            Identifier {
-                                                                                name: "chips",
-                                                                                span: 313..318,
-                                                                            },
+                                                                        node: ScopedName(
+                                                                            [
+                                                                                Identifier {
+                                                                                    name: "chips",
+                                                                                    span: 313..318,
+                                                                                },
+                                                                            ],
                                                                         ),
                                                                         span: 313..319,
                                                                     },
                                                                     right: Spanned {
-                                                                        node: Identifier(
-                                                                            Identifier {
-                                                                                name: "mult",
-                                                                                span: 321..325,
-                                                                            },
+                                                                        node: ScopedName(
+                                                                            [
+                                                                                Identifier {
+                                                                                    name: "mult",
+                                                                                    span: 321..325,
+                                                                                },
+                                                                            ],
                                                                         ),
                                                                         span: 321..325,
                                                                     },
@@ -287,20 +298,24 @@ Program {
                                                         node: Binary {
                                                             op: Add,
                                                             left: Spanned {
-                                                                node: Identifier(
-                                                                    Identifier {
-                                                                        name: "chips",
-                                                                        span: 412..417,
-                                                                    },
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "chips",
+                                                                            span: 412..417,
+                                                                        },
+                                                                    ],
                                                                 ),
                                                                 span: 412..418,
                                                             },
                                                             right: Spanned {
-                                                                node: Identifier(
-                                                                    Identifier {
-                                                                        name: "chips2",
-                                                                        span: 420..426,
-                                                                    },
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "chips2",
+                                                                            span: 420..426,
+                                                                        },
+                                                                    ],
                                                                 ),
                                                                 span: 420..426,
                                                             },
@@ -350,20 +365,24 @@ Program {
                                                         node: Binary {
                                                             op: Add,
                                                             left: Spanned {
-                                                                node: Identifier(
-                                                                    Identifier {
-                                                                        name: "mult",
-                                                                        span: 496..500,
-                                                                    },
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "mult",
+                                                                            span: 496..500,
+                                                                        },
+                                                                    ],
                                                                 ),
                                                                 span: 496..501,
                                                             },
                                                             right: Spanned {
-                                                                node: Identifier(
-                                                                    Identifier {
-                                                                        name: "mult2",
-                                                                        span: 503..508,
-                                                                    },
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "mult2",
+                                                                            span: 503..508,
+                                                                        },
+                                                                    ],
                                                                 ),
                                                                 span: 503..508,
                                                             },
@@ -416,20 +435,24 @@ Program {
                                                                 node: Binary {
                                                                     op: Multiply,
                                                                     left: Spanned {
-                                                                        node: Identifier(
-                                                                            Identifier {
-                                                                                name: "mult",
-                                                                                span: 581..585,
-                                                                            },
+                                                                        node: ScopedName(
+                                                                            [
+                                                                                Identifier {
+                                                                                    name: "mult",
+                                                                                    span: 581..585,
+                                                                                },
+                                                                            ],
                                                                         ),
                                                                         span: 581..586,
                                                                     },
                                                                     right: Spanned {
-                                                                        node: Identifier(
-                                                                            Identifier {
-                                                                                name: "mult_pct",
-                                                                                span: 588..596,
-                                                                            },
+                                                                        node: ScopedName(
+                                                                            [
+                                                                                Identifier {
+                                                                                    name: "mult_pct",
+                                                                                    span: 588..596,
+                                                                                },
+                                                                            ],
                                                                         ),
                                                                         span: 588..597,
                                                                     },
@@ -488,40 +511,41 @@ Program {
 
 T-Utxo: ScoreProgress => 
   T-Fn: new => ()
-    T-Expr: {chips: u64, mult: u64, new: fn() -> ()} ⊢ yield(Score); ⇒ ()
-    T-Expr: {chips: u64, mult: u64, new: fn() -> ()} ⊢ emit Finish(chips * mult); ⇒ ()
-      T-Emit: {chips: u64, mult: u64, new: fn() -> ()} ⊢ emit Finish(chips * mult) ⇒ ()
-        T-Bin-Mul: {chips: u64, mult: u64, new: fn() -> ()} ⊢ chips * mult ⇒ u64
-          T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ chips ⇒ u64
-          T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ mult ⇒ u64
+    T-Expr: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ yield(Score); ⇒ ()
+    T-Expr: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ emit Finish(chips * mult); ⇒ ()
+      T-Call: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ emit Finish(chips * mult) ⇒ ()
+        T-Var: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ Finish ⇒ event(u64) -> () [Finish]
+        T-Bin-Mul: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ chips * mult ⇒ u64
+          T-Var: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ chips ⇒ u64
+          T-Var: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ mult ⇒ u64
           Unify-Const: u64 ~ u64 => {}
         Unify-Const: u64 ~ u64 => {}
   T-Fn: plus_chips => ()
-    T-Assign: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips = chips + chips2; ⇒ u64
-      T-Bin-Add: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips + chips2 ⇒ u64
-        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips ⇒ u64
-        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips2 ⇒ u64
+    T-Assign: {chips: u64, chips2: u64, mult: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips]} ⊢ chips = chips + chips2; ⇒ u64
+      T-Bin-Add: {chips: u64, chips2: u64, mult: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips]} ⊢ chips + chips2 ⇒ u64
+        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips]} ⊢ chips ⇒ u64
+        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips]} ⊢ chips2 ⇒ u64
         Unify-Const: u64 ~ u64 => {}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: plus_mult => ()
-    T-Assign: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult = mult + mult2; ⇒ u64
-      T-Bin-Add: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult + mult2 ⇒ u64
-        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult ⇒ u64
-        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult2 ⇒ u64
+    T-Assign: {chips: u64, mult: u64, mult2: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult = mult + mult2; ⇒ u64
+      T-Bin-Add: {chips: u64, mult: u64, mult2: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult + mult2 ⇒ u64
+        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult ⇒ u64
+        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult2 ⇒ u64
         Unify-Const: u64 ~ u64 => {}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: mult_mult => ()
-    T-Assign: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult = mult * mult_pct / 100; ⇒ u64
-      T-Bin-Div: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult * mult_pct / 100 ⇒ u64
-        T-Bin-Mul: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult * mult_pct ⇒ u64
-          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult ⇒ u64
-          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult_pct ⇒ u64
+    T-Assign: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult = mult * mult_pct / 100; ⇒ u64
+      T-Bin-Div: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult * mult_pct / 100 ⇒ u64
+        T-Bin-Mul: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult * mult_pct ⇒ u64
+          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult ⇒ u64
+          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult_pct ⇒ u64
           Unify-Const: u64 ~ u64 => {}
-        T-Int: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ 100 ⇒ i64
+        T-Int: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ 100 ⇒ i64
         Unify-Var: u64 ~ i64 => {u64/t3}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: finish => ()
-    T-Resume: {chips: u64, finish: fn() -> (), mult: u64, mult_mult: fn(u64) -> (), new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ resume; ⇒ ()
+    T-Resume: {chips: u64, finish: fn() -> () [finish], mult: u64, mult_mult: fn(u64) -> () [mult_mult], new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ resume; ⇒ ()
       Unify-Const: () ~ () => {}
 
 ==== Typed AST ====
@@ -675,7 +699,6 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Expression(
@@ -771,9 +794,41 @@ TypedProgram {
                                         Spanned {
                                             node: TypedExpr {
                                                 ty: Unit,
-                                                kind: Emit {
-                                                    event: Identifier {
-                                                        name: "Finish",
+                                                kind: Call {
+                                                    callee: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Function(
+                                                                FunctionType {
+                                                                    kind: Emit,
+                                                                    name_span: 132..138,
+                                                                    params: [
+                                                                        Int(
+                                                                            U64,
+                                                                        ),
+                                                                    ],
+                                                                    param_spans: [
+                                                                        146..149,
+                                                                    ],
+                                                                    result: Unit,
+                                                                    callee: Some(
+                                                                        Named(
+                                                                            "Finish",
+                                                                        ),
+                                                                    ),
+                                                                },
+                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "Finish",
+                                                                        span: 306..312,
+                                                                    },
+                                                                ],
+                                                                constant: Some(
+                                                                    0,
+                                                                ),
+                                                            },
+                                                        },
                                                         span: 306..312,
                                                     },
                                                     args: [
@@ -789,12 +844,15 @@ TypedProgram {
                                                                             ty: Int(
                                                                                 U64,
                                                                             ),
-                                                                            kind: Identifier(
-                                                                                Identifier {
-                                                                                    name: "chips",
-                                                                                    span: 313..318,
-                                                                                },
-                                                                            ),
+                                                                            kind: ScopedName {
+                                                                                name: [
+                                                                                    Identifier {
+                                                                                        name: "chips",
+                                                                                        span: 313..318,
+                                                                                    },
+                                                                                ],
+                                                                                constant: None,
+                                                                            },
                                                                         },
                                                                         span: 313..319,
                                                                     },
@@ -803,12 +861,15 @@ TypedProgram {
                                                                             ty: Int(
                                                                                 U64,
                                                                             ),
-                                                                            kind: Identifier(
-                                                                                Identifier {
-                                                                                    name: "mult",
-                                                                                    span: 321..325,
-                                                                                },
-                                                                            ),
+                                                                            kind: ScopedName {
+                                                                                name: [
+                                                                                    Identifier {
+                                                                                        name: "mult",
+                                                                                        span: 321..325,
+                                                                                    },
+                                                                                ],
+                                                                                constant: None,
+                                                                            },
                                                                         },
                                                                         span: 321..325,
                                                                     },
@@ -819,7 +880,7 @@ TypedProgram {
                                                     ],
                                                 },
                                             },
-                                            span: 301..326,
+                                            span: 306..312,
                                         },
                                     ),
                                 ],
@@ -928,7 +989,6 @@ TypedProgram {
                                     },
                                 ],
                                 return_type: Unit,
-                                effect: Pure,
                                 body: TypedBlock {
                                     statements: [
                                         Assignment {
@@ -948,12 +1008,15 @@ TypedProgram {
                                                                 ty: Int(
                                                                     U64,
                                                                 ),
-                                                                kind: Identifier(
-                                                                    Identifier {
-                                                                        name: "chips",
-                                                                        span: 412..417,
-                                                                    },
-                                                                ),
+                                                                kind: ScopedName {
+                                                                    name: [
+                                                                        Identifier {
+                                                                            name: "chips",
+                                                                            span: 412..417,
+                                                                        },
+                                                                    ],
+                                                                    constant: None,
+                                                                },
                                                             },
                                                             span: 412..418,
                                                         },
@@ -962,12 +1025,15 @@ TypedProgram {
                                                                 ty: Int(
                                                                     U64,
                                                                 ),
-                                                                kind: Identifier(
-                                                                    Identifier {
-                                                                        name: "chips2",
-                                                                        span: 420..426,
-                                                                    },
-                                                                ),
+                                                                kind: ScopedName {
+                                                                    name: [
+                                                                        Identifier {
+                                                                            name: "chips2",
+                                                                            span: 420..426,
+                                                                        },
+                                                                    ],
+                                                                    constant: None,
+                                                                },
                                                             },
                                                             span: 420..426,
                                                         },
@@ -999,7 +1065,6 @@ TypedProgram {
                                     },
                                 ],
                                 return_type: Unit,
-                                effect: Pure,
                                 body: TypedBlock {
                                     statements: [
                                         Assignment {
@@ -1019,12 +1084,15 @@ TypedProgram {
                                                                 ty: Int(
                                                                     U64,
                                                                 ),
-                                                                kind: Identifier(
-                                                                    Identifier {
-                                                                        name: "mult",
-                                                                        span: 496..500,
-                                                                    },
-                                                                ),
+                                                                kind: ScopedName {
+                                                                    name: [
+                                                                        Identifier {
+                                                                            name: "mult",
+                                                                            span: 496..500,
+                                                                        },
+                                                                    ],
+                                                                    constant: None,
+                                                                },
                                                             },
                                                             span: 496..501,
                                                         },
@@ -1033,12 +1101,15 @@ TypedProgram {
                                                                 ty: Int(
                                                                     U64,
                                                                 ),
-                                                                kind: Identifier(
-                                                                    Identifier {
-                                                                        name: "mult2",
-                                                                        span: 503..508,
-                                                                    },
-                                                                ),
+                                                                kind: ScopedName {
+                                                                    name: [
+                                                                        Identifier {
+                                                                            name: "mult2",
+                                                                            span: 503..508,
+                                                                        },
+                                                                    ],
+                                                                    constant: None,
+                                                                },
                                                             },
                                                             span: 503..508,
                                                         },
@@ -1070,7 +1141,6 @@ TypedProgram {
                                     },
                                 ],
                                 return_type: Unit,
-                                effect: Pure,
                                 body: TypedBlock {
                                     statements: [
                                         Assignment {
@@ -1097,12 +1167,15 @@ TypedProgram {
                                                                             ty: Int(
                                                                                 U64,
                                                                             ),
-                                                                            kind: Identifier(
-                                                                                Identifier {
-                                                                                    name: "mult",
-                                                                                    span: 581..585,
-                                                                                },
-                                                                            ),
+                                                                            kind: ScopedName {
+                                                                                name: [
+                                                                                    Identifier {
+                                                                                        name: "mult",
+                                                                                        span: 581..585,
+                                                                                    },
+                                                                                ],
+                                                                                constant: None,
+                                                                            },
                                                                         },
                                                                         span: 581..586,
                                                                     },
@@ -1111,12 +1184,15 @@ TypedProgram {
                                                                             ty: Int(
                                                                                 U64,
                                                                             ),
-                                                                            kind: Identifier(
-                                                                                Identifier {
-                                                                                    name: "mult_pct",
-                                                                                    span: 588..596,
-                                                                                },
-                                                                            ),
+                                                                            kind: ScopedName {
+                                                                                name: [
+                                                                                    Identifier {
+                                                                                        name: "mult_pct",
+                                                                                        span: 588..596,
+                                                                                    },
+                                                                                ],
+                                                                                constant: None,
+                                                                            },
                                                                         },
                                                                         span: 588..597,
                                                                     },
@@ -1154,7 +1230,6 @@ TypedProgram {
                                 },
                                 params: [],
                                 return_type: Unit,
-                                effect: Pure,
                                 body: TypedBlock {
                                     statements: [
                                         Resume,

@@ -11,11 +11,13 @@ Assignment {
         node: Binary {
             op: Add,
             left: Spanned {
-                node: Identifier(
-                    Identifier {
-                        name: "value",
-                        span: 8..13,
-                    },
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "value",
+                            span: 8..13,
+                        },
+                    ],
                 ),
                 span: 8..14,
             },

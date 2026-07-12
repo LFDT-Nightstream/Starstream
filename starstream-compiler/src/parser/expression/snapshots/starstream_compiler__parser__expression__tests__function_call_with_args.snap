@@ -5,11 +5,13 @@ description: "Code:\n\nadd(1, 2)"
 Spanned {
     node: Call {
         callee: Spanned {
-            node: Identifier(
-                Identifier {
-                    name: "add",
-                    span: 0..3,
-                },
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "add",
+                        span: 0..3,
+                    },
+                ],
             ),
             span: 0..3,
         },

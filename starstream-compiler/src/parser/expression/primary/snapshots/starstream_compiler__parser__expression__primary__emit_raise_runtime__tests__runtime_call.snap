@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/parser/expression/primary/emit_raise_runtime.rs
+description: "Code:\n\nruntime blockHeight()"
+---
+Spanned {
+    node: Runtime {
+        callee: Spanned {
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "blockHeight",
+                        span: 8..19,
+                    },
+                ],
+            ),
+            span: 8..19,
+        },
+        args: [],
+    },
+    span: 0..21,
+}

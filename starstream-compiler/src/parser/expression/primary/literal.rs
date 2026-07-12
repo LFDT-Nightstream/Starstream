@@ -15,10 +15,6 @@ pub fn unit<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
     primitives::unit_literal().map(Expr::Literal).spanned()
 }
 
-pub fn identifier<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    primitives::identifier().map(Expr::Identifier).spanned()
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

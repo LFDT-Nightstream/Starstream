@@ -34,11 +34,13 @@ Spanned {
             (
                 Bool(
                     Spanned {
-                        node: Identifier(
-                            Identifier {
-                                name: "flag",
-                                span: 28..32,
-                            },
+                        node: ScopedName(
+                            [
+                                Identifier {
+                                    name: "flag",
+                                    span: 28..32,
+                                },
+                            ],
                         ),
                         span: 28..32,
                     },

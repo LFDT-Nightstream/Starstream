@@ -69,21 +69,18 @@ Program {
                                 node: Expression(
                                     Spanned {
                                         node: Runtime {
-                                            expr: Spanned {
-                                                node: Call {
-                                                    callee: Spanned {
-                                                        node: Identifier(
-                                                            Identifier {
-                                                                name: "blockHeight",
-                                                                span: 95..106,
-                                                            },
-                                                        ),
-                                                        span: 95..106,
-                                                    },
-                                                    args: [],
-                                                },
-                                                span: 95..108,
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "blockHeight",
+                                                            span: 95..106,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 95..106,
                                             },
+                                            args: [],
                                         },
                                         span: 87..108,
                                     },
@@ -94,21 +91,18 @@ Program {
                         tail_expression: Some(
                             Spanned {
                                 node: Runtime {
-                                    expr: Spanned {
-                                        node: Call {
-                                            callee: Spanned {
-                                                node: Identifier(
-                                                    Identifier {
-                                                        name: "blockHeight",
-                                                        span: 122..133,
-                                                    },
-                                                ),
-                                                span: 122..133,
-                                            },
-                                            args: [],
-                                        },
-                                        span: 122..136,
+                                    callee: Spanned {
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "blockHeight",
+                                                    span: 122..133,
+                                                },
+                                            ],
+                                        ),
+                                        span: 122..133,
                                     },
+                                    args: [],
                                 },
                                 span: 114..136,
                             },
@@ -145,11 +139,13 @@ Program {
                             Spanned {
                                 node: Call {
                                     callee: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "reexport",
-                                                span: 171..179,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "reexport",
+                                                    span: 171..179,
+                                                },
+                                            ],
                                         ),
                                         span: 171..179,
                                     },
@@ -170,20 +166,18 @@ Program {
 ==== Inference trace ====
 
 T-Fn: reexport => i64
-  T-Expr: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ runtime blockHeight(); ⇒ ()
-    T-Runtime: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
-      T-Call: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight() ⇒ i64
-        T-Var: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
+  T-Expr: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ runtime blockHeight(); ⇒ ()
+    T-Call: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ runtime blockHeight() ⇒ i64
+      T-Var: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ blockHeight ⇒ runtime fn() -> i64 [blockHeight]
   T-ReturnTail: runtime blockHeight() => i64
-    T-Runtime: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
-      T-Call: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight() ⇒ i64
-        T-Var: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
+    T-Call: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ runtime blockHeight() ⇒ i64
+      T-Var: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ blockHeight ⇒ runtime fn() -> i64 [blockHeight]
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: second => i64
   T-ReturnTail: reexport() => i64
-    T-Call: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64, second: fn() -> i64} ⊢ reexport() ⇒ i64
-      T-Var: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64, second: fn() -> i64} ⊢ reexport ⇒ fn() -> i64
+    T-Call: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport], second: fn() -> i64 [second]} ⊢ reexport() ⇒ i64
+      T-Var: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport], second: fn() -> i64 [second]} ⊢ reexport ⇒ fn() -> i64 [reexport]
     Unify-Const: i64 ~ i64 => {}
 
 ==== Typed AST ====
@@ -203,15 +197,22 @@ TypedProgram {
                                 name: "blockHeight",
                                 span: 9..20,
                             },
-                            ty: Function {
-                                params: [],
-                                param_spans: [],
-                                result: Int(
-                                    I64,
-                                ),
-                                effect: Runtime,
-                                name_span: 0..0,
-                            },
+                            ty: Function(
+                                FunctionType {
+                                    kind: Runtime,
+                                    name_span: 0..0,
+                                    params: [],
+                                    param_spans: [],
+                                    result: Int(
+                                        I64,
+                                    ),
+                                    callee: Some(
+                                        Named(
+                                            "blockHeight",
+                                        ),
+                                    ),
+                                },
+                            ),
                         },
                     ],
                 ),
@@ -246,7 +247,6 @@ TypedProgram {
                 return_type: Int(
                     I64,
                 ),
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -255,41 +255,41 @@ TypedProgram {
                                     ty: Int(
                                         I64,
                                     ),
-                                    kind: Runtime {
-                                        expr: Spanned {
+                                    kind: Call {
+                                        callee: Spanned {
                                             node: TypedExpr {
-                                                ty: Int(
-                                                    I64,
-                                                ),
-                                                kind: Call {
-                                                    callee: Spanned {
-                                                        node: TypedExpr {
-                                                            ty: Function {
-                                                                params: [],
-                                                                param_spans: [],
-                                                                result: Int(
-                                                                    I64,
-                                                                ),
-                                                                effect: Runtime,
-                                                                name_span: 0..0,
-                                                            },
-                                                            kind: Identifier(
-                                                                Identifier {
-                                                                    name: "blockHeight",
-                                                                    span: 95..106,
-                                                                },
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Runtime,
+                                                        name_span: 0..0,
+                                                        params: [],
+                                                        param_spans: [],
+                                                        result: Int(
+                                                            I64,
+                                                        ),
+                                                        callee: Some(
+                                                            Named(
+                                                                "blockHeight",
                                                             ),
-                                                        },
-                                                        span: 95..106,
+                                                        ),
                                                     },
-                                                    args: [],
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "blockHeight",
+                                                            span: 95..106,
+                                                        },
+                                                    ],
+                                                    constant: None,
                                                 },
                                             },
-                                            span: 95..108,
+                                            span: 95..106,
                                         },
+                                        args: [],
                                     },
                                 },
-                                span: 87..108,
+                                span: 95..106,
                             },
                         ),
                     ],
@@ -299,41 +299,41 @@ TypedProgram {
                                 ty: Int(
                                     I64,
                                 ),
-                                kind: Runtime {
-                                    expr: Spanned {
+                                kind: Call {
+                                    callee: Spanned {
                                         node: TypedExpr {
-                                            ty: Int(
-                                                I64,
-                                            ),
-                                            kind: Call {
-                                                callee: Spanned {
-                                                    node: TypedExpr {
-                                                        ty: Function {
-                                                            params: [],
-                                                            param_spans: [],
-                                                            result: Int(
-                                                                I64,
-                                                            ),
-                                                            effect: Runtime,
-                                                            name_span: 0..0,
-                                                        },
-                                                        kind: Identifier(
-                                                            Identifier {
-                                                                name: "blockHeight",
-                                                                span: 122..133,
-                                                            },
+                                            ty: Function(
+                                                FunctionType {
+                                                    kind: Runtime,
+                                                    name_span: 0..0,
+                                                    params: [],
+                                                    param_spans: [],
+                                                    result: Int(
+                                                        I64,
+                                                    ),
+                                                    callee: Some(
+                                                        Named(
+                                                            "blockHeight",
                                                         ),
-                                                    },
-                                                    span: 122..133,
+                                                    ),
                                                 },
-                                                args: [],
+                                            ),
+                                            kind: ScopedName {
+                                                name: [
+                                                    Identifier {
+                                                        name: "blockHeight",
+                                                        span: 122..133,
+                                                    },
+                                                ],
+                                                constant: None,
                                             },
                                         },
-                                        span: 122..136,
+                                        span: 122..133,
                                     },
+                                    args: [],
                                 },
                             },
-                            span: 114..136,
+                            span: 122..133,
                         },
                     ),
                 },
@@ -352,7 +352,6 @@ TypedProgram {
                 return_type: Int(
                     I64,
                 ),
-                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -364,28 +363,38 @@ TypedProgram {
                                 kind: Call {
                                     callee: Spanned {
                                         node: TypedExpr {
-                                            ty: Function {
-                                                params: [],
-                                                param_spans: [],
-                                                result: Int(
-                                                    I64,
-                                                ),
-                                                effect: Pure,
-                                                name_span: 63..71,
-                                            },
-                                            kind: Identifier(
-                                                Identifier {
-                                                    name: "reexport",
-                                                    span: 171..179,
+                                            ty: Function(
+                                                FunctionType {
+                                                    kind: Normal,
+                                                    name_span: 63..71,
+                                                    params: [],
+                                                    param_spans: [],
+                                                    result: Int(
+                                                        I64,
+                                                    ),
+                                                    callee: Some(
+                                                        Named(
+                                                            "reexport",
+                                                        ),
+                                                    ),
                                                 },
                                             ),
+                                            kind: ScopedName {
+                                                name: [
+                                                    Identifier {
+                                                        name: "reexport",
+                                                        span: 171..179,
+                                                    },
+                                                ],
+                                                constant: None,
+                                            },
                                         },
                                         span: 171..179,
                                     },
                                     args: [],
                                 },
                             },
-                            span: 171..182,
+                            span: 171..179,
                         },
                     ),
                 },

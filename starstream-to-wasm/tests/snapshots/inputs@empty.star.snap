@@ -52,7 +52,6 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: None,

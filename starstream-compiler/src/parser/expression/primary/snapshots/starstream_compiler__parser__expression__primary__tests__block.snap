@@ -36,11 +36,13 @@ Spanned {
                             node: Binary {
                                 op: Add,
                                 left: Spanned {
-                                    node: Identifier(
-                                        Identifier {
-                                            name: "a",
-                                            span: 21..22,
-                                        },
+                                    node: ScopedName(
+                                        [
+                                            Identifier {
+                                                name: "a",
+                                                span: 21..22,
+                                            },
+                                        ],
                                     ),
                                     span: 21..23,
                                 },

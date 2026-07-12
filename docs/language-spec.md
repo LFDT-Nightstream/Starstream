@@ -131,10 +131,14 @@ abi_definition ::=
 
 abi_part ::=
   | event_definition
+  | effect_definition
   | abi_fn_declaration
 
 event_definition ::=
   "event" identifier "(" ( parameter ( "," parameter )* )? ")" ";"
+
+effect_definition ::=
+  "effect" identifier "(" ( parameter ( "," parameter )* )? ")" ( "->" type_annotation )? ";"
 
 abi_fn_declaration ::=
   "fn" identifier "(" ( parameter ( "," parameter )* )? ")" ( "->" type_annotation )? ";"
@@ -181,49 +185,50 @@ expression ::=
   | logical_or_expression
 
 (* Postfix expressions: function calls and field access *)
-postfix_expression ::= primary_expression ( call_suffix | field_suffix )*
-call_suffix ::= "(" ( expression ( "," expression )* )? ")"
-field_suffix ::= "." identifier
+postfix_expression ::= primary_expression ( arguments | field_access )*
+
+arguments ::= "(" ( expression ( "," expression )* ","? )? ")"
+
+field_access ::= "." identifier
 
 (* Primary expressions are those outside the precedence table *)
 primary_expression ::=
   | "(" expression ")"
-  | identifier
+  | scoped_name
   | integer_literal
   | boolean_literal
   | unit_literal
-  | struct_literal
-  | enum_construction
-  | namespace_call
+  | struct_constructor
   | disclose_expression
   | emit_expression
   | raise_expression
   | runtime_expression
+  | yield_expression
   | block
   | if_expression
   | match_expression
-  | yield_expression
 
-disclose_expression ::= "disclose" "(" expression ")"
+scoped_name ::= identifier ( "::" identifier )*
 
-emit_expression ::= "emit" identifier "(" ( expression ( "," expression )* )? ")"
-
-raise_expression ::= "raise" expression
-
-runtime_expression ::= "runtime" expression
-
-namespace_call ::= identifier "::" identifier "(" ( expression ( "," expression )* )? ")"
-
-struct_literal ::= identifier "{" ( struct_field_initializer ( "," struct_field_initializer )* )? "}"
+struct_constructor ::= scoped_name "{" ( struct_field_initializer ( "," struct_field_initializer )* ","? )? "}"
 
 struct_field_initializer ::= identifier ":" expression
 
-enum_construction ::=
-  identifier "::" identifier ( enum_constructor_tuple_payload | enum_constructor_struct_payload )?
+disclose_expression ::= "disclose" "(" expression ")"
 
-enum_constructor_tuple_payload ::= "(" ( expression ( "," expression )* )? ")"
+emit_expression ::= "emit" primary_expression arguments
 
-enum_constructor_struct_payload ::= "{" ( struct_field_initializer ( "," struct_field_initializer )* )? "}"
+raise_expression ::= "raise" primary_expression arguments
+
+runtime_expression ::= "runtime" primary_expression arguments
+
+yield_expression ::= "yield" "(" ( identifier ( "," identifier )* )? ")"
+
+if_expression ::= "if" if_condition block ( "else" "if" if_condition block )* ( "else" block )?
+
+if_condition ::=
+  | "(" expression ")"
+  | identifier "is" identifier
 
 match_expression ::= "match" expression "{" ( match_arm ( "," match_arm )* )? "}"
 
@@ -234,30 +239,17 @@ pattern ::=
   | integer_literal
   | boolean_literal
   | unit_literal
-  | identifier
   | struct_pattern
-  | enum_variant_pattern
+  | tuple_pattern
+  | scoped_name
 
-struct_pattern ::= identifier "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
+struct_pattern ::= scoped_name "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
 
 struct_field_pattern ::=
   | identifier ":" pattern
   | identifier
 
-enum_variant_pattern ::=
-  identifier "::" identifier ( enum_pattern_tuple_payload | enum_pattern_struct_payload )?
-
-enum_pattern_tuple_payload ::= "(" ( pattern ( "," pattern )* )? ")"
-
-enum_pattern_struct_payload ::= "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
-
-if_condition ::=
-  | "(" expression ")"
-  | identifier "is" identifier
-
-if_expression ::= "if" if_condition block ( "else" "if" if_condition block )* ( "else" block )?
-
-yield_expression ::= "yield" "(" ( identifier ( "," identifier )* )? ")"
+tuple_pattern ::= scoped_name "(" ( pattern ( "," pattern )* )? ")"
 
 unary_expression ::= ("-" | "!") expression
 

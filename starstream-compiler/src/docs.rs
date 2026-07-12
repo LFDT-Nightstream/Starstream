@@ -2,13 +2,13 @@
 
 use serde::Serialize;
 use starstream_types::{
-    CommentMap,
+    CommentMap, FunctionType,
     ast::{Definition, EnumDef, Program, StructDef},
     typed_ast::{
         TypedDefinition, TypedEnumDef, TypedEnumVariantPayload, TypedFunctionDef, TypedProgram,
         TypedStructDef,
     },
-    types::{EffectKind, Type},
+    types::Type,
 };
 
 /// Root documentation output structure.
@@ -42,7 +42,7 @@ pub enum TypeRef {
         params: Vec<TypeRef>,
         #[serde(rename = "returnType")]
         return_type: Box<TypeRef>,
-        effect: &'static str,
+        kind: &'static str,
     },
 }
 
@@ -73,20 +73,17 @@ impl From<&Type> for TypeRef {
             Type::Tuple(types) => TypeRef::Tuple {
                 tuple: types.iter().map(TypeRef::from).collect(),
             },
-            Type::Function {
+            Type::Function(FunctionType {
                 params,
                 param_spans: _,
                 result,
-                effect,
+                kind,
                 name_span: _,
-            } => TypeRef::Function {
+                callee: _,
+            }) => TypeRef::Function {
                 params: params.iter().map(TypeRef::from).collect(),
                 return_type: Box::new(TypeRef::from(result.as_ref())),
-                effect: match effect {
-                    EffectKind::Pure => "pure",
-                    EffectKind::Effectful => "effectful",
-                    EffectKind::Runtime => "runtime",
-                },
+                kind: kind.call_keyword(),
             },
             Type::UtxoAny => TypeRef::Resource {
                 name: "Utxo".to_owned(),
@@ -120,8 +117,8 @@ pub struct FunctionDoc {
     pub params: Vec<ParamDoc>,
     #[serde(rename = "returnType")]
     pub return_type: TypeRef,
-    pub effect: String,
-    pub export: Option<String>,
+    pub kind: &'static str,
+    pub export: Option<&'static str>,
 }
 
 /// Documentation for a function parameter.
@@ -231,12 +228,8 @@ fn function_doc(f: &TypedFunctionDef, doc: Option<String>) -> FunctionDoc {
             })
             .collect(),
         return_type: TypeRef::from(&f.return_type),
-        effect: match f.effect {
-            EffectKind::Pure => "pure".to_string(),
-            EffectKind::Effectful => "effectful".to_string(),
-            EffectKind::Runtime => "runtime".to_string(),
-        },
-        export: f.export.as_ref().map(|e| format!("{:?}", e).to_lowercase()),
+        kind: "",
+        export: f.export.as_ref().map(|e| e.keyword()),
     }
 }
 

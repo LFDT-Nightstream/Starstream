@@ -37,11 +37,13 @@ FunctionDef {
         statements: [],
         tail_expression: Some(
             Spanned {
-                node: Identifier(
-                    Identifier {
-                        name: "value",
-                        span: 35..40,
-                    },
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "value",
+                            span: 35..40,
+                        },
+                    ],
                 ),
                 span: 35..41,
             },

@@ -87,13 +87,19 @@ TypedProgram {
                         name: "Point",
                         fields: [
                             RecordFieldType {
-                                name: "x",
+                                name: Identifier {
+                                    name: "x",
+                                    span: 19..20,
+                                },
                                 ty: Int(
                                     I64,
                                 ),
                             },
                             RecordFieldType {
-                                name: "y",
+                                name: Identifier {
+                                    name: "y",
+                                    span: 31..32,
+                                },
                                 ty: Int(
                                     I64,
                                 ),

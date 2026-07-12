@@ -46,11 +46,13 @@ Program {
                                         node: Binary {
                                             op: Less,
                                             left: Spanned {
-                                                node: Identifier(
-                                                    Identifier {
-                                                        name: "foo",
-                                                        span: 51..54,
-                                                    },
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "foo",
+                                                            span: 51..54,
+                                                        },
+                                                    ],
                                                 ),
                                                 span: 51..55,
                                             },
@@ -77,11 +79,13 @@ Program {
                                                         node: Binary {
                                                             op: Add,
                                                             left: Spanned {
-                                                                node: Identifier(
-                                                                    Identifier {
-                                                                        name: "foo",
-                                                                        span: 77..80,
-                                                                    },
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "foo",
+                                                                            span: 77..80,
+                                                                        },
+                                                                    ],
                                                                 ),
                                                                 span: 77..81,
                                                             },
@@ -119,21 +123,21 @@ Program {
 
 ==== Inference trace ====
 T-Fn: main => ()
-  T-Let: {main: fn() -> ()} ⊢ let mut foo = 0; ⇒ i64
-    T-Int: {main: fn() -> ()} ⊢ 0 ⇒ i64
-  T-While: {foo: i64, main: fn() -> ()} ⊢ while (foo < 10) {
+  T-Let: {main: fn() -> () [main]} ⊢ let mut foo = 0; ⇒ i64
+    T-Int: {main: fn() -> () [main]} ⊢ 0 ⇒ i64
+  T-While: {foo: i64, main: fn() -> () [main]} ⊢ while (foo < 10) {
     foo = foo + 1;
 } ⇒ ()
-    T-Bin-Lt: {foo: i64, main: fn() -> ()} ⊢ foo < 10 ⇒ bool
-      T-Var: {foo: i64, main: fn() -> ()} ⊢ foo ⇒ i64
-      T-Int: {foo: i64, main: fn() -> ()} ⊢ 10 ⇒ i64
+    T-Bin-Lt: {foo: i64, main: fn() -> () [main]} ⊢ foo < 10 ⇒ bool
+      T-Var: {foo: i64, main: fn() -> () [main]} ⊢ foo ⇒ i64
+      T-Int: {foo: i64, main: fn() -> () [main]} ⊢ 10 ⇒ i64
       Check-Compare: i64 vs i64 => ok (int)
         Unify-Var: i64 ~ i64 => {i64/t3}
     Check-Bool: bool => ok
-    T-Assign: {foo: i64, main: fn() -> ()} ⊢ foo = foo + 1; ⇒ i64
-      T-Bin-Add: {foo: i64, main: fn() -> ()} ⊢ foo + 1 ⇒ i64
-        T-Var: {foo: i64, main: fn() -> ()} ⊢ foo ⇒ i64
-        T-Int: {foo: i64, main: fn() -> ()} ⊢ 1 ⇒ i64
+    T-Assign: {foo: i64, main: fn() -> () [main]} ⊢ foo = foo + 1; ⇒ i64
+      T-Bin-Add: {foo: i64, main: fn() -> () [main]} ⊢ foo + 1 ⇒ i64
+        T-Var: {foo: i64, main: fn() -> () [main]} ⊢ foo ⇒ i64
+        T-Int: {foo: i64, main: fn() -> () [main]} ⊢ 1 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t4}
       Unify-Var: i64 ~ i64 => {}
 
@@ -152,7 +156,6 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -187,12 +190,15 @@ TypedProgram {
                                                 ty: Int(
                                                     I64,
                                                 ),
-                                                kind: Identifier(
-                                                    Identifier {
-                                                        name: "foo",
-                                                        span: 51..54,
-                                                    },
-                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "foo",
+                                                            span: 51..54,
+                                                        },
+                                                    ],
+                                                    constant: None,
+                                                },
                                             },
                                             span: 51..55,
                                         },
@@ -232,12 +238,15 @@ TypedProgram {
                                                             ty: Int(
                                                                 I64,
                                                             ),
-                                                            kind: Identifier(
-                                                                Identifier {
-                                                                    name: "foo",
-                                                                    span: 77..80,
-                                                                },
-                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "foo",
+                                                                        span: 77..80,
+                                                                    },
+                                                                ],
+                                                                constant: None,
+                                                            },
                                                         },
                                                         span: 77..81,
                                                     },

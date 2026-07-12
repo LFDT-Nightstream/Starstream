@@ -1,15 +1,17 @@
 ---
-source: starstream-compiler/src/parser/expression/primary/struct_literal.rs
+source: starstream-compiler/src/parser/expression/primary/struct_constructor.rs
 description: "Code:\n\nPoint {\n    x: 10,\n    y: value + 1,\n}\n"
 ---
 Spanned {
-    node: StructLiteral {
-        name: Identifier {
-            name: "Point",
-            span: 0..5,
-        },
+    node: StructConstructor {
+        name: [
+            Identifier {
+                name: "Point",
+                span: 0..5,
+            },
+        ],
         fields: [
-            StructLiteralField {
+            StructFieldInitializer {
                 name: Identifier {
                     name: "x",
                     span: 12..13,
@@ -23,7 +25,7 @@ Spanned {
                     span: 15..17,
                 },
             },
-            StructLiteralField {
+            StructFieldInitializer {
                 name: Identifier {
                     name: "y",
                     span: 23..24,
@@ -32,11 +34,13 @@ Spanned {
                     node: Binary {
                         op: Add,
                         left: Spanned {
-                            node: Identifier(
-                                Identifier {
-                                    name: "value",
-                                    span: 26..31,
-                                },
+                            node: ScopedName(
+                                [
+                                    Identifier {
+                                        name: "value",
+                                        span: 26..31,
+                                    },
+                                ],
                             ),
                             span: 26..32,
                         },

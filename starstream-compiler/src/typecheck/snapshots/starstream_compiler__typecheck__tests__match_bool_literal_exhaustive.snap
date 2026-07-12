@@ -11,7 +11,7 @@ T-Fn: test => i64
         0
     },
 } => i64
-    T-Match: {b: bool, test: fn(bool) -> i64} ⊢ match b {
+    T-Match: {b: bool, test: fn(bool) -> i64 [test]} ⊢ match b {
     true => {
         1
     },
@@ -19,12 +19,12 @@ T-Fn: test => i64
         0
     },
 } ⇒ i64
-      T-Var: {b: bool, test: fn(bool) -> i64} ⊢ b ⇒ bool
+      T-Var: {b: bool, test: fn(bool) -> i64 [test]} ⊢ b ⇒ bool
       Unify-Const: bool ~ bool => {}
       T-Tail: 1 => i64
-        T-Int: {b: bool, test: fn(bool) -> i64} ⊢ 1 ⇒ i64
+        T-Int: {b: bool, test: fn(bool) -> i64 [test]} ⊢ 1 ⇒ i64
       Unify-Const: bool ~ bool => {}
       T-Tail: 0 => i64
-        T-Int: {b: bool, test: fn(bool) -> i64} ⊢ 0 ⇒ i64
+        T-Int: {b: bool, test: fn(bool) -> i64 [test]} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Var: i64 ~ i64 => {i64/t3}

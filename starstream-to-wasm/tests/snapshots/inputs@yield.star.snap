@@ -127,9 +127,9 @@ Program {
 
 T-Utxo: MyUtxo => 
   T-Fn: hello_utxo => ()
-    T-Expr: {hello_utxo: fn(i32) -> (), x: i32} ⊢ yield(Foo); ⇒ ()
+    T-Expr: {hello_utxo: fn(i32) -> () [hello_utxo], x: i32} ⊢ yield(Foo); ⇒ ()
   T-Fn: foo => ()
-    T-Resume: {foo: fn() -> (), hello_utxo: fn(i32) -> ()} ⊢ resume; ⇒ ()
+    T-Resume: {foo: fn() -> () [foo], hello_utxo: fn(i32) -> () [hello_utxo]} ⊢ resume; ⇒ ()
       Unify-Const: () ~ () => {}
 
 ==== Typed AST ====
@@ -186,7 +186,6 @@ TypedProgram {
                                 },
                             ],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Expression(
@@ -253,7 +252,6 @@ TypedProgram {
                                 },
                                 params: [],
                                 return_type: Unit,
-                                effect: Pure,
                                 body: TypedBlock {
                                     statements: [
                                         Resume,

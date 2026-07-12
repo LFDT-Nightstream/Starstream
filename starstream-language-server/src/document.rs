@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ropey::Rope;
+use starstream_types::TypedEnumVariantPayload;
 use tower_lsp_server::lsp_types::{
     DocumentSymbol, DocumentSymbolResponse, Hover, HoverContents, Location, MarkupContent,
     MarkupKind, Position, Range, SymbolKind, TextEdit, Uri,
@@ -23,10 +24,10 @@ use starstream_types::{
     TypedTokenPart, TypedUtxoDef, TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
-        TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
-        TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariantPayload, TypedExpr, TypedExprKind,
-        TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedImportItems, TypedMatchArm,
-        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructLiteralField,
+        TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
+        TypedExprKind, TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedImportItems,
+        TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
+        TypedStructFieldInitializer,
     },
     types::{EnumType, EnumVariantKind, Type},
 };
@@ -94,6 +95,7 @@ pub struct DocumentState {
     comment_map: CommentMap,
 }
 
+#[allow(unused)]
 impl DocumentState {
     /// Create initial document state from raw text. `workspace_folders` is
     /// the list of roots the editor announced during `initialize`; the
@@ -957,6 +959,16 @@ impl DocumentState {
                         self.add_hover_label(span, format!("event {}", event.name.name));
                     }
                 }
+                TypedAbiPart::Effect(effect) => {
+                    if let Some(span) = effect.name.opt_span() {
+                        self.definition_entries.push(DefinitionEntry {
+                            usage: span,
+                            target: span,
+                        });
+
+                        self.add_hover_label(span, format!("effect {}", effect.name.name));
+                    }
+                }
                 TypedAbiPart::FnDecl(decl) => {
                     let method_doc = self.comment_map.doc_comments(decl.span, source);
 
@@ -1020,14 +1032,8 @@ impl DocumentState {
                 .map(|p| format!("{}: {}", p.name.name, p.ty.to_compact_string()))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let effect_prefix = match function.effect {
-                starstream_types::types::EffectKind::Pure => "fn",
-                starstream_types::types::EffectKind::Effectful => "effect fn",
-                starstream_types::types::EffectKind::Runtime => "runtime fn",
-            };
             let signature = format!(
-                "{}({}) -> {}",
-                effect_prefix,
+                "({}) -> {}",
                 params,
                 function.return_type.to_compact_string()
             );
@@ -1132,10 +1138,11 @@ impl DocumentState {
         self.add_hover_label_with_doc(expr.span, expr.node.ty.to_compact_string(), doc);
 
         match &expr.node.kind {
-            TypedExprKind::Identifier(identifier) => {
-                let usage_span = identifier.span_or(expr.span);
-
-                self.add_usage(usage_span, &identifier.name, scopes);
+            TypedExprKind::ScopedName { name, .. } => {
+                // TODO: handle scoping properly
+                let name = name.last().unwrap();
+                let usage_span = name.span_or(expr.span);
+                self.add_usage(usage_span, name.as_str(), scopes);
             }
             TypedExprKind::Unary { expr: inner, .. } => self.collect_expr(inner, scopes),
             TypedExprKind::Binary { left, right, .. } => {
@@ -1145,7 +1152,13 @@ impl DocumentState {
             }
             TypedExprKind::Grouping(inner) => self.collect_expr(inner, scopes),
             TypedExprKind::Literal(_) => {}
-            TypedExprKind::StructLiteral { name, fields } => {
+            TypedExprKind::StructConstructor {
+                name,
+                fields,
+                enum_variant: _,
+            } => {
+                // TODO: handle scoping properly
+                let name = name.last().unwrap();
                 self.add_type_usage(name.opt_span(), &name.name);
 
                 // Add hover for struct name with doc comment
@@ -1192,6 +1205,7 @@ impl DocumentState {
                     }
                 }
             }
+            /*
             TypedExprKind::EnumConstructor {
                 enum_name,
                 variant,
@@ -1238,6 +1252,7 @@ impl DocumentState {
                     }
                 }
             }
+            */
             TypedExprKind::Block(block) => self.collect_block(block, scopes),
             TypedExprKind::If {
                 branches,
@@ -1284,7 +1299,9 @@ impl DocumentState {
             }
             TypedExprKind::Call { callee, args } => {
                 // Check if callee is an identifier to look up function doc
-                if let TypedExprKind::Identifier(identifier) = &callee.node.kind {
+                if let TypedExprKind::ScopedName { name, .. } = &callee.node.kind {
+                    // TODO: handle scoping properly
+                    let identifier = name.last().unwrap();
                     if let Some((signature, doc)) =
                         self.function_docs.get(&identifier.name).cloned()
                     {
@@ -1302,23 +1319,26 @@ impl DocumentState {
                     self.collect_expr(arg, scopes);
                 }
             }
-            TypedExprKind::Emit { event, args } => {
-                if let Some(span) = event.opt_span() {
-                    self.add_hover_label(span, format!("event {}", event.name));
-                }
-
+            TypedExprKind::Disclose { expr: inner } => {
+                self.collect_expr(inner, scopes);
+            }
+            TypedExprKind::Emit { callee, args } => {
+                self.collect_expr(callee, scopes);
                 for arg in args {
                     self.collect_expr(arg, scopes);
                 }
             }
-            TypedExprKind::Disclose { expr: inner } => {
-                self.collect_expr(inner, scopes);
+            TypedExprKind::Raise { callee, args } => {
+                self.collect_expr(callee, scopes);
+                for arg in args {
+                    self.collect_expr(arg, scopes);
+                }
             }
-            TypedExprKind::Raise { expr: inner } => {
-                self.collect_expr(inner, scopes);
-            }
-            TypedExprKind::Runtime { expr: inner } => {
-                self.collect_expr(inner, scopes);
+            TypedExprKind::Runtime { callee, args } => {
+                self.collect_expr(callee, scopes);
+                for arg in args {
+                    self.collect_expr(arg, scopes);
+                }
             }
         }
     }
@@ -1368,6 +1388,8 @@ impl DocumentState {
                 // Literal patterns don't introduce bindings or references
             }
             TypedPattern::Struct { name, fields } => {
+                // TODO: in `Foo::Bar`, add usage for `Foo` too
+                let name = name.last().unwrap();
                 self.add_type_usage(name.opt_span(), &name.name);
 
                 // Add hover for struct name with doc comment
@@ -1396,77 +1418,11 @@ impl DocumentState {
                     self.collect_pattern(&field.pattern, scopes, field_ty);
                 }
             }
-            TypedPattern::EnumVariant {
-                enum_name,
-                variant,
-                payload,
-            } => {
-                self.add_type_usage(enum_name.opt_span(), &enum_name.name);
-
-                if let Some(span) = enum_name.opt_span() {
-                    // Include enum doc comment for the enum name in pattern
-                    let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
-                    self.add_generic_or_concrete_type_hover(
-                        span,
-                        &enum_name.name,
-                        expected_ty.as_ref(),
-                        enum_doc,
-                    );
-                }
-
-                self.add_enum_variant_usage(variant.opt_span(), &enum_name.name, &variant.name);
-                self.add_variant_hover(
-                    variant.opt_span(),
-                    &enum_name.name,
-                    &variant.name,
-                    expected_ty.as_ref(),
-                );
-
-                match payload {
-                    TypedEnumPatternPayload::Unit => {}
-                    TypedEnumPatternPayload::Tuple(patterns) => {
-                        let types = self
-                            .lookup_enum_tuple_types(&enum_name.name, &variant.name)
-                            .or_else(|| {
-                                expected_ty.as_ref().and_then(|ty| {
-                                    Self::enum_variant_tuple_types_from_type(ty, &variant.name)
-                                })
-                            });
-                        if let Some(types) = types {
-                            for (pattern, ty) in patterns.iter().zip(types) {
-                                self.collect_pattern(pattern, scopes, Some(ty));
-                            }
-                        } else {
-                            for pattern in patterns {
-                                self.collect_pattern(pattern, scopes, None);
-                            }
-                        }
-                    }
-                    TypedEnumPatternPayload::Struct(fields) => {
-                        for field in fields {
-                            self.add_enum_variant_field_usage(
-                                field.name.opt_span(),
-                                &enum_name.name,
-                                &variant.name,
-                                &field.name.name,
-                            );
-
-                            let field_ty = self.lookup_enum_struct_field_type(
-                                &enum_name.name,
-                                &variant.name,
-                                &field.name.name,
-                            );
-
-                            if let Some(span) = field.name.opt_span()
-                                && let Some(ty) = field_ty.as_ref()
-                            {
-                                self.add_hover_span(span, ty);
-                            }
-
-                            self.collect_pattern(&field.pattern, scopes, field_ty);
-                        }
-                    }
-                }
+            TypedPattern::Tuple { .. } => {
+                // TODO
+            }
+            TypedPattern::Constant { .. } => {
+                // TODO
             }
         }
     }
@@ -1474,7 +1430,7 @@ impl DocumentState {
     fn collect_struct_literal_field(
         &mut self,
         struct_name: &str,
-        field: &TypedStructLiteralField,
+        field: &TypedStructFieldInitializer,
         scopes: &mut Vec<HashMap<String, Span>>,
     ) {
         self.collect_expr(&field.value, scopes);
@@ -1739,6 +1695,14 @@ impl DocumentState {
                                     self.collect_type_annotation_node(&param.ty);
                                 }
                             }
+                            untyped_ast::AbiPart::Effect(effect) => {
+                                for param in &effect.params {
+                                    self.collect_type_annotation_node(&param.ty);
+                                }
+                                if let Some(ret) = &effect.return_type {
+                                    self.collect_type_annotation_node(ret);
+                                }
+                            }
                             untyped_ast::AbiPart::FnDecl(decl) => {
                                 for param in &decl.params {
                                     self.collect_type_annotation_node(&param.ty);
@@ -1957,7 +1921,7 @@ impl DocumentState {
             EnumVariantKind::Struct(fields) => EnumVariantPayloadInfo::Struct(
                 fields
                     .iter()
-                    .map(|f| (f.name.clone(), f.ty.clone()))
+                    .map(|f| (f.name.to_string(), f.ty.clone()))
                     .collect(),
             ),
         };
@@ -2348,6 +2312,37 @@ impl DocumentState {
                         children.push(child);
                     }
                 }
+                TypedAbiPart::Effect(effect) => {
+                    if let Some(span) = effect.name.opt_span() {
+                        let params = effect
+                            .params
+                            .iter()
+                            .map(|p| format!("{}: {}", p.name.name, p.ty))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+
+                        let ret = match &effect.return_type {
+                            Type::Unit => String::new(),
+                            ty => format!(" -> {ty}"),
+                        };
+
+                        let detail = Some(format!("({params}){ret}"));
+
+                        #[allow(deprecated)]
+                        let child = DocumentSymbol {
+                            name: effect.name.name.clone(),
+                            detail,
+                            kind: SymbolKind::EVENT,
+                            tags: None,
+                            deprecated: None,
+                            range: self.span_to_range(span),
+                            selection_range: self.span_to_range(span),
+                            children: None,
+                        };
+
+                        children.push(child);
+                    }
+                }
                 TypedAbiPart::FnDecl(decl) => {
                     if let Some(span) = decl.name.opt_span() {
                         let params = decl
@@ -2533,7 +2528,7 @@ fn format_variant_with_params(
         EnumVariantKind::Struct(fields) => {
             let rendered: Vec<(String, String)> = fields
                 .iter()
-                .map(|f| (f.name.clone(), f.ty.compact_display_with_params(params)))
+                .map(|f| (f.name.to_string(), f.ty.compact_display_with_params(params)))
                 .collect();
             format_struct_variant_hover(enum_name, variant_name, &rendered)
         }

@@ -145,8 +145,8 @@ Program {
 ==== Inference trace ====
 T-Token: MyToken => 
   T-Fn: mint => ()
-    T-Assign: {mint: fn() -> (), supply: u32} ⊢ supply = 1; ⇒ u32
-      T-Int: {mint: fn() -> (), supply: u32} ⊢ 1 ⇒ i64
+    T-Assign: {mint: fn() -> () [mint], supply: u32} ⊢ supply = 1; ⇒ u32
+      T-Int: {mint: fn() -> () [mint], supply: u32} ⊢ 1 ⇒ i64
       Unify-Var: i64 ~ u32 => {u32/t3}
   T-Fn: attach => ()
   T-Fn: detach => ()
@@ -187,7 +187,6 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -280,7 +279,6 @@ TypedProgram {
                                     },
                                 ],
                                 return_type: Unit,
-                                effect: Pure,
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,
@@ -303,7 +301,6 @@ TypedProgram {
                                     },
                                 ],
                                 return_type: Unit,
-                                effect: Pure,
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,

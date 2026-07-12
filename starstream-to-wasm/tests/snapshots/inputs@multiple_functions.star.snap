@@ -46,11 +46,13 @@ Program {
                                         (
                                             Bool(
                                                 Spanned {
-                                                    node: Identifier(
-                                                        Identifier {
-                                                            name: "flag",
-                                                            span: 41..45,
-                                                        },
+                                                    node: ScopedName(
+                                                        [
+                                                            Identifier {
+                                                                name: "flag",
+                                                                span: 41..45,
+                                                            },
+                                                        ],
                                                     ),
                                                     span: 41..45,
                                                 },
@@ -139,11 +141,13 @@ Program {
                                 node: Binary {
                                     op: Add,
                                     left: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "base",
-                                                span: 148..152,
-                                            },
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "base",
+                                                    span: 148..152,
+                                                },
+                                            ],
                                         ),
                                         span: 148..153,
                                     },
@@ -170,34 +174,34 @@ Program {
 
 ==== Inference trace ====
 T-Fn: main => ()
-  T-Let: {main: fn() -> ()} ⊢ let flag = true; ⇒ bool
-    T-Bool: {main: fn() -> ()} ⊢ true ⇒ bool
+  T-Let: {main: fn() -> () [main]} ⊢ let flag = true; ⇒ bool
+    T-Bool: {main: fn() -> () [main]} ⊢ true ⇒ bool
   T-ReturnTail: if (flag) {
     return;
 } else {
     return;
 } => ()
-    T-If: {flag: bool, main: fn() -> ()} ⊢ if (flag) {
+    T-If: {flag: bool, main: fn() -> () [main]} ⊢ if (flag) {
     return;
 } else {
     return;
 } ⇒ ()
-      T-Var: {flag: bool, main: fn() -> ()} ⊢ flag ⇒ bool
+      T-Var: {flag: bool, main: fn() -> () [main]} ⊢ flag ⇒ bool
       Check-Bool: bool => ok
-      T-ReturnUnit: {flag: bool, main: fn() -> ()} ⊢ return; ⇒ ()
+      T-ReturnUnit: {flag: bool, main: fn() -> () [main]} ⊢ return; ⇒ ()
         Unify-Const: () ~ () => {}
-      T-ReturnUnit: {flag: bool, main: fn() -> ()} ⊢ return; ⇒ ()
+      T-ReturnUnit: {flag: bool, main: fn() -> () [main]} ⊢ return; ⇒ ()
         Unify-Const: () ~ () => {}
       Unify-Const: () ~ () => {}
     Unify-Const: () ~ () => {}
 
 T-Fn: compute => i64
-  T-Let: {compute: fn() -> i64, main: fn() -> ()} ⊢ let base = 41; ⇒ i64
-    T-Int: {compute: fn() -> i64, main: fn() -> ()} ⊢ 41 ⇒ i64
+  T-Let: {compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ let base = 41; ⇒ i64
+    T-Int: {compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ 41 ⇒ i64
   T-ReturnTail: base + 1 => i64
-    T-Bin-Add: {base: i64, compute: fn() -> i64, main: fn() -> ()} ⊢ base + 1 ⇒ i64
-      T-Var: {base: i64, compute: fn() -> i64, main: fn() -> ()} ⊢ base ⇒ i64
-      T-Int: {base: i64, compute: fn() -> i64, main: fn() -> ()} ⊢ 1 ⇒ i64
+    T-Bin-Add: {base: i64, compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ base + 1 ⇒ i64
+      T-Var: {base: i64, compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ base ⇒ i64
+      T-Int: {base: i64, compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ 1 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t3}
     Unify-Var: i64 ~ i64 => {i64/t4}
 
@@ -214,7 +218,6 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -248,12 +251,15 @@ TypedProgram {
                                                 Spanned {
                                                     node: TypedExpr {
                                                         ty: Bool,
-                                                        kind: Identifier(
-                                                            Identifier {
-                                                                name: "flag",
-                                                                span: 41..45,
-                                                            },
-                                                        ),
+                                                        kind: ScopedName {
+                                                            name: [
+                                                                Identifier {
+                                                                    name: "flag",
+                                                                    span: 41..45,
+                                                                },
+                                                            ],
+                                                            constant: None,
+                                                        },
                                                     },
                                                     span: 41..45,
                                                 },
@@ -297,7 +303,6 @@ TypedProgram {
                 return_type: Int(
                     I64,
                 ),
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -335,12 +340,15 @@ TypedProgram {
                                             ty: Int(
                                                 I64,
                                             ),
-                                            kind: Identifier(
-                                                Identifier {
-                                                    name: "base",
-                                                    span: 148..152,
-                                                },
-                                            ),
+                                            kind: ScopedName {
+                                                name: [
+                                                    Identifier {
+                                                        name: "base",
+                                                        span: 148..152,
+                                                    },
+                                                ],
+                                                constant: None,
+                                            },
                                         },
                                         span: 148..153,
                                     },

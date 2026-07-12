@@ -8,12 +8,12 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
-    BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned, Type,
-    TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
-    TypedEnumDef, TypedEnumPatternPayload, TypedExpr, TypedExprKind, TypedFunctionDef,
-    TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedImportItems, TypedImportSource,
-    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef,
-    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionType, IntWidth, Literal, Span,
+    Spanned, StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition,
+    TypedEnumDef, TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
+    TypedImportDef, TypedImportItems, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
+    TypedStatement, TypedStructDef, TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart,
+    UnaryOp, ast::Identifier,
 };
 use thiserror::Error;
 use wasm_encoder::{
@@ -1366,13 +1366,14 @@ impl Compiler {
             };
 
             match &item.ty {
-                Type::Function {
+                Type::Function(FunctionType {
                     params,
                     param_spans: _,
                     result,
-                    effect: _,
+                    kind: _,
                     name_span: _,
-                } => {
+                    callee: _, // We know it's an import.
+                }) => {
                     let mut core_params = Vec::with_capacity(16);
                     let mut core_results = Vec::with_capacity(1);
                     let span = item.local.span();
@@ -1471,6 +1472,41 @@ impl Compiler {
                         .filter_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
                     let comp_result = None;
+                    let iface = self.imported_interfaces.entry(interface).or_default();
+                    let comp_fn_ty =
+                        iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
+                    iface
+                        .inner
+                        .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
+                }
+                TypedAbiPart::Effect(effect) => {
+                    let mut core_params = Vec::with_capacity(16);
+                    let span = effect.name.span();
+                    for p in &effect.params {
+                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
+                    }
+                    let mut core_results = Vec::new();
+                    _ = self.star_to_core_types(span, &mut core_results, &effect.return_type);
+
+                    let interface =
+                        format!("starstream:effects/{}", to_kebab_case(def.name.as_str()));
+                    let kebab = to_kebab_case(effect.name.as_str());
+
+                    // Core import
+                    let core_fn_ty = self.add_core_func_type(&FuncType::new(
+                        core_params.iter().copied(),
+                        core_results,
+                    ));
+                    let func = self.import_function(&interface, &kebab, core_fn_ty);
+                    self.callables.insert(effect.name.as_str().to_owned(), func);
+
+                    // Component import
+                    let comp_params = effect
+                        .params
+                        .iter()
+                        .filter_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
+                        .collect::<Vec<_>>();
+                    let comp_result = self.star_to_component_type(&effect.return_type);
                     let iface = self.imported_interfaces.entry(interface).or_default();
                     let comp_fn_ty =
                         iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
@@ -2097,7 +2133,7 @@ impl Compiler {
         // TODO: Warn on expressions that have no effect.
         match &expr.kind {
             TypedExprKind::Literal(_) => {}
-            TypedExprKind::Identifier(_) => {}
+            TypedExprKind::ScopedName { .. } => {}
             TypedExprKind::Unary { op: _, expr } => {
                 self.visit_expr_drop(func, bb, locals, expr.span, &expr.node)?;
             }
@@ -2165,7 +2201,11 @@ impl Compiler {
             TypedExprKind::Grouping(spanned) => {
                 self.visit_expr_drop(func, bb, locals, spanned.span, &spanned.node)?;
             }
-            TypedExprKind::StructLiteral { name: _, fields } => {
+            TypedExprKind::StructConstructor {
+                name: _,
+                fields,
+                enum_variant: _,
+            } => {
                 for field in fields {
                     self.visit_expr_drop(func, bb, locals, field.value.span, &field.value.node)?;
                 }
@@ -2173,29 +2213,6 @@ impl Compiler {
             TypedExprKind::FieldAccess { target, field: _ } => {
                 self.visit_expr_drop(func, bb, locals, target.span, &target.node)?;
             }
-            TypedExprKind::EnumConstructor {
-                enum_name: _,
-                variant: _,
-                payload,
-            } => match payload {
-                TypedEnumConstructorPayload::Unit => {}
-                TypedEnumConstructorPayload::Tuple(fields) => {
-                    for field in fields {
-                        self.visit_expr_drop(func, bb, locals, field.span, &field.node)?;
-                    }
-                }
-                TypedEnumConstructorPayload::Struct(fields) => {
-                    for field in fields {
-                        self.visit_expr_drop(
-                            func,
-                            bb,
-                            locals,
-                            field.value.span,
-                            &field.value.node,
-                        )?;
-                    }
-                }
-            },
             TypedExprKind::Block(block) => self.visit_block_drop(func, bb, locals, block)?,
             TypedExprKind::If {
                 branches,
@@ -2288,8 +2305,10 @@ impl Compiler {
     ) -> Result<()> {
         match &expr.kind {
             // Identifiers
-            TypedExprKind::Identifier(ident) => {
-                if let Some(var) = locals.get(&ident.name) {
+            TypedExprKind::ScopedName { name, constant } => {
+                if let [solo] = &name[..]
+                    && let Some(var) = locals.get(solo.as_str())
+                {
                     match var {
                         Var::Local(local) => {
                             for i in 0..self.star_count_core_types(&expr.ty) {
@@ -2303,10 +2322,39 @@ impl Compiler {
                         }
                     }
                     Ok(())
+                } else if let Type::Enum(enum_) = &expr.ty
+                    && let Some(variant) = *constant
+                {
+                    assert!(matches!(
+                        enum_.variants[variant].kind,
+                        EnumVariantKind::Unit
+                    ));
+
+                    let mut dest_types = Vec::new();
+                    _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
+                    let mut iter = dest_types.into_iter();
+
+                    // Push the discriminant
+                    assert_eq!(iter.next(), Some(ValType::I32));
+                    func.instructions(bb)
+                        .i32_const(i32::try_from(variant).unwrap());
+
+                    // Push 0 for the rest
+                    for ty in iter {
+                        match ty {
+                            ValType::I32 => func.instructions(bb).i32_const(0),
+                            ValType::I64 => func.instructions(bb).i64_const(0),
+                            ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
+                            ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
+                            _ => todo!(),
+                        };
+                    }
+
+                    Ok(())
                 } else {
                     Err(self.push_error(
-                        ident.span_or(span),
-                        format!("unknown name {:?}", &ident.name),
+                        name.last().unwrap().span_or(span),
+                        format!("unknown name {}", name.last().unwrap().as_str()),
                     ))
                 }
             }
@@ -2927,136 +2975,126 @@ impl Compiler {
                 self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)
             }
             // Data constructors
-            TypedExprKind::StructLiteral { name: _, fields } => {
-                let Type::Record(record) = &expr.ty else {
-                    panic!("StructLiteral type must be a Record");
-                };
-                let fields = fields
-                    .iter()
-                    .map(|f| (f.name.as_str(), &f.value))
-                    .collect::<HashMap<_, _>>();
-                // NB: currently compiles in declaration order, not the order written in source.
-                for field in &record.fields {
-                    let expr = fields
-                        .get(field.name.as_str())
-                        .expect("StructLiteral missing field");
-                    self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
-                }
-                Ok(())
-            }
-            TypedExprKind::EnumConstructor {
-                enum_name: _,
-                variant,
-                payload,
+            TypedExprKind::StructConstructor {
+                name: _,
+                enum_variant,
+                fields,
             } => {
-                let Type::Enum(enum_) = &expr.ty else {
-                    panic!("EnumConstructor type should be Enum, got {:?}", &expr.ty);
-                };
-
-                let mut dest_types = Vec::new();
-                _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
-                let mut iter = dest_types.into_iter();
-
-                // Push the discriminant
-                assert_eq!(iter.next().unwrap(), ValType::I32);
-                let Some((discriminant, variant_ty)) = enum_
-                    .variants
-                    .iter()
-                    .enumerate()
-                    .find(|(_, v)| v.name == variant.as_str())
-                else {
-                    panic!(
-                        "EnumConstructor variant {} not found in {:?}",
-                        variant, &expr.ty
-                    );
-                };
-                let discriminant = u32::try_from(discriminant).unwrap();
-                func.instructions(bb).i32_const(discriminant as i32);
-
-                // Push the values
-                match payload {
-                    TypedEnumConstructorPayload::Unit => {}
-                    TypedEnumConstructorPayload::Tuple(fields) => {
-                        for f in fields {
-                            self.visit_expr_stack(func, bb, locals, f.span, &f.node)?;
-                            self.enum_promote(func, bb, f.span, &f.node.ty, &mut iter);
-                        }
-                    }
-                    TypedEnumConstructorPayload::Struct(fields) => {
-                        let EnumVariantKind::Struct(struct_) = &variant_ty.kind else {
-                            panic!("EnumConstructor struct used for non-struct variant {variant}");
-                        };
+                match &expr.ty {
+                    Type::Record(record) => {
                         let fields = fields
                             .iter()
                             .map(|f| (f.name.as_str(), &f.value))
                             .collect::<HashMap<_, _>>();
                         // NB: currently compiles in declaration order, not the order written in source.
-                        for field in struct_ {
+                        for field in &record.fields {
                             let expr = fields
                                 .get(field.name.as_str())
                                 .expect("StructLiteral missing field");
                             self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
-                            self.enum_promote(func, bb, expr.span, &expr.node.ty, &mut iter);
                         }
                     }
-                }
+                    Type::Enum(enum_) => {
+                        let mut dest_types = Vec::new();
+                        _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
+                        let mut iter = dest_types.into_iter();
 
-                // Push 0 for the rest
-                for ty in iter {
-                    match ty {
-                        ValType::I32 => func.instructions(bb).i32_const(0),
-                        ValType::I64 => func.instructions(bb).i64_const(0),
-                        ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
-                        ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
-                        _ => todo!(),
-                    };
-                }
+                        // Push the discriminant
+                        assert_eq!(iter.next(), Some(ValType::I32));
+                        func.instructions(bb)
+                            .i32_const(i32::try_from(*enum_variant).unwrap());
 
+                        // Push the values
+                        let fields = fields
+                            .iter()
+                            .map(|f| (f.name.as_str(), &f.value))
+                            .collect::<HashMap<_, _>>();
+                        let EnumVariantKind::Struct(struct_) = &enum_.variants[*enum_variant].kind
+                        else {
+                            unreachable!()
+                        };
+                        // NB: currently compiles in declaration order, not the order written in source.
+                        for field in struct_ {
+                            let expr = fields
+                                .get(field.name.as_str())
+                                .expect("StructConstructor missing field");
+                            self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
+                            self.enum_promote(func, bb, expr.span, &expr.node.ty, &mut iter);
+                        }
+
+                        // Push 0 for the rest
+                        for ty in iter {
+                            match ty {
+                                ValType::I32 => func.instructions(bb).i32_const(0),
+                                ValType::I64 => func.instructions(bb).i64_const(0),
+                                ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
+                                ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
+                                _ => todo!(),
+                            };
+                        }
+                    }
+                    _ => panic!("StructConstructor type must be a Record or Enum"),
+                }
                 Ok(())
             }
             // Function calls
-            TypedExprKind::Call { callee, args } => {
-                let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.push_error(span, "cannot call non-identifier"));
+            TypedExprKind::Call { callee, args }
+            | TypedExprKind::Emit { callee, args }
+            | TypedExprKind::Raise { callee, args }
+            | TypedExprKind::Runtime { callee, args } => {
+                let callee_span = callee.span;
+                let Type::Function(FunctionType { callee, .. }) = &callee.node.ty else {
+                    unreachable!()
                 };
-                let target = *self
-                    .callables
-                    .get(i.as_str())
-                    .expect("no callable found for identifier");
-                self.visit_call(func, bb, locals, span, target, args)
-            }
-            TypedExprKind::Emit { event, args } => {
-                let target = *self
-                    .callables
-                    .get(event.as_str())
-                    .expect("no callable found for identifier");
-                self.visit_call(func, bb, locals, span, target, args)
-            }
-            TypedExprKind::Raise { expr: inner } => {
-                let TypedExprKind::Call { callee, args } = &inner.node.kind else {
-                    panic!("raise expr must be a call");
-                };
-                let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.push_error(span, "`raise` expr cannot call non-identifier"));
-                };
-                let target = *self
-                    .callables
-                    .get(i.as_str())
-                    .expect("no callable found for identifier");
-                self.visit_call(func, bb, locals, span, target, args)
-            }
-            TypedExprKind::Runtime { expr: inner } => {
-                let TypedExprKind::Call { callee, args } = &inner.node.kind else {
-                    panic!("runtime expr must be a call");
-                };
-                let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.push_error(span, "`runtime` expr cannot call non-identifier"));
-                };
-                let target = *self
-                    .callables
-                    .get(i.as_str())
-                    .expect("no callable found for identifier");
-                self.visit_call(func, bb, locals, span, target, args)
+                match callee {
+                    Some(StaticFunction::Named(name)) => {
+                        // TODO: properly handle namespacing in `callables`
+                        let Some(&target) = self.callables.get(name) else {
+                            return Err(
+                                self.push_error(callee_span, "no callable found for identifier")
+                            );
+                        };
+                        self.visit_call(func, bb, locals, span, target, args)
+                    }
+                    Some(StaticFunction::Constructor { variant }) => {
+                        // Enum tuple variant constructor.
+                        // TODO: maybe de-inline this?
+                        let Type::Enum(_) = &expr.ty else {
+                            panic!("EnumConstructor type should be Enum, got {:?}", &expr.ty);
+                        };
+
+                        let mut dest_types = Vec::new();
+                        _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
+                        let mut iter = dest_types.into_iter();
+
+                        // Push the discriminant
+                        assert_eq!(iter.next(), Some(ValType::I32));
+                        func.instructions(bb)
+                            .i32_const(i32::try_from(*variant).unwrap());
+
+                        // Push the values
+                        for f in args {
+                            self.visit_expr_stack(func, bb, locals, f.span, &f.node)?;
+                            self.enum_promote(func, bb, f.span, &f.node.ty, &mut iter);
+                        }
+
+                        // Push 0 for the rest
+                        for ty in iter {
+                            match ty {
+                                ValType::I32 => func.instructions(bb).i32_const(0),
+                                ValType::I64 => func.instructions(bb).i64_const(0),
+                                ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
+                                ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
+                                _ => todo!(),
+                            };
+                        }
+
+                        Ok(())
+                    }
+                    None => {
+                        return Err(self.push_error(callee_span, "function pointers not supported"));
+                    }
+                }
             }
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_stack(func, bb, locals, span, expr, scrutinee, arms)
@@ -3301,77 +3339,88 @@ impl Compiler {
                 ctor: Ctor::Unit,
                 args: vec![],
             },
-            TypedPattern::EnumVariant {
-                enum_name: _,
-                variant,
-                payload,
-            } => {
-                let Type::Enum(enum_ty) = ty else {
-                    return Pat::Wildcard { binding: None };
-                };
-                let variant_index = enum_ty
-                    .variants
-                    .iter()
-                    .position(|v| v.name == variant.as_str())
-                    .expect("variant not found in enum type");
-
-                let sub_pats = match payload {
-                    TypedEnumPatternPayload::Unit => vec![],
-                    TypedEnumPatternPayload::Tuple(pats) => {
-                        let variant_ty = &enum_ty.variants[variant_index];
-                        let EnumVariantKind::Tuple(field_types) = &variant_ty.kind else {
-                            return Pat::Wildcard { binding: None };
-                        };
-                        pats.iter()
-                            .zip(field_types.iter())
-                            .map(|(p, ft)| self.lower_pattern(p, arm_idx, ft))
-                            .collect()
+            TypedPattern::Struct { name, fields } => {
+                match ty {
+                    Type::Record(record) => {
+                        let args = record
+                            .fields
+                            .iter()
+                            .map(|field_def| {
+                                if let Some(sf) = fields
+                                    .iter()
+                                    .find(|sf| sf.name.as_str() == field_def.name.as_str())
+                                {
+                                    self.lower_pattern(&sf.pattern, arm_idx, &field_def.ty)
+                                } else {
+                                    Pat::Wildcard { binding: None }
+                                }
+                            })
+                            .collect();
+                        Pat::Ctor {
+                            ctor: Ctor::Struct,
+                            args,
+                        }
                     }
-                    TypedEnumPatternPayload::Struct(fields) => {
+                    Type::Enum(enum_ty) => {
+                        let variant_index = enum_ty
+                            .variants
+                            .iter()
+                            .position(|v| v.name == name.last().unwrap().as_str())
+                            .expect("variant not found in enum type");
+
                         let variant_ty = &enum_ty.variants[variant_index];
                         let EnumVariantKind::Struct(field_defs) = &variant_ty.kind else {
                             return Pat::Wildcard { binding: None };
                         };
                         // Lower in declaration order
-                        field_defs
+                        let args = field_defs
                             .iter()
                             .map(|fd| {
                                 let sf = fields
                                     .iter()
-                                    .find(|sf| sf.name.as_str() == fd.name)
+                                    .find(|sf| sf.name.as_str() == fd.name.as_str())
                                     .expect("missing field in struct pattern");
                                 self.lower_pattern(&sf.pattern, arm_idx, &fd.ty)
                             })
-                            .collect()
+                            .collect();
+                        Pat::Ctor {
+                            ctor: Ctor::EnumVariant { variant_index },
+                            args,
+                        }
                     }
-                };
-                Pat::Ctor {
-                    ctor: Ctor::EnumVariant { variant_index },
-                    args: sub_pats,
+                    _ => unreachable!(),
                 }
             }
-            TypedPattern::Struct { name: _, fields } => {
-                let Type::Record(record) = ty else {
-                    return Pat::Wildcard { binding: None };
+            TypedPattern::Tuple { name, fields } => {
+                let Type::Enum(enum_ty) = ty else {
+                    unreachable!()
                 };
-                let sub_pats = record
-                    .fields
+                let variant_index = enum_ty
+                    .variants
                     .iter()
-                    .map(|field_def| {
-                        if let Some(sf) =
-                            fields.iter().find(|sf| sf.name.as_str() == field_def.name)
-                        {
-                            self.lower_pattern(&sf.pattern, arm_idx, &field_def.ty)
-                        } else {
-                            Pat::Wildcard { binding: None }
-                        }
-                    })
+                    .position(|v| v.name == name.last().unwrap().as_str())
+                    .expect("variant not found in enum type");
+
+                let variant_ty = &enum_ty.variants[variant_index];
+                let EnumVariantKind::Tuple(field_types) = &variant_ty.kind else {
+                    unreachable!()
+                };
+                let args = fields
+                    .iter()
+                    .zip(field_types.iter())
+                    .map(|(p, ft)| self.lower_pattern(p, arm_idx, ft))
                     .collect();
                 Pat::Ctor {
-                    ctor: Ctor::Struct,
-                    args: sub_pats,
+                    ctor: Ctor::EnumVariant { variant_index },
+                    args,
                 }
             }
+            TypedPattern::Constant { name: _, variant } => Pat::Ctor {
+                ctor: Ctor::EnumVariant {
+                    variant_index: *variant,
+                },
+                args: vec![],
+            },
         }
     }
 

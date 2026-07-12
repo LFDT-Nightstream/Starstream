@@ -7,11 +7,13 @@ Expression(
         node: Binary {
             op: Add,
             left: Spanned {
-                node: Identifier(
-                    Identifier {
-                        name: "value",
-                        span: 0..5,
-                    },
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "value",
+                            span: 0..5,
+                        },
+                    ],
                 ),
                 span: 0..6,
             },

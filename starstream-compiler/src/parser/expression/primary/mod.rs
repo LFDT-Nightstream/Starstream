@@ -1,28 +1,22 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Block, Expr, Spanned};
 
-use crate::parser::{ParserExt, context::Extra};
+use crate::parser::{ParserExt, context::Extra, primitives::scoped_name};
 
 mod disclose;
-mod emit;
-mod enum_constructor;
+mod emit_raise_runtime;
 mod if_expr;
 mod literal;
 mod match_expr;
-mod raise;
-mod runtime;
-mod struct_literal;
+mod struct_constructor;
 mod yield_;
 
 pub use disclose::parser as disclose;
-pub use emit::parser as emit;
-pub use enum_constructor::parser as enum_constructor;
+pub use emit_raise_runtime::{emit, raise, runtime};
 pub use if_expr::parser as if_expr;
-pub use literal::{boolean, identifier, integer, unit};
+pub use literal::{boolean, integer, unit};
 pub use match_expr::parser as match_expr;
-pub use raise::parser as raise;
-pub use runtime::parser as runtime;
-pub use struct_literal::parser as struct_literal;
+pub use struct_constructor::struct_constructor;
 pub use yield_::yield_;
 
 pub fn primary<'a>(
@@ -43,20 +37,23 @@ pub fn primary<'a>(
         integer(),
         boolean(),
         unit(),
-        struct_literal(expression.clone()),
-        enum_constructor(expression.clone()),
-        yield_(),
+        struct_constructor(expression.clone()),
         disclose(expression.clone()),
         emit(expression.clone()),
         raise(expression.clone()),
         runtime(expression.clone()),
         block_expr,
+        yield_(),
         if_expr(expression.clone(), block.clone()),
         match_expr(expression.clone(), block.clone()),
         // Identifier last to prefer struct literals if possible
-        identifier(),
+        scoped_name_expr(),
     ))
     .boxed()
+}
+
+fn scoped_name_expr<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    scoped_name().map(|x| Expr::ScopedName(x)).spanned()
 }
 
 #[cfg(test)]
@@ -73,5 +70,15 @@ mod tests {
             { let mut a = 1; a = a + 1; }
             "#
         );
+    }
+
+    #[test]
+    fn enum_constructor_expression() {
+        assert_expression_snapshot!("Result::Ok(answer)");
+    }
+
+    #[test]
+    fn enum_constructor_unit() {
+        assert_expression_snapshot!("Option::None");
     }
 }

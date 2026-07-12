@@ -7,11 +7,13 @@ Spanned {
         callee: Spanned {
             node: FieldAccess {
                 target: Spanned {
-                    node: Identifier(
-                        Identifier {
-                            name: "obj",
-                            span: 0..3,
-                        },
+                    node: ScopedName(
+                        [
+                            Identifier {
+                                name: "obj",
+                                span: 0..3,
+                            },
+                        ],
                     ),
                     span: 0..3,
                 },
@@ -24,11 +26,13 @@ Spanned {
         },
         args: [
             Spanned {
-                node: Identifier(
-                    Identifier {
-                        name: "x",
-                        span: 11..12,
-                    },
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "x",
+                            span: 11..12,
+                        },
+                    ],
                 ),
                 span: 11..12,
             },

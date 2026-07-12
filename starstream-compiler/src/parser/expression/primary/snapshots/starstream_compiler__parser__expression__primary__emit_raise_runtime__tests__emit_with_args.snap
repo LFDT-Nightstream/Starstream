@@ -1,0 +1,55 @@
+---
+source: starstream-compiler/src/parser/expression/primary/emit_raise_runtime.rs
+description: "Code:\n\n// Transfer event\nemit Transfer(sender, to, amount)\n"
+---
+Spanned {
+    node: Emit {
+        callee: Spanned {
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "Transfer",
+                        span: 23..31,
+                    },
+                ],
+            ),
+            span: 23..31,
+        },
+        args: [
+            Spanned {
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "sender",
+                            span: 32..38,
+                        },
+                    ],
+                ),
+                span: 32..38,
+            },
+            Spanned {
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "to",
+                            span: 40..42,
+                        },
+                    ],
+                ),
+                span: 40..42,
+            },
+            Spanned {
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "amount",
+                            span: 44..50,
+                        },
+                    ],
+                ),
+                span: 44..50,
+            },
+        ],
+    },
+    span: 18..52,
+}

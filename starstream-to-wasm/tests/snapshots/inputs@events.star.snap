@@ -47,8 +47,15 @@ Program {
                                 node: Expression(
                                     Spanned {
                                         node: Emit {
-                                            event: Identifier {
-                                                name: "Hello",
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "Hello",
+                                                            span: 60..65,
+                                                        },
+                                                    ],
+                                                ),
                                                 span: 60..65,
                                             },
                                             args: [],
@@ -72,8 +79,9 @@ Program {
 ==== Inference trace ====
 
 T-Fn: main => ()
-  T-Expr: {main: fn() -> ()} ⊢ emit Hello(); ⇒ ()
-    T-Emit: {main: fn() -> ()} ⊢ emit Hello() ⇒ ()
+  T-Expr: {main: fn() -> () [main]} ⊢ emit Hello(); ⇒ ()
+    T-Call: {main: fn() -> () [main]} ⊢ emit Hello() ⇒ ()
+      T-Var: {main: fn() -> () [main]} ⊢ Hello ⇒ event() -> () [Hello]
 
 ==== Typed AST ====
 TypedProgram {
@@ -109,22 +117,47 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
-                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Expression(
                             Spanned {
                                 node: TypedExpr {
                                     ty: Unit,
-                                    kind: Emit {
-                                        event: Identifier {
-                                            name: "Hello",
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Emit,
+                                                        name_span: 20..25,
+                                                        params: [],
+                                                        param_spans: [],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                "Hello",
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "Hello",
+                                                            span: 60..65,
+                                                        },
+                                                    ],
+                                                    constant: Some(
+                                                        0,
+                                                    ),
+                                                },
+                                            },
                                             span: 60..65,
                                         },
                                         args: [],
                                     },
                                 },
-                                span: 55..67,
+                                span: 60..65,
                             },
                         ),
                     ],

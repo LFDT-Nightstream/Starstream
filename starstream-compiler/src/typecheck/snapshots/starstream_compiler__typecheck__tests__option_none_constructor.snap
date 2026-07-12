@@ -3,5 +3,5 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let x = Option::None;\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {test: fn() -> ()} ⊢ let x = Option::None; ⇒ Option<t3>
-    T-EnumCtor: {test: fn() -> ()} ⊢ Option::None ⇒ Option<t3>
+  T-Let: {test: fn() -> () [test]} ⊢ let x = Option::None; ⇒ Option<t3>
+    T-Var: {test: fn() -> () [test]} ⊢ Option::None ⇒ Option<t3>

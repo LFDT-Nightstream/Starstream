@@ -79,19 +79,11 @@
 (enum_variant (identifier) @constant)
 (block "{" @punctuation.bracket)
 (block "}" @punctuation.bracket)
-(struct_literal (identifier) @type)
+(struct_constructor (scoped_name) @type)
 (struct_field_initializer (identifier) @variable.member)
 (struct_field_initializer ":" @operator)
-(field_expression "." @operator)
-(enum_constructor (identifier) @type)
-(enum_constructor "::" @operator)
-; Function calls
-(call_expression
-  function: (identifier) @function.call)
-; Method calls
-(call_expression
-  function: (field_expression
-    field: (identifier) @function.call))
+(field_access "." @operator)
+(scoped_name "::" @operator)
 (arguments "(" @punctuation.bracket)
 (arguments ")" @punctuation.bracket)
 (arguments "," @operator)
@@ -104,8 +96,9 @@
 ; ABI and events
 (abi_definition (identifier) @type.definition)
 (event_definition (identifier) @function.definition)
-(emit_expression
-  event: (identifier) @function.call)
+(event_definition "event" @keyword)
+(effect_definition (identifier) @function.definition)
+(effect_definition "effect" @keyword)
 
 ; Import definitions
 (import_wit_source

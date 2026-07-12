@@ -58,8 +58,7 @@ module.exports = grammar({
 
     import_namespace: ($) => $.identifier,
 
-    import_source: ($) =>
-      choice($.import_wit_source, $.import_path_source),
+    import_source: ($) => choice($.import_wit_source, $.import_path_source),
 
     import_wit_source: ($) =>
       seq(
@@ -73,13 +72,7 @@ module.exports = grammar({
     import_path_source: ($) => $.string_literal,
 
     string_literal: ($) =>
-      token(
-        seq(
-          '"',
-          repeat(choice(/[^"\\]/, seq("\\", /["\\nrt]/))),
-          '"',
-        ),
-      ),
+      token(seq('"', repeat(choice(/[^"\\]/, seq("\\", /["\\nrt]/))), '"')),
 
     function_definition: ($) => seq(optional($.function_export), $._function),
 
@@ -169,7 +162,8 @@ module.exports = grammar({
     abi_definition: ($) =>
       seq("abi", $.identifier, "{", repeat($._abi_part), "}"),
 
-    _abi_part: ($) => choice($.event_definition, $.abi_fn_declaration),
+    _abi_part: ($) =>
+      choice($.event_definition, $.effect_definition, $.abi_fn_declaration),
 
     event_definition: ($) =>
       seq(
@@ -178,6 +172,17 @@ module.exports = grammar({
         "(",
         optional(seq($.parameter, repeat(seq(",", $.parameter)))),
         ")",
+        ";",
+      ),
+
+    effect_definition: ($) =>
+      seq(
+        "effect",
+        $.identifier,
+        "(",
+        optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        ")",
+        optional(seq("->", $.type_annotation)),
         ";",
       ),
 
@@ -243,7 +248,6 @@ module.exports = grammar({
     expression: ($) =>
       choice(
         $._postfix_expression,
-        $._primary_expression,
 
         prec.left(7, seq("!", $.expression)),
         prec.left(7, seq("-", $.expression)),
@@ -269,13 +273,8 @@ module.exports = grammar({
       ),
 
     // Postfix expressions: function calls and field access
-    _postfix_expression: ($) => choice($.call_expression, $.field_expression),
-
-    call_expression: ($) =>
-      seq(
-        field("function", choice($._primary_expression, $.field_expression)),
-        field("arguments", $.arguments),
-      ),
+    _postfix_expression: ($) =>
+      seq($._primary_expression, repeat(choice($.arguments, $.field_access))),
 
     arguments: ($) =>
       seq(
@@ -286,19 +285,68 @@ module.exports = grammar({
         ")",
       ),
 
-    field_expression: ($) =>
-      seq(
-        field(
-          "operand",
-          choice($._primary_expression, $.call_expression, $.field_expression),
-        ),
-        ".",
-        field("field", $.identifier),
+    field_access: ($) => seq(".", $.identifier),
+
+    // Primary expressions
+    _primary_expression: ($) =>
+      choice(
+        seq("(", $.expression, ")"),
+
+        // Ambiguity: `match foo { patterns }` vs `match foo { struct fields } { patterns }`.
+        // In this case, identifier has priority. Use parens to get struct literal.
+        prec(1, $.scoped_name),
+
+        $.integer_literal,
+        $.boolean_literal,
+        $.unit_literal,
+        $.struct_constructor,
+        $.disclose_expression,
+        $.emit_expression,
+        $.raise_expression,
+        $.runtime_expression,
+        $.block,
+        $.yield_expression,
+        $.if_expression,
+        $.match_expression,
       ),
 
-    is_condition: ($) => seq($.identifier, "is", $.identifier),
+    scoped_name: ($) => seq($.identifier, repeat(seq("::", $.identifier))),
 
-    _if_condition: ($) => choice(seq("(", $.expression, ")"), $.is_condition),
+    struct_constructor: ($) =>
+      seq(
+        $.scoped_name,
+        "{",
+        optional(
+          seq(
+            $.struct_field_initializer,
+            repeat(seq(",", $.struct_field_initializer)),
+            optional(","),
+          ),
+        ),
+        "}",
+      ),
+
+    struct_field_initializer: ($) => seq($.identifier, ":", $.expression),
+
+    disclose_expression: ($) =>
+      seq("disclose", "(", field("value", $.expression), ")"),
+
+    emit_expression: ($) =>
+      seq("emit", field("callee", $._primary_expression), $.arguments),
+
+    raise_expression: ($) =>
+      seq("raise", field("callee", $._primary_expression), $.arguments),
+
+    runtime_expression: ($) =>
+      seq("runtime", field("callee", $._primary_expression), $.arguments),
+
+    yield_expression: ($) =>
+      seq(
+        "yield",
+        "(",
+        optional(seq($.identifier, repeat(seq(",", $.identifier)))),
+        ")",
+      ),
 
     if_expression: ($) =>
       seq(
@@ -312,101 +360,9 @@ module.exports = grammar({
         optional(seq("else", $.block)),
       ),
 
-    yield_expression: ($) =>
-      seq(
-        "yield",
-        "(",
-        optional(seq($.identifier, repeat(seq(",", $.identifier)))),
-        ")",
-      ),
+    _if_condition: ($) => choice(seq("(", $.expression, ")"), $.is_condition),
 
-    _primary_expression: ($) =>
-      choice(
-        seq("(", $.expression, ")"),
-
-        // Ambiguity: `match foo { patterns }` vs `match foo { struct fields } { patterns }`.
-        // In this case, identifier has priority. Use parens to get struct literal.
-        prec(1, $.identifier),
-
-        $.integer_literal,
-        $.boolean_literal,
-        $.unit_literal,
-        $.struct_literal,
-        $.enum_constructor,
-        $.yield_expression,
-        $.disclose_expression,
-        $.emit_expression,
-        $.raise_expression,
-        $.runtime_expression,
-
-        $.block,
-        $.if_expression,
-        $.match_expression,
-      ),
-
-    raise_expression: ($) => seq("raise", field("call", $.call_expression)),
-
-    runtime_expression: ($) => seq("runtime", field("call", $.call_expression)),
-
-    disclose_expression: ($) =>
-      seq("disclose", "(", field("value", $.expression), ")"),
-
-    emit_expression: ($) =>
-      seq(
-        "emit",
-        field("event", $.identifier),
-        field("arguments", $.arguments),
-      ),
-
-    struct_literal: ($) =>
-      seq(
-        $.identifier,
-        "{",
-        optional(
-          seq(
-            $.struct_field_initializer,
-            repeat(seq(",", $.struct_field_initializer)),
-          ),
-        ),
-        optional(","),
-        "}",
-      ),
-
-    struct_field_initializer: ($) => seq($.identifier, ":", $.expression),
-
-    enum_constructor: ($) =>
-      seq(
-        $.identifier,
-        "::",
-        $.identifier,
-        optional(
-          choice(
-            $.enum_constructor_tuple_payload,
-            $.enum_constructor_struct_payload,
-          ),
-        ),
-      ),
-
-    enum_constructor_tuple_payload: ($) =>
-      seq(
-        "(",
-        optional(seq($.expression, repeat(seq(",", $.expression)))),
-        optional(","),
-        ")",
-      ),
-
-    enum_constructor_struct_payload: ($) =>
-      seq(
-        "{",
-        optional(
-          seq(
-            $.struct_field_initializer,
-            repeat(seq(",", $.struct_field_initializer)),
-          ),
-        ),
-        optional(","),
-        "}",
-      ),
+    is_condition: ($) => seq($.identifier, "is", $.identifier),
 
     match_expression: ($) =>
       seq(
@@ -427,8 +383,8 @@ module.exports = grammar({
         $.wildcard_pattern,
         $.literal_pattern,
         $.struct_pattern,
-        $.enum_variant_pattern,
-        $.identifier,
+        $.tuple_pattern,
+        $.scoped_name,
       ),
 
     wildcard_pattern: ($) => "_",
@@ -438,7 +394,7 @@ module.exports = grammar({
 
     struct_pattern: ($) =>
       seq(
-        $.identifier,
+        $.scoped_name,
         "{",
         optional(
           seq($.struct_field_pattern, repeat(seq(",", $.struct_field_pattern))),
@@ -453,39 +409,16 @@ module.exports = grammar({
         alias($.identifier, $.struct_field_pattern_name),
       ),
 
-    enum_variant_pattern: ($) =>
+    tuple_pattern: ($) =>
       seq(
-        $.identifier,
-        "::",
-        $.identifier,
-        optional(
-          choice(
-            $.enum_variant_pattern_tuple_payload,
-            $.enum_variant_pattern_struct_payload,
-          ),
-        ),
-      ),
-
-    enum_variant_pattern_tuple_payload: ($) =>
-      seq(
+        $.scoped_name,
         "(",
         optional(seq($.pattern, repeat(seq(",", $.pattern)))),
         optional(","),
         ")",
       ),
 
-    enum_variant_pattern_struct_payload: ($) =>
-      seq(
-        "{",
-        optional(
-          seq($.struct_field_pattern, repeat(seq(",", $.struct_field_pattern))),
-        ),
-        optional(","),
-        "}",
-      ),
-
     // Literals and other terminals
-
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
     integer_literal: ($) => /[0-9]+/,
     boolean_literal: ($) => choice("true", "false"),
@@ -499,10 +432,6 @@ module.exports = grammar({
         choice(seq("//", /.*/), seq("/*", /[^*]*\*+([^/*][^*]*\*+)*/, "/")),
       ),
   },
-  conflicts: ($) => [
-    [$.enum_constructor],
-    [$.field_expression, $.raise_expression],
-    [$.field_expression, $.runtime_expression],
-  ],
+  conflicts: ($) => [],
   extras: ($) => [/\s/, $.comment, $.doc_comment],
 });

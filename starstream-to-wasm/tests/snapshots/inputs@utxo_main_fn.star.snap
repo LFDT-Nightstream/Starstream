@@ -54,8 +54,15 @@ Program {
                                             node: Expression(
                                                 Spanned {
                                                     node: Emit {
-                                                        event: Identifier {
-                                                            name: "HelloEvent",
+                                                        callee: Spanned {
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "HelloEvent",
+                                                                        span: 94..104,
+                                                                    },
+                                                                ],
+                                                            ),
                                                             span: 94..104,
                                                         },
                                                         args: [],
@@ -83,8 +90,9 @@ Program {
 
 T-Utxo: MyUtxo => 
   T-Fn: hello_utxo => ()
-    T-Expr: {hello_utxo: fn() -> ()} ⊢ emit HelloEvent(); ⇒ ()
-      T-Emit: {hello_utxo: fn() -> ()} ⊢ emit HelloEvent() ⇒ ()
+    T-Expr: {hello_utxo: fn() -> () [hello_utxo]} ⊢ emit HelloEvent(); ⇒ ()
+      T-Call: {hello_utxo: fn() -> () [hello_utxo]} ⊢ emit HelloEvent() ⇒ ()
+        T-Var: {hello_utxo: fn() -> () [hello_utxo]} ⊢ HelloEvent ⇒ event() -> () [HelloEvent]
 
 ==== Typed AST ====
 TypedProgram {
@@ -127,22 +135,47 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            effect: Pure,
                             body: TypedBlock {
                                 statements: [
                                     Expression(
                                         Spanned {
                                             node: TypedExpr {
                                                 ty: Unit,
-                                                kind: Emit {
-                                                    event: Identifier {
-                                                        name: "HelloEvent",
+                                                kind: Call {
+                                                    callee: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Function(
+                                                                FunctionType {
+                                                                    kind: Emit,
+                                                                    name_span: 23..33,
+                                                                    params: [],
+                                                                    param_spans: [],
+                                                                    result: Unit,
+                                                                    callee: Some(
+                                                                        Named(
+                                                                            "HelloEvent",
+                                                                        ),
+                                                                    ),
+                                                                },
+                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "HelloEvent",
+                                                                        span: 94..104,
+                                                                    },
+                                                                ],
+                                                                constant: Some(
+                                                                    0,
+                                                                ),
+                                                            },
+                                                        },
                                                         span: 94..104,
                                                     },
                                                     args: [],
                                                 },
                                             },
-                                            span: 89..106,
+                                            span: 94..104,
                                         },
                                     ),
                                 ],
