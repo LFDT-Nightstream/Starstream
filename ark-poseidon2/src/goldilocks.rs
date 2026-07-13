@@ -21,22 +21,26 @@ pub(crate) fn matrix_diag_8_goldilocks() -> &'static [FpGoldilocks; 8] {
 #[allow(unused)]
 pub static MATRIX_DIAG_12_GOLDILOCKS: OnceLock<[FpGoldilocks; 12]> = OnceLock::new();
 
+/// Internal-layer diagonal (minus one) for width 12, matching plonky3's
+/// `MATRIX_DIAG_12_GOLDILOCKS` (p3-goldilocks 0.5.3). This is a protocol
+/// constant of the `compress_12`/`sponge_12` instantiation shared with the
+/// wasm zkVM's host-event chain.
 #[allow(unused)]
 pub(crate) fn matrix_diag_12_goldilocks() -> &'static [FpGoldilocks; 12] {
     MATRIX_DIAG_12_GOLDILOCKS.get_or_init(|| {
         [
-            FpGoldilocks::from(0xc3b6c08e23ba9300_u64),
-            FpGoldilocks::from(0xd84b5de94a324fb6_u64),
-            FpGoldilocks::from(0x0d0c371c5b35b84f_u64),
-            FpGoldilocks::from(0x7964f570e7188037_u64),
-            FpGoldilocks::from(0x5daf18bbd996604b_u64),
-            FpGoldilocks::from(0x6743bc47b9595257_u64),
-            FpGoldilocks::from(0x5528b9362c59bb70_u64),
-            FpGoldilocks::from(0xac45e25b7127b68b_u64),
-            FpGoldilocks::from(0xa2077d7dfbb606b5_u64),
-            FpGoldilocks::from(0xf3faac6faee378ae_u64),
-            FpGoldilocks::from(0x0c6388b51545e883_u64),
-            FpGoldilocks::from(0xd27dbb6944917b60_u64),
+            FpGoldilocks::from(0xfffffffeffffffff_u64), // -2
+            FpGoldilocks::from(0x0000000000000001_u64), // 1
+            FpGoldilocks::from(0x0000000000000002_u64), // 2
+            FpGoldilocks::from(0x7fffffff80000001_u64), // 1/2
+            FpGoldilocks::from(0x0000000000000003_u64), // 3
+            FpGoldilocks::from(0x0000000000000004_u64), // 4
+            FpGoldilocks::from(0x7fffffff80000000_u64), // -1/2
+            FpGoldilocks::from(0xfffffffefffffffe_u64), // -3
+            FpGoldilocks::from(0xfffffffefffffffd_u64), // -4
+            FpGoldilocks::from(0xbfffffff40000001_u64), // 1/2^2
+            FpGoldilocks::from(0x3fffffffc0000000_u64), // -1/2^2
+            FpGoldilocks::from(0xdfffffff20000001_u64), // 1/2^3
         ]
     })
 }
