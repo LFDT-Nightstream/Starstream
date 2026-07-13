@@ -1936,7 +1936,38 @@ impl Inferencer {
 
         for impl_method in methods {
             if let Some(abi_method) = abi_methods.remove(impl_method.name.as_str()) {
-                // Method found, make sure parameters match
+                // Method found, make sure the parameter counts match
+                if abi_method.params.len() != impl_method.params.len() {
+                    return Err(TypeError::new(
+                        TypeErrorKind::ArityMismatch {
+                            expected: abi_method.params.len(),
+                            found: impl_method.params.len(),
+                        },
+                        impl_method.name.span(),
+                    )
+                    .with_primary_message(format!(
+                        "implemented with {} parameter{} here",
+                        impl_method.params.len(),
+                        if impl_method.params.len() == 1 {
+                            ""
+                        } else {
+                            "s"
+                        },
+                    ))
+                    .with_secondary(
+                        abi_method.name.span,
+                        format!(
+                            "declared with {} parameter{} here",
+                            abi_method.params.len(),
+                            if abi_method.params.len() == 1 {
+                                ""
+                            } else {
+                                "s"
+                            },
+                        ),
+                    ));
+                }
+                // And that the parameter types match
                 for (i, (abi_param, impl_param)) in abi_method
                     .params
                     .iter()
