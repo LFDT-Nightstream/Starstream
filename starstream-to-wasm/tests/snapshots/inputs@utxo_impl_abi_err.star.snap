@@ -209,6 +209,23 @@ Program {
     :          ^^^^^
  13 | }
     `----
+]8;;https://starstream.nightstream.dev/errors/E0030\E0030 (link)]8;;\
+
+  x function expects 0 arguments but 1 was provided
+   ,-[2:8]
+ 1 | abi MyAbi {
+ 2 |     fn hello();
+   :        ^^|^^
+   :          `-- declared with 0 parameters here
+ 3 | }
+   `----
+    ,-[17:12]
+ 16 |     impl MyAbi {
+ 17 |         fn hello(x: i32) { }
+    :            ^^|^^
+    :              `-- implemented with 1 parameter here
+ 18 |     }
+    `----
 ]8;;https://starstream.nightstream.dev/errors/E0009\E0009 (link)]8;;\
 
   x return type `i32` does not match function signature `()`

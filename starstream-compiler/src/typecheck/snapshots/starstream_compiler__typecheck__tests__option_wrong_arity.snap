@@ -4,7 +4,7 @@ description: "Source:\n\nfn test() {\n    let x: Option<i64, bool> = Option::Som
 ---
 E0042 (https://starstream.nightstream.dev/errors/E0042)
 
-  x type `Option` expects 1 generic argument(s) but 2 were provided
+  x type `Option` expects 1 generic argument but 2 were provided
    ,-[test.star:2:12]
  1 | fn test() {
  2 |     let x: Option<i64, bool> = Option::Some(42);

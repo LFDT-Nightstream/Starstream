@@ -1668,3 +1668,47 @@ fn token_reserved_abi_name_error() {
         "#
     );
 }
+
+// ── impl <Abi> arity ─────────────────────────────────────────────────────────
+
+#[test]
+fn abi_impl_fewer_params_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi MyAbi {
+            fn transfer(amount: i64);
+        }
+
+        utxo Foo {
+            main fn new() {
+                yield(MyAbi);
+            }
+
+            impl MyAbi {
+                fn transfer() {}
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn abi_impl_extra_params_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi MyAbi {
+            fn transfer(amount: i64);
+        }
+
+        utxo Foo {
+            main fn new() {
+                yield(MyAbi);
+            }
+
+            impl MyAbi {
+                fn transfer(amount: i64, extra: i64) {}
+            }
+        }
+        "#
+    );
+}

@@ -4,7 +4,7 @@ description: "Source:\n\nabi Events {\n    event Transfer(sender: i64, to: i64);
 ---
 E0030 (https://starstream.nightstream.dev/errors/E0030)
 
-  x function expects 2 arguments but 1 were provided
+  x function expects 2 arguments but 1 was provided
    ,-[test.star:6:5]
  5 | fn main() {
  6 |     emit Transfer(1);

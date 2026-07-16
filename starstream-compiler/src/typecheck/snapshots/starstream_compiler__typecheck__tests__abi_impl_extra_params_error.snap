@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi MyAbi {\n    fn transfer(amount: i64);\n}\n\nutxo Foo {\n    main fn new() {\n        yield(MyAbi);\n    }\n\n    impl MyAbi {\n        fn transfer(amount: i64, extra: i64) {}\n    }\n}\n"
+---
+E0030 (https://starstream.nightstream.dev/errors/E0030)
+
+  x function expects 1 argument but 2 were provided
+   ,-[test.star:2:8]
+ 1 | abi MyAbi {
+ 2 |     fn transfer(amount: i64);
+   :        ^^^^|^^^
+   :            `-- declared with 1 parameter here
+ 3 | }
+   `----
+    ,-[test.star:11:12]
+ 10 |     impl MyAbi {
+ 11 |         fn transfer(amount: i64, extra: i64) {}
+    :            ^^^^|^^^
+    :                `-- implemented with 2 parameters here
+ 12 |     }
+    `----
