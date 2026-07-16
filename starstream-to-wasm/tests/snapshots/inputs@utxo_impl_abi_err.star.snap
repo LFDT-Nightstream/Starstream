@@ -211,7 +211,7 @@ Program {
     `----
 ]8;;https://starstream.nightstream.dev/errors/E0030\E0030 (link)]8;;\
 
-  x function expects 0 arguments but 1 were provided
+  x function expects 0 arguments but 1 was provided
    ,-[2:8]
  1 | abi MyAbi {
  2 |     fn hello();

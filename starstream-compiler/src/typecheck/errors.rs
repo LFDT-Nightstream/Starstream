@@ -604,15 +604,11 @@ impl fmt::Display for TypeErrorKind {
                 )
             }
             TypeErrorKind::ArityMismatch { expected, found } => {
-                let args = if *expected == 1 {
-                    "argument"
-                } else {
-                    "arguments"
-                };
-
                 write!(
                     f,
-                    "function expects {expected} {args} but {found} were provided"
+                    "function expects {expected} argument{} but {found} {} provided",
+                    if *expected == 1 { "" } else { "s" },
+                    if *found == 1 { "was" } else { "were" },
                 )
             }
             TypeErrorKind::ArgumentTypeMismatch {
@@ -634,15 +630,11 @@ impl fmt::Display for TypeErrorKind {
                 expected,
                 found,
             } => {
-                let args = if *expected == 1 {
-                    "argument"
-                } else {
-                    "arguments"
-                };
-
                 write!(
                     f,
-                    "event `{event_name}` expects {expected} {args} but {found} were provided"
+                    "event `{event_name}` expects {expected} argument{} but {found} {} provided",
+                    if *expected == 1 { "" } else { "s" },
+                    if *found == 1 { "was" } else { "were" },
                 )
             }
             TypeErrorKind::EventArgumentTypeMismatch {
@@ -723,7 +715,9 @@ impl fmt::Display for TypeErrorKind {
             } => {
                 write!(
                     f,
-                    "type `{type_name}` expects {expected} generic argument(s) but {found} were provided"
+                    "type `{type_name}` expects {expected} generic argument{} but {found} {} provided",
+                    if *expected == 1 { "" } else { "s" },
+                    if *found == 1 { "was" } else { "were" },
                 )
             }
             TypeErrorKind::ReturnTypeNotAllowed => {
