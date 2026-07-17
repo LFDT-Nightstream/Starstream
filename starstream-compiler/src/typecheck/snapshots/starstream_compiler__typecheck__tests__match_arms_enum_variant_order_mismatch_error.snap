@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nenum First {\n    Go(i64),\n    Stop,\n}\n\nenum Second {\n    Stop,\n    Go(i64),\n}\n\nfn pick(c: bool, a: First, b: Second) -> First {\n    match c {\n        true => { a },\n        false => { b },\n    }\n}\n"
+---
+E0008 (https://starstream.nightstream.dev/errors/E0008)
+
+  x expected type `First`, found `Second`
+    ,-[test.star:14:20]
+ 12 |     match c {
+ 13 |         true => { a },
+    :                   ^|
+    :                    `-- expected `First` due to this
+ 14 |         false => { b },
+    :                    ^|
+    :                     `-- has type `Second`
+ 15 |     }
+    `----

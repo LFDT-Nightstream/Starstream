@@ -1712,3 +1712,171 @@ fn abi_impl_extra_params_error() {
         "#
     );
 }
+
+// ── match arm structural unification ─────────────────────────────────────────
+
+#[test]
+fn match_arms_structural_records_unify() {
+    // Struct names are aliases, so arms returning `A` and `B` unify when the
+    // fields line up in declaration order — same rule as if/else branches.
+    assert_typecheck_snapshot!(
+        r#"
+        struct A {
+            x: i64,
+            y: bool,
+        }
+
+        struct B {
+            x: i64,
+            y: bool,
+        }
+
+        fn pick(c: bool, a: A, b: B) -> A {
+            match c {
+                true => { a },
+                false => { b },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_arms_record_field_order_mismatch_error() {
+    // Declaration order is significant: same field set in a different order
+    // is a different shape.
+    assert_typecheck_snapshot!(
+        r#"
+        struct A {
+            x: i64,
+            y: bool,
+        }
+
+        struct B {
+            y: bool,
+            x: i64,
+        }
+
+        fn pick(c: bool, a: A, b: B) -> A {
+            match c {
+                true => { a },
+                false => { b },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_arms_structural_enums_unify() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum First {
+            Go(i64),
+            Stop,
+        }
+
+        enum Second {
+            Go(i64),
+            Stop,
+        }
+
+        fn pick(c: bool, a: First, b: Second) -> First {
+            match c {
+                true => { a },
+                false => { b },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_arms_enum_variant_order_mismatch_error() {
+    // Variant order is significant — it determines the runtime tag.
+    assert_typecheck_snapshot!(
+        r#"
+        enum First {
+            Go(i64),
+            Stop,
+        }
+
+        enum Second {
+            Stop,
+            Go(i64),
+        }
+
+        fn pick(c: bool, a: First, b: Second) -> First {
+            match c {
+                true => { a },
+                false => { b },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_arms_record_shape_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct A {
+            x: i64,
+        }
+
+        struct B {
+            x: i64,
+            y: bool,
+        }
+
+        fn pick(c: bool, a: A, b: B) -> A {
+            match c {
+                true => { a },
+                false => { b },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_else_structural_records_unify() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct A {
+            x: i64,
+            y: bool,
+        }
+
+        struct B {
+            x: i64,
+            y: bool,
+        }
+
+        fn pick(c: bool, a: A, b: B) -> A {
+            if (c) { a } else { b }
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_else_record_field_order_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct A {
+            x: i64,
+            y: bool,
+        }
+
+        struct B {
+            y: bool,
+            x: i64,
+        }
+
+        fn pick(c: bool, a: A, b: B) -> A {
+            if (c) { a } else { b }
+        }
+        "#
+    );
+}

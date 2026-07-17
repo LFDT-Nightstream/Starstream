@@ -802,8 +802,8 @@ T-Fn: make_ok => Result<i64, bool>
       T-Int: {make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t7 => {i64/t9}
     Unify-Enum: Result ~ Result<i64, bool> => {bool/t8, i64/t7}
-      Unify-Var: t8 ~ bool => {bool/t8}
       Unify-Var: i64 ~ i64 => {i64/t7}
+      Unify-Var: t8 ~ bool => {bool/t8}
 
 T-Fn: make_err => Result<i64, bool>
   T-ReturnTail: Result::Err(false) => Result
@@ -812,8 +812,8 @@ T-Fn: make_err => Result<i64, bool>
       T-Bool: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ false ⇒ bool
       Unify-Var: bool ~ t11 => {bool/t11}
     Unify-Enum: Result ~ Result<i64, bool> => {i64/t10}
-      Unify-Const: bool ~ bool => {}
       Unify-Var: t10 ~ i64 => {i64/t10}
+      Unify-Const: bool ~ bool => {}
 
 T-Fn: unwrap_result => i64
   T-ReturnTail: match res {
@@ -834,13 +834,13 @@ T-Fn: unwrap_result => i64
 } ⇒ i64
       T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result]} ⊢ res ⇒ Result<i64, bool>
       Unify-Enum: Result<i64, bool> ~ Result => {bool/t2, i64/t1}
-        Unify-Var: bool ~ t2 => {bool/t2}
         Unify-Var: i64 ~ t1 => {i64/t1}
+        Unify-Var: bool ~ t2 => {bool/t2}
       T-Tail: v => i64
         T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], v: i64} ⊢ v ⇒ i64
       Unify-Enum: Result<i64, bool> ~ Result => {}
-        Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
+        Unify-Const: bool ~ bool => {}
       T-Tail: 0 => i64
         T-Int: {e: bool, make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result]} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
@@ -861,8 +861,8 @@ T-Fn: run => ()
       T-Call: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ make_ok() ⇒ Result<i64, bool>
         T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ make_ok ⇒ fn() -> Result<i64, bool> [make_ok]
       Unify-Enum: Result<i64, bool> ~ Result<i64, bool> => {}
-        Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
+        Unify-Const: bool ~ bool => {}
 
 ==== Typed AST ====
 TypedProgram {

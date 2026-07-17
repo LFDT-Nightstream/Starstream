@@ -418,9 +418,9 @@ No user-defined generics at this time.
 
 ### Structural typing rules
 
-- Struct and enum definitions introduce canonical shapes, but names are merely aliases; two independently-declared structs with the same field names/types are interchangeable.
-- Type annotations refer to those named definitions. During type checking the compiler canonicalizes field/variant order before comparing shapes so structurally identical names unify.
-- Unification succeeds for records when both sides have the same field names (order-insensitive) and each corresponding field type unifies. A similar rule holds for enums, matching variant names and payload arity/type.
+- Struct and enum definitions introduce canonical shapes, but names are merely aliases; two independently-declared structs with the same fields — same names, same types, in the same declaration order — are interchangeable.
+- Type annotations refer to those named definitions. Shapes are compared in declaration order; no reordering or canonicalization is performed, so the same field set declared in a different order is a different shape.
+- Unification succeeds for records when both sides declare the same field names in the same order and each corresponding field type unifies. A similar rule holds for enums, matching variant names, variant order, and payload arity/type.
 - Pattern matching and field access operate on these shapes; renaming a type but keeping its layout requires no code changes.
 
 ## Contracts
@@ -651,7 +651,7 @@ visibility modifier:
 - The boolean operators `!`, `&&`, `||` accept booleans and produce
   booleans.
   - `&&` and `||` are short-circuiting.
-- Structural records/enums are compared by shape, not name. Two structs with identical field sets and types are interchangeable; enum variants must likewise line up by name and payload shape.
+- Structural records/enums are compared by shape, not name. Two structs with identical fields declared in the same order are interchangeable; enum variants must likewise line up by name, declaration order, and payload shape.
 - `yield` expressions mark points where a Utxo's execution can be suspended to the ledger.
   They are only valid inside Utxo `main fn`s.
 

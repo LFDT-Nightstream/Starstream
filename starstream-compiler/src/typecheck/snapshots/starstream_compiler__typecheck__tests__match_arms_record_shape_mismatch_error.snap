@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct A {\n    x: i64,\n}\n\nstruct B {\n    x: i64,\n    y: bool,\n}\n\nfn pick(c: bool, a: A, b: B) -> A {\n    match c {\n        true => { a },\n        false => { b },\n    }\n}\n"
+---
+E0008 (https://starstream.nightstream.dev/errors/E0008)
+
+  x expected type `A`, found `B`
+    ,-[test.star:13:20]
+ 11 |     match c {
+ 12 |         true => { a },
+    :                   ^|
+    :                    `-- expected `A` due to this
+ 13 |         false => { b },
+    :                    ^|
+    :                     `-- has type `B`
+ 14 |     }
+    `----

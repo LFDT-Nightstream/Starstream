@@ -1,0 +1,31 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nenum First {\n    Go(i64),\n    Stop,\n}\n\nenum Second {\n    Stop,\n    Go(i64),\n}\n\nfn pick(c: bool, a: First, b: Second) -> First {\n    match c {\n        true => { a },\n        false => { b },\n    }\n}\n"
+---
+T-Fn: pick => First
+  T-ReturnTail: match c {
+    true => {
+        a
+    },
+    false => {
+        b
+    },
+} => Second
+    T-Match: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First [pick]} ⊢ match c {
+    true => {
+        a
+    },
+    false => {
+        b
+    },
+} ⇒ Second
+      T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First [pick]} ⊢ c ⇒ bool
+      Unify-Const: bool ~ bool => {}
+      T-Tail: a => First
+        T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First [pick]} ⊢ a ⇒ First
+      Unify-Const: bool ~ bool => {}
+      T-Tail: b => Second
+        T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First [pick]} ⊢ b ⇒ Second
+      Unify-Enum: Second ~ First => Second
+    Unify-Enum: Second ~ First => {}
+      Unify-Const: i64 ~ i64 => {}

@@ -1,0 +1,32 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct A {\n    x: i64,\n    y: bool,\n}\n\nstruct B {\n    y: bool,\n    x: i64,\n}\n\nfn pick(c: bool, a: A, b: B) -> A {\n    match c {\n        true => { a },\n        false => { b },\n    }\n}\n"
+---
+T-Fn: pick => A
+  T-ReturnTail: match c {
+    true => {
+        a
+    },
+    false => {
+        b
+    },
+} => B
+    T-Match: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A [pick]} ⊢ match c {
+    true => {
+        a
+    },
+    false => {
+        b
+    },
+} ⇒ B
+      T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A [pick]} ⊢ c ⇒ bool
+      Unify-Const: bool ~ bool => {}
+      T-Tail: a => A
+        T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A [pick]} ⊢ a ⇒ A
+      Unify-Const: bool ~ bool => {}
+      T-Tail: b => B
+        T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A [pick]} ⊢ b ⇒ B
+      Unify-Record: B ~ A => B
+    Unify-Record: B ~ A => {}
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: bool ~ bool => {}

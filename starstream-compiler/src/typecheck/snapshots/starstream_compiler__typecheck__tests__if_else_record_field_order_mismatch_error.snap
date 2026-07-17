@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct A {\n    x: i64,\n    y: bool,\n}\n\nstruct B {\n    y: bool,\n    x: i64,\n}\n\nfn pick(c: bool, a: A, b: B) -> A {\n    if (c) { a } else { b }\n}\n"
+---
+E0008 (https://starstream.nightstream.dev/errors/E0008)
+
+  x expected type `A`, found `B`
+    ,-[test.star:12:25]
+ 11 | fn pick(c: bool, a: A, b: B) -> A {
+ 12 |     if (c) { a } else { b }
+    :     ^^^^^^^^^^^^|^^^^^^^^^^^^
+    :                 `-- struct field mismatch
+ 13 | }
+    `----

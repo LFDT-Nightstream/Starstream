@@ -9,5 +9,5 @@ T-Fn: test => ()
       T-Int: {test: fn() -> () [test]} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t3 => {i64/t5}
     Unify-Enum: Result<i64, bool> ~ Result => {bool/t4, i64/t3}
-      Unify-Var: bool ~ t4 => {bool/t4}
       Unify-Var: i64 ~ i64 => {i64/t3}
+      Unify-Var: bool ~ t4 => {bool/t4}

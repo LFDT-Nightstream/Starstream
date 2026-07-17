@@ -4857,12 +4857,12 @@ impl Inferencer {
                     "Unify-Arrow",
                 ))
             }
-            (Type::Record(ls), Type::Record(rs))
-                if ls.name == rs.name && ls.fields.len() == rs.fields.len() =>
-            {
+            // Records unify structurally: names are aliases, but fields must
+            // line up in declaration order, matching `unify` below.
+            (Type::Record(ls), Type::Record(rs)) if ls.fields.len() == rs.fields.len() => {
                 let mut children = Vec::new();
                 for (lf, rf) in ls.fields.iter().zip(rs.fields.iter()) {
-                    if lf.name != rf.name {
+                    if lf.name.as_str() != rf.name.as_str() {
                         return Err(());
                     }
                     let (_, child, _) = self.unify_inner(lf.ty.clone(), rf.ty.clone())?;
@@ -4870,11 +4870,9 @@ impl Inferencer {
                 }
                 Ok((Type::Record(ls), children, "Unify-Record"))
             }
-            (Type::Enum(mut ls), Type::Enum(mut rs))
-                if ls.name == rs.name && ls.variants.len() == rs.variants.len() =>
-            {
-                ls.variants.sort_by(|a, b| a.name.cmp(&b.name));
-                rs.variants.sort_by(|a, b| a.name.cmp(&b.name));
+            // Enums likewise unify by shape, not name, with variants compared
+            // in declaration order.
+            (Type::Enum(ls), Type::Enum(rs)) if ls.variants.len() == rs.variants.len() => {
                 let mut children = Vec::new();
                 for (lv, rv) in ls.variants.iter().zip(rs.variants.iter()) {
                     if lv.name != rv.name {
@@ -4894,7 +4892,7 @@ impl Inferencer {
                             if lf.len() == rf.len() =>
                         {
                             for (l, r) in lf.iter().zip(rf.iter()) {
-                                if l.name != r.name {
+                                if l.name.as_str() != r.name.as_str() {
                                     return Err(());
                                 }
                                 let (_, c, _) = self.unify_inner(l.ty.clone(), r.ty.clone())?;
@@ -5071,17 +5069,13 @@ impl Inferencer {
                     "Unify-Arrow",
                 )
             }
-            (Type::Record(mut ls), Type::Record(mut rs)) => {
-                ls.fields
-                    .sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
-                rs.fields
-                    .sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
+            (Type::Record(ls), Type::Record(rs)) => {
                 if ls.fields.len() != rs.fields.len()
                     || ls
                         .fields
                         .iter()
                         .zip(rs.fields.iter())
-                        .any(|(l, r)| l.name != r.name)
+                        .any(|(l, r)| l.name.as_str() != r.name.as_str())
                 {
                     return Err(TypeError::new(error_kind, left_span)
                         .with_secondary(right_span, "struct field mismatch"));
@@ -5103,9 +5097,7 @@ impl Inferencer {
                 }
                 (Type::Record(ls), record_children, "Unify-Record")
             }
-            (Type::Enum(mut ls), Type::Enum(mut rs)) => {
-                ls.variants.sort_by(|a, b| a.name.cmp(&b.name));
-                rs.variants.sort_by(|a, b| a.name.cmp(&b.name));
+            (Type::Enum(ls), Type::Enum(rs)) => {
                 if ls.variants.len() != rs.variants.len()
                     || ls
                         .variants
@@ -5152,7 +5144,7 @@ impl Inferencer {
                                 || left_fields
                                     .iter()
                                     .zip(right_fields.iter())
-                                    .any(|(l, r)| l.name != r.name)
+                                    .any(|(l, r)| l.name.as_str() != r.name.as_str())
                             {
                                 return Err(TypeError::new(error_kind.clone(), left_span)
                                     .with_secondary(right_span, "enum payload mismatch"));
