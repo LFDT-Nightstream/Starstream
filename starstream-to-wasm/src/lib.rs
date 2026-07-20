@@ -17,11 +17,11 @@ use starstream_types::{
 };
 use thiserror::Error;
 use wasm_encoder::{
-    BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
-    ComponentTypeRef, ComponentTypeSection, ConstExpr, CustomSection, DataSection, EntityType,
-    ExportKind, ExportSection, FuncType, Function, FunctionSection, GlobalSection, GlobalType,
-    Ieee32, Ieee64, ImportSection, InstanceType, InstructionSink, MemorySection, MemoryType,
-    Module, TypeBounds, TypeSection, ValType,
+    Alias, BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection,
+    ComponentType, ComponentTypeRef, ComponentTypeSection, ConstExpr, CustomSection, DataSection,
+    EntityType, ExportKind, ExportSection, FuncType, Function, FunctionSection, GlobalSection,
+    GlobalType, Ieee32, Ieee64, ImportSection, InstanceType, InstructionSink, MemorySection,
+    MemoryType, Module, TypeBounds, TypeSection, ValType,
 };
 
 use crate::component_abi::{
@@ -194,6 +194,22 @@ struct ErrorToken;
 
 type Result<T> = std::result::Result<T, ErrorToken>;
 
+/// Whether a component type is being encoded at the root (world) scope or
+/// nested inside an exported instance. UTXO/token resources are referenced by
+/// index, and those indices live in different type-index spaces depending on
+/// scope, so named-resource lookups must be resolved accordingly.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum ResourceScope {
+    /// Inside an exported UTXO/token instance: named resources resolve to the
+    /// instance-local resource declared by that instance.
+    #[default]
+    Instance,
+    /// At the world root (e.g. a coordination `script fn` signature): named
+    /// resources resolve to a resource aliased in from a component-instance
+    /// import of the providing UTXO/token.
+    World,
+}
+
 /// Holds the in-progress Wasm sections and other module-wide information
 /// needed to build them.
 #[derive(Default)]
@@ -234,6 +250,12 @@ struct Compiler {
     callables: HashMap<String, u32>,
     /// Map from name to resource index.
     resources: HashMap<String, u32>,
+    /// Current resource-index resolution scope for component-type encoding.
+    resource_scope: ResourceScope,
+    /// Map from UTXO name to the world-level resource type index aliased in
+    /// from its component-instance import (created on demand when a coordination
+    /// script references the UTXO type).
+    imported_utxo_world_resources: HashMap<String, u32>,
     /// Function bodies.
     code_bytes: Vec<Vec<u8>>,
 
@@ -931,7 +953,11 @@ impl Compiler {
     // Type conversion
 
     fn star_to_component_type(&mut self, ty: &Type) -> Option<Rc<ComponentAbiType>> {
-        if let Some(cat) = self.star_to_component.get(ty) {
+        // The cache maps a `Type` to a single `ComponentAbiType`, but named
+        // resources encode to different indices depending on the scope, so the
+        // cache is only sound at the (default) instance scope.
+        let use_cache = self.resource_scope == ResourceScope::Instance;
+        if use_cache && let Some(cat) = self.star_to_component.get(ty) {
             return Some(cat.clone());
         }
 
@@ -968,11 +994,17 @@ impl Compiler {
                 }
             }
             Type::UtxoNamed(name) => {
-                if let Some(idx) = self.resources.get(name) {
-                    ComponentAbiType::Borrow { resource: *idx }
+                let idx = if self.resource_scope == ResourceScope::World {
+                    // A coordination script references the UTXO type: it is
+                    // imported as a component instance and its `utxo` resource
+                    // is aliased up to the world root.
+                    self.import_utxo_instance(name)?
+                } else if let Some(idx) = self.resources.get(name) {
+                    *idx
                 } else {
                     return None;
-                }
+                };
+                ComponentAbiType::Borrow { resource: idx }
             }
             // Token handles mirror Utxo: always borrowed, the ledger owns them.
             Type::TokenAny => {
@@ -1092,8 +1124,57 @@ impl Compiler {
         };
 
         let cat = Rc::new(cat);
-        self.star_to_component.insert(ty.clone(), cat.clone());
+        if use_cache {
+            self.star_to_component.insert(ty.clone(), cat.clone());
+        }
         Some(cat)
+    }
+
+    /// Emit a component-instance import for the named UTXO (mirroring its
+    /// exported interface) and alias its `utxo` resource to the world root,
+    /// returning the world-level resource type index. Idempotent per UTXO name.
+    ///
+    /// This is how a coordination `script fn` references a UTXO type: the
+    /// providing contract is linked to the import at instantiation time.
+    fn import_utxo_instance(&mut self, name: &str) -> Option<u32> {
+        if let Some(&idx) = self.imported_utxo_world_resources.get(name) {
+            return Some(idx);
+        }
+        let interface_name = to_kebab_case(name);
+        // Reuse the exported interface's type shape for the import.
+        let iface = self.exported_interfaces.get(&interface_name)?.inner.clone();
+
+        let (instance_ty_idx, encoder) = self.world_type.ty();
+        encoder.instance(&iface);
+
+        // Import under an interface-id (`namespace:package/name`) so it is a
+        // named interface import (`WorldKey::Interface`); world-root script
+        // signatures can then reference (`use`) its resource.
+        let import_name = format!("starstream:coordination/{interface_name}");
+        let instance_idx = self.world_type.inner.instance_count();
+        self.world_type
+            .inner
+            .import(&import_name, ComponentTypeRef::Instance(instance_ty_idx));
+
+        let alias_idx = self.world_type.inner.type_count();
+        self.world_type.inner.alias(Alias::InstanceExport {
+            instance: instance_idx,
+            kind: ComponentExportKind::Type,
+            name: "utxo",
+        });
+
+        // Re-import the aliased resource under a unique world-level name (what a
+        // WIT `use <iface>.{utxo as <name>-utxo}` compiles to) so world-root
+        // script signatures can reference it.
+        let resource_idx = self.world_type.inner.type_count();
+        self.world_type.inner.import(
+            &format!("{interface_name}-utxo"),
+            ComponentTypeRef::Type(TypeBounds::Eq(alias_idx)),
+        );
+
+        self.imported_utxo_world_resources
+            .insert(name.to_owned(), resource_idx);
+        Some(resource_idx)
     }
 
     fn star_to_core_types(&mut self, span: Span, dest: &mut Vec<ValType>, ty: &Type) -> Result<()> {
@@ -1327,8 +1408,12 @@ impl Compiler {
                 TypedDefinition::Function(func) => {
                     let core = self.visit_function(None, func, &());
                     if let Some(FunctionExport::Script) = func.export {
+                        // A coordination script is a world-root export; UTXO
+                        // parameters resolve to instance-imported resources.
+                        self.resource_scope = ResourceScope::World;
                         let sig =
                             self.star_to_component_signature(None, &func.params, &func.return_type);
+                        self.resource_scope = ResourceScope::Instance;
                         self.export_component_fn(
                             &to_kebab_case(func.name.as_str()),
                             func.name.span,
