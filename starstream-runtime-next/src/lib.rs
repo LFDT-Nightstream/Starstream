@@ -8,9 +8,7 @@ use wasmtime::component::{
     LinkerInstance, ResourceAny, ResourceType, Type, Val, types,
 };
 use wasmtime::error::Context as _;
-use wasmtime::{
-    AsContext, AsContextMut, Config, Engine, Store, StoreContext, StoreContextMut, bail,
-};
+use wasmtime::{AsContext, AsContextMut, Engine, Store, StoreContext, StoreContextMut, bail};
 
 pub mod bindings {
     wasmtime::component::bindgen!({
@@ -166,6 +164,14 @@ pub fn link_dynamic_imports<T: EventHandler>(
     Ok(())
 }
 
+pub fn new_wasmtime_config() -> wasmtime::Config {
+    let mut config = wasmtime::Config::new();
+    config.wasm_component_model(true);
+    #[cfg(feature = "trace")]
+    config.guest_debug(true);
+    config
+}
+
 /// Compiled, pre-instantiated Starstream contract
 pub struct Contract<T: 'static> {
     pre: InstancePre<T>,
@@ -192,16 +198,8 @@ impl<T: 'static> Deref for Contract<T> {
 impl<T: Host> Contract<T> {
     /// Compile and pre-instantiate a Starstream [Contract]
     #[instrument(level = "trace", skip_all)]
-    pub fn new(wasm: impl AsRef<[u8]>) -> wasmtime::Result<Self> {
+    pub fn new(engine: &Engine, wasm: impl AsRef<[u8]>) -> wasmtime::Result<Self> {
         let wasm = wasm.as_ref();
-
-        let mut config = Config::new();
-        config.wasm_component_model(true);
-        #[cfg(feature = "trace")]
-        config.guest_debug(true);
-
-        debug!("creating engine");
-        let engine = Engine::new(&config).context("failed to create engine")?;
 
         debug!("loading component");
         let component = load_component(&engine, wasm)?;

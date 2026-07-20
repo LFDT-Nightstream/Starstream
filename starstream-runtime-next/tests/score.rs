@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
     ConstructorExport, Contract, EventHandler, Host, MethodExport, Utxo, UtxoStorageExport,
-    bindings,
+    bindings, new_wasmtime_config,
 };
 use starstream_to_wasm::compile;
 use wasmtime::bail;
@@ -214,7 +214,9 @@ async fn get_progress_storage_async<T: Send>(
 
 #[test]
 fn score_sync() -> wasmtime::Result<()> {
-    let contract = Contract::new(EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
+    let engine = wasmtime::Engine::new(&new_wasmtime_config())?;
+    let contract =
+        Contract::new(&engine, EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
     let ProgressUtxo {
         storage,
         new,
