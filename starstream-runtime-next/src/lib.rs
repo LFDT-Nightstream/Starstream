@@ -474,6 +474,54 @@ impl<T: Host> Contract<T> {
     }
 
     #[instrument(level = "trace", skip_all)]
+    fn get_coordination_script_typed(
+        &self,
+        name: &str,
+        ty: types::ComponentFunc,
+    ) -> wasmtime::Result<CoordinationScriptExport> {
+        let idx = self
+            .component()
+            .get_export_index(None, name)
+            .context("export not found")?;
+
+        Ok(CoordinationScriptExport { ty, idx })
+    }
+
+    /// Get an exported coordination script by name
+    #[instrument(level = "trace", skip_all)]
+    pub fn get_coordination_script(
+        &self,
+        name: &str,
+    ) -> wasmtime::Result<CoordinationScriptExport> {
+        let types::ComponentExtern { ty, .. } = self
+            .ty
+            .get_export(self.engine(), name)
+            .context("export not found")?;
+        let types::ComponentItem::ComponentFunc(ty) = ty else {
+            bail!("export is not a function")
+        };
+        self.get_coordination_script_typed(name, ty)
+    }
+
+    /// Iterate over exported coordination scripts along with their names
+    #[instrument(level = "trace", skip_all)]
+    pub fn coordination_scripts(
+        &self,
+    ) -> impl Iterator<Item = (&str, wasmtime::Result<CoordinationScriptExport>)> {
+        let engine = self.engine();
+        self.ty.exports(engine).filter_map(|(name, ty)| {
+            let types::ComponentExtern {
+                ty: types::ComponentItem::ComponentFunc(ty),
+                ..
+            } = ty
+            else {
+                return None;
+            };
+            Some((name, self.get_coordination_script_typed(name, ty)))
+        })
+    }
+
+    #[instrument(level = "trace", skip_all)]
     fn new_store(&self, ctx: T) -> Store<T> {
         Store::new(self.engine(), ctx)
     }
@@ -662,6 +710,45 @@ impl<T: Host> Contract<T> {
         self.construct_utxo_async(ctx, set, [Val::Record(fields.into())])
             .await
     }
+
+    #[instrument(level = "trace", skip_all)]
+    pub fn call_coordination_script(
+        &self,
+        ctx: T,
+        CoordinationScriptExport { idx, .. }: &CoordinationScriptExport,
+        params: impl AsRef<[Val]>,
+    ) -> wasmtime::Result<()> {
+        let (mut store, instance) = self.instantiate(ctx)?;
+        let f = instance
+            .get_func(&mut store, idx)
+            .context("failed to lookup coordination script export")?;
+        debug!("calling coordination script");
+        f.call(&mut store, params.as_ref(), &mut [])
+            .context("failed to call coordination script")?;
+        Ok(())
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    #[cfg(feature = "async")]
+    pub async fn call_coordination_script_async(
+        &self,
+        ctx: T,
+        CoordinationScriptExport { idx, .. }: &CoordinationScriptExport,
+        params: impl AsRef<[Val]>,
+    ) -> wasmtime::Result<()>
+    where
+        T: Send,
+    {
+        let (mut store, instance) = self.instantiate_async(ctx).await?;
+        let f = instance
+            .get_func(&mut store, idx)
+            .context("failed to lookup coordination script export")?;
+        debug!("calling coordination script");
+        f.call_async(&mut store, params.as_ref(), &mut [])
+            .await
+            .context("failed to call coordination script")?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -713,6 +800,19 @@ pub struct MethodExport {
 }
 
 impl MethodExport {
+    #[must_use]
+    pub fn ty(&self) -> &types::ComponentFunc {
+        &self.ty
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CoordinationScriptExport {
+    ty: types::ComponentFunc,
+    idx: ComponentExportIndex,
+}
+
+impl CoordinationScriptExport {
     #[must_use]
     pub fn ty(&self) -> &types::ComponentFunc {
         &self.ty
