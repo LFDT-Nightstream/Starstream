@@ -157,6 +157,7 @@ statement ::=
   | while_statement
   | return_statement
   | resume_statement
+  | try_with_statement
   | expression_statement
 
 variable_declaration ::= "let" ("pub")? ("mut")? identifier (":" type_annotation)? "=" expression ";"
@@ -168,6 +169,8 @@ while_statement ::= "while" "(" expression ")" block
 return_statement ::= "return" ( expression )? ";"
 
 resume_statement ::= "resume" ";"
+
+try_with_statement ::= "try" block ( with "(" identifier ":" type_annotation ")" block )*
 
 expression_statement ::= expression ";"
 
