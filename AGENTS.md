@@ -33,7 +33,7 @@ cargo test -p starstream-interleaving-proof --release circuit_test
 cargo test -p starstream-runtime --release
 ```
 
-**Before committing:** run `cargo fmt` (CI enforces `cargo fmt --check`), and commit with `-s` (DCO sign-off required).
+**Before committing:** run `cargo fmt` and `cargo clippy` (CI enforces both `cargo fmt --check` and clippy), and commit with `-s` (DCO sign-off required).
 
 ## Architecture
 
