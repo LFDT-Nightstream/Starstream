@@ -247,7 +247,7 @@ module.exports = grammar({
         "try",
         $.block,
         repeat(
-          seq("with", "(", $.identifier, ":", $.type_annotation, ")", $.block),
+          seq("with", $.tuple_pattern, $.block),
         ),
       ),
 

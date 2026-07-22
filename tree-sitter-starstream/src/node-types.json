@@ -1261,11 +1261,7 @@
           "named": true
         },
         {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "type_annotation",
+          "type": "tuple_pattern",
           "named": true
         }
       ]

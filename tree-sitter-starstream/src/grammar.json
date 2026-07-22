@@ -1471,24 +1471,8 @@
                 "value": "with"
               },
               {
-                "type": "STRING",
-                "value": "("
-              },
-              {
                 "type": "SYMBOL",
-                "name": "identifier"
-              },
-              {
-                "type": "STRING",
-                "value": ":"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "type_annotation"
-              },
-              {
-                "type": "STRING",
-                "value": ")"
+                "name": "tuple_pattern"
               },
               {
                 "type": "SYMBOL",

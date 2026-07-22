@@ -170,7 +170,7 @@ return_statement ::= "return" ( expression )? ";"
 
 resume_statement ::= "resume" ";"
 
-try_with_statement ::= "try" block ( with "(" identifier ":" type_annotation ")" block )*
+try_with_statement ::= "try" block ( "with" tuple_pattern block )*
 
 expression_statement ::= expression ";"
 
@@ -322,6 +322,8 @@ The following reserved words may not be used as identifiers:
 - `is`
 - `yield`
 - `contract`
+- `try`
+- `with`
 
 <!--
   NOTE: When updating this grammar, also update:
