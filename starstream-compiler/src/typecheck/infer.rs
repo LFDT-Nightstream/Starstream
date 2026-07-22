@@ -2814,6 +2814,7 @@ impl Inferencer {
                 });
                 Ok((TypedStatement::Resume, tree))
             }
+            Statement::TryWith { subject, effects } => todo!(),
         }
     }
 

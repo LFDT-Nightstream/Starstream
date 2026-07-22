@@ -1,7 +1,12 @@
 abi Foo {
     effect Hello();
+    event Goodbye();
 }
 
 script fn main() {
-    raise Hello();
+    try {
+        raise Hello();
+    } with Hello() {
+        emit Goodbye();
+    }
 }

@@ -1,9 +1,12 @@
 use chumsky::{prelude::*, recursive::recursive};
-use starstream_types::ast::{Pattern, StructPatternField};
+use starstream_types::{
+    ScopedName,
+    ast::{Pattern, StructPatternField},
+};
 
 use super::{context::Extra, primitives};
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
+pub fn pattern<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> + Clone {
     recursive(|pattern| {
         let identifier = primitives::identifier().boxed();
 
@@ -52,16 +55,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
             )
             .map(|(name, fields)| Pattern::Struct { name, fields });
 
-        let tuple_pattern = primitives::scoped_name()
-            .clone()
-            .then(
-                pattern
-                    .separated_by(just(',').padded())
-                    .allow_trailing()
-                    .collect::<Vec<_>>()
-                    .delimited_by(just('(').padded(), just(')').padded()),
-            )
-            .map(|(name, fields)| Pattern::Tuple { name, fields });
+        let tuple_pattern =
+            tuple_pattern(pattern).map(|(name, fields)| Pattern::Tuple { name, fields });
 
         let binding = primitives::scoped_name().map(Pattern::Name);
 
@@ -76,4 +71,16 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
         ))
         .padded()
     })
+}
+
+pub fn tuple_pattern<'a>(
+    pattern: impl Parser<'a, &'a str, Pattern, Extra<'a>> + Clone,
+) -> impl Parser<'a, &'a str, (ScopedName, Vec<Pattern>), Extra<'a>> + Clone {
+    primitives::scoped_name().clone().then(
+        pattern
+            .separated_by(just(',').padded())
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just('(').padded(), just(')').padded()),
+    )
 }

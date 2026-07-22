@@ -1781,6 +1781,12 @@ impl DocumentState {
             untyped_ast::Statement::Assignment { target: _, value } => {
                 self.collect_expr_annotations_from_ast(&value.node);
             }
+            untyped_ast::Statement::TryWith { subject, effects } => {
+                self.collect_block_annotations_from_ast(subject);
+                for (name, params, block) in effects {
+                    self.collect_block_annotations_from_ast(block);
+                }
+            }
         }
     }
 
