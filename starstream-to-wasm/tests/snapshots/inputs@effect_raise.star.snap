@@ -22,13 +22,23 @@ Program {
                                 },
                                 params: [],
                                 return_type: None,
-                                span: 14..30,
+                                span: 14..34,
+                            },
+                        ),
+                        Event(
+                            EventDef {
+                                name: Identifier {
+                                    name: "Goodbye",
+                                    span: 40..47,
+                                },
+                                params: [],
+                                span: 34..51,
                             },
                         ),
                     ],
                 },
             ),
-            span: 0..33,
+            span: 0..54,
         },
         Spanned {
             node: Function(
@@ -38,41 +48,91 @@ Program {
                     ),
                     name: Identifier {
                         name: "main",
-                        span: 43..47,
+                        span: 64..68,
                     },
                     params: [],
                     return_type: None,
                     body: Block {
                         statements: [
                             Spanned {
-                                node: Expression(
-                                    Spanned {
-                                        node: Raise {
-                                            callee: Spanned {
-                                                node: ScopedName(
-                                                    [
-                                                        Identifier {
-                                                            name: "Hello",
-                                                            span: 62..67,
+                                node: TryWith {
+                                    subject: Block {
+                                        statements: [
+                                            Spanned {
+                                                node: Expression(
+                                                    Spanned {
+                                                        node: Raise {
+                                                            callee: Spanned {
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "Hello",
+                                                                            span: 97..102,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                                span: 97..102,
+                                                            },
+                                                            args: [],
                                                         },
-                                                    ],
+                                                        span: 91..104,
+                                                    },
                                                 ),
-                                                span: 62..67,
+                                                span: 91..110,
                                             },
-                                            args: [],
-                                        },
-                                        span: 56..69,
+                                        ],
+                                        tail_expression: None,
+                                        span: 80..112,
                                     },
-                                ),
-                                span: 56..71,
+                                    effects: [
+                                        (
+                                            [
+                                                Identifier {
+                                                    name: "Hello",
+                                                    span: 117..122,
+                                                },
+                                            ],
+                                            [],
+                                            Block {
+                                                statements: [
+                                                    Spanned {
+                                                        node: Expression(
+                                                            Spanned {
+                                                                node: Emit {
+                                                                    callee: Spanned {
+                                                                        node: ScopedName(
+                                                                            [
+                                                                                Identifier {
+                                                                                    name: "Goodbye",
+                                                                                    span: 140..147,
+                                                                                },
+                                                                            ],
+                                                                        ),
+                                                                        span: 140..147,
+                                                                    },
+                                                                    args: [],
+                                                                },
+                                                                span: 135..149,
+                                                            },
+                                                        ),
+                                                        span: 135..155,
+                                                    },
+                                                ],
+                                                tail_expression: None,
+                                                span: 125..157,
+                                            },
+                                        ),
+                                    ],
+                                },
+                                span: 77..157,
                             },
                         ],
                         tail_expression: None,
-                        span: 50..73,
+                        span: 71..159,
                     },
                 },
             ),
-            span: 33..73,
+            span: 54..159,
         },
     ],
 }
@@ -80,9 +140,19 @@ Program {
 ==== Inference trace ====
 
 T-Fn: main => ()
-  T-Expr: {main: fn() -> () [main]} ⊢ raise Hello(); ⇒ ()
-    T-Call: {main: fn() -> () [main]} ⊢ raise Hello() ⇒ ()
-      T-Var: {main: fn() -> () [main]} ⊢ Hello ⇒ effect() -> () [Hello]
+  T-TryWith: {main: fn() -> () [main]} ⊢ try {
+    raise Hello();
+} with Hello() {
+    emit Goodbye();
+} ⇒ 
+    T-Expr: {main: fn() -> () [main]} ⊢ raise Hello(); ⇒ ()
+      T-Call: {main: fn() -> () [main]} ⊢ raise Hello() ⇒ ()
+        T-Var: {main: fn() -> () [main]} ⊢ Hello ⇒ effect() -> () [Hello]
+    Unify-Const: () ~ () => {}
+    T-Expr: {main: fn() -> () [main]} ⊢ emit Goodbye(); ⇒ ()
+      T-Call: {main: fn() -> () [main]} ⊢ emit Goodbye() ⇒ ()
+        T-Var: {main: fn() -> () [main]} ⊢ Goodbye ⇒ event() -> () [Goodbye]
+    Unify-Const: () ~ () => {}
 
 ==== Typed AST ====
 TypedProgram {
@@ -105,6 +175,15 @@ TypedProgram {
                             return_type: Unit,
                         },
                     ),
+                    Event(
+                        TypedEventDef {
+                            name: Identifier {
+                                name: "Goodbye",
+                                span: 40..47,
+                            },
+                            params: [],
+                        },
+                    ),
                 ],
             },
         ),
@@ -115,53 +194,117 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "main",
-                    span: 43..47,
+                    span: 64..68,
                 },
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
                     statements: [
-                        Expression(
-                            Spanned {
-                                node: TypedExpr {
-                                    ty: Unit,
-                                    kind: Call {
-                                        callee: Spanned {
+                        TryWith {
+                            subject: TypedBlock {
+                                statements: [
+                                    Expression(
+                                        Spanned {
                                             node: TypedExpr {
-                                                ty: Function(
-                                                    FunctionType {
-                                                        kind: Raise,
-                                                        name_span: 21..26,
-                                                        params: [],
-                                                        param_spans: [],
-                                                        result: Unit,
-                                                        callee: Some(
-                                                            Named(
-                                                                "Hello",
+                                                ty: Unit,
+                                                kind: Call {
+                                                    callee: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Function(
+                                                                FunctionType {
+                                                                    kind: Raise,
+                                                                    name_span: 21..26,
+                                                                    params: [],
+                                                                    param_spans: [],
+                                                                    result: Unit,
+                                                                    callee: Some(
+                                                                        Named(
+                                                                            "Hello",
+                                                                        ),
+                                                                    ),
+                                                                },
                                                             ),
-                                                        ),
-                                                    },
-                                                ),
-                                                kind: ScopedName {
-                                                    name: [
-                                                        Identifier {
-                                                            name: "Hello",
-                                                            span: 62..67,
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "Hello",
+                                                                        span: 97..102,
+                                                                    },
+                                                                ],
+                                                                constant: Some(
+                                                                    0,
+                                                                ),
+                                                            },
                                                         },
-                                                    ],
-                                                    constant: Some(
-                                                        0,
-                                                    ),
+                                                        span: 97..102,
+                                                    },
+                                                    args: [],
                                                 },
                                             },
-                                            span: 62..67,
+                                            span: 97..102,
                                         },
-                                        args: [],
-                                    },
-                                },
-                                span: 62..67,
+                                    ),
+                                ],
+                                tail_expression: None,
                             },
-                        ),
+                            effects: [
+                                (
+                                    [
+                                        Identifier {
+                                            name: "Hello",
+                                            span: 117..122,
+                                        },
+                                    ],
+                                    [],
+                                    TypedBlock {
+                                        statements: [
+                                            Expression(
+                                                Spanned {
+                                                    node: TypedExpr {
+                                                        ty: Unit,
+                                                        kind: Call {
+                                                            callee: Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Function(
+                                                                        FunctionType {
+                                                                            kind: Emit,
+                                                                            name_span: 40..47,
+                                                                            params: [],
+                                                                            param_spans: [],
+                                                                            result: Unit,
+                                                                            callee: Some(
+                                                                                Named(
+                                                                                    "Goodbye",
+                                                                                ),
+                                                                            ),
+                                                                        },
+                                                                    ),
+                                                                    kind: ScopedName {
+                                                                        name: [
+                                                                            Identifier {
+                                                                                name: "Goodbye",
+                                                                                span: 140..147,
+                                                                            },
+                                                                        ],
+                                                                        constant: Some(
+                                                                            0,
+                                                                        ),
+                                                                    },
+                                                                },
+                                                                span: 140..147,
+                                                            },
+                                                            args: [],
+                                                        },
+                                                    },
+                                                    span: 140..147,
+                                                },
+                                            ),
+                                        ],
+                                        tail_expression: None,
+                                    },
+                                ),
+                            ],
+                        },
                     ],
                     tail_expression: None,
                 },
@@ -174,8 +317,9 @@ TypedProgram {
 (module
   (type (;0;) (func))
   (import "starstream:effects/foo" "hello" (func (;0;) (type 0)))
-  (export "main" (func 1))
-  (func (;1;) (type 0)
+  (import "starstream:events/foo" "goodbye" (func (;1;) (type 0)))
+  (export "main" (func 2))
+  (func (;2;) (type 0)
     (call 0)
   )
   (@custom "component-type"
@@ -194,6 +338,13 @@ TypedProgram {
                 )
               )
               (import "starstream:effects/foo" (instance (;0;) (type 1)))
+              (type (;2;)
+                (instance
+                  (type (;0;) (func))
+                  (export (;0;) "goodbye" (func (type 0)))
+                )
+              )
+              (import "starstream:events/foo" (instance (;1;) (type 2)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -209,11 +360,19 @@ package root:component;
 
 world root {
   import starstream:effects/foo;
+  import starstream:events/foo;
 
   export main: func();
 }
 package starstream:effects {
   interface foo {
     hello: func();
+  }
+}
+
+
+package starstream:events {
+  interface foo {
+    goodbye: func();
   }
 }

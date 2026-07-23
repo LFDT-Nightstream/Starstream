@@ -2131,7 +2131,7 @@ impl Inferencer {
         &mut self,
         env: &mut TypeEnv,
         pattern: &Pattern,
-        expected_ty: Type,
+        expected_ty: &Type,
         value_span: Span,
     ) -> Result<(TypedPattern, Vec<InferenceTree>), TypeError> {
         match pattern {
@@ -2240,12 +2240,8 @@ impl Inferencer {
                             )
                         })?;
 
-                    let (typed_pattern, mut pattern_traces) = self.infer_pattern(
-                        env,
-                        &field.pattern,
-                        expected_field.ty.clone(),
-                        value_span,
-                    )?;
+                    let (typed_pattern, mut pattern_traces) =
+                        self.infer_pattern(env, &field.pattern, &expected_field.ty, value_span)?;
                     traces.append(&mut pattern_traces);
                     typed_fields.push(TypedStructPatternField {
                         name: field.name.clone(),
@@ -2332,7 +2328,7 @@ impl Inferencer {
                 let mut typed = Vec::with_capacity(fields.len());
                 for (pattern, ty) in fields.iter().zip(params) {
                     let (typed_pattern, mut pattern_traces) =
-                        self.infer_pattern(env, pattern, ty, value_span)?;
+                        self.infer_pattern(env, pattern, &ty, value_span)?;
                     traces.append(&mut pattern_traces);
                     typed.push(typed_pattern);
                 }
@@ -2797,15 +2793,14 @@ impl Inferencer {
             Statement::Resume => {
                 // Do like `return ();`
                 let result_repr = self.maybe_string(|| self.format_type(&ctx.expected_return));
-                let unit = Type::unit();
                 let (_, unify_trace) = self.unify(
-                    unit.clone(),
+                    Type::Unit,
                     ctx.expected_return.clone(),
                     ctx.return_span,
                     ctx.return_span,
                     TypeErrorKind::ReturnMismatch {
                         expected: self.apply_for_display(&ctx.expected_return),
-                        found: self.apply_for_display(&unit),
+                        found: Type::Unit,
                     },
                 )?;
                 ctx.saw_return = true;
@@ -2813,6 +2808,72 @@ impl Inferencer {
                     vec![unify_trace]
                 });
                 Ok((TypedStatement::Resume, tree))
+            }
+            Statement::TryWith { subject, effects } => {
+                let (subject, mut children) = self.infer_block(env, subject, ctx, false)?;
+                // Require block to return unit for now - we could make try-with an expression later?
+                let (_, unit_trace) = self.unify(
+                    Type::Unit,
+                    subject.ty().clone(),
+                    ctx.return_span,
+                    subject.tail_span(),
+                    TypeErrorKind::GeneralMismatch {
+                        expected: Type::Unit,
+                        found: self.apply_for_display(subject.ty()),
+                    },
+                )?;
+                children.push(unit_trace);
+
+                let mut typed_effects: Vec<(ScopedName, Vec<TypedPattern>, TypedBlock)> =
+                    Vec::with_capacity(effects.len());
+                for (name, patterns, block) in effects {
+                    env.push_scope();
+                    let (ty, _) = self.lookup_name(env, name)?;
+                    let Type::Function(func) = ty else { panic!() };
+                    // TODO: enforce that it's an effect?
+
+                    if func.params.len() != patterns.len() {
+                        return Err(TypeError::new(
+                            TypeErrorKind::ArityMismatch {
+                                expected: func.params.len(),
+                                found: patterns.len(),
+                            },
+                            name.first().unwrap().span,
+                        ));
+                    }
+
+                    let mut typed_patterns = Vec::with_capacity(patterns.len());
+                    for (ty, pat) in func.params.iter().zip(patterns) {
+                        let (tp, trace) = self.infer_pattern(env, pat, ty, DUMMY_SPAN)?;
+                        typed_patterns.push(tp);
+                        children.extend(trace);
+                    }
+
+                    let (block, trace) = self.infer_block(env, block, ctx, false)?;
+                    children.extend(trace);
+                    let (_, unit_trace) = self.unify(
+                        Type::Unit,
+                        subject.ty().clone(),
+                        ctx.return_span,
+                        subject.tail_span(),
+                        TypeErrorKind::GeneralMismatch {
+                            expected: Type::Unit,
+                            found: self.apply_for_display(subject.ty()),
+                        },
+                    )?;
+                    children.push(unit_trace);
+
+                    typed_effects.push((name.clone(), typed_patterns, block));
+                    env.pop_scope();
+                }
+                let tree = self.make_trace("T-TryWith", env_context, stmt_repr, None, || children);
+                Ok((
+                    TypedStatement::TryWith {
+                        subject,
+                        effects: typed_effects,
+                    },
+                    tree,
+                ))
             }
         }
     }
@@ -3644,7 +3705,7 @@ impl Inferencer {
                     let (typed_pattern, mut pattern_traces) = self.infer_pattern(
                         env,
                         &arm.pattern,
-                        typed_scrutinee.node.ty.clone(),
+                        &typed_scrutinee.node.ty,
                         scrutinee.span,
                     )?;
                     children.append(&mut pattern_traces);
@@ -4496,6 +4557,12 @@ impl Inferencer {
             TypedStatement::Return(Some(expr)) => self.apply_expr(expr),
             TypedStatement::Return(None) => {}
             TypedStatement::Resume => {}
+            TypedStatement::TryWith { subject, effects } => {
+                self.apply_block(subject);
+                for (_, _, block) in effects {
+                    self.apply_block(block);
+                }
+            }
         }
     }
 

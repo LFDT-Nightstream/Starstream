@@ -1,13 +1,13 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Block, Expr, MatchArm, Spanned};
 
-use crate::parser::{ParserExt, comment, context::Extra, pattern};
+use crate::parser::{ParserExt, comment, context::Extra, pattern::pattern};
 
 pub fn parser<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    let pattern_parser = pattern::parser();
+    let pattern_parser = pattern();
     // Collect comments before each match arm and capture span
     // Use .then() instead of .ignore_then() to ensure side-effects happen
     let match_arm = comment::comment_collecting()

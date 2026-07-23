@@ -1288,6 +1288,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "try_with_statement"
+        },
+        {
+          "type": "SYMBOL",
           "name": "_expression_statement"
         }
       ]
@@ -1443,6 +1447,39 @@
         {
           "type": "STRING",
           "value": ";"
+        }
+      ]
+    },
+    "try_with_statement": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "try"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "block"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "with"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "tuple_pattern"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "block"
+              }
+            ]
+          }
         }
       ]
     },

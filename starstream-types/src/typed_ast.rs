@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use crate::{
-    Abi, FunctionExport, ScopedName, Span, Spanned,
+    Abi, DUMMY_SPAN, FunctionExport, ScopedName, Span, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -249,6 +249,10 @@ pub enum TypedStatement {
     Expression(Spanned<TypedExpr>),
     Return(Option<Spanned<TypedExpr>>),
     Resume,
+    TryWith {
+        subject: TypedBlock,
+        effects: Vec<(ScopedName, Vec<TypedPattern>, TypedBlock)>,
+    },
 }
 
 /// `{ statement* }`
@@ -256,6 +260,22 @@ pub enum TypedStatement {
 pub struct TypedBlock {
     pub statements: Vec<TypedStatement>,
     pub tail_expression: Option<Spanned<TypedExpr>>,
+}
+
+impl TypedBlock {
+    pub fn ty(&self) -> &Type {
+        match &self.tail_expression {
+            None => &Type::Unit,
+            Some(tail) => &tail.node.ty,
+        }
+    }
+
+    pub fn tail_span(&self) -> Span {
+        match &self.tail_expression {
+            None => DUMMY_SPAN,
+            Some(tail) => tail.span,
+        }
+    }
 }
 
 impl From<Vec<TypedStatement>> for TypedBlock {
