@@ -8,7 +8,7 @@ use wasmtime::component::{
     LinkerInstance, ResourceAny, ResourceType, Type, Val, types,
 };
 use wasmtime::error::Context as _;
-use wasmtime::{AsContext, AsContextMut, Engine, Store, StoreContext, StoreContextMut, bail};
+use wasmtime::{AsContextMut, Engine, Store, bail};
 
 pub mod bindings {
     wasmtime::component::bindgen!({
@@ -21,6 +21,9 @@ pub mod bindings {
                 import starstream:std/cardano;
             }
         ",
+        with: {
+            "starstream:std/builtin.utxo": crate::Utxo,
+        },
         imports: {
             "starstream:std/builtin.implements-method": tracing | trappable,
             default: tracing,
@@ -30,6 +33,7 @@ pub mod bindings {
 
 pub trait Host:
     bindings::starstream::std::builtin::Host
+    + bindings::starstream::std::builtin::HostUtxo
     + bindings::starstream::std::cardano::Host
     + EventHandler
     + 'static
@@ -38,6 +42,7 @@ pub trait Host:
 
 impl<T> Host for T where
     T: bindings::starstream::std::builtin::Host
+        + bindings::starstream::std::builtin::HostUtxo
         + bindings::starstream::std::cardano::Host
         + EventHandler
         + 'static
@@ -543,7 +548,7 @@ impl<T: Host> Contract<T> {
             use core::marker::PhantomData;
 
             use tracing::{error, trace};
-            use wasmtime::DebugEvent;
+            use wasmtime::{DebugEvent, StoreContextMut};
 
             struct DebugHandler<T>(PhantomData<fn() -> T>);
 
@@ -598,65 +603,57 @@ impl<T: Host> Contract<T> {
     #[instrument(level = "trace", skip_all)]
     fn construct_utxo(
         &self,
-        mut store: Store<T>,
+        store: &mut Store<T>,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
-    ) -> wasmtime::Result<Utxo<T>> {
-        let instance = self.instantiate(&mut store)?;
+    ) -> wasmtime::Result<Utxo> {
+        let instance = self.instantiate(store)?;
         let f = instance
-            .get_func(&mut store, name)
+            .get_func(&mut *store, name)
             .context("failed to lookup constructor function export")?;
         debug!("calling constructor function");
         let mut results = [Val::Bool(false)];
-        f.call(&mut store, params.as_ref(), &mut results)
+        f.call(store, params.as_ref(), &mut results)
             .context("failed to call constructor function")?;
         let [Val::Resource(resource)] = results else {
             bail!("invalid return value")
         };
-        Ok(Utxo {
-            store,
-            instance,
-            resource,
-        })
+        Ok(Utxo { instance, resource })
     }
 
     #[instrument(level = "trace", skip_all)]
     #[cfg(feature = "async")]
     async fn construct_utxo_async(
         &self,
-        mut store: Store<T>,
+        store: &mut Store<T>,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
-    ) -> wasmtime::Result<Utxo<T>>
+    ) -> wasmtime::Result<Utxo>
     where
         T: Send,
     {
-        let instance = self.instantiate_async(&mut store).await?;
+        let instance = self.instantiate_async(store).await?;
         let f = instance
-            .get_func(&mut store, name)
+            .get_func(&mut *store, name)
             .context("failed to lookup constructor function export")?;
         debug!("calling constructor function");
         let mut results = [Val::Bool(false)];
-        f.call_async(&mut store, params.as_ref(), &mut results)
+        f.call_async(&mut *store, params.as_ref(), &mut results)
             .await
             .context("failed to call constructor function")?;
         let [Val::Resource(resource)] = results else {
             bail!("invalid return value")
         };
-        Ok(Utxo {
-            store,
-            instance,
-            resource,
-        })
+        Ok(Utxo { instance, resource })
     }
 
     #[instrument(level = "trace", skip_all)]
     pub fn create_utxo(
         &self,
-        store: Store<T>,
+        store: &mut Store<T>,
         ConstructorExport { idx, .. }: &ConstructorExport,
         params: impl AsRef<[Val]>,
-    ) -> wasmtime::Result<Utxo<T>> {
+    ) -> wasmtime::Result<Utxo> {
         self.construct_utxo(store, idx, params)
     }
 
@@ -664,10 +661,10 @@ impl<T: Host> Contract<T> {
     #[cfg(feature = "async")]
     pub async fn create_utxo_async(
         &self,
-        store: Store<T>,
+        store: &mut Store<T>,
         ConstructorExport { idx, .. }: &ConstructorExport,
         params: impl AsRef<[Val]>,
-    ) -> wasmtime::Result<Utxo<T>>
+    ) -> wasmtime::Result<Utxo>
     where
         T: Send,
     {
@@ -677,10 +674,10 @@ impl<T: Host> Contract<T> {
     #[instrument(level = "trace", skip_all)]
     pub fn load_utxo(
         &self,
-        store: Store<T>,
+        store: &mut Store<T>,
         UtxoStorageExport { set, .. }: &UtxoStorageExport,
         fields: impl Into<Vec<(String, Val)>>,
-    ) -> wasmtime::Result<Utxo<T>> {
+    ) -> wasmtime::Result<Utxo> {
         self.construct_utxo(store, set, [Val::Record(fields.into())])
     }
 
@@ -688,10 +685,10 @@ impl<T: Host> Contract<T> {
     #[cfg(feature = "async")]
     pub async fn load_utxo_async(
         &self,
-        store: Store<T>,
+        store: &mut Store<T>,
         UtxoStorageExport { set, .. }: &UtxoStorageExport,
         fields: impl Into<Vec<(String, Val)>>,
-    ) -> wasmtime::Result<Utxo<T>>
+    ) -> wasmtime::Result<Utxo>
     where
         T: Send,
     {
@@ -807,125 +804,93 @@ impl CoordinationScriptExport {
     }
 }
 
-pub struct Utxo<T: 'static> {
-    store: Store<T>,
+pub struct Utxo {
     instance: Instance,
     resource: ResourceAny,
 }
 
-impl<T: 'static> AsContext for Utxo<T> {
-    type Data = T;
-
-    fn as_context(&self) -> StoreContext<'_, Self::Data> {
-        self.store.as_context()
-    }
-}
-
-impl<T: 'static> AsContextMut for Utxo<T> {
-    fn as_context_mut(&mut self) -> StoreContextMut<'_, Self::Data> {
-        self.store.as_context_mut()
-    }
-}
-
-impl<T: 'static> Utxo<T> {
-    pub fn store(&mut self) -> &mut Store<T> {
-        &mut self.store
-    }
-
+impl Utxo {
     #[must_use]
     pub fn resource(&self) -> ResourceAny {
         self.resource
     }
 
-    pub fn storage(&mut self, export: &UtxoStorageExport) -> UtxoStorage<'_, T> {
+    pub fn storage(&self, export: &UtxoStorageExport) -> UtxoStorage<'_> {
         UtxoStorage {
             utxo: self,
             get: export.get,
         }
     }
 
-    fn get_function_export(&mut self, name: impl ExportLookup) -> wasmtime::Result<Func> {
+    fn get_function_export(
+        &self,
+        store: impl AsContextMut,
+        name: impl ExportLookup,
+    ) -> wasmtime::Result<Func> {
         self.instance
-            .get_func(&mut self.store, name)
+            .get_func(store, name)
             .context("function export not found")
     }
 
     #[instrument(level = "trace", skip_all)]
     pub fn call(
-        &mut self,
+        &self,
+        mut store: impl AsContextMut,
         export: &MethodExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Box<[Val]>> {
-        let f = self.get_function_export(export.idx)?;
+        let f = self.get_function_export(&mut store, export.idx)?;
         let mut results = vec![Val::Bool(false); export.ty.results().len()];
-        f.call(&mut self.store, params.as_ref(), &mut results)
+        f.call(&mut store, params.as_ref(), &mut results)
             .context("failed to call method")?;
         Ok(results.into_boxed_slice())
     }
 
     #[instrument(level = "trace", skip_all)]
     #[cfg(feature = "async")]
-    pub async fn call_async(
-        &mut self,
+    pub async fn call_async<T: Send>(
+        &self,
+        mut store: impl AsContextMut<Data = T>,
         export: &MethodExport,
         params: impl AsRef<[Val]>,
-    ) -> wasmtime::Result<Box<[Val]>>
-    where
-        T: Send,
-    {
-        let f = self.get_function_export(export.idx)?;
+    ) -> wasmtime::Result<Box<[Val]>> {
+        let f = self.get_function_export(&mut store, export.idx)?;
         let mut results = vec![Val::Bool(false); export.ty.results().len()];
-        f.call_async(&mut self.store, params.as_ref(), &mut results)
+        f.call_async(&mut store, params.as_ref(), &mut results)
             .await
             .context("failed to call method")?;
         Ok(results.into_boxed_slice())
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub fn drop(mut self) -> wasmtime::Result<()> {
-        self.resource.resource_drop(&mut self.store)?;
+    pub fn drop(self, mut store: impl AsContextMut) -> wasmtime::Result<()> {
+        self.resource.resource_drop(&mut store)?;
         Ok(())
     }
 
     #[instrument(level = "trace", skip_all)]
     #[cfg(feature = "async")]
-    pub async fn drop_async(mut self) -> wasmtime::Result<()>
-    where
-        T: Send,
-    {
-        self.resource.resource_drop_async(&mut self.store).await?;
+    pub async fn drop_async<T: Send>(
+        self,
+        mut store: impl AsContextMut<Data = T>,
+    ) -> wasmtime::Result<()> {
+        self.resource.resource_drop_async(&mut store).await?;
         Ok(())
-    }
-
-    #[instrument(level = "trace", skip_all)]
-    pub fn into_inner(mut self) -> wasmtime::Result<T> {
-        self.resource.resource_drop(&mut self.store)?;
-        Ok(self.store.into_data())
-    }
-
-    #[instrument(level = "trace", skip_all)]
-    #[cfg(feature = "async")]
-    pub async fn into_inner_async(mut self) -> wasmtime::Result<T>
-    where
-        T: Send,
-    {
-        self.resource.resource_drop_async(&mut self.store).await?;
-        Ok(self.store.into_data())
     }
 }
 
-pub struct UtxoStorage<'a, T: 'static> {
-    utxo: &'a mut Utxo<T>,
+pub struct UtxoStorage<'a> {
+    utxo: &'a Utxo,
     get: ComponentExportIndex,
 }
 
-impl<T: 'static> UtxoStorage<'_, T> {
+impl UtxoStorage<'_> {
     #[instrument(level = "trace", skip_all)]
-    pub fn get(&mut self) -> wasmtime::Result<Vec<(String, Val)>> {
-        let f = self.utxo.get_function_export(self.get)?;
+    pub fn get(&self, mut store: impl AsContextMut) -> wasmtime::Result<Vec<(String, Val)>> {
+        let f = self.utxo.get_function_export(&mut store, self.get)?;
         let mut results = [Val::Bool(false); 1];
         f.call(
-            &mut self.utxo.store,
+            &mut store,
             &[Val::Resource(self.utxo.resource)],
             &mut results,
         )
@@ -938,14 +903,14 @@ impl<T: 'static> UtxoStorage<'_, T> {
 
     #[instrument(level = "trace", skip_all)]
     #[cfg(feature = "async")]
-    pub async fn get_async(&mut self) -> wasmtime::Result<Vec<(String, Val)>>
-    where
-        T: Send,
-    {
-        let f = self.utxo.get_function_export(self.get)?;
+    pub async fn get_async<T: Send>(
+        &self,
+        mut store: impl AsContextMut<Data = T>,
+    ) -> wasmtime::Result<Vec<(String, Val)>> {
+        let f = self.utxo.get_function_export(&mut store, self.get)?;
         let mut results = [Val::Bool(false); 1];
         f.call_async(
-            &mut self.utxo.store,
+            &mut store,
             &[Val::Resource(self.utxo.resource)],
             &mut results,
         )

@@ -3,5 +3,7 @@ package starstream:std;
 /// Core builtins that the Starstream compiler depends on and that (almost) all
 /// Starstream programs require.
 interface builtin {
+    resource utxo {}
+
     implements-method: func(hash: tuple<u64, u64, u64, u64>);
 }
