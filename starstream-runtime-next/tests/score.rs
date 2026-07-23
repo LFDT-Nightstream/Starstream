@@ -11,9 +11,9 @@ use starstream_runtime_next::{
     bindings, new_wasmtime_config,
 };
 use starstream_to_wasm::compile;
-use wasmtime::bail;
-use wasmtime::component::Val;
+use wasmtime::component::{Resource, Val};
 use wasmtime::error::Context as _;
+use wasmtime::{Store, bail};
 
 /// Compile a single Starstream contract source to a core Wasm module in-process.
 ///
@@ -48,6 +48,12 @@ struct Ctx {
 impl bindings::starstream::std::builtin::Host for Ctx {
     fn implements_method(&mut self, hash: (u64, u64, u64, u64)) -> wasmtime::Result<()> {
         self.methods.push(hash);
+        Ok(())
+    }
+}
+
+impl bindings::starstream::std::builtin::HostUtxo for Ctx {
+    fn drop(&mut self, _utxo: Resource<Utxo>) -> wasmtime::Result<()> {
         Ok(())
     }
 }
@@ -188,25 +194,27 @@ impl<'a> FromIterator<&'a (String, Val)> for ProgressStorage {
     }
 }
 
-fn get_progress_storage<T>(
-    utxo: &mut Utxo<T>,
+fn get_progress_storage<T: 'static>(
+    store: &mut Store<T>,
+    utxo: &Utxo,
     storage: &UtxoStorageExport,
 ) -> wasmtime::Result<ProgressStorage> {
     let storage = utxo
         .storage(storage)
-        .get()
+        .get(store)
         .context("failed to get storage")?;
     Ok(storage.iter().collect())
 }
 
 #[cfg(feature = "async")]
-async fn get_progress_storage_async<T: Send>(
-    utxo: &mut Utxo<T>,
+async fn get_progress_storage_async<T: Send + 'static>(
+    store: &mut Store<T>,
+    utxo: &Utxo,
     storage: &UtxoStorageExport,
 ) -> wasmtime::Result<ProgressStorage> {
     let storage = utxo
         .storage(storage)
-        .get_async()
+        .get_async(store)
         .await
         .context("failed to get storage")?;
     Ok(storage.iter().collect())
@@ -227,13 +235,15 @@ fn score_sync() -> wasmtime::Result<()> {
     } = assert_progress_utxo(&contract)?;
 
     let utxos: [_; 5] = array::from_fn(|_| {
-        contract
-            .create_utxo(wasmtime::Store::new(&engine, Ctx::default()), &new, [])
-            .expect("failed to construct UTXO")
+        let mut store = Store::new(&engine, Ctx::default());
+        let utxo = contract
+            .create_utxo(&mut store, &new, [])
+            .expect("failed to construct UTXO");
+        (store, utxo)
     });
 
-    for (i, mut utxo) in zip(0.., utxos) {
-        let Ctx { methods, events } = utxo.store().data();
+    for (i, (mut store, utxo)) in zip(0.., utxos) {
+        let Ctx { methods, events } = store.data();
         assert_eq!(methods.as_ref(), *METHODS);
         assert_eq!(events.as_ref(), []);
 
@@ -242,24 +252,36 @@ fn score_sync() -> wasmtime::Result<()> {
             mult,
             r#yield,
             yield1,
-        } = get_progress_storage(&mut utxo, &storage)?;
+        } = get_progress_storage(&mut store, &utxo, &storage)?;
         assert_eq!(chips, 0);
         assert_eq!(mult, 0);
         assert_eq!(r#yield, 1);
         assert_eq!(yield1, 1);
 
         let res = utxo
-            .call(&plus_chips, [Val::Resource(utxo.resource()), Val::U64(i)])
+            .call(
+                &mut store,
+                &plus_chips,
+                [Val::Resource(utxo.resource()), Val::U64(i)],
+            )
             .context("failed to call `plus-chips`")?;
         assert!(res.is_empty());
 
         let res = utxo
-            .call(&plus_mult, [Val::Resource(utxo.resource()), Val::U64(i)])
+            .call(
+                &mut store,
+                &plus_mult,
+                [Val::Resource(utxo.resource()), Val::U64(i)],
+            )
             .context("failed to call `plus-mult`")?;
         assert!(res.is_empty());
 
         let res = utxo
-            .call(&mult_mult, [Val::Resource(utxo.resource()), Val::U64(200)])
+            .call(
+                &mut store,
+                &mult_mult,
+                [Val::Resource(utxo.resource()), Val::U64(200)],
+            )
             .context("failed to call `mult-mult`")?;
         assert!(res.is_empty());
 
@@ -268,18 +290,19 @@ fn score_sync() -> wasmtime::Result<()> {
             mult,
             r#yield,
             yield1,
-        } = get_progress_storage(&mut utxo, &storage)?;
+        } = get_progress_storage(&mut store, &utxo, &storage)?;
         assert_eq!(chips, i as i64);
         assert_eq!(mult, (i * 2) as i64);
         assert_eq!(r#yield, 1);
         assert_eq!(yield1, 1);
 
         let res = utxo
-            .call(&finish, [Val::Resource(utxo.resource())])
+            .call(&mut store, &finish, [Val::Resource(utxo.resource())])
             .context("failed to call `finish`")?;
         assert!(res.is_empty());
 
-        let Ctx { methods, events } = utxo.into_inner().context("failed to drop UTXO")?;
+        utxo.drop(&mut store).context("failed to drop UTXO")?;
+        let Ctx { methods, events } = store.into_data();
         assert_eq!(methods, *METHODS);
         assert_eq!(
             events,
@@ -309,13 +332,19 @@ async fn score_async() -> wasmtime::Result<()> {
     } = assert_progress_utxo(&contract)?;
 
     let [utxo0, utxo1, utxo2, utxo3, utxo4] = array::from_fn(|_| {
-        contract.create_utxo_async(wasmtime::Store::new(&engine, Ctx::default()), &new, [])
+        let mut store = Store::new(&engine, Ctx::default());
+        async {
+            contract
+                .create_utxo_async(&mut store, &new, [])
+                .await
+                .map(|utxo| (store, utxo))
+        }
     });
-    let utxos =
+    let (utxo0, utxo1, utxo2, utxo3, utxo4) =
         tokio::try_join!(utxo0, utxo1, utxo2, utxo3, utxo4).context("failed to construct UTXOs")?;
 
-    for (i, mut utxo) in zip(0.., [utxos.0, utxos.1, utxos.2, utxos.3, utxos.4]) {
-        let Ctx { methods, events } = utxo.store().data();
+    for (i, (mut store, utxo)) in zip(0.., [utxo0, utxo1, utxo2, utxo3, utxo4]) {
+        let Ctx { methods, events } = store.data();
         assert_eq!(methods.as_ref(), *METHODS);
         assert_eq!(events.as_ref(), []);
 
@@ -324,26 +353,38 @@ async fn score_async() -> wasmtime::Result<()> {
             mult,
             r#yield,
             yield1,
-        } = get_progress_storage_async(&mut utxo, &storage).await?;
+        } = get_progress_storage_async(&mut store, &utxo, &storage).await?;
         assert_eq!(chips, 0);
         assert_eq!(mult, 0);
         assert_eq!(r#yield, 1);
         assert_eq!(yield1, 1);
 
         let res = utxo
-            .call_async(&plus_chips, [Val::Resource(utxo.resource()), Val::U64(i)])
+            .call_async(
+                &mut store,
+                &plus_chips,
+                [Val::Resource(utxo.resource()), Val::U64(i)],
+            )
             .await
             .context("failed to call `plus-chips`")?;
         assert!(res.is_empty());
 
         let res = utxo
-            .call_async(&plus_mult, [Val::Resource(utxo.resource()), Val::U64(i)])
+            .call_async(
+                &mut store,
+                &plus_mult,
+                [Val::Resource(utxo.resource()), Val::U64(i)],
+            )
             .await
             .context("failed to call `plus-mult`")?;
         assert!(res.is_empty());
 
         let res = utxo
-            .call_async(&mult_mult, [Val::Resource(utxo.resource()), Val::U64(200)])
+            .call_async(
+                &mut store,
+                &mult_mult,
+                [Val::Resource(utxo.resource()), Val::U64(200)],
+            )
             .await
             .context("failed to call `mult-mult`")?;
         assert!(res.is_empty());
@@ -353,22 +394,22 @@ async fn score_async() -> wasmtime::Result<()> {
             mult,
             r#yield,
             yield1,
-        } = get_progress_storage_async(&mut utxo, &storage).await?;
+        } = get_progress_storage_async(&mut store, &utxo, &storage).await?;
         assert_eq!(chips, i as i64);
         assert_eq!(mult, (i * 2) as i64);
         assert_eq!(r#yield, 1);
         assert_eq!(yield1, 1);
 
         let res = utxo
-            .call_async(&finish, [Val::Resource(utxo.resource())])
+            .call_async(&mut store, &finish, [Val::Resource(utxo.resource())])
             .await
             .context("failed to call `finish`")?;
         assert!(res.is_empty());
 
-        let Ctx { methods, events } = utxo
-            .into_inner_async()
+        utxo.drop_async(&mut store)
             .await
             .context("failed to drop UTXO")?;
+        let Ctx { methods, events } = store.into_data();
         assert_eq!(methods, *METHODS);
         assert_eq!(
             events,
