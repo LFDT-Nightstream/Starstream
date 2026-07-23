@@ -8,9 +8,7 @@ use wasmtime::component::{
     LinkerInstance, ResourceAny, ResourceType, Type, Val, types,
 };
 use wasmtime::error::Context as _;
-use wasmtime::{
-    AsContext, AsContextMut, Config, Engine, Store, StoreContext, StoreContextMut, bail,
-};
+use wasmtime::{AsContext, AsContextMut, Engine, Store, StoreContext, StoreContextMut, bail};
 
 pub mod bindings {
     wasmtime::component::bindgen!({
@@ -166,6 +164,15 @@ pub fn link_dynamic_imports<T: EventHandler>(
     Ok(())
 }
 
+#[must_use]
+pub fn new_wasmtime_config() -> wasmtime::Config {
+    let mut config = wasmtime::Config::new();
+    config.wasm_component_model(true);
+    #[cfg(feature = "trace")]
+    config.guest_debug(true);
+    config
+}
+
 /// Compiled, pre-instantiated Starstream contract
 pub struct Contract<T: 'static> {
     pre: InstancePre<T>,
@@ -192,26 +199,18 @@ impl<T: 'static> Deref for Contract<T> {
 impl<T: Host> Contract<T> {
     /// Compile and pre-instantiate a Starstream [Contract]
     #[instrument(level = "trace", skip_all)]
-    pub fn new(wasm: impl AsRef<[u8]>) -> wasmtime::Result<Self> {
+    pub fn new(engine: &Engine, wasm: impl AsRef<[u8]>) -> wasmtime::Result<Self> {
         let wasm = wasm.as_ref();
 
-        let mut config = Config::new();
-        config.wasm_component_model(true);
-        #[cfg(feature = "trace")]
-        config.guest_debug(true);
-
-        debug!("creating engine");
-        let engine = Engine::new(&config).context("failed to create engine")?;
-
         debug!("loading component");
-        let component = load_component(&engine, wasm)?;
+        let component = load_component(engine, wasm)?;
 
-        let mut linker = Linker::new(&engine);
+        let mut linker = Linker::new(engine);
 
         debug!("linking component imports");
         bindings::Host_::add_to_linker::<_, HasSelf<_>>(&mut linker, |cx| cx)
             .context("failed to link builtins")?;
-        link_dynamic_imports(&engine, &mut linker, &component.component_type())?;
+        link_dynamic_imports(engine, &mut linker, &component.component_type())?;
 
         let ty = linker
             .substituted_component_type(&component)
@@ -476,32 +475,69 @@ impl<T: Host> Contract<T> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    fn new_store(&self, ctx: T) -> Store<T> {
-        Store::new(self.engine(), ctx)
+    fn get_coordination_script_typed(
+        &self,
+        name: &str,
+        ty: types::ComponentFunc,
+    ) -> wasmtime::Result<CoordinationScriptExport> {
+        let idx = self
+            .component()
+            .get_export_index(None, name)
+            .context("export not found")?;
+
+        Ok(CoordinationScriptExport { ty, idx })
     }
 
-    /// Instantiate the UTXO
+    /// Get an exported coordination script by name
     #[instrument(level = "trace", skip_all)]
-    fn instantiate(&self, ctx: T) -> wasmtime::Result<(Store<T>, Instance)> {
-        let mut store = self.new_store(ctx);
+    pub fn get_coordination_script(
+        &self,
+        name: &str,
+    ) -> wasmtime::Result<CoordinationScriptExport> {
+        let types::ComponentExtern { ty, .. } = self
+            .ty
+            .get_export(self.engine(), name)
+            .context("export not found")?;
+        let types::ComponentItem::ComponentFunc(ty) = ty else {
+            bail!("export is not a function")
+        };
+        self.get_coordination_script_typed(name, ty)
+    }
 
+    /// Iterate over exported coordination scripts along with their names
+    #[instrument(level = "trace", skip_all)]
+    pub fn coordination_scripts(
+        &self,
+    ) -> impl Iterator<Item = (&str, wasmtime::Result<CoordinationScriptExport>)> {
+        let engine = self.engine();
+        self.ty.exports(engine).filter_map(|(name, ty)| {
+            let types::ComponentExtern {
+                ty: types::ComponentItem::ComponentFunc(ty),
+                ..
+            } = ty
+            else {
+                return None;
+            };
+            Some((name, self.get_coordination_script_typed(name, ty)))
+        })
+    }
+
+    /// Instantiate the contract
+    #[instrument(level = "trace", skip_all)]
+    fn instantiate(&self, store: &mut Store<T>) -> wasmtime::Result<Instance> {
         debug!("instantiating component");
-        let instance = self
-            .pre
-            .instantiate(&mut store)
-            .context("failed to instantiate component")?;
-        Ok((store, instance))
+        self.pre
+            .instantiate(store)
+            .context("failed to instantiate component")
     }
 
     /// Same as [Self::instantiate], but async
     #[instrument(level = "trace", skip_all)]
     #[cfg(feature = "async")]
-    async fn instantiate_async(&self, ctx: T) -> wasmtime::Result<(Store<T>, Instance)>
+    async fn instantiate_async(&self, store: &mut Store<T>) -> wasmtime::Result<Instance>
     where
         T: Send,
     {
-        let mut store = self.new_store(ctx);
-
         #[cfg(feature = "trace")]
         {
             use core::marker::PhantomData;
@@ -553,22 +589,20 @@ impl<T: Host> Contract<T> {
             }
         }
         debug!("instantiating component");
-        let instance = self
-            .pre
-            .instantiate_async(&mut store)
+        self.pre
+            .instantiate_async(store)
             .await
-            .context("failed to instantiate component")?;
-        Ok((store, instance))
+            .context("failed to instantiate component")
     }
 
     #[instrument(level = "trace", skip_all)]
     fn construct_utxo(
         &self,
-        ctx: T,
+        mut store: Store<T>,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo<T>> {
-        let (mut store, instance) = self.instantiate(ctx)?;
+        let instance = self.instantiate(&mut store)?;
         let f = instance
             .get_func(&mut store, name)
             .context("failed to lookup constructor function export")?;
@@ -590,14 +624,14 @@ impl<T: Host> Contract<T> {
     #[cfg(feature = "async")]
     async fn construct_utxo_async(
         &self,
-        ctx: T,
+        mut store: Store<T>,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo<T>>
     where
         T: Send,
     {
-        let (mut store, instance) = self.instantiate_async(ctx).await?;
+        let instance = self.instantiate_async(&mut store).await?;
         let f = instance
             .get_func(&mut store, name)
             .context("failed to lookup constructor function export")?;
@@ -619,50 +653,89 @@ impl<T: Host> Contract<T> {
     #[instrument(level = "trace", skip_all)]
     pub fn create_utxo(
         &self,
-        ctx: T,
+        store: Store<T>,
         ConstructorExport { idx, .. }: &ConstructorExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo<T>> {
-        self.construct_utxo(ctx, idx, params)
+        self.construct_utxo(store, idx, params)
     }
 
     #[instrument(level = "trace", skip_all)]
     #[cfg(feature = "async")]
     pub async fn create_utxo_async(
         &self,
-        ctx: T,
+        store: Store<T>,
         ConstructorExport { idx, .. }: &ConstructorExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo<T>>
     where
         T: Send,
     {
-        self.construct_utxo_async(ctx, idx, params).await
+        self.construct_utxo_async(store, idx, params).await
     }
 
     #[instrument(level = "trace", skip_all)]
     pub fn load_utxo(
         &self,
-        ctx: T,
+        store: Store<T>,
         UtxoStorageExport { set, .. }: &UtxoStorageExport,
         fields: impl Into<Vec<(String, Val)>>,
     ) -> wasmtime::Result<Utxo<T>> {
-        self.construct_utxo(ctx, set, [Val::Record(fields.into())])
+        self.construct_utxo(store, set, [Val::Record(fields.into())])
     }
 
     #[instrument(level = "trace", skip_all)]
     #[cfg(feature = "async")]
     pub async fn load_utxo_async(
         &self,
-        ctx: T,
+        store: Store<T>,
         UtxoStorageExport { set, .. }: &UtxoStorageExport,
         fields: impl Into<Vec<(String, Val)>>,
     ) -> wasmtime::Result<Utxo<T>>
     where
         T: Send,
     {
-        self.construct_utxo_async(ctx, set, [Val::Record(fields.into())])
+        self.construct_utxo_async(store, set, [Val::Record(fields.into())])
             .await
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    pub fn call_coordination_script(
+        &self,
+        mut store: &mut Store<T>,
+        CoordinationScriptExport { idx, .. }: &CoordinationScriptExport,
+        params: impl AsRef<[Val]>,
+    ) -> wasmtime::Result<()> {
+        let instance = self.instantiate(store)?;
+        let f = instance
+            .get_func(&mut store, idx)
+            .context("failed to lookup coordination script export")?;
+        debug!("calling coordination script");
+        f.call(&mut store, params.as_ref(), &mut [])
+            .context("failed to call coordination script")?;
+        Ok(())
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    #[cfg(feature = "async")]
+    pub async fn call_coordination_script_async(
+        &self,
+        mut store: &mut Store<T>,
+        CoordinationScriptExport { idx, .. }: &CoordinationScriptExport,
+        params: impl AsRef<[Val]>,
+    ) -> wasmtime::Result<()>
+    where
+        T: Send,
+    {
+        let instance = self.instantiate_async(store).await?;
+        let f = instance
+            .get_func(&mut store, idx)
+            .context("failed to lookup coordination script export")?;
+        debug!("calling coordination script");
+        f.call_async(&mut store, params.as_ref(), &mut [])
+            .await
+            .context("failed to call coordination script")?;
+        Ok(())
     }
 }
 
@@ -715,6 +788,19 @@ pub struct MethodExport {
 }
 
 impl MethodExport {
+    #[must_use]
+    pub fn ty(&self) -> &types::ComponentFunc {
+        &self.ty
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CoordinationScriptExport {
+    ty: types::ComponentFunc,
+    idx: ComponentExportIndex,
+}
+
+impl CoordinationScriptExport {
     #[must_use]
     pub fn ty(&self) -> &types::ComponentFunc {
         &self.ty

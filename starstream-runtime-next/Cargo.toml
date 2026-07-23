@@ -18,14 +18,14 @@ anyhow = { version = "1.0.102", default-features = false }
 tracing = { version = "0.1.44", default-features = false, features = [
     "attributes",
 ] }
-wasmparser = { version = "0.251.0", default-features = false }
-wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "a260163e20dd5bb92a3a9df093c9e229e2b4f8df", default-features = false, features = [
+wasmparser = { workspace = true }
+wasmtime = { workspace = true, features = [
     "anyhow",
     "component-model",
     "cranelift",
     "runtime",
 ] }
-wit-component = { version = "0.251.0", default-features = false }
+wit-component = { workspace = true }
 
 [dev-dependencies]
 sha2 = "0.10.9"
