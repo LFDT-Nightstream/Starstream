@@ -1116,6 +1116,12 @@ impl DocumentState {
             TypedStatement::Return(Some(expr)) => self.collect_expr(expr, scopes),
             TypedStatement::Return(None) => {}
             TypedStatement::Resume => {}
+            TypedStatement::TryWith { subject, effects } => {
+                self.collect_block(subject, scopes);
+                for (_, _, block) in effects {
+                    self.collect_block(block, scopes);
+                }
+            }
         }
     }
 

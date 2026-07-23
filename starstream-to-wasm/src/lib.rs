@@ -2084,6 +2084,13 @@ impl Compiler {
                     *bb = usize::MAX;
                     break;
                 }
+                TypedStatement::TryWith {
+                    subject,
+                    effects: _,
+                } => {
+                    self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
+                    // TODO: actually emit effect handler blocks
+                }
             }
         }
         Ok(locals)
