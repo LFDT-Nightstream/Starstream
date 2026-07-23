@@ -96,17 +96,14 @@ pub fn link_abi_event_function<T: EventHandler>(
     )
 }
 
-/// Link dynamic imported instance in a [`LinkerInstance`].
+/// Link dynamic imported ABI instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
-pub fn link_instance<T: EventHandler>(
+pub fn link_abi_instance<T: EventHandler>(
     engine: &Engine,
     linker: &mut LinkerInstance<T>,
     ty: &types::ComponentInstance,
     instance: &str,
 ) -> wasmtime::Result<()> {
-    if let Some(_utxo) = ty.get_export(engine, "utxo") {
-        bail!("coordination scripts not supported yet")
-    }
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
         debug!(name, "linking ABI instance item");
         match ty {
@@ -130,6 +127,71 @@ pub fn link_instance<T: EventHandler>(
         }
     }
     Ok(())
+}
+
+/// Link UTXO [`types::ComponentFunc`] in a [`LinkerInstance`]
+#[instrument(level = "trace", skip_all)]
+pub fn link_utxo_function<T>(
+    linker: &mut LinkerInstance<T>,
+    _ty: types::ComponentFunc,
+    instance: &str,
+    name: &str,
+) -> wasmtime::Result<()> {
+    debug!(instance, name, "linking UTXO instance function");
+    linker.func_new(name, move |_store, _ty, _params, _results| {
+        bail!("calling UTXO functions/methods not supported yet")
+    })
+}
+
+/// Link dynamic imported UTXO instance in a [`LinkerInstance`].
+#[instrument(level = "trace", skip_all)]
+pub fn link_utxo_instance<T>(
+    engine: &Engine,
+    linker: &mut LinkerInstance<T>,
+    ty: &types::ComponentInstance,
+    instance: &str,
+) -> wasmtime::Result<()> {
+    for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
+        debug!(name, "linking UTXO instance item");
+        match ty {
+            types::ComponentItem::ComponentFunc(ty) => {
+                link_utxo_function(linker, ty, instance, name)?;
+            }
+            types::ComponentItem::CoreFunc(..) => {
+                bail!("UTXO instance core function imports unsupported")
+            }
+            types::ComponentItem::Module(..) => bail!("UTXO instance module imports unsupported"),
+            types::ComponentItem::Component(..) => {
+                bail!("UTXO instance component imports unsupported")
+            }
+            types::ComponentItem::ComponentInstance(..) => {
+                bail!("UTXO instance component instance imports unsupported")
+            }
+            types::ComponentItem::Type(..) => {}
+            types::ComponentItem::Resource(..) if name == "utxo" => {
+                linker.resource("utxo", ResourceType::host::<Utxo>(), |_, _| Ok(()))?;
+            }
+            types::ComponentItem::Resource(..) => {
+                bail!("UTXO instance resource imports unsupported")
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Link dynamic imported instance in a [`LinkerInstance`].
+#[instrument(level = "trace", skip_all)]
+pub fn link_instance<T: EventHandler>(
+    engine: &Engine,
+    linker: &mut LinkerInstance<T>,
+    ty: &types::ComponentInstance,
+    instance: &str,
+) -> wasmtime::Result<()> {
+    if ty.get_export(engine, "utxo").is_some() {
+        link_utxo_instance(engine, linker, ty, instance)
+    } else {
+        link_abi_instance(engine, linker, ty, instance)
+    }
 }
 
 /// Link dynamic imports of the contract
