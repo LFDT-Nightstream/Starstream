@@ -15,10 +15,10 @@ jobs:
       - run: cargo check --locked
       # Test all crates, except those that force-target WASM.
       # Skip the tests that make proofs, since we'll run those on the release profile
-      - run: cargo test --workspace --exclude starstream-runtime -- --skip circuit_test
+      - run: cargo test --all-features --workspace --exclude starstream-runtime -- --skip circuit_test
       # The tests that do Nightstream proofs are quite slow without --release
-      - run: cargo test -p starstream-interleaving-proof --release circuit_test
-      - run: cargo test -p starstream-runtime --release
+      - run: cargo test --all-features -p starstream-interleaving-proof --release circuit_test
+      - run: cargo test --all-features -p starstream-runtime --release
       # Cosmetic checks.
       - run: cargo clippy
       - run: cargo fmt --check
