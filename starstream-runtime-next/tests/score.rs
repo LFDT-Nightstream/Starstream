@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
     ConstructorExport, Contract, EventHandler, Host, MethodExport, Utxo, UtxoStorageExport,
-    bindings,
+    bindings, new_wasmtime_config,
 };
 use starstream_to_wasm::compile;
 use wasmtime::bail;
@@ -214,7 +214,9 @@ async fn get_progress_storage_async<T: Send>(
 
 #[test]
 fn score_sync() -> wasmtime::Result<()> {
-    let contract = Contract::new(EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
+    let engine = wasmtime::Engine::new(&new_wasmtime_config())?;
+    let contract =
+        Contract::new(&engine, EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
     let ProgressUtxo {
         storage,
         new,
@@ -226,7 +228,7 @@ fn score_sync() -> wasmtime::Result<()> {
 
     let utxos: [_; 5] = array::from_fn(|_| {
         contract
-            .create_utxo(Ctx::default(), &new, [])
+            .create_utxo(wasmtime::Store::new(&engine, Ctx::default()), &new, [])
             .expect("failed to construct UTXO")
     });
 
@@ -294,7 +296,9 @@ fn score_sync() -> wasmtime::Result<()> {
 #[cfg(feature = "async")]
 #[tokio::test]
 async fn score_async() -> wasmtime::Result<()> {
-    let contract = Contract::new(EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
+    let engine = wasmtime::Engine::new(&new_wasmtime_config())?;
+    let contract =
+        Contract::new(&engine, EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
     let ProgressUtxo {
         storage,
         new,
@@ -304,8 +308,9 @@ async fn score_async() -> wasmtime::Result<()> {
         plus_mult,
     } = assert_progress_utxo(&contract)?;
 
-    let [utxo0, utxo1, utxo2, utxo3, utxo4] =
-        array::from_fn(|_| contract.create_utxo_async(Ctx::default(), &new, []));
+    let [utxo0, utxo1, utxo2, utxo3, utxo4] = array::from_fn(|_| {
+        contract.create_utxo_async(wasmtime::Store::new(&engine, Ctx::default()), &new, [])
+    });
     let utxos =
         tokio::try_join!(utxo0, utxo1, utxo2, utxo3, utxo4).context("failed to construct UTXOs")?;
 
@@ -368,7 +373,7 @@ async fn score_async() -> wasmtime::Result<()> {
         assert_eq!(
             events,
             [(
-                "score".into(),
+                "starstream:events/score".into(),
                 "finish".into(),
                 [Val::U64(i * i * 2)].into()
             )]
