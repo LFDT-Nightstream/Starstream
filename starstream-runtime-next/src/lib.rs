@@ -54,7 +54,7 @@ pub trait EventHandler {
     fn emit_event(&mut self, instance: &str, name: &str, params: &[Val]);
 }
 
-fn componentize(wasm: impl AsRef<[u8]>) -> anyhow::Result<Vec<u8>> {
+pub fn componentize(wasm: impl AsRef<[u8]>) -> anyhow::Result<Vec<u8>> {
     use anyhow::Context as _;
 
     wit_component::ComponentEncoder::default()
@@ -408,15 +408,12 @@ impl<T: Host> Contract<T> {
     #[instrument(level = "trace", skip_all)]
     pub fn utxos(&self) -> impl Iterator<Item = (&str, wasmtime::Result<UtxoExport>)> {
         let engine = self.engine();
-        self.ty.exports(engine).filter_map(|(name, ty)| {
-            let types::ComponentExtern {
+        self.ty.exports(engine).filter_map(|(name, ty)| match ty {
+            types::ComponentExtern {
                 ty: types::ComponentItem::ComponentInstance(ty),
                 ..
-            } = ty
-            else {
-                return None;
-            };
-            Some((name, self.get_utxo_typed(name, ty)))
+            } => Some((name, self.get_utxo_typed(name, ty))),
+            _ => None,
         })
     }
 
@@ -469,18 +466,14 @@ impl<T: Host> Contract<T> {
     ) -> impl Iterator<Item = (&'a str, wasmtime::Result<ConstructorExport>)> {
         utxo.instance_ty
             .exports(self.engine())
-            .filter_map(move |(name, ty)| {
-                let types::ComponentExtern {
+            .filter_map(move |(name, ty)| match ty {
+                types::ComponentExtern {
                     ty: types::ComponentItem::ComponentFunc(ty),
                     ..
-                } = ty
-                else {
-                    return None;
-                };
-                if !name.starts_with("[static]") {
-                    return None;
+                } if name.starts_with("[static]") => {
+                    Some((name, self.get_utxo_constructor_typed(utxo, name, ty)))
                 }
-                Some((name, self.get_utxo_constructor_typed(utxo, name, ty)))
+                _ => None,
             })
     }
 
@@ -526,18 +519,14 @@ impl<T: Host> Contract<T> {
     ) -> impl Iterator<Item = (&'a str, wasmtime::Result<MethodExport>)> {
         utxo.instance_ty
             .exports(self.engine())
-            .filter_map(move |(name, ty)| {
-                let types::ComponentExtern {
+            .filter_map(move |(name, ty)| match ty {
+                types::ComponentExtern {
                     ty: types::ComponentItem::ComponentFunc(ty),
                     ..
-                } = ty
-                else {
-                    return None;
-                };
-                if !name.starts_with("[method]") {
-                    return None;
+                } if name.starts_with("[method]") => {
+                    Some((name, self.get_utxo_method_typed(utxo, name, ty)))
                 }
-                Some((name, self.get_utxo_method_typed(utxo, name, ty)))
+                _ => None,
             })
     }
 
@@ -577,15 +566,12 @@ impl<T: Host> Contract<T> {
         &self,
     ) -> impl Iterator<Item = (&str, wasmtime::Result<CoordinationScriptExport>)> {
         let engine = self.engine();
-        self.ty.exports(engine).filter_map(|(name, ty)| {
-            let types::ComponentExtern {
+        self.ty.exports(engine).filter_map(|(name, ty)| match ty {
+            types::ComponentExtern {
                 ty: types::ComponentItem::ComponentFunc(ty),
                 ..
-            } = ty
-            else {
-                return None;
-            };
-            Some((name, self.get_coordination_script_typed(name, ty)))
+            } => Some((name, self.get_coordination_script_typed(name, ty))),
+            _ => None,
         })
     }
 
