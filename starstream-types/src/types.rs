@@ -147,11 +147,9 @@ impl FunctionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeVarId(pub u32);
 
-impl TypeVarId {
-    /// Render the identifier using the conventional `t0`, `t1`, … scheme.
-    #[must_use]
-    pub fn as_str(&self) -> String {
-        format!("t{}", self.0)
+impl std::fmt::Display for TypeVarId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "t{}", self.0)
     }
 }
 
@@ -312,7 +310,7 @@ impl Type {
 
     fn to_doc(&self, mode: TypeDocMode, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
         match self {
-            Type::Var(id) => RcDoc::text(params.get(id).cloned().unwrap_or_else(|| id.as_str())),
+            Type::Var(id) => RcDoc::text(params.get(id).cloned().unwrap_or_else(|| id.to_string())),
             Type::Int(w) => RcDoc::text(w.display_name()),
             Type::Bool => RcDoc::text("bool"),
             Type::Unit => RcDoc::text("()"),
@@ -632,13 +630,11 @@ impl fmt::Display for Scheme {
         if self.vars.is_empty() {
             write!(f, "{}", self.ty)
         } else {
-            let vars = self
-                .vars
-                .iter()
-                .map(TypeVarId::as_str)
-                .collect::<Vec<_>>()
-                .join(" ");
-            write!(f, "forall {vars}. {}", self.ty)
+            write!(f, "forall")?;
+            for v in &self.vars {
+                write!(f, " {v}")?;
+            }
+            write!(f, ". {}", self.ty)
         }
     }
 }

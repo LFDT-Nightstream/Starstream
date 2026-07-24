@@ -4746,7 +4746,7 @@ impl Inferencer {
         let mut entries = Vec::new();
         for (key, value) in &self.subst {
             if before.get(key) != Some(value) {
-                entries.push(format!("{}/{}", self.format_type(value), key.as_str()));
+                entries.push(format!("{}/{}", self.format_type(value), key));
             }
         }
         entries.sort();
