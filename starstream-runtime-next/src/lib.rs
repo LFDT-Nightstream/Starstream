@@ -5,10 +5,10 @@ use std::sync::Arc;
 use tracing::{debug, instrument};
 use wasmtime::component::{
     Component, ComponentExportIndex, ExportLookup, Func, HasSelf, Instance, InstancePre, Linker,
-    LinkerInstance, ResourceAny, ResourceType, Type, Val, types,
+    LinkerInstance, ResourceAny, ResourceTable, ResourceType, Type, Val, types,
 };
 use wasmtime::error::Context as _;
-use wasmtime::{AsContextMut, Engine, Store, bail};
+use wasmtime::{AsContextMut, Engine, Store, StoreContextMut, bail, ensure};
 
 pub mod bindings {
     wasmtime::component::bindgen!({
@@ -36,6 +36,7 @@ pub trait Host:
     + bindings::starstream::std::builtin::HostUtxo
     + bindings::starstream::std::cardano::Host
     + EventHandler
+    + UtxoHandler
     + 'static
 {
 }
@@ -45,8 +46,23 @@ impl<T> Host for T where
         + bindings::starstream::std::builtin::HostUtxo
         + bindings::starstream::std::cardano::Host
         + EventHandler
+        + UtxoHandler
         + 'static
 {
+}
+
+/// Utxo handler
+pub trait UtxoHandler: Send {
+    fn table(&mut self) -> &mut ResourceTable;
+
+    fn construct_utxo(
+        store: StoreContextMut<Self>,
+        instance: &str,
+        name: &str,
+        params: &[Val],
+    ) -> impl Future<Output = wasmtime::Result<Utxo>> + Send
+    where
+        Self: Sized;
 }
 
 /// ABI event handler
@@ -131,21 +147,69 @@ pub fn link_abi_instance<T: EventHandler>(
 
 /// Link UTXO [`types::ComponentFunc`] in a [`LinkerInstance`]
 #[instrument(level = "trace", skip_all)]
-pub fn link_utxo_function<T>(
+pub fn link_utxo_function<T: UtxoHandler>(
     linker: &mut LinkerInstance<T>,
-    _ty: types::ComponentFunc,
+    ty: types::ComponentFunc,
     instance: &str,
     name: &str,
 ) -> wasmtime::Result<()> {
     debug!(instance, name, "linking UTXO instance function");
-    linker.func_new(name, move |_store, _ty, _params, _results| {
-        bail!("calling UTXO functions/methods not supported yet")
-    })
+    let instance = Arc::<str>::from(instance);
+    let name = Arc::<str>::from(name);
+    match name.split_once(']') {
+        Some(("[static", ..)) => {
+            let (Some(Type::Own(..)), None) = ({
+                let mut result_tys = ty.results();
+                (result_tys.next(), result_tys.next())
+            }) else {
+                bail!("function does not return a single resource value")
+            };
+            linker.func_new_async(
+                &Arc::clone(&name),
+                move |mut store, _ty, params, results| {
+                    let instance = Arc::clone(&instance);
+                    let name = Arc::clone(&name);
+                    Box::new(async move {
+                        ensure!(results.len() == 1);
+                        let utxo =
+                            T::construct_utxo(store.as_context_mut(), &instance, &name, params)
+                                .await?;
+                        let utxo = store.data_mut().table().push(utxo)?;
+                        let utxo = utxo.try_into_resource_any(store)?;
+                        results[0] = Val::Resource(utxo);
+                        Ok(())
+                    })
+                },
+            )
+        }
+        Some(("[method", ..)) => {
+            let Some((_, Type::Borrow(..))) = ty.params().next() else {
+                bail!("function does not take borrowed resource type as first parameter");
+            };
+            linker.func_new_async(
+                &Arc::clone(&name),
+                move |mut store, _ty, params, results| {
+                    let name = Arc::clone(&name);
+                    Box::new(async move {
+                        let Some(Val::Resource(utxo)) = params.first() else {
+                            bail!("first parameter is not a resource")
+                        };
+                        let utxo = utxo.try_into_resource::<Utxo>(&mut store)?;
+                        let utxo = store.data_mut().table().get(&utxo).copied()?;
+                        let f = utxo.get_function_export(&mut store, &*name)?;
+                        f.call_async(&mut store, params, results).await?;
+                        Ok(())
+                    })
+                },
+            )
+        }
+        _ => bail!("unexpected UTXO instance function import `{name}` from instance `{instance}`"),
+    }
 }
 
 /// Link dynamic imported UTXO instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
-pub fn link_utxo_instance<T>(
+pub fn link_utxo_instance<T: UtxoHandler>(
     engine: &Engine,
     linker: &mut LinkerInstance<T>,
     ty: &types::ComponentInstance,
@@ -181,7 +245,7 @@ pub fn link_utxo_instance<T>(
 
 /// Link dynamic imported instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
-pub fn link_instance<T: EventHandler>(
+pub fn link_instance<T: Host>(
     engine: &Engine,
     linker: &mut LinkerInstance<T>,
     ty: &types::ComponentInstance,
@@ -196,7 +260,7 @@ pub fn link_instance<T: EventHandler>(
 
 /// Link dynamic imports of the contract
 #[instrument(level = "trace", skip_all)]
-pub fn link_dynamic_imports<T: EventHandler>(
+pub fn link_dynamic_imports<T: Host>(
     engine: &Engine,
     linker: &mut Linker<T>,
     ty: &types::Component,
@@ -488,7 +552,6 @@ impl<T: Host> Contract<T> {
             .component()
             .get_export_index(Some(&utxo.instance_idx), name)
             .context("export not found")?;
-
         let Some((_, Type::Borrow(resource_ty))) = ty.params().next() else {
             bail!("function does not take borrowed resource type as first parameter");
         };
@@ -540,7 +603,6 @@ impl<T: Host> Contract<T> {
             .component()
             .get_export_index(None, name)
             .context("export not found")?;
-
         Ok(CoordinationScriptExport { ty, idx })
     }
 
@@ -596,7 +658,7 @@ impl<T: Host> Contract<T> {
             use core::marker::PhantomData;
 
             use tracing::{error, trace};
-            use wasmtime::{DebugEvent, StoreContextMut};
+            use wasmtime::DebugEvent;
 
             struct DebugHandler<T>(PhantomData<fn() -> T>);
 
@@ -852,6 +914,7 @@ impl CoordinationScriptExport {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct Utxo {
     instance: Instance,
     resource: ResourceAny,

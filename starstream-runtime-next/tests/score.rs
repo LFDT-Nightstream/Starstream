@@ -7,11 +7,11 @@ use std::sync::LazyLock;
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
-    ConstructorExport, Contract, EventHandler, Host, MethodExport, Utxo, UtxoStorageExport,
-    bindings, new_wasmtime_config,
+    ConstructorExport, Contract, EventHandler, Host, MethodExport, Utxo, UtxoHandler,
+    UtxoStorageExport, bindings, new_wasmtime_config,
 };
 use starstream_to_wasm::compile;
-use wasmtime::component::{Resource, Val};
+use wasmtime::component::{Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{Store, bail};
 
@@ -39,8 +39,9 @@ fn compile_contract(source: &str) -> Vec<u8> {
 static EXAMPLE_SCORE: LazyLock<Vec<u8>> =
     LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 struct Ctx {
+    table: ResourceTable,
     methods: Vec<(u64, u64, u64, u64)>,
     events: Vec<(String, String, Box<[Val]>)>,
 }
@@ -72,6 +73,24 @@ impl EventHandler for Ctx {
     fn emit_event(&mut self, instance: &str, name: &str, params: &[Val]) {
         self.events
             .push((instance.into(), name.into(), params.into()));
+    }
+}
+
+impl UtxoHandler for Ctx {
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+
+    async fn construct_utxo(
+        _store: wasmtime::StoreContextMut<'_, Self>,
+        _instance: &str,
+        _name: &str,
+        _params: &[Val],
+    ) -> wasmtime::Result<Utxo>
+    where
+        Self: Sized,
+    {
+        bail!("UTXO construction not supported yet")
     }
 }
 
@@ -243,7 +262,9 @@ fn score_sync() -> wasmtime::Result<()> {
     });
 
     for (i, (mut store, utxo)) in zip(0.., utxos) {
-        let Ctx { methods, events } = store.data();
+        let Ctx {
+            methods, events, ..
+        } = store.data();
         assert_eq!(methods.as_ref(), *METHODS);
         assert_eq!(events.as_ref(), []);
 
@@ -302,7 +323,9 @@ fn score_sync() -> wasmtime::Result<()> {
         assert!(res.is_empty());
 
         utxo.drop(&mut store).context("failed to drop UTXO")?;
-        let Ctx { methods, events } = store.into_data();
+        let Ctx {
+            methods, events, ..
+        } = store.into_data();
         assert_eq!(methods, *METHODS);
         assert_eq!(
             events,
@@ -344,7 +367,9 @@ async fn score_async() -> wasmtime::Result<()> {
         tokio::try_join!(utxo0, utxo1, utxo2, utxo3, utxo4).context("failed to construct UTXOs")?;
 
     for (i, (mut store, utxo)) in zip(0.., [utxo0, utxo1, utxo2, utxo3, utxo4]) {
-        let Ctx { methods, events } = store.data();
+        let Ctx {
+            methods, events, ..
+        } = store.data();
         assert_eq!(methods.as_ref(), *METHODS);
         assert_eq!(events.as_ref(), []);
 
@@ -409,7 +434,9 @@ async fn score_async() -> wasmtime::Result<()> {
         utxo.drop_async(&mut store)
             .await
             .context("failed to drop UTXO")?;
-        let Ctx { methods, events } = store.into_data();
+        let Ctx {
+            methods, events, ..
+        } = store.into_data();
         assert_eq!(methods, *METHODS);
         assert_eq!(
             events,
