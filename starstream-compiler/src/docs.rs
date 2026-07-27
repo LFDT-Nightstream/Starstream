@@ -61,7 +61,7 @@ impl From<&Type> for TypeRef {
             Type::Int(w) => TypeRef::Primitive(w.display_name().to_string()),
             Type::Bool => TypeRef::Primitive("bool".to_string()),
             Type::Unit => TypeRef::Primitive("()".to_string()),
-            Type::Var(id) => TypeRef::Primitive(id.as_str()),
+            Type::Var(id) => TypeRef::Primitive(id.to_string()),
             Type::Record(r) => TypeRef::Struct {
                 name: r.name.clone(),
                 kind: TypeKind::Struct,

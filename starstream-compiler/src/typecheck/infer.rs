@@ -7,11 +7,11 @@ use std::{
 };
 
 use starstream_types::{
-    Abi, AbiDef, AbiPart, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionKind, FunctionType,
-    GenericTypeDef, IfCondition, IntWidth, Scheme, ScopedName, Span, Spanned, StaticFunction,
-    TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId, TypedEffectDef, TypedTokenDef,
-    TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
-    UtxoGlobal, UtxoPart,
+    Abi, AbiDef, AbiPart, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport, FunctionKind,
+    FunctionType, GenericTypeDef, IfCondition, IntWidth, Scheme, ScopedName, Span, Spanned,
+    StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId, TypedEffectDef,
+    TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart,
+    UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportDef, ImportItems, ImportSource, Literal, Pattern, Program, Statement, StructDef,
@@ -663,6 +663,27 @@ struct Namespace {
 }
 
 impl Namespace {
+    fn add_child(&mut self, name: String) -> &mut Namespace {
+        self.namespaces.entry(name).or_default()
+    }
+
+    fn merge(&mut self, other: Namespace) -> Result<(), TypeError> {
+        for (k, v) in other.namespaces {
+            self.add_child(k).merge(v)?;
+        }
+        for (k, v) in other.constants {
+            if let Some(_old) = self.constants.insert(k, v) {
+                // TODO: TypeError on name collision
+            }
+        }
+        for (k, v) in other.struct_constructors {
+            if let Some(_old) = self.struct_constructors.insert(k, v) {
+                // TODO: TypeError on name collision
+            }
+        }
+        Ok(())
+    }
+
     fn get_child(&self, path: &[Identifier]) -> Result<&Namespace, TypeError> {
         let mut ns = self;
         for each in path {
@@ -883,7 +904,7 @@ impl Inferencer {
             .ty;
 
         // TODO: we need to create fresh variables for type parameters on use
-        let namespace = self.root.namespaces.entry(name.to_string()).or_default();
+        let namespace = self.root.add_child(name.to_string());
         for (i, (name, kind)) in variants.iter().enumerate() {
             match kind {
                 EnumVariantKind::Unit => {
@@ -1128,7 +1149,9 @@ impl Inferencer {
                     );
                 }
 
-                self.root.namespaces.insert(alias.name.clone(), namespace);
+                self.root
+                    .add_child(alias.name.to_string())
+                    .merge(namespace)?;
             }
         }
 
@@ -1436,13 +1459,38 @@ impl Inferencer {
         self.types.insert(
             def.name.to_string(),
             TypeEntry {
-                ty,
+                ty: ty.clone(),
                 span: def.name.span(),
                 type_params: vec![],
                 doc: None,
                 variant_docs: HashMap::new(),
             },
         );
+
+        let mut ns = Namespace::default();
+
+        for part in &def.parts {
+            match part {
+                UtxoPart::Function(function_def) => {
+                    if let Some(FunctionExport::UtxoMain) = function_def.export {
+                        let mut func_ty = self.function_def_to_type(function_def)?;
+                        func_ty.result = Box::new(ty.clone());
+                        ns.constants.insert(
+                            function_def.name.to_string(),
+                            ConstantInfo::from(Type::Function(func_ty)),
+                        );
+                    }
+                }
+                UtxoPart::Storage(_) => {}
+                UtxoPart::AbiImpl { .. } => {
+                    // TODO: expose ABI impl functions in the namespace?
+                    // (not actually sure if we want to do this)
+                }
+            }
+        }
+
+        self.root.add_child(def.name.to_string()).merge(ns)?;
+
         Ok(())
     }
 
@@ -2393,24 +2441,39 @@ impl Inferencer {
         }
     }
 
-    fn infer_function(
-        &mut self,
-        env: &mut TypeEnv,
-        function: &FunctionDef,
-    ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
+    fn function_def_to_type(&mut self, function: &FunctionDef) -> Result<FunctionType, TypeError> {
         // Visit param & return types.
         let param_types = function
             .params
             .iter()
             .map(|param| self.type_from_annotation(&param.ty))
             .collect::<Result<Vec<_>, _>>()?;
-        let (expected_return, return_span) = match &function.return_type {
-            Some(annotation) => (
-                self.type_from_annotation(annotation)?,
-                annotation.name.span_or(function.name.span()),
-            ),
-            None => (Type::unit(), function.name.span()),
+        let expected_return = match &function.return_type {
+            Some(annotation) => self.type_from_annotation(annotation)?,
+            None => Type::unit(),
         };
+        let param_spans = function
+            .params
+            .iter()
+            .map(|param| param.ty.name.span)
+            .collect::<Vec<_>>();
+        Ok(FunctionType {
+            params: param_types.clone(),
+            param_spans,
+            result: Box::new(expected_return.clone()),
+            kind: FunctionKind::Normal,
+            name_span: function.name.span,
+            callee: Some(StaticFunction::Named(function.name.to_string())),
+        })
+    }
+
+    fn infer_function(
+        &mut self,
+        env: &mut TypeEnv,
+        function: &FunctionDef,
+    ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
+        let func_ty = self.function_def_to_type(function)?;
+        let return_span = function.return_span();
 
         // Insert function into environment. Happens before code so that recursion is allowed.
         if let Some(existing) = env.get_in_current_scope(function.name.as_str()) {
@@ -2422,24 +2485,12 @@ impl Inferencer {
             )
             .with_secondary(existing.decl_span, "previously defined here"));
         }
-        let param_spans = function
-            .params
-            .iter()
-            .map(|param| param.ty.name.span)
-            .collect::<Vec<_>>();
         env.insert(
             function.name.to_string(),
             Binding {
                 decl_span: function.name.span,
                 mutable: false,
-                scheme: Scheme::monomorphic(Type::Function(FunctionType {
-                    params: param_types.clone(),
-                    param_spans,
-                    result: Box::new(expected_return.clone()),
-                    kind: FunctionKind::Normal,
-                    name_span: function.name.span,
-                    callee: Some(StaticFunction::Named(function.name.to_string())),
-                })),
+                scheme: Scheme::monomorphic(Type::Function(func_ty.clone())),
                 class: BindingClass::Local,
                 visibility: BindingVisibility::Private,
             },
@@ -2448,7 +2499,7 @@ impl Inferencer {
         env.push_scope();
         let mut typed_params = Vec::with_capacity(function.params.len());
         let mut private_param_decl_spans = Vec::new();
-        for (param, ty) in function.params.iter().zip(param_types) {
+        for (param, ty) in function.params.iter().zip(func_ty.params) {
             let decl_span = param.name.span_or(function.name.span());
             if !param.public {
                 private_param_decl_spans.push(decl_span);
@@ -2475,7 +2526,7 @@ impl Inferencer {
         }
 
         let mut ctx = FunctionCtx {
-            expected_return: expected_return.clone(),
+            expected_return: (*func_ty.result).clone(),
             return_span,
             saw_return: false,
             private_param_decl_spans,
@@ -2486,13 +2537,13 @@ impl Inferencer {
 
         env.pop_scope();
 
-        if expected_return != Type::unit()
+        if *func_ty.result != Type::unit()
             && !ctx.saw_return
             && typed_body.tail_expression.is_none()
         {
             return Err(TypeError::new(
                 TypeErrorKind::MissingReturn {
-                    expected: expected_return,
+                    expected: *func_ty.result,
                 },
                 function.name.span_or(return_span),
             )
@@ -4746,7 +4797,7 @@ impl Inferencer {
         let mut entries = Vec::new();
         for (key, value) in &self.subst {
             if before.get(key) != Some(value) {
-                entries.push(format!("{}/{}", self.format_type(value), key.as_str()));
+                entries.push(format!("{}/{}", self.format_type(value), key));
             }
         }
         entries.sort();

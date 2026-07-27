@@ -239,6 +239,14 @@ pub struct FunctionDef {
     pub body: Block,
 }
 
+impl FunctionDef {
+    pub fn return_span(&self) -> Span {
+        self.return_type
+            .as_ref()
+            .map_or(self.name.span, |ret| ret.name.span_or(self.name.span))
+    }
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum FunctionExport {
     /// `script fn`
