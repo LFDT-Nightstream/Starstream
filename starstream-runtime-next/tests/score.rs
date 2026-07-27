@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
     ConstructorExport, Contract, EventHandler, Host, MethodExport, Utxo, UtxoHandler,
-    UtxoStorageExport, bindings, new_wasmtime_config,
+    UtxoStorageExport, bindings, new_wasmtime_config, new_wasmtime_store,
 };
 use starstream_to_wasm::compile;
 use wasmtime::component::{Resource, ResourceTable, Val};
@@ -240,14 +240,12 @@ async fn score() -> wasmtime::Result<()> {
         plus_mult,
     } = assert_progress_utxo(&contract)?;
 
-    let [utxo0, utxo1, utxo2, utxo3, utxo4] = array::from_fn(|_| {
-        let mut store = Store::new(&engine, Ctx::default());
-        async {
-            contract
-                .create_utxo(&mut store, &new, [])
-                .await
-                .map(|utxo| (store, utxo))
-        }
+    let [utxo0, utxo1, utxo2, utxo3, utxo4] = array::from_fn(|_| async {
+        let mut store = new_wasmtime_store(&engine, Ctx::default())?;
+        contract
+            .create_utxo(&mut store, &new, [])
+            .await
+            .map(|utxo| (store, utxo))
     });
     let (utxo0, utxo1, utxo2, utxo3, utxo4) =
         tokio::try_join!(utxo0, utxo1, utxo2, utxo3, utxo4).context("failed to construct UTXOs")?;
