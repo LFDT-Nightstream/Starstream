@@ -30,3 +30,7 @@ utxo ScoreProgress {
         }
     }
 }
+
+script fn example() {
+    let prog = ScoreProgress::new();
+}
