@@ -1662,7 +1662,8 @@ impl Compiler {
                             to_kebab_case(function.name.as_str())
                         );
                         let ty = self.add_core_func_type(&FuncType::new(params, results));
-                        self.import_function(&interface_name, &wit_name, ty);
+                        let idx = self.import_function(&interface_name, &wit_name, ty);
+                        self.callables.insert(function.name.to_string(), idx);
                     }
                 }
                 _ => {}
@@ -1697,6 +1698,7 @@ impl Compiler {
         });
 
         // Visit each Utxo part.
+        let mut coordination_script_callables = HashMap::new();
         let mut utxo_storage = HashMap::new();
         let start_global = self.globals.len();
         for part in &utxo.parts {
@@ -1710,6 +1712,13 @@ impl Compiler {
                     }
                 }
                 TypedUtxoPart::Function(function) => {
+                    // Hack: if pre_visit_utxo created a callable for this function,
+                    // restore it after we finish with the utxo, so coordination scripts
+                    // see the "import" version.
+                    if let Some(c) = self.callables.get(function.name.as_str()) {
+                        coordination_script_callables.insert(function.name.to_string(), *c);
+                    }
+
                     let core =
                         self.visit_function(None, function, &(&() as &dyn Locals, &utxo_storage));
                     if let Some(FunctionExport::UtxoMain) = function.export {
@@ -1788,6 +1797,8 @@ impl Compiler {
             .insert(interface_name.clone(), iface.clone());
         self.exported_interfaces.insert(interface_name, iface);
         self.current_resource = None;
+
+        self.callables.extend(coordination_script_callables);
     }
 
     fn pre_visit_token(&mut self, token: &TypedTokenDef) {

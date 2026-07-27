@@ -1596,7 +1596,7 @@ TypedProgram {
   (func (;17;) (type 5)
     (local i32)
     (local.set 0
-      (call 7))
+      (call 4))
   )
   (@custom "component-type"
     (component
