@@ -299,19 +299,20 @@ TypedProgram {
   (import "starstream:events/foo-abi" "hello-event" (func (;0;) (type 0)))
   (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
   (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
-  (export "my-utxo#[static]utxo.hello-utxo" (func 5))
-  (func (;3;) (type 0)
+  (import "my-utxo" "[static]utxo.hello-utxo" (func (;3;) (type 3)))
+  (export "my-utxo#[static]utxo.hello-utxo" (func 6))
+  (func (;4;) (type 0)
     (unreachable)
   )
-  (func (;4;) (type 0)
+  (func (;5;) (type 0)
     (call 0)
   )
-  (func (;5;) (type 3) (result i32)
+  (func (;6;) (type 3) (result i32)
     (local i32)
     (local.set 0
       (call 1
         (i32.const 0)))
-    (call 4)
+    (call 5)
     (local.get 0)
   )
   (@custom "component-type"
@@ -323,12 +324,21 @@ TypedProgram {
             (component
               (type (;0;)
                 (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (own 0))
+                  (type (;2;) (func (result 1)))
+                  (export (;0;) "[static]utxo.hello-utxo" (func (type 2)))
+                )
+              )
+              (import "my-utxo" (instance (;0;) (type 0)))
+              (type (;1;)
+                (instance
                   (type (;0;) (func))
                   (export (;0;) "hello-event" (func (type 0)))
                 )
               )
-              (import "starstream:events/foo-abi" (instance (;0;) (type 0)))
-              (type (;1;)
+              (import "starstream:events/foo-abi" (instance (;1;) (type 1)))
+              (type (;2;)
                 (instance
                   (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (own 0))
@@ -336,7 +346,7 @@ TypedProgram {
                   (export (;0;) "[static]utxo.hello-utxo" (func (type 2)))
                 )
               )
-              (export (;1;) "my-utxo" (instance (type 1)))
+              (export (;2;) "my-utxo" (instance (type 2)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -351,6 +361,11 @@ TypedProgram {
 package root:component;
 
 world root {
+  import my-utxo: interface {
+    resource utxo {
+      hello-utxo: static func() -> utxo;
+    }
+  }
   import starstream:events/foo-abi;
 
   export my-utxo: interface {

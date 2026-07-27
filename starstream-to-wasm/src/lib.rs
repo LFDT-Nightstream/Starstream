@@ -1637,6 +1637,37 @@ impl Compiler {
         );
         self.resource_abi_fns
             .insert(utxo.ty.clone(), (new_fn, drop_fn));
+
+        // Utxos declared in a file have an "exported" half and an "imported" half
+        // since calls need to go through the runtime.
+        for part in &utxo.parts {
+            match part {
+                TypedUtxoPart::Function(function) => {
+                    if let Some(FunctionExport::UtxoMain) = function.export {
+                        let mut params = Vec::with_capacity(16);
+                        for p in &function.params {
+                            _ = self.star_to_core_types(
+                                p.name.span_or(function.name.span()),
+                                &mut params,
+                                &p.ty,
+                            );
+                        }
+
+                        // Don't use declared result (always Unit). The imported version returns a handle.
+                        let mut results = Vec::with_capacity(1);
+                        _ = self.star_to_core_types(function.name.span(), &mut results, &utxo.ty);
+
+                        let wit_name = format!(
+                            "[static]{resource_name}.{}",
+                            to_kebab_case(function.name.as_str())
+                        );
+                        let ty = self.add_core_func_type(&FuncType::new(params, results));
+                        self.import_function(&interface_name, &wit_name, ty);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
@@ -1753,6 +1784,8 @@ impl Compiler {
                 .chain(start_global..end_global),
         );
 
+        self.imported_interfaces
+            .insert(interface_name.clone(), iface.clone());
         self.exported_interfaces.insert(interface_name, iface);
         self.current_resource = None;
     }

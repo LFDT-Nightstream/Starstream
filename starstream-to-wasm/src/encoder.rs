@@ -7,7 +7,7 @@ use wasm_encoder::{
 
 use crate::component_abi::{ComponentAbiFunctionSignature, ComponentAbiType};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct TypeBuilder<T: ?Sized> {
     pub component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
     pub inner: T,
