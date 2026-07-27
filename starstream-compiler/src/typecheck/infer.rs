@@ -1459,7 +1459,7 @@ impl Inferencer {
         self.types.insert(
             def.name.to_string(),
             TypeEntry {
-                ty,
+                ty: ty.clone(),
                 span: def.name.span(),
                 type_params: vec![],
                 doc: None,
@@ -1473,7 +1473,8 @@ impl Inferencer {
             match part {
                 UtxoPart::Function(function_def) => {
                     if let Some(FunctionExport::UtxoMain) = function_def.export {
-                        let func_ty = self.function_def_to_type(function_def)?;
+                        let mut func_ty = self.function_def_to_type(function_def)?;
+                        func_ty.result = Box::new(ty.clone());
                         ns.constants.insert(
                             function_def.name.to_string(),
                             ConstantInfo::from(Type::Function(func_ty)),

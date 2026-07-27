@@ -502,7 +502,62 @@ Program {
                     ],
                 },
             ),
-            span: 155..674,
+            span: 155..675,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "example",
+                        span: 685..692,
+                    },
+                    params: [],
+                    return_type: None,
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: VariableDeclaration {
+                                    public: false,
+                                    mutable: false,
+                                    name: Identifier {
+                                        name: "prog",
+                                        span: 705..709,
+                                    },
+                                    ty: None,
+                                    value: Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "ScoreProgress",
+                                                            span: 712..725,
+                                                        },
+                                                        Identifier {
+                                                            name: "new",
+                                                            span: 727..730,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 712..730,
+                                            },
+                                            args: [],
+                                        },
+                                        span: 712..732,
+                                    },
+                                },
+                                span: 701..734,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 695..736,
+                    },
+                },
+            ),
+            span: 675..736,
         },
     ],
 }
@@ -547,6 +602,11 @@ T-Utxo: ScoreProgress =>
   T-Fn: finish => ()
     T-Resume: {chips: u64, finish: fn() -> () [finish], mult: u64, mult_mult: fn(u64) -> () [mult_mult], new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ resume; ⇒ ()
       Unify-Const: () ~ () => {}
+
+T-Fn: example => ()
+  T-Let: {example: fn() -> () [example]} ⊢ let prog = ScoreProgress::new(); ⇒ ScoreProgress
+    T-Call: {example: fn() -> () [example]} ⊢ ScoreProgress::new() ⇒ ScoreProgress
+      T-Var: {example: fn() -> () [example]} ⊢ ScoreProgress::new ⇒ fn() -> ScoreProgress [new]
 
 ==== Typed AST ====
 TypedProgram {
@@ -1245,6 +1305,79 @@ TypedProgram {
                 ),
             },
         ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "example",
+                    span: 685..692,
+                },
+                params: [],
+                return_type: Unit,
+                body: TypedBlock {
+                    statements: [
+                        VariableDeclaration {
+                            public: false,
+                            mutable: false,
+                            name: Identifier {
+                                name: "prog",
+                                span: 705..709,
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: UtxoNamed(
+                                        "ScoreProgress",
+                                    ),
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 263..266,
+                                                        params: [],
+                                                        param_spans: [],
+                                                        result: UtxoNamed(
+                                                            "ScoreProgress",
+                                                        ),
+                                                        callee: Some(
+                                                            Named(
+                                                                "new",
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "ScoreProgress",
+                                                            span: 712..725,
+                                                        },
+                                                        Identifier {
+                                                            name: "new",
+                                                            span: 727..730,
+                                                        },
+                                                    ],
+                                                    constant: Some(
+                                                        0,
+                                                    ),
+                                                },
+                                            },
+                                            span: 712..730,
+                                        },
+                                        args: [],
+                                    },
+                                },
+                                span: 712..730,
+                            },
+                        },
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
     ],
 }
 
@@ -1276,6 +1409,7 @@ TypedProgram {
   (export "score-progress#[method]utxo.finish" (func 12))
   (export "score-progress#get-storage" (func 14))
   (export "score-progress#set-storage" (func 15))
+  (export "example" (func 16))
   (export "memory" (memory 0))
   (func (;4;) (type 4)
     (block ;; label = @1
@@ -1458,6 +1592,11 @@ TypedProgram {
     (return_call 2
       (i32.const 0))
   )
+  (func (;16;) (type 4)
+    (local i32)
+    (local.set 0
+      (call 6))
+  )
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -1465,22 +1604,24 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (type (;0;)
+              (type (;0;) (func))
+              (export (;0;) "example" (func (type 0)))
+              (type (;1;)
                 (instance
                   (type (;0;) (func (param "x" u64)))
                   (export (;0;) "finish" (func (type 0)))
                 )
               )
-              (import "starstream:events/score" (instance (;0;) (type 0)))
-              (type (;1;)
+              (import "starstream:events/score" (instance (;0;) (type 1)))
+              (type (;2;)
                 (instance
                   (type (;0;) (tuple u64 u64 u64 u64))
                   (type (;1;) (func (param "hash" 0)))
                   (export (;0;) "implements-method" (func (type 1)))
                 )
               )
-              (import "starstream:std/builtin" (instance (;1;) (type 1)))
-              (type (;2;)
+              (import "starstream:std/builtin" (instance (;1;) (type 2)))
+              (type (;3;)
                 (instance
                   (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (own 0))
@@ -1503,7 +1644,7 @@ TypedProgram {
                   (export (;6;) "set-storage" (func (type 11)))
                 )
               )
-              (export (;2;) "score-progress" (instance (type 2)))
+              (export (;2;) "score-progress" (instance (type 3)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -1521,6 +1662,7 @@ world root {
   import starstream:events/score;
   import starstream:std/builtin;
 
+  export example: func();
   export score-progress: interface {
     resource utxo {
       new: static func() -> utxo;
