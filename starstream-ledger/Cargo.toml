@@ -1,0 +1,76 @@
+[package]
+name = "starstream-ledger"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+bytes = { version = "1" }
+ciborium = { version = "0.2" }
+clap = { version = "4.6.1", features = [
+    "color",
+    "derive",
+    "error-context",
+    "help",
+    "std",
+    "string",
+    "suggestions",
+    "usage",
+] }
+coset = { version = "0.3" }
+ed25519-dalek = { version = "2" }
+futures = { version = "0.3" }
+headers-accept = { version = "0.3" }
+headers-core = { version = "0.3" }
+hex = { version = "0.4.3" }
+http = { version = "1" }
+http-body = { version = "1" }
+http-body-util = { version = "0.1" }
+hyper = { version = "1", features = ["server"] }
+hyper-util = { version = "0.1", features = [
+    "http1",
+    "http2",
+    "server",
+    "tokio",
+] }
+mediatype = { version = "0.21" }
+sha2 = { workspace = true }
+starstream-runtime-next = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+] }
+tokio-util = { version = "0.7", default-features = false }
+tracing = { workspace = true, features = ["attributes"] }
+tracing-subscriber = { version = "0.3.23", features = [
+    "ansi",
+    "env-filter",
+    "fmt",
+    "smallvec",
+    "tracing-log",
+] }
+wasm-tokio = { version = "0.6", default-features = false }
+wasmtime = { workspace = true }
+wasmtime-wizer = { workspace = true, features = [
+    "component-model",
+    "wasmtime",
+] }
+wit-component = { workspace = true }
+wit-parser = { version = "0.254" }
+wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "19b4b2a5f9f8ce087d1ef23457e8d751043e679f" }
+wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "19b4b2a5f9f8ce087d1ef23457e8d751043e679f" }
+
+[dev-dependencies]
+hyper = { version = "1", features = ["client", "http1", "server"] }
+starstream-compiler = { workspace = true }
+starstream-to-wasm = { workspace = true }
+tokio = { version = "1", features = ["process", "time"] }
+wat = { version = "1" }
