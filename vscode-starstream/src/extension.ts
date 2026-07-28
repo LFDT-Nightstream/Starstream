@@ -41,10 +41,10 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
   const lc = new LanguageClient(
     "starstream",
     "Starstream Language Server",
+    worker,
     {
       documentSelector: [{ language: "starstream" }],
     },
-    worker,
   );
   context.subscriptions.push(lc);
 
