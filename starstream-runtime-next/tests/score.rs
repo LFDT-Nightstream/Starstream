@@ -2,7 +2,7 @@ use core::array;
 use core::iter::zip;
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
@@ -85,14 +85,14 @@ impl UtxoHandler for Ctx {
 
     async fn construct_utxo(
         store: wasmtime::StoreContextMut<'_, Self>,
-        instance: &str,
-        name: &str,
+        instance: &Arc<str>,
+        name: &Arc<str>,
         params: &[Val],
     ) -> wasmtime::Result<Utxo>
     where
         Self: Sized,
     {
-        match (instance, name) {
+        match (instance.as_ref(), name.as_ref()) {
             ("score-progress", "[static]utxo.new") => {
                 let Ctx { contract, ty, .. } = store.data();
                 let contract = contract.clone();

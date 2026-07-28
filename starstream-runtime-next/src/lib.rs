@@ -55,8 +55,8 @@ pub trait UtxoHandler: Send {
 
     fn construct_utxo(
         store: StoreContextMut<Self>,
-        instance: &str,
-        name: &str,
+        instance: &Arc<str>,
+        name: &Arc<str>,
         params: &[Val],
     ) -> impl Future<Output = wasmtime::Result<Utxo>> + Send
     where
@@ -851,6 +851,11 @@ pub struct Utxo {
 }
 
 impl Utxo {
+    #[must_use]
+    pub fn instance(&self) -> Instance {
+        self.instance
+    }
+
     #[must_use]
     pub fn resource(&self) -> ResourceAny {
         self.resource
