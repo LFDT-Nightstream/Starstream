@@ -15,15 +15,14 @@ const typescriptRule = {
   ],
 };
 
-// We're using file-loader because we have to handle filenames ourselves
-// in the VSC-web context, so turn off the default Asset Modules to avoid
-// duplicate copies:
-// https://webpack.js.org/guides/asset-modules/#disable-emitting-assets
-const noDefaultAssetModules = {
-  test: /\.wasm$/,
-  generator: {
-    emit: false,
-  }
+const rawRule = {
+  resourceQuery: /raw/,
+  type: 'asset/source',
+};
+
+const urlRule = {
+  resourceQuery: /url/,
+  type: 'asset/resource',
 };
 
 /**@type {import('webpack').Configuration[]}*/
@@ -46,7 +45,7 @@ export default [
       asyncWebAssembly: true,
     },
     module: {
-      rules: [typescriptRule, noDefaultAssetModules],
+      rules: [typescriptRule, rawRule, urlRule],
     },
   },
   // Main extension export.
@@ -88,7 +87,7 @@ export default [
       }),
     ],
     module: {
-      rules: [typescriptRule, noDefaultAssetModules],
+      rules: [typescriptRule, rawRule, urlRule],
     },
   },
 ];
