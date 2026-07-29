@@ -692,6 +692,7 @@ impl<T: Host> Contract<T> {
         mut store: impl AsContextMut<Data = T>,
         CoordinationScriptExport { idx, .. }: &CoordinationScriptExport,
         params: impl AsRef<[Val]>,
+        mut results: impl AsMut<[Val]>,
     ) -> wasmtime::Result<()>
     where
         T: Send,
@@ -701,7 +702,7 @@ impl<T: Host> Contract<T> {
             .get_func(store.as_context_mut(), idx)
             .context("failed to lookup coordination script export")?;
         debug!("calling coordination script");
-        f.call_async(store, params.as_ref(), &mut [])
+        f.call_async(store, params.as_ref(), results.as_mut())
             .await
             .context("failed to call coordination script")?;
         Ok(())
@@ -816,13 +817,13 @@ impl Utxo {
         mut store: impl AsContextMut<Data = T>,
         export: &MethodExport,
         params: impl AsRef<[Val]>,
-    ) -> wasmtime::Result<Box<[Val]>> {
+        mut results: impl AsMut<[Val]>,
+    ) -> wasmtime::Result<()> {
         let f = self.get_function_export(&mut store, export.idx)?;
-        let mut results = vec![Val::Bool(false); export.ty.results().len()];
-        f.call_async(&mut store, params.as_ref(), &mut results)
+        f.call_async(&mut store, params.as_ref(), results.as_mut())
             .await
             .context("failed to call method")?;
-        Ok(results.into_boxed_slice())
+        Ok(())
     }
 
     #[instrument(level = "trace", skip_all)]

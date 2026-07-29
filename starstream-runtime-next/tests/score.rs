@@ -295,35 +295,32 @@ async fn score() -> wasmtime::Result<()> {
         assert_eq!(r#yield, 1);
         assert_eq!(yield1, 1);
 
-        let res = utxo
-            .call(
-                &mut store,
-                &ty.plus_chips,
-                [Val::Resource(utxo.resource()), Val::U64(i)],
-            )
-            .await
-            .context("failed to call `plus-chips`")?;
-        assert!(res.is_empty());
+        utxo.call(
+            &mut store,
+            &ty.plus_chips,
+            [Val::Resource(utxo.resource()), Val::U64(i)],
+            [],
+        )
+        .await
+        .context("failed to call `plus-chips`")?;
 
-        let res = utxo
-            .call(
-                &mut store,
-                &ty.plus_mult,
-                [Val::Resource(utxo.resource()), Val::U64(i)],
-            )
-            .await
-            .context("failed to call `plus-mult`")?;
-        assert!(res.is_empty());
+        utxo.call(
+            &mut store,
+            &ty.plus_mult,
+            [Val::Resource(utxo.resource()), Val::U64(i)],
+            [],
+        )
+        .await
+        .context("failed to call `plus-mult`")?;
 
-        let res = utxo
-            .call(
-                &mut store,
-                &ty.mult_mult,
-                [Val::Resource(utxo.resource()), Val::U64(200)],
-            )
-            .await
-            .context("failed to call `mult-mult`")?;
-        assert!(res.is_empty());
+        utxo.call(
+            &mut store,
+            &ty.mult_mult,
+            [Val::Resource(utxo.resource()), Val::U64(200)],
+            [],
+        )
+        .await
+        .context("failed to call `mult-mult`")?;
 
         let ProgressStorage {
             chips,
@@ -336,11 +333,9 @@ async fn score() -> wasmtime::Result<()> {
         assert_eq!(r#yield, 1);
         assert_eq!(yield1, 1);
 
-        let res = utxo
-            .call(&mut store, &ty.finish, [Val::Resource(utxo.resource())])
+        utxo.call(&mut store, &ty.finish, [Val::Resource(utxo.resource())], [])
             .await
             .context("failed to call `finish`")?;
-        assert!(res.is_empty());
 
         utxo.drop(&mut store).await.context("failed to drop UTXO")?;
         let Ctx {
@@ -372,7 +367,7 @@ async fn score() -> wasmtime::Result<()> {
         },
     );
     contract
-        .call_coordination_script(&mut store, &ty.example, [])
+        .call_coordination_script(&mut store, &ty.example, [], [])
         .await
         .context("failed to call `example` coordination script")?;
     let ctx = store.data_mut();
