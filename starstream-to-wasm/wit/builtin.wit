@@ -5,5 +5,9 @@ package starstream:std;
 interface builtin {
     resource utxo {}
 
+    /// Begin a new ABI epoch at a coroutine yield point. The compiler emits
+    /// this once before advertising the methods available at that yield.
+    abis-clear: func();
+
     implements-method: func(hash: tuple<u64, u64, u64, u64>);
 }

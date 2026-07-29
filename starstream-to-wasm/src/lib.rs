@@ -197,6 +197,7 @@ struct Compiler {
     data: DataSection,
 
     imported_functions: u32,
+    builtin_abis_clear: u32,
     builtin_implements_method: u32,
 
     // Component binary output.
@@ -1271,6 +1272,10 @@ impl Compiler {
             .iter()
             .any(|d| matches!(d, TypedDefinition::Utxo(_)))
         {
+            let clear_core_fn_ty = self.add_core_func_type(&FuncType::new([], []));
+            self.builtin_abis_clear =
+                self.import_function("starstream:std/builtin", "abis-clear", clear_core_fn_ty);
+
             let core_fn_ty = self.add_core_func_type(&FuncType::new([ValType::I64; 4], []));
             self.builtin_implements_method =
                 self.import_function("starstream:std/builtin", "implements-method", core_fn_ty);
@@ -1279,6 +1284,11 @@ impl Compiler {
                 .imported_interfaces
                 .entry("starstream:std/builtin".to_owned())
                 .or_default();
+            let abis_clear_ty =
+                builtin.encode_func(std::iter::empty::<(&str, Rc<ComponentAbiType>)>(), None);
+            builtin
+                .inner
+                .export("abis-clear", ComponentTypeRef::Func(abis_clear_ty));
             let u64_ty = Rc::new(ComponentAbiType::U64);
             let tuple = Rc::new(ComponentAbiType::Tuple {
                 fields: vec![u64_ty; 4],
@@ -3116,7 +3126,9 @@ impl Compiler {
                         .global_set(globals + (i as u32));
                 }
 
-                // Calls to indicate ABIs exposed
+                // Start a fresh ABI epoch, then advertise the methods exposed
+                // at this yield. `abis-clear` is emitted even for an empty ABI.
+                func.instructions(bb).call(self.builtin_abis_clear);
                 for abi in abis {
                     for method in &abi.methods {
                         let digest = sha2::Sha256::digest(method.identity());
