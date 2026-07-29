@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 use starstream_types::{
-    CommentMap, FunctionType,
+    CommentMap,
     ast::{Definition, EnumDef, Program, StructDef},
     typed_ast::{
         TypedDefinition, TypedEnumDef, TypedEnumVariantPayload, TypedFunctionDef, TypedProgram,
@@ -73,17 +73,10 @@ impl From<&Type> for TypeRef {
             Type::Tuple(types) => TypeRef::Tuple {
                 tuple: types.iter().map(TypeRef::from).collect(),
             },
-            Type::Function(FunctionType {
-                params,
-                param_spans: _,
-                result,
-                kind,
-                name_span: _,
-                callee: _,
-            }) => TypeRef::Function {
-                params: params.iter().map(TypeRef::from).collect(),
-                return_type: Box::new(TypeRef::from(result.as_ref())),
-                kind: kind.call_keyword(),
+            Type::Function(func) => TypeRef::Function {
+                params: func.params.iter().map(TypeRef::from).collect(),
+                return_type: Box::new(TypeRef::from(&func.result)),
+                kind: func.kind.call_keyword(),
             },
             Type::UtxoAny => TypeRef::Resource {
                 name: "Utxo".to_owned(),

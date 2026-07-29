@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use starstream_types::{FunctionType, Scheme, Span, Type, TypeVarId, types::EnumVariantKind};
+use starstream_types::{Scheme, Span, Type, TypeVarId, types::EnumVariantKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BindingClass {
@@ -97,11 +97,11 @@ fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
         Type::Var(id) => {
             out.insert(*id);
         }
-        Type::Function(FunctionType { params, result, .. }) => {
-            for ty in params {
+        Type::Function(func) => {
+            for ty in &func.params {
                 free_type_vars_type(ty, out);
             }
-            free_type_vars_type(result, out);
+            free_type_vars_type(&func.result, out);
         }
         Type::Tuple(types) => {
             for ty in types {

@@ -28,13 +28,13 @@ pub enum Type {
     /// conceptually return nothing.
     Unit,
     /// Function type `(params) -> result` with an optional kind.
-    Function(FunctionType),
+    Function(Arc<FunctionType>),
     /// Tuple type `(T0, T1, …)`.
     Tuple(Vec<Type>),
     /// Struct/record type with named fields.
-    Record(RecordType),
+    Record(Arc<RecordType>),
     /// Enum/sum type with named variants.
-    Enum(EnumType),
+    Enum(Arc<EnumType>),
     /// The built-in `Utxo` type.
     UtxoAny,
     /// The type created by a `utxo` definition.
@@ -77,7 +77,7 @@ pub struct FunctionType {
     pub name_span: Span,
     pub params: Vec<Type>,
     pub param_spans: Vec<Span>,
-    pub result: Box<Type>,
+    pub result: Type,
     /// Optional statically-known callee. Otherwise it's a pointer.
     pub callee: Option<StaticFunction>,
 }
@@ -173,19 +173,19 @@ impl Type {
 
     /// Canonical record type helper.
     pub fn record(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
-        Type::Record(RecordType {
+        Type::Record(Arc::new(RecordType {
             name: name.into(),
             fields,
-        })
+        }))
     }
 
     /// Canonical enum type helper.
     pub fn enum_type(name: impl Into<String>, variants: Vec<EnumVariantType>) -> Self {
-        Type::Enum(EnumType {
+        Type::Enum(Arc::new(EnumType {
             name: name.into(),
             variants,
             type_args: vec![],
-        })
+        }))
     }
 }
 
@@ -422,14 +422,15 @@ impl Type {
             Type::Int(w) => RcDoc::text(w.display_name()),
             Type::Bool => RcDoc::text("bool"),
             Type::Unit => RcDoc::text("()"),
-            Type::Function(FunctionType {
-                params: fn_params,
-                param_spans: _,
-                result,
-                kind,
-                name_span: _,
-                callee,
-            }) => {
+            Type::Function(func) => {
+                let FunctionType {
+                    params: fn_params,
+                    param_spans: _,
+                    result,
+                    kind,
+                    name_span: _,
+                    callee,
+                } = &**func;
                 let params_doc = if fn_params.is_empty() {
                     RcDoc::text("()")
                 } else {
@@ -493,6 +494,42 @@ impl Type {
             Type::TokenNamed(id) => RcDoc::text(id.to_owned()),
             Type::AbiNarrow(abi) => RcDoc::text(abi.name.to_string()),
         }
+    }
+}
+
+impl From<FunctionType> for Type {
+    fn from(value: FunctionType) -> Self {
+        Type::Function(Arc::new(value))
+    }
+}
+
+impl From<Arc<FunctionType>> for Type {
+    fn from(value: Arc<FunctionType>) -> Self {
+        Type::Function(value)
+    }
+}
+
+impl From<RecordType> for Type {
+    fn from(value: RecordType) -> Self {
+        Type::Record(Arc::new(value))
+    }
+}
+
+impl From<Arc<RecordType>> for Type {
+    fn from(value: Arc<RecordType>) -> Self {
+        Type::Record(value)
+    }
+}
+
+impl From<EnumType> for Type {
+    fn from(value: EnumType) -> Self {
+        Type::Enum(Arc::new(value))
+    }
+}
+
+impl From<Arc<EnumType>> for Type {
+    fn from(value: Arc<EnumType>) -> Self {
+        Type::Enum(value)
     }
 }
 

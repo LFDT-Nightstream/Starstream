@@ -8,9 +8,9 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
-    BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionType, IntWidth, Literal, Span,
-    Spanned, StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition,
-    TypedEnumDef, TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
+    BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned,
+    StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
+    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
     TypedImportDef, TypedImportItems, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
     TypedStatement, TypedStructDef, TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart,
     UnaryOp, ast::Identifier,
@@ -1120,12 +1120,10 @@ impl Compiler {
                     ok = self.star_to_core_types(span, dest, &f.ty).and(ok);
                 }
             }
-            Type::Enum(EnumType {
-                name: _, variants, ..
-            }) => {
+            Type::Enum(enum_type) => {
                 // flatten_variant
                 let mut flat = Vec::new();
-                for v in variants {
+                for v in &enum_type.variants {
                     let mut case_flat = Vec::new();
                     match &v.kind {
                         EnumVariantKind::Unit => {}
@@ -1154,7 +1152,7 @@ impl Compiler {
                     .component_to_core_types(
                         span,
                         dest,
-                        &ComponentAbiType::discriminant_type(variants.len()),
+                        &ComponentAbiType::discriminant_type(enum_type.variants.len()),
                     )
                     .and(ok);
                 dest.extend(flat);
@@ -1371,21 +1369,14 @@ impl Compiler {
             };
 
             match &item.ty {
-                Type::Function(FunctionType {
-                    params,
-                    param_spans: _,
-                    result,
-                    kind: _,
-                    name_span: _,
-                    callee: _, // We know it's an import.
-                }) => {
+                Type::Function(func_ty) => {
                     let mut core_params = Vec::with_capacity(16);
                     let mut core_results = Vec::with_capacity(1);
                     let span = item.local.span();
-                    for p in params {
+                    for p in &func_ty.params {
                         _ = self.star_to_core_types(span, &mut core_params, p);
                     }
-                    _ = self.star_to_core_types(span, &mut core_results, result);
+                    _ = self.star_to_core_types(span, &mut core_results, &func_ty.result);
 
                     let kebab = to_kebab_case(&item.imported.name);
 
@@ -1394,15 +1385,16 @@ impl Compiler {
                         core_params.iter().copied(),
                         core_results.iter().copied(),
                     ));
-                    let func = self.import_function(&def.from.to_string(), &kebab, core_fn_ty);
-                    self.callables.insert(local_name, func);
+                    let func_idx = self.import_function(&def.from.to_string(), &kebab, core_fn_ty);
+                    self.callables.insert(local_name, func_idx);
 
                     // Component import
-                    let comp_params = params
+                    let comp_params = func_ty
+                        .params
                         .iter()
                         .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
-                    let comp_result = self.star_to_component_type(result);
+                    let comp_result = self.star_to_component_type(&func_ty.result);
                     let iface = self
                         .imported_interfaces
                         .entry(def.from.to_string())
@@ -3099,10 +3091,10 @@ impl Compiler {
             | TypedExprKind::Raise { callee, args }
             | TypedExprKind::Runtime { callee, args } => {
                 let callee_span = callee.span;
-                let Type::Function(FunctionType { callee, .. }) = &callee.node.ty else {
+                let Type::Function(func_ty) = &callee.node.ty else {
                     unreachable!()
                 };
-                match callee {
+                match &func_ty.callee {
                     Some(StaticFunction::Named(name)) => {
                         // TODO: properly handle namespacing in `callables`
                         let Some(&target) = self.callables.get(name) else {

@@ -848,7 +848,7 @@ mod tests {
     use super::*;
 
     fn make_enum_type(name: &str, variants: Vec<(&str, usize)>) -> Type {
-        Type::Enum(EnumType {
+        Type::from(EnumType {
             name: name.to_string(),
             variants: variants
                 .into_iter()

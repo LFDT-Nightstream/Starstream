@@ -18,10 +18,10 @@ pub struct BuiltinFunction {
 
 impl BuiltinFunction {
     pub fn to_function_type(&self) -> Type {
-        Type::Function(FunctionType {
+        Type::from(FunctionType {
             params: self.params.clone(),
             param_spans: Vec::new(),
-            result: Box::new(self.return_type.clone()),
+            result: self.return_type.clone(),
             kind: self.kind,
             name_span: DUMMY_SPAN,
             callee: Some(starstream_types::StaticFunction::Named(self.name.clone())),

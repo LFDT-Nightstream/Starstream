@@ -246,10 +246,10 @@ struct ExportedFunction {
 
 impl ExportedFunction {
     fn to_function_type(&self) -> Type {
-        Type::Function(FunctionType {
+        Type::from(FunctionType {
             params: self.param_types.clone(),
             param_spans: self.param_spans.clone(),
-            result: Box::new(self.return_type.clone()),
+            result: self.return_type.clone(),
             kind: self.kind,
             name_span: self.name.span,
             callee: Some(StaticFunction::Named(self.name.to_string())),
@@ -919,12 +919,12 @@ impl Inferencer {
                     namespace.constants.insert(
                         name.to_string(),
                         ConstantInfo {
-                            ty: Type::Function(FunctionType {
+                            ty: Type::from(FunctionType {
                                 kind: FunctionKind::Normal,
                                 name_span: DUMMY_SPAN,
                                 params: params.clone(),
                                 param_spans: vec![],
-                                result: Box::new(ty.clone()),
+                                result: ty.clone(),
                                 callee: Some(StaticFunction::Constructor { variant: i }),
                             }),
                             type_params: type_params.clone(),
@@ -956,7 +956,8 @@ impl Inferencer {
                 let mut ty = entry.ty.clone();
                 // Set type_args to the type param vars so display renders them
                 if let Type::Enum(ref mut e) = ty {
-                    e.type_args = entry.type_params.iter().map(|p| Type::Var(p.id)).collect();
+                    Arc::make_mut(e).type_args =
+                        entry.type_params.iter().map(|p| Type::Var(p.id)).collect();
                 }
                 (
                     name.clone(),
@@ -1134,12 +1135,12 @@ impl Inferencer {
                 for (name, builtin) in interface_funcs {
                     namespace.constants.insert(
                         name.clone(),
-                        ConstantInfo::from(Type::Function(FunctionType {
+                        ConstantInfo::from(Type::from(FunctionType {
                             kind: builtin.kind,
                             name_span: alias.span(),
                             params: builtin.params.clone(),
                             param_spans: vec![],
-                            result: Box::new(builtin.return_type.clone()),
+                            result: builtin.return_type.clone(),
                             callee: Some(StaticFunction::Named(name.clone())),
                         })),
                     );
@@ -1215,12 +1216,12 @@ impl Inferencer {
         }
         self.root.constants.insert(
             name.clone(),
-            ConstantInfo::from(Type::Function(FunctionType {
+            ConstantInfo::from(Type::from(FunctionType {
                 kind: FunctionKind::Emit,
                 name_span,
                 params: param_types,
                 param_spans,
-                result: Box::new(Type::Unit),
+                result: Type::Unit,
                 callee: Some(StaticFunction::Named(name)),
             })),
         );
@@ -1244,12 +1245,12 @@ impl Inferencer {
         };
         self.root.constants.insert(
             name.clone(),
-            ConstantInfo::from(Type::Function(FunctionType {
+            ConstantInfo::from(Type::from(FunctionType {
                 kind: FunctionKind::Raise,
                 name_span,
                 params: param_types,
                 param_spans,
-                result: Box::new(return_type),
+                result: return_type,
                 callee: Some(StaticFunction::Named(name)),
             })),
         );
@@ -1423,12 +1424,12 @@ impl Inferencer {
                     // Tuple variants are functions
                     namespace.constants.insert(
                         variant.name.to_string(),
-                        ConstantInfo::from(Type::Function(FunctionType {
+                        ConstantInfo::from(Type::from(FunctionType {
                             kind: FunctionKind::Normal,
                             name_span: DUMMY_SPAN,
                             params: params.clone(),
                             param_spans: vec![],
-                            result: Box::new(ty.clone()),
+                            result: ty.clone(),
                             callee: Some(StaticFunction::Constructor { variant: i }),
                         })),
                     );
@@ -1470,10 +1471,10 @@ impl Inferencer {
                 UtxoPart::Function(function_def) => {
                     if let Some(FunctionExport::UtxoMain) = function_def.export {
                         let mut func_ty = self.function_def_to_type(function_def)?;
-                        func_ty.result = Box::new(ty.clone());
+                        func_ty.result = ty.clone();
                         ns.constants.insert(
                             function_def.name.to_string(),
-                            ConstantInfo::from(Type::Function(func_ty)),
+                            ConstantInfo::from(Type::from(func_ty)),
                         );
                     }
                 }
@@ -1526,9 +1527,10 @@ impl Inferencer {
 
     fn build_typed_enum(&self, def: &EnumDef) -> Result<TypedEnumDef, TypeError> {
         let info = self.types.get(&def.name.name).unwrap();
-        let Type::Enum(EnumType { variants, .. }) = &info.ty else {
+        let Type::Enum(enum_ty) = &info.ty else {
             unreachable!()
         };
+        let variants = &enum_ty.variants;
 
         let variants = variants
             .iter()
@@ -1677,9 +1679,10 @@ impl Inferencer {
                             )
                         })?;
 
-                    let Type::Function(FunctionType { params, .. }) = &event_info.ty else {
+                    let Type::Function(func_ty) = &event_info.ty else {
                         unreachable!()
                     };
+                    let params = &func_ty.params;
 
                     let params = params
                         .iter()
@@ -1706,11 +1709,12 @@ impl Inferencer {
                         )
                     })?;
 
-                    let Type::Function(FunctionType { params, result, .. }) = &info.ty else {
+                    let Type::Function(func) = &info.ty else {
                         unreachable!()
                     };
 
-                    let params = params
+                    let params = func
+                        .params
                         .iter()
                         .zip(&effect.params)
                         .map(|(ty, param)| TypedFunctionParam {
@@ -1723,7 +1727,7 @@ impl Inferencer {
                     typed_parts.push(TypedAbiPart::Effect(TypedEffectDef {
                         name: effect.name.clone(),
                         params,
-                        return_type: (**result).clone(),
+                        return_type: func.result.clone(),
                     }));
                 }
                 AbiPart::FnDecl(method) => {
@@ -2137,7 +2141,7 @@ impl Inferencer {
 
         let mut ty = substitute_type(template_ty, &mapping);
         if let Type::Enum(ref mut enum_type) = ty {
-            enum_type.type_args = type_args.to_vec();
+            Arc::make_mut(enum_type).type_args = type_args.to_vec();
         }
 
         ty
@@ -2323,13 +2327,7 @@ impl Inferencer {
                         last.span,
                     ));
                 };
-                let Type::Function(FunctionType {
-                    params,
-                    result,
-                    callee,
-                    ..
-                }) = &callee.ty
-                else {
+                let Type::Function(func) = &callee.ty else {
                     return Err(TypeError::new(
                         TypeErrorKind::UnknownName {
                             name: last.to_string(),
@@ -2337,7 +2335,7 @@ impl Inferencer {
                         last.span,
                     ));
                 };
-                let Some(StaticFunction::Constructor { .. }) = &callee else {
+                let Some(StaticFunction::Constructor { .. }) = &func.callee else {
                     return Err(TypeError::new(
                         TypeErrorKind::UnknownEnumVariant {
                             enum_name: enum_name.to_owned(),
@@ -2346,21 +2344,21 @@ impl Inferencer {
                         last.span,
                     ));
                 };
-                if fields.len() != params.len() {
+                if fields.len() != func.params.len() {
                     return Err(TypeError::new(
                         TypeErrorKind::EnumPayloadMismatch {
                             enum_name: enum_name.to_owned(),
                             variant_name: last.to_string(),
-                            expected: EnumPayloadKind::tuple(params.len()),
+                            expected: EnumPayloadKind::tuple(func.params.len()),
                             found: EnumPayloadKind::tuple(fields.len()),
                         },
                         last.span,
                     ));
                 }
-                let params = params.clone();
+                let func = func.clone();
                 let (_, unify_trace) = self.unify(
                     expected_ty.clone(),
-                    (**result).clone(),
+                    func.result.clone(),
                     value_span,
                     last.span,
                     TypeErrorKind::PatternEnumMismatch {
@@ -2370,7 +2368,7 @@ impl Inferencer {
                 )?;
                 let mut traces = vec![unify_trace];
                 let mut typed = Vec::with_capacity(fields.len());
-                for (pattern, ty) in fields.iter().zip(params) {
+                for (pattern, ty) in fields.iter().zip(&func.params) {
                     let (typed_pattern, mut pattern_traces) =
                         self.infer_pattern(env, pattern, &ty, value_span)?;
                     traces.append(&mut pattern_traces);
@@ -2452,7 +2450,7 @@ impl Inferencer {
         Ok(FunctionType {
             params: param_types.clone(),
             param_spans,
-            result: Box::new(expected_return.clone()),
+            result: expected_return.clone(),
             kind: FunctionKind::Normal,
             name_span: function.name.span,
             callee: Some(StaticFunction::Named(function.name.to_string())),
@@ -2464,7 +2462,7 @@ impl Inferencer {
         env: &mut TypeEnv,
         function: &FunctionDef,
     ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
-        let func_ty = self.function_def_to_type(function)?;
+        let func_ty = Arc::new(self.function_def_to_type(function)?);
         let return_span = function.return_span();
 
         // Insert function into environment. Happens before code so that recursion is allowed.
@@ -2491,7 +2489,7 @@ impl Inferencer {
         env.push_scope();
         let mut typed_params = Vec::with_capacity(function.params.len());
         let mut private_param_decl_spans = Vec::new();
-        for (param, ty) in function.params.iter().zip(func_ty.params) {
+        for (param, ty) in function.params.iter().zip(&func_ty.params) {
             let decl_span = param.name.span_or(function.name.span());
             if !param.public {
                 private_param_decl_spans.push(decl_span);
@@ -2513,12 +2511,12 @@ impl Inferencer {
             typed_params.push(TypedFunctionParam {
                 public: param.public,
                 name: param.name.clone(),
-                ty,
+                ty: ty.clone(),
             });
         }
 
         let mut ctx = FunctionCtx {
-            expected_return: (*func_ty.result).clone(),
+            expected_return: func_ty.result.clone(),
             return_span,
             saw_return: false,
             private_param_decl_spans,
@@ -2529,13 +2527,11 @@ impl Inferencer {
 
         env.pop_scope();
 
-        if *func_ty.result != Type::unit()
-            && !ctx.saw_return
-            && typed_body.tail_expression.is_none()
+        if func_ty.result != Type::unit() && !ctx.saw_return && typed_body.tail_expression.is_none()
         {
             return Err(TypeError::new(
                 TypeErrorKind::MissingReturn {
-                    expected: *func_ty.result,
+                    expected: func_ty.result.clone(),
                 },
                 function.name.span_or(return_span),
             )
@@ -3443,9 +3439,9 @@ impl Inferencer {
                 let field_ty = match target_ty.clone() {
                     Type::Record(record) => record
                         .fields
-                        .into_iter()
+                        .iter()
                         .find(|entry| entry.name.as_str() == field.name.as_str())
-                        .map(|entry| entry.ty)
+                        .map(|entry| entry.ty.clone())
                         .ok_or_else(|| {
                             TypeError::new(
                                 TypeErrorKind::FieldAccessUnknownField {
@@ -3469,10 +3465,10 @@ impl Inferencer {
                                     field.span(),
                                 )
                             })?;
-                        Type::Function(FunctionType {
+                        Type::from(FunctionType {
                             params: method.params.iter().map(|p| p.ty.clone()).collect(),
                             param_spans: method.params.iter().map(|p| p.name.span).collect(),
-                            result: Box::new(method.return_type.clone()),
+                            result: method.return_type.clone(),
                             kind: FunctionKind::Normal,
                             name_span: method.name.span,
                             callee: Some(StaticFunction::Named(method.name.to_string())),
@@ -3906,15 +3902,7 @@ impl Inferencer {
         let callee_ty = self.apply_for_display(&typed_callee.node.ty);
         let callee_name = callee.node.name().unwrap_or("<anonymous>");
 
-        let Type::Function(FunctionType {
-            params: ref param_types,
-            ref param_spans,
-            result: ref return_type,
-            kind,
-            name_span: _,
-            callee: _,
-        }) = callee_ty
-        else {
+        let Type::Function(func) = callee_ty else {
             return Err(TypeError::new(
                 TypeErrorKind::NotAFunction { found: callee_ty },
                 callee.span,
@@ -3922,17 +3910,17 @@ impl Inferencer {
         };
 
         // Check kind: `event` requires `emit`; `effect` requires `raise`; runtime fns require `runtime`
-        if used_kind != kind {
+        if used_kind != func.kind {
             if used_kind == FunctionKind::Normal {
                 // Called without keyword, a keyword is required
                 return Err(TypeError::new(
                     TypeErrorKind::EmitRaiseRuntimeNeeded {
                         function_name: callee_name.to_owned(),
-                        needed_keyword: kind,
+                        needed_keyword: func.kind,
                     },
                     callee.span,
                 ));
-            } else if kind == FunctionKind::Normal {
+            } else if func.kind == FunctionKind::Normal {
                 // Called with a keyword, but the function is normal
                 return Err(TypeError::new(
                     TypeErrorKind::EmitRaiseRuntimeUnneeded {
@@ -3946,7 +3934,7 @@ impl Inferencer {
                 return Err(TypeError::new(
                     TypeErrorKind::EmitRaiseRuntimeMismatch {
                         function_name: callee_name.to_owned(),
-                        needed_keyword: kind,
+                        needed_keyword: func.kind,
                         wrong_keyword: used_kind,
                     },
                     callee.span,
@@ -3979,10 +3967,10 @@ impl Inferencer {
             }
         }
 
-        if args.len() != param_types.len() {
+        if args.len() != func.params.len() {
             return Err(TypeError::new(
                 TypeErrorKind::ArityMismatch {
-                    expected: param_types.len(),
+                    expected: func.params.len(),
                     found: args.len(),
                 },
                 expr.span,
@@ -3992,11 +3980,11 @@ impl Inferencer {
         let mut children = vec![callee_trace];
         let mut typed_args = Vec::with_capacity(args.len());
 
-        for (index, (arg, expected_ty)) in args.iter().zip(param_types.iter()).enumerate() {
+        for (index, (arg, expected_ty)) in args.iter().zip(func.params.iter()).enumerate() {
             let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
             let actual_ty = typed_arg.node.ty.clone();
 
-            let param_span = param_spans.get(index).copied();
+            let param_span = func.param_spans.get(index).copied();
 
             let (_, unify_trace) = self.unify(
                 actual_ty.clone(),
@@ -4018,7 +4006,7 @@ impl Inferencer {
 
         let typed = Spanned::new(
             TypedExpr::new(
-                (**return_type).clone(),
+                func.result.clone(),
                 TypedExprKind::Call {
                     callee: Box::new(typed_callee),
                     args: typed_args,
@@ -4027,7 +4015,7 @@ impl Inferencer {
             callee.span,
         );
 
-        let result_repr = self.maybe_string(|| self.format_type(return_type));
+        let result_repr = self.maybe_string(|| self.format_type(&func.result));
 
         let env_context = self.maybe_string(|| self.format_env(env));
         let subject_repr = self.maybe_string(|| self.format_expr_src(expr));
@@ -4362,25 +4350,22 @@ impl Inferencer {
                 None if self.int_vars.contains(id) => Type::int(),
                 None => Type::Var(*id),
             },
-            Type::Function(FunctionType {
-                params,
-                param_spans,
-                result,
-                kind,
-                name_span,
-                callee,
-            }) => Type::Function(FunctionType {
-                params: params.iter().map(|t| self.apply_for_display(t)).collect(),
-                param_spans: param_spans.clone(),
-                result: Box::new(self.apply_for_display(result)),
-                kind: *kind,
-                name_span: *name_span,
-                callee: callee.clone(),
+            Type::Function(func) => Type::from(FunctionType {
+                params: func
+                    .params
+                    .iter()
+                    .map(|t| self.apply_for_display(t))
+                    .collect(),
+                param_spans: func.param_spans.clone(),
+                result: self.apply_for_display(&func.result),
+                kind: func.kind,
+                name_span: func.name_span,
+                callee: func.callee.clone(),
             }),
             Type::Tuple(items) => {
                 Type::Tuple(items.iter().map(|t| self.apply_for_display(t)).collect())
             }
-            Type::Record(record) => Type::Record(RecordType {
+            Type::Record(record) => Type::from(RecordType {
                 name: record.name.clone(),
                 fields: record
                     .fields
@@ -4391,7 +4376,7 @@ impl Inferencer {
                     })
                     .collect(),
             }),
-            Type::Enum(enum_type) => Type::Enum(EnumType {
+            Type::Enum(enum_type) => Type::from(EnumType {
                 name: enum_type.name.clone(),
                 type_args: enum_type
                     .type_args
@@ -4437,23 +4422,16 @@ impl Inferencer {
                 Some(ty) => self.apply(ty),
                 None => Type::Var(*id),
             },
-            Type::Function(FunctionType {
-                params,
-                param_spans,
-                result,
-                kind,
-                name_span,
-                callee,
-            }) => Type::Function(FunctionType {
-                params: params.iter().map(|t| self.apply(t)).collect(),
-                param_spans: param_spans.clone(),
-                result: Box::new(self.apply(result)),
-                kind: *kind,
-                name_span: *name_span,
-                callee: callee.clone(),
+            Type::Function(func) => Type::from(FunctionType {
+                params: func.params.iter().map(|t| self.apply(t)).collect(),
+                param_spans: func.param_spans.clone(),
+                result: self.apply(&func.result),
+                kind: func.kind,
+                name_span: func.name_span,
+                callee: func.callee.clone(),
             }),
             Type::Tuple(items) => Type::Tuple(items.iter().map(|t| self.apply(t)).collect()),
-            Type::Record(record) => Type::Record(RecordType {
+            Type::Record(record) => Type::from(RecordType {
                 name: record.name.clone(),
                 fields: record
                     .fields
@@ -4464,7 +4442,7 @@ impl Inferencer {
                     })
                     .collect(),
             }),
-            Type::Enum(enum_type) => Type::Enum(EnumType {
+            Type::Enum(enum_type) => Type::from(EnumType {
                 name: enum_type.name.clone(),
                 variants: enum_type
                     .variants
@@ -4934,37 +4912,29 @@ impl Inferencer {
                 }
                 Ok((Type::Tuple(ls), children, "Unify-Tuple"))
             }
-            (
-                Type::Function(FunctionType {
-                    params: lp,
-                    param_spans: lps,
-                    result: lr,
-                    kind: le,
-                    name_span: lns,
-                    callee: lcl,
-                }),
-                Type::Function(FunctionType {
-                    params: rp,
-                    result: rr,
-                    callee: rcl,
-                    ..
-                }),
-            ) if lp.len() == rp.len() => {
+            (Type::Function(left), Type::Function(right))
+                if left.params.len() == right.params.len() =>
+            {
                 let mut children = Vec::new();
-                for (l, r) in lp.iter().zip(rp.iter()) {
+                for (l, r) in left.params.iter().zip(right.params.iter()) {
                     let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
                     children.extend(child);
                 }
-                let (_, ret_child, _) = self.unify_inner((*lr).clone(), (*rr).clone())?;
+                let (_, ret_child, _) =
+                    self.unify_inner(left.result.clone(), right.result.clone())?;
                 children.extend(ret_child);
                 Ok((
-                    Type::Function(FunctionType {
-                        params: lp,
-                        param_spans: lps,
-                        result: lr,
-                        kind: le,
-                        name_span: lns,
-                        callee: if lcl == rcl { lcl.clone() } else { None },
+                    Type::from(FunctionType {
+                        params: left.params.clone(),
+                        param_spans: left.param_spans.clone(),
+                        result: left.result.clone(),
+                        kind: left.kind,
+                        name_span: left.name_span,
+                        callee: if left.callee == right.callee {
+                            left.callee.clone()
+                        } else {
+                            None
+                        },
                     }),
                     children,
                     "Unify-Arrow",
@@ -5121,29 +5091,14 @@ impl Inferencer {
                 }
                 (Type::Tuple(ls), tuple_children, "Unify-Tuple")
             }
-            (
-                Type::Function(FunctionType {
-                    params: lp,
-                    param_spans: lps,
-                    result: lr,
-                    kind: le,
-                    name_span: lns,
-                    callee: lcl,
-                }),
-                Type::Function(FunctionType {
-                    params: rp,
-                    result: rr,
-                    callee: rcl,
-                    ..
-                }),
-            ) => {
-                if lp.len() != rp.len() {
+            (Type::Function(left), Type::Function(right)) => {
+                if left.params.len() != right.params.len() {
                     return Err(TypeError::new(error_kind, left_span)
                         .with_secondary(right_span, "function arity mismatch"));
                 }
 
                 let mut arrow_children = Vec::new();
-                for (l, r) in lp.iter().zip(rp.iter()) {
+                for (l, r) in left.params.iter().zip(right.params.iter()) {
                     let (_, child) = self.unify(
                         l.clone(),
                         r.clone(),
@@ -5158,25 +5113,29 @@ impl Inferencer {
                 }
 
                 let (_, ret_child) = self.unify(
-                    (*lr).clone(),
-                    (*rr).clone(),
+                    left.result.clone(),
+                    right.result.clone(),
                     left_span,
                     right_span,
                     TypeErrorKind::GeneralMismatch {
-                        expected: (*lr).clone(),
-                        found: (*rr).clone(),
+                        expected: left.result.clone(),
+                        found: right.result.clone(),
                     },
                 )?;
                 arrow_children.push(ret_child);
 
                 (
-                    Type::Function(FunctionType {
-                        params: lp,
-                        param_spans: lps,
-                        result: lr,
-                        kind: le,
-                        name_span: lns,
-                        callee: if lcl == rcl { lcl.clone() } else { None },
+                    Type::from(FunctionType {
+                        params: left.params.clone(),
+                        param_spans: left.param_spans.clone(),
+                        result: left.result.clone(),
+                        kind: left.kind,
+                        name_span: left.name_span.clone(),
+                        callee: if left.callee == right.callee {
+                            left.callee.clone()
+                        } else {
+                            None
+                        },
                     }),
                     arrow_children,
                     "Unify-Arrow",
@@ -5372,23 +5331,17 @@ impl Inferencer {
 fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or(Type::Var(*id)),
-        Type::Function(FunctionType {
-            params,
-            param_spans,
-            result,
-            kind,
-            name_span,
-            callee,
-        }) => Type::Function(FunctionType {
-            params: params
+        Type::Function(func) => Type::from(FunctionType {
+            params: func
+                .params
                 .iter()
                 .map(|ty| substitute_type(ty, mapping))
                 .collect(),
-            param_spans: param_spans.clone(),
-            result: Box::new(substitute_type(result, mapping)),
-            kind: *kind,
-            name_span: *name_span,
-            callee: callee.clone(),
+            param_spans: func.param_spans.clone(),
+            result: substitute_type(&func.result, mapping),
+            kind: func.kind,
+            name_span: func.name_span,
+            callee: func.callee.clone(),
         }),
         Type::Tuple(items) => Type::Tuple(
             items
@@ -5396,7 +5349,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                 .map(|ty| substitute_type(ty, mapping))
                 .collect(),
         ),
-        Type::Record(record) => Type::Record(RecordType {
+        Type::Record(record) => Type::from(RecordType {
             name: record.name.clone(),
             fields: record
                 .fields
@@ -5407,7 +5360,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                 })
                 .collect(),
         }),
-        Type::Enum(enum_type) => Type::Enum(EnumType {
+        Type::Enum(enum_type) => Type::from(EnumType {
             name: enum_type.name.clone(),
             variants: enum_type
                 .variants
@@ -5466,8 +5419,9 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
                     .unwrap_or(false)
             }
         }
-        Type::Function(FunctionType { params, result, .. }) => {
-            params.iter().any(|t| occurs_in(var, t, subst)) || occurs_in(var, result, subst)
+        Type::Function(func) => {
+            func.params.iter().any(|t| occurs_in(var, t, subst))
+                || occurs_in(var, &func.result, subst)
         }
         Type::Tuple(items) => items.iter().any(|t| occurs_in(var, t, subst)),
         Type::Record(record) => record
@@ -5510,11 +5464,11 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
         Type::Var(id) => {
             set.insert(*id);
         }
-        Type::Function(FunctionType { params, result, .. }) => {
-            for ty in params {
+        Type::Function(func) => {
+            for ty in &func.params {
                 collect_free_type_vars(ty, set);
             }
-            collect_free_type_vars(result, set);
+            collect_free_type_vars(&func.result, set);
         }
         Type::Tuple(items) => {
             for ty in items {
