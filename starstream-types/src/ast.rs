@@ -57,9 +57,11 @@ impl<T> Spanned<T> {
 }
 
 /// Identifier text with a source span attached.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Eq)]
 pub struct Identifier {
+    /// The text of the identifier.
     pub name: String,
+    /// The span where it appeared in source. Excluded from comparisons.
     #[serde(skip)]
     pub span: Span,
 }
@@ -117,6 +119,18 @@ impl Identifier {
 impl std::fmt::Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str(&self.name)
+    }
+}
+
+impl std::cmp::PartialEq for Identifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl std::hash::Hash for Identifier {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
     }
 }
 
