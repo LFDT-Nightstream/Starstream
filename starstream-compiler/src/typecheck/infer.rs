@@ -4913,6 +4913,11 @@ impl Inferencer {
                 Ok((Type::Tuple(ls), children, "Unify-Tuple"))
             }
             (Type::Function(left), Type::Function(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                Ok((Type::Function(left), vec![], "Unify-Arrow-Identity"))
+            }
+            (Type::Function(left), Type::Function(right))
                 if left.params.len() == right.params.len() =>
             {
                 let mut children = Vec::new();
@@ -4942,6 +4947,11 @@ impl Inferencer {
             }
             // Records unify structurally: names are aliases, but fields must
             // line up in declaration order, matching `unify` below.
+            (Type::Record(left), Type::Record(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                Ok((Type::Record(left), vec![], "Unify-Record-Identity"))
+            }
             (Type::Record(ls), Type::Record(rs)) if ls.fields.len() == rs.fields.len() => {
                 let mut children = Vec::new();
                 for (lf, rf) in ls.fields.iter().zip(rs.fields.iter()) {
@@ -4955,6 +4965,9 @@ impl Inferencer {
             }
             // Enums likewise unify by shape, not name, with variants compared
             // in declaration order.
+            (Type::Enum(left), Type::Enum(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                Ok((Type::Enum(left), vec![], "Unify-Enum-Identity"))
+            }
             (Type::Enum(ls), Type::Enum(rs)) if ls.variants.len() == rs.variants.len() => {
                 let mut children = Vec::new();
                 for (lv, rv) in ls.variants.iter().zip(rs.variants.iter()) {
@@ -5091,6 +5104,11 @@ impl Inferencer {
                 }
                 (Type::Tuple(ls), tuple_children, "Unify-Tuple")
             }
+            (Type::Function(left), Type::Function(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                (Type::Function(left), Vec::new(), "Unify-Arrow-Identity")
+            }
             (Type::Function(left), Type::Function(right)) => {
                 if left.params.len() != right.params.len() {
                     return Err(TypeError::new(error_kind, left_span)
@@ -5141,6 +5159,11 @@ impl Inferencer {
                     "Unify-Arrow",
                 )
             }
+            (Type::Record(left), Type::Record(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                (Type::Record(left), Vec::new(), "Unify-Record-Identity")
+            }
             (Type::Record(ls), Type::Record(rs)) => {
                 if ls.fields.len() != rs.fields.len()
                     || ls
@@ -5168,6 +5191,9 @@ impl Inferencer {
                     record_children.push(trace);
                 }
                 (Type::Record(ls), record_children, "Unify-Record")
+            }
+            (Type::Enum(left), Type::Enum(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                (Type::Enum(left), Vec::new(), "Unify-Enum-Identity")
             }
             (Type::Enum(ls), Type::Enum(rs)) => {
                 if ls.variants.len() != rs.variants.len()
