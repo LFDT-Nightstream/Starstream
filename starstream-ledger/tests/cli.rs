@@ -71,7 +71,7 @@ async fn score_contract_flow_via_cli() {
     let account = hex::encode(key.verifying_key().to_bytes());
 
     let wasm = compile_contract(include_str!("../../examples/score.star"));
-    let digest = hex::encode(Sha256::digest(&wasm));
+    let digest = starstream_ledger::encode_digest(&Sha256::digest(&wasm).into());
     let wasm_path = std::env::temp_dir().join(format!("starstream-score-{digest}.wasm"));
     std::fs::write(&wasm_path, &wasm).unwrap();
 

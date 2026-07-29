@@ -4,7 +4,8 @@
 //! `docs/ledger.md`:
 //!
 //! - `PUT`/`GET /contracts/<digest>` — publish and fetch contracts,
-//!   content-addressed by the SHA-256 digest of the component Wasm.
+//!   content-addressed by the SHA-256 digest of the component Wasm,
+//!   encoded as a multibase multihash (see [`encode_digest`]).
 //!   Publishing is a signed `COSE_Sign1` envelope over the CBOR
 //!   transaction `[context, network, nonce, wasm]` (see
 //!   [`PUBLISH_CONTEXT`]), charged to an [`Account`] identified by the
@@ -36,7 +37,6 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use futures::{StreamExt as _, TryStreamExt as _};
 use headers_accept::Accept;
 use headers_core::Header as _;
-use hex::ToHex as _;
 use http::HeaderValue;
 use http::header::{ACCEPT, CONTENT_TYPE};
 use http_body_util::BodyExt as _;
@@ -63,6 +63,39 @@ mod host;
 /// The domain-separation context every publish transaction must carry as its
 /// first element, binding the signature to this protocol.
 pub const PUBLISH_CONTEXT: &str = "starstream:publish";
+
+/// The [multihash] code of sha2-256.
+///
+/// [multihash]: https://github.com/multiformats/multihash
+const MULTIHASH_SHA2_256: u64 = 0x12;
+
+/// Encode a raw SHA-256 contract digest in the canonical ledger form: the
+/// multibase base32-lower encoding of its sha2-256 multihash. The result is
+/// always a 56-character lowercase alphanumeric string starting with `b` — a
+/// valid component-model label and URL path segment.
+pub fn encode_digest(digest: &[u8; 32]) -> String {
+    let digest = multihash::Multihash::<64>::wrap(MULTIHASH_SHA2_256, digest)
+        .expect("a sha256 digest fits in a multihash");
+    multibase::encode(multibase::Base::Base32Lower, digest.to_bytes())
+}
+
+/// Parse a multibase-encoded sha2-256 multihash into the raw 32-byte digest.
+/// Any multibase base is accepted; re-encode with [`encode_digest`] to
+/// canonicalize.
+pub fn parse_digest(s: &str) -> anyhow::Result<[u8; 32]> {
+    let (_, bytes) = multibase::decode(s).context("digest is not valid multibase")?;
+    let digest = multihash::Multihash::<64>::from_bytes(&bytes)
+        .context("digest is not a valid multihash")?;
+    anyhow::ensure!(
+        digest.code() == MULTIHASH_SHA2_256,
+        "digest multihash code must be sha2-256 (0x12), got 0x{:x}",
+        digest.code(),
+    );
+    digest
+        .digest()
+        .try_into()
+        .context("sha2-256 digest must be 32 bytes")
+}
 
 /// The header mapping a UTXO import instance to the digest of the contract
 /// providing it on coordination-script invocation requests
@@ -414,8 +447,20 @@ impl Ledger {
                     path.next(),
                 ) {
                     ("GET", Some("contracts"), Some(digest), None, ..) => {
+                        let digest = match parse_digest(digest) {
+                            Ok(digest) => encode_digest(&digest),
+                            Err(err) => {
+                                return build_http_response(
+                                    http::StatusCode::BAD_REQUEST,
+                                    format!(
+                                        "digest is not a valid multibase-encoded sha2-256 multihash: {err:#}"
+                                    ),
+                                );
+                            }
+                        };
                         let contracts = contracts.read().await;
-                        let Some(Contract { wasm, envelope, .. }) = contracts.get(digest) else {
+                        let Some(Contract { wasm, envelope, .. }) = contracts.get(digest.as_str())
+                        else {
                             return build_http_response(
                                 http::StatusCode::NOT_FOUND,
                                 format!("contract `{digest}` not found"),
@@ -467,14 +512,17 @@ impl Ledger {
                         }
                     }
                     ("PUT", Some("contracts"), Some(digest), None, ..) => {
-                        let mut buf = [0u8; 32];
-                        if let Err(err) = hex::decode_to_slice(digest, &mut buf) {
-                            return build_http_response(
-                                http::StatusCode::BAD_REQUEST,
-                                format!("digest is not valid hex-encoded sha256 digest: {err}"),
-                            );
+                        let digest = match parse_digest(digest) {
+                            Ok(digest) => digest,
+                            Err(err) => {
+                                return build_http_response(
+                                    http::StatusCode::BAD_REQUEST,
+                                    format!(
+                                        "digest is not a valid multibase-encoded sha2-256 multihash: {err:#}"
+                                    ),
+                                );
+                            }
                         };
-                        let digest = buf;
 
                         match req.headers().get(CONTENT_TYPE).map(HeaderValue::to_str) {
                             None => {}
@@ -616,11 +664,11 @@ impl Ledger {
                                 "publish transaction nonce does not fit in u64",
                             );
                         };
-                        let wasm_digest = Sha256::digest(&wasm);
-                        if wasm_digest != digest.into() {
+                        let wasm_digest: [u8; 32] = Sha256::digest(&wasm).into();
+                        if wasm_digest != digest {
                             return build_http_response(
                                 http::StatusCode::BAD_REQUEST,
-                                format!("digest mismatch, got: `{}`", hex::encode(wasm_digest)),
+                                format!("digest mismatch, got: `{}`", encode_digest(&wasm_digest)),
                             );
                         }
 
@@ -653,7 +701,7 @@ impl Ledger {
                         };
 
                         let mut contracts = contracts.write().await;
-                        let digest: Box<str> = digest.encode_hex();
+                        let digest = encode_digest(&digest);
                         let hash_map::Entry::Vacant(entry) = contracts.entry(digest.into()) else {
                             return build_http_response(http::StatusCode::OK, "");
                         };
@@ -731,8 +779,19 @@ impl Ledger {
                             &TEXT_PLAIN_UTF_8
                         };
 
+                        let digest = match parse_digest(digest) {
+                            Ok(digest) => encode_digest(&digest),
+                            Err(err) => {
+                                return build_http_response(
+                                    http::StatusCode::BAD_REQUEST,
+                                    format!(
+                                        "digest is not a valid multibase-encoded sha2-256 multihash: {err:#}"
+                                    ),
+                                );
+                            }
+                        };
                         let contracts = contracts.read().await;
-                        let Some(Contract { contract, .. }) = contracts.get(digest) else {
+                        let Some(Contract { contract, .. }) = contracts.get(digest.as_str()) else {
                             return build_http_response(
                                 http::StatusCode::NOT_FOUND,
                                 format!("contract `{digest}` not found"),
@@ -796,7 +855,17 @@ impl Ledger {
                         }
                     }
                     ("POST", Some("contracts"), Some(digest), Some("rpc"), None, ..) => {
-                        let digest: Box<str> = digest.into();
+                        let digest: Box<str> = match parse_digest(digest) {
+                            Ok(digest) => encode_digest(&digest).into(),
+                            Err(err) => {
+                                return build_http_response(
+                                    http::StatusCode::BAD_REQUEST,
+                                    format!(
+                                        "digest is not a valid multibase-encoded sha2-256 multihash: {err:#}"
+                                    ),
+                                );
+                            }
+                        };
 
                         let utxo_import_headers = match req.headers_mut().entry(X_STARSTREAM_UTXO) {
                             http::header::Entry::Occupied(imports) => {
@@ -819,6 +888,17 @@ impl Ledger {
                                                 "`{X_STARSTREAM_UTXO}` header value `{s}` is not valid"
                                             ),
                                         );
+                                    };
+                                    let contract_digest = match parse_digest(contract_digest) {
+                                        Ok(digest) => encode_digest(&digest),
+                                        Err(err) => {
+                                            return build_http_response(
+                                                http::StatusCode::BAD_REQUEST,
+                                                format!(
+                                                    "`{X_STARSTREAM_UTXO}` header digest `{contract_digest}` is not a valid multibase-encoded sha2-256 multihash: {err:#}"
+                                                ),
+                                            );
+                                        }
                                     };
                                     utxo_imports.insert(instance.into(), contract_digest.into());
                                 }

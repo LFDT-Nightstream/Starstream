@@ -47,6 +47,8 @@ hyper-util = { version = "0.1", features = [
     "tokio",
 ] }
 mediatype = { version = "0.21" }
+multibase = { version = "0.9", default-features = false, features = ["std"] }
+multihash = { version = "0.19", default-features = false, features = ["std"] }
 sha2 = { workspace = true }
 starstream-runtime-next = { workspace = true }
 tokio = { workspace = true, features = [

@@ -75,8 +75,14 @@ starstream-ledger-cli method 0 0 plus-chips 7
 ## Model
 
 - **Contracts are content-addressed.** A contract is a Wasm component;
-  its identifier is the lowercase-hex SHA-256 digest of the component
-  bytes, and every contract URL embeds that digest.
+  its identifier is the SHA-256 digest of the component bytes, encoded
+  as a [multibase]-encoded [multihash] — canonically the base32-lower
+  encoding of the sha2-256 multihash: `b` followed by 55 lowercase
+  alphanumeric characters. Every contract URL embeds that digest; any
+  multibase base is accepted on input and normalized to the canonical
+  form, which the server uses in storage, responses, and errors. The
+  canonical form is also a valid component-model label, so it can be
+  embedded verbatim in Wasm import/export and wRPC instance names.
 - **Accounts pay for publishing.** An account is identified by the
   lowercase-hex encoding of its Ed25519 public key. A publish charges the
   account one balance unit per byte of Wasm and consumes a nonce: every
@@ -128,7 +134,8 @@ not consumed.
 
 Failure responses:
 
-- `400 Bad Request` — the digest is not hex-encoded SHA-256; the body is
+- `400 Bad Request` — the digest is not a multibase-encoded sha2-256
+  multihash; the body is
   not a `COSE_Sign1`; `alg` or `kid` is malformed; the payload is not the
   four-element publish array; wrong context or network; the nonce
   overflows `u64`; the digest doesn't match the Wasm; or the Wasm is not
@@ -256,3 +263,6 @@ parameters.
 Any other path responds `404 Not Found`; a known path with an unsupported
 method responds `405 Method Not Allowed`. When `--max-requests` requests
 are already in flight the server responds `503 Service Unavailable`.
+
+[multibase]: https://github.com/multiformats/multibase
+[multihash]: https://github.com/multiformats/multihash

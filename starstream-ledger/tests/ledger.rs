@@ -25,7 +25,9 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
-use starstream_ledger::{Account, CardanoCtx, Ledger, PUBLISH_CONTEXT, X_STARSTREAM_UTXO};
+use starstream_ledger::{
+    Account, CardanoCtx, Ledger, PUBLISH_CONTEXT, X_STARSTREAM_UTXO, encode_digest,
+};
 use starstream_runtime_next::componentize;
 use tokio::net::TcpStream;
 
@@ -155,7 +157,7 @@ fn sign_envelope(key: &SigningKey, kid: &[u8], payload: Vec<u8>) -> Vec<u8> {
 
 /// Build a PUT publishing `envelope` at the content-addressed URL of `wasm`.
 fn put_contract(addr: SocketAddr, wasm: &[u8], envelope: Vec<u8>) -> Request<Full<Bytes>> {
-    let digest = hex::encode(Sha256::digest(wasm));
+    let digest = encode_digest(&Sha256::digest(wasm).into());
     Request::builder()
         .method("PUT")
         .uri(format!("http://{addr}/contracts/{digest}"))
@@ -273,7 +275,7 @@ async fn publish_charges_account_and_stores_envelope() {
         String::from_utf8_lossy(&body)
     );
 
-    let digest = hex::encode(Sha256::digest(&wasm));
+    let digest = encode_digest(&Sha256::digest(&wasm).into());
     let req = Request::builder()
         .uri(format!("http://{addr}/contracts/{digest}"))
         .header(ACCEPT, "application/wasm")
@@ -346,7 +348,7 @@ async fn publish_charges_account_and_stores_envelope() {
 async fn raw_wasm_body_is_unsupported_media_type() {
     let addr = spawn_ledger(HashMap::default()).await;
     let body = b"\0asm\x01\0\0\0";
-    let digest = hex::encode(Sha256::digest(body));
+    let digest = encode_digest(&Sha256::digest(body).into());
     let req = Request::builder()
         .method("PUT")
         .uri(format!("http://{addr}/contracts/{digest}"))
@@ -376,7 +378,7 @@ async fn garbage_envelope_is_bad_request() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn non_hex_digest_is_bad_request() {
+async fn invalid_digest_is_bad_request() {
     let addr = spawn_ledger(HashMap::default()).await;
     let req = Request::builder()
         .method("PUT")
@@ -494,7 +496,7 @@ async fn missing_alg_is_bad_request() {
 async fn score_contract_flow() {
     let key = signing_key();
     let wasm = SCORE.as_slice();
-    let digest = hex::encode(Sha256::digest(wasm));
+    let digest = encode_digest(&Sha256::digest(wasm).into());
 
     let account = hex::encode(key.verifying_key().to_bytes());
     let addr = spawn_ledger(HashMap::from([(

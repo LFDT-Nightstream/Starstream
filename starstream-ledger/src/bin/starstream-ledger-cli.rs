@@ -26,7 +26,7 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::codec::{ValEncoder, read_value};
-use starstream_ledger::{PUBLISH_CONTEXT, X_STARSTREAM_UTXO};
+use starstream_ledger::{PUBLISH_CONTEXT, X_STARSTREAM_UTXO, encode_digest};
 use tokio_util::codec::{Decoder as _, Encoder as _};
 use tracing::info;
 use wasm_tokio::CoreNameEncoder;
@@ -269,7 +269,7 @@ async fn publish(
 ) -> anyhow::Result<()> {
     let wasm =
         std::fs::read(&wasm).with_context(|| format!("failed to read `{}`", wasm.display()))?;
-    let digest = hex::encode(Sha256::digest(&wasm));
+    let digest = encode_digest(&Sha256::digest(&wasm).into());
     let mut payload = Vec::new();
     ciborium::into_writer(
         &ciborium::Value::Array(vec![
