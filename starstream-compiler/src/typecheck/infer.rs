@@ -4898,7 +4898,7 @@ impl Inferencer {
         left: Type,
         right: Type,
     ) -> Result<(Type, Vec<InferenceTree>, &'static str), ()> {
-        match (left.clone(), right.clone()) {
+        match (left, right) {
             (Type::Int(w1), Type::Int(w2)) if w1 == w2 => {
                 Ok((Type::Int(w1), Vec::new(), "Unify-Const"))
             }
@@ -5076,7 +5076,7 @@ impl Inferencer {
             None
         };
 
-        let (result_ty, children, rule) = match (left.clone(), right.clone()) {
+        let (result_ty, children, rule) = match (left, right) {
             (Type::Int(w1), Type::Int(w2)) if w1 == w2 => {
                 (Type::Int(w1), Vec::new(), "Unify-Const")
             }
@@ -5280,7 +5280,7 @@ impl Inferencer {
                 self.bind(id, ty.clone(), right_span, left_span, error_kind.clone())?;
                 (ty, Vec::new(), "Unify-Var")
             }
-            _ => {
+            (left, right) => {
                 let mut err = TypeError::new(error_kind, left_span);
                 if left_span != right_span {
                     let left_repr = self.format_type(&left);
