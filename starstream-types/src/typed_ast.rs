@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use crate::{
-    Abi, DUMMY_SPAN, FunctionExport, ScopedName, Span, Spanned,
+    AbiType, DUMMY_SPAN, FunctionExport, ScopedName, Span, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -357,7 +357,7 @@ pub enum TypedExprKind {
     /// `yield` and `yield(AbiName, ...)`
     Yield {
         /// Empty for bare `yield`, or list of abi infos
-        abis: Vec<Arc<Abi>>,
+        abis: Vec<Arc<AbiType>>,
     },
     Block(Box<TypedBlock>),
     If {

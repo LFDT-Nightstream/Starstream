@@ -7,11 +7,11 @@ use std::{
 };
 
 use starstream_types::{
-    Abi, AbiDef, AbiPart, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport, FunctionKind,
-    FunctionType, GenericTypeDef, IfCondition, IntWidth, Scheme, ScopedName, Span, Spanned,
-    StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId, TypedEffectDef,
-    TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart,
-    UtxoDef, UtxoGlobal, UtxoPart,
+    AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
+    FunctionKind, FunctionType, GenericTypeDef, IfCondition, IntWidth, Scheme, ScopedName, Span,
+    Spanned, StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId,
+    TypedEffectDef, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal,
+    TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportDef, ImportItems, ImportSource, Literal, Pattern, Program, Statement, StructDef,
@@ -739,7 +739,7 @@ impl StructConstructor {
 }
 
 struct AbiRegistry {
-    entries: HashMap<String, Arc<Abi>>,
+    entries: HashMap<String, Arc<AbiType>>,
 }
 
 impl AbiRegistry {
@@ -749,11 +749,11 @@ impl AbiRegistry {
         }
     }
 
-    fn insert(&mut self, name: String, info: Abi) {
+    fn insert(&mut self, name: String, info: AbiType) {
         self.entries.insert(name, Arc::new(info));
     }
 
-    fn get(&self, name: &str) -> Option<&Arc<Abi>> {
+    fn get(&self, name: &str) -> Option<&Arc<AbiType>> {
         self.entries.get(name)
     }
 }
@@ -812,7 +812,7 @@ impl Inferencer {
         };
         self.abis.insert(
             "Token".to_owned(),
-            Abi {
+            AbiType {
                 name: Identifier::new("Token", DUMMY_SPAN),
                 methods: vec![method("attach"), method("detach")],
             },
@@ -1194,7 +1194,7 @@ impl Inferencer {
         }
         self.abis.insert(
             def.name.name.clone(),
-            Abi {
+            AbiType {
                 name: def.name.clone(),
                 methods,
             },
@@ -1968,7 +1968,7 @@ impl Inferencer {
     fn check_abi_impl(
         &self,
         abi_name: &Identifier,
-        abi: &Abi,
+        abi: &AbiType,
         methods: &[TypedFunctionDef],
     ) -> Result<(), TypeError> {
         // TODO: Reusing existing error codes, may want them to be more specific.

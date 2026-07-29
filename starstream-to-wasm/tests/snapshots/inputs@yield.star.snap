@@ -193,7 +193,7 @@ TypedProgram {
                                                 ty: Unit,
                                                 kind: Yield {
                                                     abis: [
-                                                        Abi {
+                                                        AbiType {
                                                             name: Identifier {
                                                                 name: "Foo",
                                                                 span: 4..7,
@@ -224,7 +224,7 @@ TypedProgram {
                     AbiImpl {
                         span: 109..112,
                         abi: AbiNarrow(
-                            Abi {
+                            AbiType {
                                 name: Identifier {
                                     name: "Foo",
                                     span: 4..7,

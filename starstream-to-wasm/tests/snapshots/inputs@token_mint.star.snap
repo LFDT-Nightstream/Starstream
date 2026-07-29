@@ -215,7 +215,7 @@ TypedProgram {
                     AbiImpl {
                         span: 129..134,
                         abi: AbiNarrow(
-                            Abi {
+                            AbiType {
                                 name: Identifier {
                                     name: "Token",
                                     span: 0..0,

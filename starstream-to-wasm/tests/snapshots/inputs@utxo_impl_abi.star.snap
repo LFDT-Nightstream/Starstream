@@ -137,7 +137,7 @@ TypedProgram {
                     AbiImpl {
                         span: 61..66,
                         abi: AbiNarrow(
-                            Abi {
+                            AbiType {
                                 name: Identifier {
                                     name: "MyAbi",
                                     span: 4..9,

@@ -183,7 +183,7 @@ impl GenericTypeDef {
 
 /// Type-level contents of an `abi` block.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Abi {
+pub struct AbiType {
     pub name: Identifier,
     pub methods: Vec<TypedAbiMethodDecl>,
 }
@@ -226,7 +226,7 @@ pub enum Type {
     TokenNamed(String),
     /// The type created by an `abi` definition. Also the type of a Utxo
     /// narrowed via `if x is AbiName`.
-    AbiNarrow(Arc<Abi>),
+    AbiNarrow(Arc<AbiType>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
