@@ -31,6 +31,8 @@
   "is"
   "yield"
   "resume"
+  "try"
+  "with"
 ] @keyword
 
 ; Literals

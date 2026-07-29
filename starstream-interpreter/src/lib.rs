@@ -68,6 +68,7 @@ fn eval_block(block: &TypedBlock, locals: &Locals) -> ControlFlow<Value, Value> 
             TypedStatement::Resume => {
                 return ControlFlow::Break(Value::Unit);
             }
+            TypedStatement::TryWith { .. } => todo!(),
         }
     }
 

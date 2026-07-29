@@ -1,6 +1,8 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Block, Expr, Spanned, Statement};
 
+use crate::parser::pattern::{pattern, tuple_pattern};
+
 use super::{ParserExt, context::Extra, primitives, type_annotation};
 
 pub fn block<'a>(
@@ -73,6 +75,23 @@ pub fn statement<'a>(
         .ignore_then(just(';').padded().ignored())
         .map(|_| Statement::Resume);
 
+    let try_with_statement = just("try")
+        .ignore_then(block.clone())
+        .then(
+            just("with")
+                .ignore_then(tuple_pattern(pattern()))
+                .then(block.clone())
+                .repeated()
+                .collect::<Vec<_>>(),
+        )
+        .map(|(subject, patterns)| Statement::TryWith {
+            subject,
+            effects: patterns
+                .into_iter()
+                .map(|((a, b), c)| (a, b, c))
+                .collect::<Vec<_>>(),
+        });
+
     let expression_statement = expr
         .clone()
         .then_ignore(just(';').padded())
@@ -95,6 +114,7 @@ pub fn statement<'a>(
         while_statement,
         return_statement,
         resume_statement,
+        try_with_statement,
         expression_statement,
         block_expression_statement,
     ))
