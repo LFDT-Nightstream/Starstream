@@ -65,8 +65,8 @@ wasmtime-wizer = { workspace = true, features = [
 ] }
 wit-component = { workspace = true }
 wit-parser = { version = "0.240" }
-wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "4c9f9451d9cd8e8f7573ccd643971bcee348040f" }
-wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "4c9f9451d9cd8e8f7573ccd643971bcee348040f" }
+wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc" }
+wrpc-http = { git = "https://github.com/bytecodealliance/wrpc" }
 
 [dev-dependencies]
 hyper = { version = "1", features = ["client", "http1", "server"] }
@@ -74,6 +74,6 @@ starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
 tokio = { version = "1", features = ["process", "time"] }
 wat = { version = "1" }
-wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "4c9f9451d9cd8e8f7573ccd643971bcee348040f" }
+wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc" }
 wit-component = { workspace = true }
 wit-parser = { version = "0.240" }
