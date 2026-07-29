@@ -1549,7 +1549,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2274,7 +2274,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2737,7 +2737,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3191,6 +3191,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "prettyplease"
+version = "0.2.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
+dependencies = [
+ "proc-macro2",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3534,7 +3544,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4040,8 +4050,9 @@ dependencies = [
  "wasmtime 48.0.0",
  "wasmtime-wizer",
  "wat",
+ "wit-bindgen-wrpc",
  "wit-component",
- "wit-parser 0.254.0",
+ "wit-parser 0.240.0",
  "wrpc-http",
  "wrpc-transport",
 ]
@@ -4235,7 +4246,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4903,6 +4914,17 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
+version = "0.251.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "437970b35b1a85cfde9c74b2398352d8d653f3bd8e3a3db0c063ea8f5b4b36ff"
+dependencies = [
+ "bitflags 2.9.4",
+ "indexmap 2.14.0",
+ "semver",
+]
+
+[[package]]
+name = "wasmparser"
 version = "0.254.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5769a29f799fbab136aaf65b4fe5384cd7d93fe6fc9ba0dcb6c8382a1f16e27"
@@ -5433,7 +5455,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5689,6 +5711,61 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 
 [[package]]
+name = "wit-bindgen-core"
+version = "0.58.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4738d1c9a78e97bc7f664bfafd5d8e67d7bb26faa5c41e6d628e8bbdad3ec351"
+dependencies = [
+ "anyhow",
+ "heck",
+ "wit-parser 0.251.0",
+]
+
+[[package]]
+name = "wit-bindgen-wrpc"
+version = "0.11.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+dependencies = [
+ "anyhow",
+ "bitflags 2.9.4",
+ "bytes",
+ "futures",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "wasm-tokio",
+ "wit-bindgen-wrpc-rust-macro",
+ "wrpc-transport",
+]
+
+[[package]]
+name = "wit-bindgen-wrpc-rust"
+version = "0.11.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+dependencies = [
+ "anyhow",
+ "heck",
+ "prettyplease",
+ "syn 2.0.119",
+ "wit-bindgen-core",
+ "wrpc-introspect",
+]
+
+[[package]]
+name = "wit-bindgen-wrpc-rust-macro"
+version = "0.11.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+dependencies = [
+ "anyhow",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+ "wit-bindgen-core",
+ "wit-bindgen-wrpc-rust",
+]
+
+[[package]]
 name = "wit-component"
 version = "0.240.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5727,6 +5804,25 @@ dependencies = [
 
 [[package]]
 name = "wit-parser"
+version = "0.251.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e960732e824fab95099971a09e638979347c94ca48568d3c854c945729196947"
+dependencies = [
+ "anyhow",
+ "hashbrown 0.17.1",
+ "id-arena",
+ "indexmap 2.14.0",
+ "log",
+ "semver",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "unicode-xid",
+ "wasmparser 0.251.0",
+]
+
+[[package]]
+name = "wit-parser"
 version = "0.254.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1655131e4f7d3f0cb141f6eca71315ca40eff0f3d4de7cff0a82bacedd8c89b4"
@@ -5761,6 +5857,14 @@ dependencies = [
  "tokio-util",
  "tracing",
  "wrpc-transport",
+]
+
+[[package]]
+name = "wrpc-introspect"
+version = "0.7.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+dependencies = [
+ "wit-parser 0.251.0",
 ]
 
 [[package]]

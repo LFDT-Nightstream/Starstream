@@ -5,7 +5,8 @@
 //! (RFC 9052, Ed25519) whose payload is the CBOR publish transaction
 //! `[nonce, wasm]`. The signer's raw 32-byte public key is the protected
 //! `kid` header; its lowercase hex is the account identifier. Coordination
-//! scripts and UTXO methods are invoked over wRPC framing.
+//! scripts are invoked over wRPC framing; UTXO methods through bindings
+//! `wit-bindgen-wrpc` generates from the very WIT the ledger serves.
 
 use core::net::{Ipv4Addr, SocketAddr};
 use core::time::Duration;
@@ -30,6 +31,17 @@ use tokio::net::TcpStream;
 use wrpc_transport::{InvokeExt as _, TupleDecode, TupleEncode};
 
 const NETWORK: &str = "starstream:test";
+
+/// The WIT the ledger serves for the persisted `ScoreProgress` UTXO. The
+/// `bindings` used to invoke its methods are generated from this same file.
+const SCORE_PROGRESS_WIT: &str = include_str!("wit/score-progress.wit");
+
+mod bindings {
+    wit_bindgen_wrpc::generate!({
+        world: "score-progress",
+        path: "tests/wit",
+    });
+}
 
 /// Compile a Starstream contract source to a Wasm component, the publishable
 /// representation.
@@ -174,28 +186,44 @@ where
     Ok(results)
 }
 
-/// Invoke an export of the UTXO persisted by transaction `tx` at index `utxo`.
-async fn call_utxo<Params, Results>(
-    client: &WrpcClient,
-    addr: SocketAddr,
-    tx: usize,
-    utxo: usize,
-    name: &str,
-    params: Params,
-) -> anyhow::Result<Results>
-where
-    Params: TupleEncode + Send,
-    Results: TupleDecode + Send,
-    <Params::Encoder as tokio_util::codec::Encoder<Params>>::Error:
-        std::error::Error + Send + Sync + 'static,
-    <Results::Decoder as tokio_util::codec::Decoder>::Error:
-        std::error::Error + Send + Sync + 'static,
-{
-    let req = Request::builder()
+/// The request parts addressing the UTXO persisted by transaction `tx` at
+/// index `utxo`, the invocation context of the generated `bindings`.
+fn utxo_rpc(addr: SocketAddr, tx: usize, utxo: usize) -> http::request::Parts {
+    let (parts, ()) = Request::builder()
         .uri(format!("http://{addr}/transactions/{tx}/utxos/{utxo}/rpc"))
         .body(())
-        .unwrap();
-    invoke(client, req, name, params).await
+        .unwrap()
+        .into_parts();
+    parts
+}
+
+/// Invokes on the root (empty) wRPC instance regardless of the instance the
+/// caller addressed.
+///
+/// TODO: remove once `wit-bindgen-wrpc` invokes world-root functions on the
+/// empty instance; the pinned revision derives a `<package>/<world>` instance
+/// for them.
+struct RootInvoke<T>(T);
+
+impl<T: wrpc_transport::Invoke> wrpc_transport::Invoke for RootInvoke<T> {
+    type Context = T::Context;
+
+    async fn invoke<P>(
+        &self,
+        cx: Self::Context,
+        _instance: &str,
+        func: &str,
+        params: Bytes,
+        paths: impl AsRef<[P]> + Send,
+    ) -> anyhow::Result<(
+        wrpc_transport::frame::Outgoing,
+        wrpc_transport::frame::Incoming,
+    )>
+    where
+        P: AsRef<[Option<usize>]> + Send + Sync,
+    {
+        self.0.invoke(cx, "", func, params, paths).await
+    }
 }
 
 /// A valid signature over a known key reaches the account lookup, proving the
@@ -530,19 +558,66 @@ async fn score_contract_flow() {
         .unwrap();
     let () = invoke(&client, req, "example", ()).await.unwrap();
 
-    let () = call_utxo(&client, addr, 0, 0, "plus-chips", (7u64,))
+    let utxo_client = RootInvoke(wrpc_client());
+    bindings::plus_chips(&utxo_client, utxo_rpc(addr, 0, 0), 7)
         .await
         .unwrap();
 
-    let () = call_utxo(&client, addr, 0, 0, "plus-mult", (42u64,))
+    bindings::plus_mult(&utxo_client, utxo_rpc(addr, 0, 0), 42)
         .await
         .unwrap();
 
-    let () = call_utxo(&client, addr, 0, 0, "mult-mult", (200u64,))
+    bindings::mult_mult(&utxo_client, utxo_rpc(addr, 0, 0), 200)
         .await
         .unwrap();
 
-    let () = call_utxo(&client, addr, 0, 0, "finish", ()).await.unwrap();
+    bindings::finish(&utxo_client, utxo_rpc(addr, 0, 0))
+        .await
+        .unwrap();
+
+    // The ABI the persisted UTXO declared via `implements-method` is served
+    // as WIT, textual by default.
+    let req = Request::builder()
+        .uri(format!("http://{addr}/transactions/0/utxos/0/rpc"))
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+    let (status, body) = send(addr, req).await;
+    let wit = String::from_utf8(body.to_vec()).unwrap();
+    assert_eq!(status, StatusCode::OK, "body: {wit}");
+    assert_eq!(wit, SCORE_PROGRESS_WIT);
+
+    // The same WIT is served as a Wasm-encoded package on request.
+    let req = Request::builder()
+        .uri(format!("http://{addr}/transactions/0/utxos/0/rpc"))
+        .header(ACCEPT, "application/wasm")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+    let (status, body) = send(addr, req).await;
+    assert_eq!(status, StatusCode::OK);
+    let mut resolve = wit_parser::Resolve::new();
+    let pkg = resolve.push_str("score-progress.wit", &wit).unwrap();
+    let expected = wit_component::encode(&resolve, pkg).unwrap();
+    assert_eq!(body, expected);
+
+    // The text representation is the server-preferred one.
+    let req = Request::builder()
+        .uri(format!("http://{addr}/transactions/0/utxos/0/rpc"))
+        .header(ACCEPT, "*/*")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+    let (status, body) = send(addr, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, wit);
+
+    let req = Request::builder()
+        .uri(format!("http://{addr}/transactions/0/utxos/0/rpc"))
+        .header(ACCEPT, "application/json")
+        .body(Empty::<Bytes>::new())
+        .unwrap();
+    let (status, body) = send(addr, req).await;
+    let body = String::from_utf8_lossy(&body);
+    assert_eq!(status, StatusCode::NOT_ACCEPTABLE, "body: {body}");
+    assert!(body.contains("application/wasm"), "unexpected body: {body}");
 }
 
 /// The compiled `starstream-ledger` binary, given a funded account via

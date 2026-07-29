@@ -58,13 +58,13 @@ tracing-subscriber = { version = "0.3.23", features = [
     "tracing-log",
 ] }
 wasm-tokio = { version = "0.6", default-features = false }
-wasmtime = { workspace = true }
+wasmtime = { workspace = true, features = ["wave"] }
 wasmtime-wizer = { workspace = true, features = [
     "component-model",
     "wasmtime",
 ] }
 wit-component = { workspace = true }
-wit-parser = { version = "0.254" }
+wit-parser = { version = "0.240" }
 wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "19b4b2a5f9f8ce087d1ef23457e8d751043e679f" }
 wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "19b4b2a5f9f8ce087d1ef23457e8d751043e679f" }
 
@@ -74,3 +74,6 @@ starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
 tokio = { version = "1", features = ["process", "time"] }
 wat = { version = "1" }
+wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "19b4b2a5f9f8ce087d1ef23457e8d751043e679f" }
+wit-component = { workspace = true }
+wit-parser = { version = "0.240" }

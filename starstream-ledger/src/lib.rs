@@ -1,3 +1,4 @@
+use core::fmt::Write as _;
 use core::iter::zip;
 use core::mem;
 use core::net::SocketAddr;
@@ -29,7 +30,7 @@ use tokio::task::JoinSet;
 use tokio_util::codec::{Encoder as _, FramedRead};
 use tokio_util::io::StreamReader;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
-use wasmtime::component::ResourceTable;
+use wasmtime::component::{ResourceTable, Type, types, wasm_wave};
 use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
 
 use crate::codec::{ValEncoder, read_value};
@@ -51,10 +52,23 @@ const APPLICATION_COSE: MediaType =
     MediaType::new(mediatype::names::APPLICATION, mediatype::names::COSE);
 const APPLICATION_WASM: MediaType =
     MediaType::new(mediatype::names::APPLICATION, mediatype::names::WASM);
+const TEXT_PLAIN_UTF_8: MediaType = MediaType::from_parts(
+    mediatype::names::TEXT,
+    mediatype::names::PLAIN,
+    None,
+    &[(mediatype::names::CHARSET, mediatype::values::UTF_8)],
+);
 
 /// Representations a published contract can be served as, in order of
 /// server preference.
 const CONTRACT_MEDIA_TYPES: &[MediaType] = &[APPLICATION_COSE, APPLICATION_WASM];
+
+/// Representations the WIT of a UTXO can be served as, in order of
+/// server preference.
+const WIT_MEDIA_TYPES: &[MediaType] = &[TEXT_PLAIN_UTF_8, APPLICATION_WASM];
+
+/// The WIT package the served UTXO ABI worlds are defined in.
+const UTXO_WIT_PACKAGE: &str = "starstream:utxo";
 
 fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     debug!("binding TCP socket");
@@ -89,6 +103,74 @@ where
             .map_err(|_| unreachable!())
             .boxed(),
     )
+}
+
+/// The hash a contract declares for `export` via `implements-method`.
+///
+/// The Starstream compiler identifies each method by `sha256` of its source
+/// name (`snake_case`), split into four little-endian `u64` words. An exported
+/// method is named `[method]utxo.plus-chips` in WIT (`kebab-case`); take the
+/// trailing segment and undo the `kebab-case` mangling (`-` → `_`) to recover
+/// the name the compiler hashed.
+fn method_hash(export: &str) -> (u64, u64, u64, u64) {
+    let name = export
+        .rsplit('.')
+        .next()
+        .unwrap_or(export)
+        .replace('-', "_");
+    let digest = Sha256::digest(name.as_bytes());
+    let word = |i: usize| {
+        u64::from_le_bytes(
+            digest[i * 8..i * 8 + 8]
+                .try_into()
+                .expect("a sha256 digest is 32 bytes"),
+        )
+    };
+    (word(0), word(1), word(2), word(3))
+}
+
+/// Render a component-model [`Type`] as WIT. `wasm_wave`'s `DisplayType` covers
+/// the structural types but renders resource handles as `<<UNSUPPORTED>>`; the
+/// `utxo` resource is the only one in play here, so spell its handles by name.
+fn wit_type(ty: &Type) -> String {
+    match ty {
+        Type::Own(..) => "utxo".into(),
+        Type::Borrow(..) => "borrow<utxo>".into(),
+        ty => wasm_wave::wasm::DisplayType(ty).to_string(),
+    }
+}
+
+/// Render a `[method]utxo.<name>` export as a WIT function declaration: the
+/// trailing `<name>` segment and its params (the leading implicit
+/// `self: borrow<utxo>` receiver dropped) and results.
+fn wit_func(export: &str, ty: &types::ComponentFunc) -> String {
+    let name = export.rsplit('.').next().unwrap_or(export);
+    let params = ty
+        .params()
+        .skip(1) // the implicit `self` receiver
+        .map(|(n, t)| format!("{n}: {}", wit_type(&t)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let results: Vec<_> = ty.results().collect();
+    let ret = match results.as_slice() {
+        [] => String::new(),
+        [t] => format!(" -> {}", wit_type(t)),
+        types => format!(
+            " -> ({})",
+            types.iter().map(wit_type).collect::<Vec<_>>().join(", "),
+        ),
+    };
+    format!("{name}: func({params}){ret};")
+}
+
+/// The WIT world name the ABI of a UTXO exported as `instance` is served
+/// under: the trailing name segment, package and version stripped. The
+/// methods themselves are invoked on the root (empty) wRPC instance.
+fn utxo_world(instance: &str) -> &str {
+    let world = instance
+        .split_once('/')
+        .map_or(instance, |(_, world)| world);
+    world.split_once('@').map_or(world, |(world, ..)| world)
 }
 
 /// The Cardano context a contract can observe via the `starstream:std/cardano`
@@ -890,45 +972,129 @@ impl Ledger {
                             }
                         };
 
-                        let transactions = transactions.read().await;
-                        let Some(Transaction { utxos }) = transactions.get(tx) else {
-                            return build_http_response(
-                                http::StatusCode::NOT_FOUND,
-                                format!("transaction `{tx}` not found"),
-                            );
+                        let accept = if req.headers().contains_key(ACCEPT) {
+                            let accept =
+                                match Accept::decode(&mut req.headers().get_all(ACCEPT).iter()) {
+                                    Ok(accept) => accept,
+                                    Err(err) => {
+                                        return build_http_response(
+                                            http::StatusCode::BAD_REQUEST,
+                                            err.to_string(),
+                                        );
+                                    }
+                                };
+                            let Some(accept) = accept.negotiate(WIT_MEDIA_TYPES) else {
+                                return build_http_response(
+                                    http::StatusCode::NOT_ACCEPTABLE,
+                                    format!(
+                                        "no acceptable media type, available: `{TEXT_PLAIN_UTF_8}`, `{APPLICATION_WASM}`"
+                                    ),
+                                );
+                            };
+                            accept
+                        } else {
+                            &TEXT_PLAIN_UTF_8
                         };
-                        let Some(Utxo { .. }) = utxos.get(utxo) else {
-                            return build_http_response(
-                                http::StatusCode::NOT_FOUND,
-                                format!("UTXO `{utxo}` not found"),
-                            );
+
+                        let Utxo {
+                            wasm,
+                            instance,
+                            implemented,
+                            ..
+                        } = {
+                            let transactions = transactions.read().await;
+                            let Some(Transaction { utxos }) = transactions.get(tx) else {
+                                return build_http_response(
+                                    http::StatusCode::NOT_FOUND,
+                                    format!("transaction `{tx}` not found"),
+                                );
+                            };
+                            let Some(utxo) = utxos.get(utxo) else {
+                                return build_http_response(
+                                    http::StatusCode::NOT_FOUND,
+                                    format!("UTXO `{utxo}` not found"),
+                                );
+                            };
+                            utxo.clone()
                         };
 
-                        // TODO: Return WIT
-                        //let mut wit = String::new();
-                        //writeln!(wit, "package starstream:utxo;\n").unwrap();
-                        //writeln!(wit, "interface {iface} {{").unwrap();
-                        //for (name, method) in contract.utxo_methods(&export) {
-                        //    let method = method?;
-                        //    if implemented.contains(&method_hash(name)) {
-                        //        writeln!(wit, "    {}", wit_func(name, method.ty())).unwrap();
-                        //    }
-                        //}
-                        //writeln!(wit, "}}").unwrap();
-                        //print!("{wit}");
+                        let contract =
+                            match starstream_runtime_next::Contract::<Ctx>::new(&engine, &wasm) {
+                                Ok(contract) => contract,
+                                Err(err) => {
+                                    return build_http_response(
+                                        http::StatusCode::INTERNAL_SERVER_ERROR,
+                                        format!("{err:?}"),
+                                    );
+                                }
+                            };
+                        let export = match contract.get_utxo(&instance) {
+                            Ok(export) => export,
+                            Err(err) => {
+                                return build_http_response(
+                                    http::StatusCode::INTERNAL_SERVER_ERROR,
+                                    format!("{err:?}"),
+                                );
+                            }
+                        };
 
-                        //http::Response::builder()
-                        //    .header(CONTENT_TYPE, "application/wasm")
-                        //    .body(
-                        //        http_body_util::Full::new(wasm.clone())
-                        //            .map_err(|_| unreachable!())
-                        //            .boxed(),
-                        //    )
+                        let world = utxo_world(&instance);
+                        let mut wit = String::new();
+                        writeln!(wit, "package {UTXO_WIT_PACKAGE};\n").unwrap();
+                        writeln!(wit, "world {world} {{").unwrap();
+                        for (name, method) in contract.utxo_methods(&export) {
+                            let method = match method {
+                                Ok(method) => method,
+                                Err(err) => {
+                                    return build_http_response(
+                                        http::StatusCode::INTERNAL_SERVER_ERROR,
+                                        format!("{err:?}"),
+                                    );
+                                }
+                            };
+                            if implemented.contains(&method_hash(name)) {
+                                writeln!(wit, "    import {}", wit_func(name, method.ty()))
+                                    .unwrap();
+                            }
+                        }
+                        writeln!(wit, "}}").unwrap();
 
-                        build_http_response(
-                            http::StatusCode::IM_A_TEAPOT,
-                            format!("TODO: return WIT for UTXO `{utxo}`"),
-                        )
+                        if *accept == APPLICATION_WASM {
+                            let mut resolve = wit_parser::Resolve::new();
+                            let pkg = match resolve.push_str(format!("{world}.wit"), &wit) {
+                                Ok(pkg) => pkg,
+                                Err(err) => {
+                                    return build_http_response(
+                                        http::StatusCode::INTERNAL_SERVER_ERROR,
+                                        format!("failed to parse the rendered WIT: {err:?}"),
+                                    );
+                                }
+                            };
+                            let wasm = match wit_component::encode(&resolve, pkg) {
+                                Ok(wasm) => wasm,
+                                Err(err) => {
+                                    return build_http_response(
+                                        http::StatusCode::INTERNAL_SERVER_ERROR,
+                                        format!("failed to encode the WIT as Wasm: {err:?}"),
+                                    );
+                                }
+                            };
+                            http::Response::builder()
+                                .header(CONTENT_TYPE, APPLICATION_WASM.to_string())
+                                .body(
+                                    http_body_util::Full::new(wasm.into())
+                                        .map_err(|_| unreachable!())
+                                        .boxed(),
+                                )
+                        } else {
+                            http::Response::builder()
+                                .header(CONTENT_TYPE, TEXT_PLAIN_UTF_8.to_string())
+                                .body(
+                                    http_body_util::Full::new(wit.into())
+                                        .map_err(|_| unreachable!())
+                                        .boxed(),
+                                )
+                        }
                     }
                     (
                         "POST",
