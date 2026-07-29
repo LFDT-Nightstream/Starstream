@@ -6,7 +6,7 @@ use wasmtime::component::{
     LinkerInstance, ResourceAny, ResourceTable, ResourceType, Type, Val, types,
 };
 use wasmtime::error::Context as _;
-use wasmtime::{AsContextMut, Engine, Store, StoreContextMut, bail, ensure};
+use wasmtime::{AsContextMut, Engine, StoreContextMut, bail, ensure};
 
 pub mod bindings {
     wasmtime::component::bindgen!({
@@ -291,74 +291,6 @@ pub fn link_dynamic_imports<T: Host>(
         }
     }
     Ok(())
-}
-
-#[must_use]
-pub fn new_wasmtime_config() -> wasmtime::Config {
-    let mut config = wasmtime::Config::new();
-    config.wasm_component_model(true);
-    #[cfg(feature = "trace")]
-    config.guest_debug(true);
-    config
-}
-
-pub fn new_wasmtime_store<T: Send>(engine: &Engine, data: T) -> wasmtime::Result<Store<T>> {
-    let mut store = wasmtime::Store::new(engine, data);
-
-    // TODO: Replace this by proper tracing
-    #[cfg(feature = "trace")]
-    {
-        use core::marker::PhantomData;
-
-        use tracing::{error, trace};
-        use wasmtime::DebugEvent;
-
-        struct DebugHandler<T>(PhantomData<fn() -> T>);
-
-        impl<T> Clone for DebugHandler<T> {
-            fn clone(&self) -> Self {
-                Self(PhantomData)
-            }
-        }
-
-        impl<T: Send + 'static> wasmtime::DebugHandler for DebugHandler<T> {
-            type Data = T;
-
-            async fn handle(
-                &self,
-                mut store: StoreContextMut<'_, Self::Data>,
-                event: DebugEvent<'_>,
-            ) {
-                match event {
-                    DebugEvent::Breakpoint => {
-                        let frames: Vec<_> = store.debug_exit_frames().collect();
-                        for frame in frames {
-                            match frame.wasm_function_index_and_pc(&mut store) {
-                                Ok(Some((f, pc))) => debug!(?f, ?pc, "frame"),
-                                Ok(None) => trace!("skip trampoline frame"),
-                                Err(err) => error!(?err),
-                            }
-                        }
-                    }
-                    DebugEvent::HostcallError(..)
-                    | DebugEvent::Exception(..)
-                    | DebugEvent::Trap(..)
-                    | DebugEvent::EpochYield => {}
-                }
-            }
-        }
-
-        store.set_debug_handler(DebugHandler::<T>(PhantomData));
-        {
-            let Some(mut bp) = store.edit_breakpoints() else {
-                bail!("invalid engine config")
-            };
-            bp.single_step(true)
-                .context("failed to enable single-step debugging")?;
-        }
-    }
-
-    Ok(store)
 }
 
 /// Compiled, pre-instantiated Starstream contract

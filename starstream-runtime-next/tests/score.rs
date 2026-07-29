@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
     ConstructorExport, Contract, CoordinationScriptExport, EventHandler, Host, MethodExport, Utxo,
-    UtxoHandler, UtxoStorageExport, bindings, new_wasmtime_config, new_wasmtime_store,
+    UtxoHandler, UtxoStorageExport, bindings,
 };
 use starstream_to_wasm::compile;
 use wasmtime::component::{Resource, ResourceTable, Val};
@@ -253,13 +253,13 @@ async fn get_progress_storage<T: Send + 'static>(
 
 #[tokio::test]
 async fn score() -> wasmtime::Result<()> {
-    let engine = wasmtime::Engine::new(&new_wasmtime_config())?;
+    let engine = wasmtime::Engine::default();
     let contract =
         Contract::new(&engine, EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
     let ty = assert_progress_utxo(&contract)?;
 
     let [utxo0, utxo1, utxo2, utxo3, utxo4] = array::from_fn(|_| async {
-        let mut store = new_wasmtime_store(
+        let mut store = wasmtime::Store::new(
             &engine,
             Ctx {
                 contract: contract.clone(),
@@ -268,7 +268,7 @@ async fn score() -> wasmtime::Result<()> {
                 methods: Vec::default(),
                 events: Vec::default(),
             },
-        )?;
+        );
         contract
             .create_utxo(&mut store, &ty.new, [])
             .await
@@ -361,7 +361,7 @@ async fn score() -> wasmtime::Result<()> {
         );
     }
 
-    let mut store = new_wasmtime_store(
+    let mut store = wasmtime::Store::new(
         &engine,
         Ctx {
             contract: contract.clone(),
@@ -370,7 +370,7 @@ async fn score() -> wasmtime::Result<()> {
             methods: Vec::default(),
             events: Vec::default(),
         },
-    )?;
+    );
     contract
         .call_coordination_script(&mut store, &ty.example, [])
         .await
