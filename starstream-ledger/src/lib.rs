@@ -236,7 +236,6 @@ struct Ctx {
 struct Contract {
     contract: starstream_runtime_next::Contract<Ctx>,
     scripts: HashMap<Box<str>, CoordinationScriptExport>,
-    utxos: HashMap<Box<str>, UtxoExport>,
     wasm: Bytes,
     envelope: Bytes,
 }
@@ -257,6 +256,7 @@ impl DerefMut for Contract {
 
 #[derive(Clone, Debug, Default)]
 struct Utxo {
+    #[expect(unused, reason = "unused for now")]
     contract_digest: Arc<str>,
     instance: Arc<str>,
     wasm: Bytes,
@@ -665,24 +665,10 @@ impl Ledger {
                                 }
                             };
                         }
-                        let mut utxos = HashMap::default();
-                        for (name, export) in contract.utxos() {
-                            match export {
-                                Ok(export) => utxos.insert(name.into(), export),
-                                Err(err) => {
-                                    // TODO: Handle error type and set status accordingly
-                                    return build_http_response(
-                                        http::StatusCode::BAD_REQUEST,
-                                        format!("{err:?}"),
-                                    );
-                                }
-                            };
-                        }
                         entry.insert(Contract {
                             contract,
                             wasm: wasm.into(),
                             scripts,
-                            utxos,
                             envelope,
                         });
                         account.balance = balance;
