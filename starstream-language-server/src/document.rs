@@ -1116,6 +1116,12 @@ impl DocumentState {
             TypedStatement::Return(Some(expr)) => self.collect_expr(expr, scopes),
             TypedStatement::Return(None) => {}
             TypedStatement::Resume => {}
+            TypedStatement::TryWith { subject, effects } => {
+                self.collect_block(subject, scopes);
+                for (_, _, block) in effects {
+                    self.collect_block(block, scopes);
+                }
+            }
         }
     }
 
@@ -1780,6 +1786,12 @@ impl DocumentState {
             untyped_ast::Statement::Resume => {}
             untyped_ast::Statement::Assignment { target: _, value } => {
                 self.collect_expr_annotations_from_ast(&value.node);
+            }
+            untyped_ast::Statement::TryWith { subject, effects } => {
+                self.collect_block_annotations_from_ast(subject);
+                for (name, params, block) in effects {
+                    self.collect_block_annotations_from_ast(block);
+                }
             }
         }
     }

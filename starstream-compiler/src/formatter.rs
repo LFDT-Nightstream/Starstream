@@ -770,6 +770,25 @@ fn statement_to_doc<'a>(
             .append(RcDoc::text(";")),
         Statement::Return(None) => RcDoc::text("return;"),
         Statement::Resume => RcDoc::text("resume;"),
+        Statement::TryWith { subject, effects } => RcDoc::text("try")
+            .append(RcDoc::space())
+            .append(block_to_doc(subject, source, comments))
+            .append(RcDoc::concat(effects.iter().map(
+                |(name, pattern, block)| {
+                    RcDoc::space()
+                        .append("with")
+                        .append(RcDoc::space())
+                        .append(scoped_name_to_doc(name, source))
+                        .append("(")
+                        .append(RcDoc::intersperse(
+                            pattern.iter().map(|p| pattern_to_doc(p, source)),
+                            ",",
+                        ))
+                        .append(")")
+                        .append(RcDoc::space())
+                        .append(block_to_doc(block, source, comments))
+                },
+            ))),
     }
 }
 

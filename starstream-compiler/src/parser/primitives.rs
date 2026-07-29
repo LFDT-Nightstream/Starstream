@@ -23,7 +23,7 @@ use super::context::Extra;
 const KEYWORDS: &[&str] = &[
     "let", "pub", "mut", "if", "else", "while", "true", "false", "fn", "return", "struct", "enum",
     "match", "abi", "emit", "import", "from", "as", "raise", "runtime", "disclose", "is", "yield",
-    "resume",
+    "resume", "try", "with",
 ];
 pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> + Clone {
     text::ident()

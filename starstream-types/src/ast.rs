@@ -474,6 +474,10 @@ pub enum Statement {
     Expression(Spanned<Expr>),
     Return(Option<Spanned<Expr>>),
     Resume,
+    TryWith {
+        subject: Block,
+        effects: Vec<(ScopedName, Vec<Pattern>, Block)>,
+    },
 }
 
 // ----------------------------------------------------------------------------
