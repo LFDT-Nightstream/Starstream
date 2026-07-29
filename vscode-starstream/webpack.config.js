@@ -17,12 +17,12 @@ const typescriptRule = {
 
 const rawRule = {
   resourceQuery: /raw/,
-  type: 'asset/source',
+  type: "asset/source",
 };
 
 const urlRule = {
   resourceQuery: /url/,
-  type: 'asset/resource',
+  type: "asset/resource",
 };
 
 /**@type {import('webpack').Configuration[]}*/
@@ -62,6 +62,8 @@ export default [
       publicPath: "",
       libraryTarget: "commonjs2",
       devtoolModuleFilenameTemplate: "../[resource-path]",
+      // Default is "[hash][ext][query]", but VSC chokes on the query.
+      assetModuleFilename: "[hash][ext]",
     },
     devtool: "nosources-source-map",
     externals: {
