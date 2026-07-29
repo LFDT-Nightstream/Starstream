@@ -1,3 +1,24 @@
+//! A standalone Starstream ledger server built on `starstream-runtime-next`.
+//!
+//! [`Ledger::handle_http`] serves the HTTP API specified in
+//! `docs/ledger.md`:
+//!
+//! - `PUT`/`GET /contracts/<digest>` — publish and fetch contracts,
+//!   content-addressed by the SHA-256 digest of the component Wasm.
+//!   Publishing is a signed `COSE_Sign1` envelope over the CBOR
+//!   transaction `[context, network, nonce, wasm]` (see
+//!   [`PUBLISH_CONTEXT`]), charged to an [`Account`] identified by the
+//!   signer's Ed25519 public key.
+//! - `POST /contracts/<digest>/rpc` — invoke a coordination script over
+//!   wRPC framing, with UTXO imports resolved via [`X_STARSTREAM_UTXO`]
+//!   headers; UTXOs the script constructs are snapshotted and persisted
+//!   as a transaction.
+//! - `GET`/`POST /transactions/<tx>/utxos/<utxo>/rpc` — fetch a persisted
+//!   UTXO's ABI as WIT and invoke its methods over wRPC framing.
+//!
+//! Running contracts observe the ledger's [`CardanoCtx`] through the
+//! `starstream:std/cardano` host interface.
+
 use core::fmt::Write as _;
 use core::iter::zip;
 use core::mem;
@@ -42,6 +63,10 @@ mod host;
 /// first element, binding the signature to this protocol.
 pub const PUBLISH_CONTEXT: &str = "starstream:publish";
 
+/// The header mapping a UTXO import instance to the digest of the contract
+/// providing it on coordination-script invocation requests
+/// (`<instance>=<contract-digest>`, repeatable), and naming the instance of
+/// each persisted UTXO — in output order — on the response.
 pub const X_STARSTREAM_UTXO: &str = "X-Starstream-Utxo";
 
 const APPLICATION_OCTET_STREAM: MediaType = MediaType::new(
@@ -236,6 +261,11 @@ struct UtxoImport {
     export: UtxoExport,
 }
 
+/// The ledger-side state of a publishing account, identified by the
+/// lowercase-hex encoding of its Ed25519 public key.
+///
+/// Publishing charges the balance one unit per byte of Wasm and must carry a
+/// nonce strictly greater than `last_nonce`.
 #[derive(Clone, Debug, Default)]
 pub struct Account {
     /// Account balance.
@@ -248,6 +278,10 @@ struct Transaction {
     utxos: Box<[Utxo]>,
 }
 
+/// A ledger node: published contracts, persisted transactions, and the
+/// accounts paying for publishes, served over HTTP by [`handle_http`].
+///
+/// [`handle_http`]: Ledger::handle_http
 pub struct Ledger {
     engine: wasmtime::Engine,
     wizer: Wizer,
@@ -261,6 +295,9 @@ pub struct Ledger {
 }
 
 impl Ledger {
+    /// Create an empty ledger on `network` with the given genesis `accounts`,
+    /// serving at most `max_requests` concurrent HTTP requests and reporting
+    /// `cardano` to running contracts.
     pub fn new(
         engine: wasmtime::Engine,
         max_requests: u32,
@@ -284,6 +321,10 @@ impl Ledger {
         }
     }
 
+    /// Bind `address` and return the future serving the ledger HTTP API on
+    /// it; the future runs the accept loop until dropped.
+    ///
+    /// The served endpoints are specified in `docs/ledger.md`.
     #[instrument(skip_all)]
     pub async fn handle_http(
         &self,
