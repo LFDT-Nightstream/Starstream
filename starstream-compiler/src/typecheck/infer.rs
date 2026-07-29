@@ -160,7 +160,6 @@ pub fn typecheck_program(
     }
 
     let mut typed_program = TypedProgram {
-        has_yields: inferencer.has_yields,
         definitions: typed_definitions,
     };
     inferencer.apply_substitutions_program(&mut typed_program);
@@ -349,7 +348,6 @@ pub fn typecheck_modules(
         module_exports.insert(module_id.0, exports);
 
         let typed_program = TypedProgram {
-            has_yields: inferencer.has_yields,
             definitions: typed_definitions,
         };
         typed_modules.insert(module_id.0, typed_program);
@@ -629,7 +627,6 @@ struct Inferencer {
 
     // Outputs
     warnings: Vec<TypeWarning>,
-    has_yields: bool,
 
     // Type var tracking
     next_type_var: u32,
@@ -792,7 +789,6 @@ impl Inferencer {
             builtins: BuiltinRegistry::new(),
             warnings: Vec::new(),
             abi_call_trackers: Vec::new(),
-            has_yields: false,
         };
         inferencer.register_prelude_types();
         inferencer.register_builtin_token_abi();
@@ -3826,7 +3822,6 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::Yield { abis } => {
-                self.has_yields = true;
                 // Assert that we are inside a `main fn`.
                 if !ctx.is_coroutine {
                     return Err(TypeError::new(TypeErrorKind::YieldOutsideMainFn, expr.span));

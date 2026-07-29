@@ -866,7 +866,6 @@ T-Fn: run => ()
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Function(
             TypedFunctionDef {

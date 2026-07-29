@@ -139,7 +139,6 @@ T-Utxo: MyUtxo =>
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Abi(
             TypedAbiDef {
@@ -292,28 +291,44 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func))
-  (type (;1;) (func (param i32) (result i32)))
-  (type (;2;) (func (param i32)))
-  (type (;3;) (func (result i32)))
-  (import "starstream:events/foo-abi" "hello-event" (func (;0;) (type 0)))
-  (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
-  (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
-  (import "my-utxo" "[static]utxo.hello-utxo" (func (;3;) (type 3)))
-  (export "my-utxo#[static]utxo.hello-utxo" (func 6))
-  (func (;4;) (type 0)
+  (type (;0;) (func (param i64 i64 i64 i64)))
+  (type (;1;) (func))
+  (type (;2;) (func (param i32) (result i32)))
+  (type (;3;) (func (param i32)))
+  (type (;4;) (func (result i32)))
+  (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
+  (import "starstream:events/foo-abi" "hello-event" (func (;1;) (type 1)))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;2;) (type 2)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;3;) (type 3)))
+  (import "my-utxo" "[static]utxo.hello-utxo" (func (;4;) (type 4)))
+  (global (;0;) (mut i32) (i32.const 0))
+  (export "my-utxo#[static]utxo.hello-utxo" (func 7))
+  (export "my-utxo#get-storage" (func 8))
+  (export "my-utxo#set-storage" (func 9))
+  (func (;5;) (type 1)
     (unreachable)
   )
-  (func (;5;) (type 0)
-    (call 0)
+  (func (;6;) (type 1)
+    (call 1)
   )
-  (func (;6;) (type 3) (result i32)
+  (func (;7;) (type 4) (result i32)
     (local i32)
     (local.set 0
-      (call 1
+      (call 2
         (i32.const 0)))
-    (call 5)
+    (call 6)
     (local.get 0)
+  )
+  (func (;8;) (type 2) (param i32) (result i32)
+    (local i32)
+    (global.get 0)
+  )
+  (func (;9;) (type 2) (param i32) (result i32)
+    (local i32)
+    (global.set 0
+      (local.get 0))
+    (return_call 2
+      (i32.const 0))
   )
   (@custom "component-type"
     (component
@@ -328,6 +343,13 @@ TypedProgram {
                   (type (;1;) (own 0))
                   (type (;2;) (func (result 1)))
                   (export (;0;) "[static]utxo.hello-utxo" (func (type 2)))
+                  (type (;3;) (record (field "yield" s32)))
+                  (export (;4;) "storage" (type (eq 3)))
+                  (type (;5;) (borrow 0))
+                  (type (;6;) (func (param "self" 5) (result 4)))
+                  (export (;1;) "get-storage" (func (type 6)))
+                  (type (;7;) (func (param "storage" 4) (result 1)))
+                  (export (;2;) "set-storage" (func (type 7)))
                 )
               )
               (import "my-utxo" (instance (;0;) (type 0)))
@@ -340,13 +362,28 @@ TypedProgram {
               (import "starstream:events/foo-abi" (instance (;1;) (type 1)))
               (type (;2;)
                 (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "hash" 0)))
+                  (export (;0;) "implements-method" (func (type 1)))
+                )
+              )
+              (import "starstream:std/builtin" (instance (;2;) (type 2)))
+              (type (;3;)
+                (instance
                   (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (own 0))
                   (type (;2;) (func (result 1)))
                   (export (;0;) "[static]utxo.hello-utxo" (func (type 2)))
+                  (type (;3;) (record (field "yield" s32)))
+                  (export (;4;) "storage" (type (eq 3)))
+                  (type (;5;) (borrow 0))
+                  (type (;6;) (func (param "self" 5) (result 4)))
+                  (export (;1;) "get-storage" (func (type 6)))
+                  (type (;7;) (func (param "storage" 4) (result 1)))
+                  (export (;2;) "set-storage" (func (type 7)))
                 )
               )
-              (export (;2;) "my-utxo" (instance (type 2)))
+              (export (;3;) "my-utxo" (instance (type 3)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -367,15 +404,31 @@ world root {
     }
   }
   import starstream:events/foo-abi;
+  import starstream:std/builtin;
 
   export my-utxo: interface {
     resource utxo {
       hello-utxo: static func() -> utxo;
     }
+
+    record storage {
+      yield: s32,
+    }
+
+    get-storage: func(self: borrow<utxo>) -> storage;
+
+    set-storage: func(storage: storage) -> utxo;
   }
 }
 package starstream:events {
   interface foo-abi {
     hello-event: func();
+  }
+}
+
+
+package starstream:std {
+  interface builtin {
+    implements-method: func(hash: tuple<u64, u64, u64, u64>);
   }
 }

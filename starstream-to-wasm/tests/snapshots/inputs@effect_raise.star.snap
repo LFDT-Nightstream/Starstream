@@ -156,7 +156,6 @@ T-Fn: main => ()
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Abi(
             TypedAbiDef {

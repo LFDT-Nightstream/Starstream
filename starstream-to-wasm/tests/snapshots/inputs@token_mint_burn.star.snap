@@ -233,7 +233,6 @@ T-Token: MyToken =>
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Token(
             TypedTokenDef {

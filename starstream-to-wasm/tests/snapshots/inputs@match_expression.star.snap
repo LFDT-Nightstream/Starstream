@@ -1063,7 +1063,6 @@ T-Fn: get_bar => ()
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Struct(
             TypedStructDef {

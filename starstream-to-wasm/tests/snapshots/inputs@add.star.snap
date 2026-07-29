@@ -107,7 +107,6 @@ T-Fn: add => i64
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Function(
             TypedFunctionDef {

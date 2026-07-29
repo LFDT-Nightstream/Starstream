@@ -610,7 +610,6 @@ T-Fn: example => ()
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: true,
     definitions: [
         Abi(
             TypedAbiDef {
