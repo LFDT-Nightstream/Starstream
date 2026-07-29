@@ -33,15 +33,19 @@ Each Utxo declared in the contract is represented as a distinct exported interfa
 An exported interface represents a Utxo if it declares `resource utxo`.
 Each Utxo also has a `record storage` describing its memory and `get-storage` (save) and `set-storage` (load) functions.
 
+Exported functions receive a `utxo-context` supplied by the runtime.
+
 `main fn`s are static methods on the `resource utxo`.
 
 For example:
 
 ```wit
 world root {
+    import starstream:std/utxo-context;
+
     export my-utxo: interface {
         resource utxo {
-            my-main-fn: static func() -> utxo;
+            my-main-fn: static func(ctx: borrow<utxo-context>) -> utxo;
         }
 
         record storage {
