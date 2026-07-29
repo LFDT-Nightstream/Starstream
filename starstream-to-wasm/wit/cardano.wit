@@ -1,6 +1,6 @@
 package starstream:std;
 
-/// Cardano blockchain context functions.
+/// Cardano blockchain context functions
 interface cardano {
     block-height: func() -> s64;
     current-slot: func() -> s64;
