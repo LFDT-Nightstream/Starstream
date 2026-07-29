@@ -57,7 +57,7 @@ use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
 
 use crate::codec::{ValEncoder, read_value};
 
-mod codec;
+pub mod codec;
 mod host;
 
 /// The domain-separation context every publish transaction must carry as its

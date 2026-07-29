@@ -1,3 +1,6 @@
+//! The wRPC value codec over [`wasmtime::component::Val`], used for the
+//! parameters and results of `/rpc` invocations.
+
 use core::iter::zip;
 use core::ops::{BitOrAssign, Shl};
 
@@ -16,6 +19,8 @@ use wasmtime::component::types::{Case, Field};
 use wasmtime::component::{Type, Val};
 use wasmtime::error::Context as _;
 
+/// [`Encoder`] writing a [`Val`] of a given [`Type`] in the wRPC value
+/// encoding.
 pub struct ValEncoder<'a> {
     pub ty: &'a Type,
 }
@@ -367,6 +372,7 @@ fn unsupported(msg: &'static str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Unsupported, msg)
 }
 
+/// Read a wRPC-encoded [`Val`] of type `ty` from `r` into `val`.
 #[allow(clippy::too_many_lines)]
 pub async fn read_value<R: AsyncRead + Unpin>(
     r: &mut R,

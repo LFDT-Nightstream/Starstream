@@ -36,6 +36,42 @@ starstream-ledger [--addr ADDR] [--network NETWORK]
   requests served concurrently; excess requests are rejected with
   `503 Service Unavailable`.
 
+## Client CLI
+
+`starstream-ledger-cli` drives the API from the command line; it is
+gated behind the `cli` cargo feature
+(`cargo build -p starstream-ledger --features cli`). Every subcommand
+takes `--url` (default `http://[::1]:9000`) selecting the server.
+
+Invocation parameters are given in
+[WAVE](https://github.com/bytecodealliance/wasm-wave) (WebAssembly Value
+Encoding), one argument per parameter, and results are printed back as
+WAVE, one line per result. The parameter and result types come from the
+WIT the ledger serves for the invocation target — a `GET` on the same
+`/rpc` URL the invocation is `POST`ed to.
+
+- **`publish --key HEX --network NETWORK --nonce N <wasm>`** — sign the
+  publish transaction with the hex-encoded 32-byte Ed25519 key, `PUT`
+  the `COSE_Sign1` envelope, and print the contract digest.
+- **`script [--utxo INSTANCE=DIGEST]... <digest> [<name> [<arg>]...]`** —
+  invoke coordination script `<name>` of contract `<digest>`; each
+  `--utxo` maps a UTXO import instance of the contract to the digest of
+  the contract providing it. The persisted UTXOs are reported on stderr.
+  With no `<name>`, print the contract's script ABI as WIT instead.
+- **`method <tx> <utxo> [<name> [<arg>]...]`** — invoke method `<name>`
+  on the persisted UTXO `/transactions/<tx>/utxos/<utxo>`. With no
+  `<name>`, print the UTXO's ABI as WIT instead.
+
+The full contract flow — publish, construct a UTXO through a
+coordination script, inspect its ABI, invoke its methods:
+
+```sh
+starstream-ledger-cli publish --key $KEY --network dev --nonce 1 score.wasm
+starstream-ledger-cli script --utxo score-progress=$DIGEST $DIGEST example
+starstream-ledger-cli method 0 0                # print the ABI as WIT
+starstream-ledger-cli method 0 0 plus-chips 7
+```
+
 ## Model
 
 - **Contracts are content-addressed.** A contract is a Wasm component;

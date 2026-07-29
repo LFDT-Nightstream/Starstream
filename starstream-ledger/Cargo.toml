@@ -6,6 +6,15 @@ edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
+default-run = "starstream-ledger"
+
+[features]
+cli = ["hyper-util/client-legacy", "hyper/client", "wit-component/dummy-module"]
+
+[[bin]]
+name = "starstream-ledger-cli"
+path = "src/bin/starstream-ledger-cli.rs"
+required-features = ["cli"]
 
 [dependencies]
 anyhow = { workspace = true }
