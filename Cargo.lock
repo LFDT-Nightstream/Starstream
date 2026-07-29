@@ -5724,7 +5724,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc"
 version = "0.11.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=4c9f9451d9cd8e8f7573ccd643971bcee348040f#4c9f9451d9cd8e8f7573ccd643971bcee348040f"
 dependencies = [
  "anyhow",
  "bitflags 2.9.4",
@@ -5741,7 +5741,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc-rust"
 version = "0.11.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=4c9f9451d9cd8e8f7573ccd643971bcee348040f#4c9f9451d9cd8e8f7573ccd643971bcee348040f"
 dependencies = [
  "anyhow",
  "heck",
@@ -5754,7 +5754,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc-rust-macro"
 version = "0.11.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=4c9f9451d9cd8e8f7573ccd643971bcee348040f#4c9f9451d9cd8e8f7573ccd643971bcee348040f"
 dependencies = [
  "anyhow",
  "prettyplease",
@@ -5843,7 +5843,7 @@ dependencies = [
 [[package]]
 name = "wrpc-http"
 version = "0.1.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=4c9f9451d9cd8e8f7573ccd643971bcee348040f#4c9f9451d9cd8e8f7573ccd643971bcee348040f"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5862,7 +5862,7 @@ dependencies = [
 [[package]]
 name = "wrpc-introspect"
 version = "0.7.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=4c9f9451d9cd8e8f7573ccd643971bcee348040f#4c9f9451d9cd8e8f7573ccd643971bcee348040f"
 dependencies = [
  "wit-parser 0.251.0",
 ]
@@ -5870,7 +5870,7 @@ dependencies = [
 [[package]]
 name = "wrpc-transport"
 version = "0.29.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=19b4b2a5f9f8ce087d1ef23457e8d751043e679f#19b4b2a5f9f8ce087d1ef23457e8d751043e679f"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=4c9f9451d9cd8e8f7573ccd643971bcee348040f#4c9f9451d9cd8e8f7573ccd643971bcee348040f"
 dependencies = [
  "anyhow",
  "bytes",

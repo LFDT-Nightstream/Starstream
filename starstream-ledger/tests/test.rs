@@ -197,35 +197,6 @@ fn utxo_rpc(addr: SocketAddr, tx: usize, utxo: usize) -> http::request::Parts {
     parts
 }
 
-/// Invokes on the root (empty) wRPC instance regardless of the instance the
-/// caller addressed.
-///
-/// TODO: remove once `wit-bindgen-wrpc` invokes world-root functions on the
-/// empty instance; the pinned revision derives a `<package>/<world>` instance
-/// for them.
-struct RootInvoke<T>(T);
-
-impl<T: wrpc_transport::Invoke> wrpc_transport::Invoke for RootInvoke<T> {
-    type Context = T::Context;
-
-    async fn invoke<P>(
-        &self,
-        cx: Self::Context,
-        _instance: &str,
-        func: &str,
-        params: Bytes,
-        paths: impl AsRef<[P]> + Send,
-    ) -> anyhow::Result<(
-        wrpc_transport::frame::Outgoing,
-        wrpc_transport::frame::Incoming,
-    )>
-    where
-        P: AsRef<[Option<usize>]> + Send + Sync,
-    {
-        self.0.invoke(cx, "", func, params, paths).await
-    }
-}
-
 /// A valid signature over a known key reaches the account lookup, proving the
 /// whole verification pipeline ran; with no such account it is 403.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -558,20 +529,19 @@ async fn score_contract_flow() {
         .unwrap();
     let () = invoke(&client, req, "example", ()).await.unwrap();
 
-    let utxo_client = RootInvoke(wrpc_client());
-    bindings::plus_chips(&utxo_client, utxo_rpc(addr, 0, 0), 7)
+    bindings::plus_chips(&client, utxo_rpc(addr, 0, 0), 7)
         .await
         .unwrap();
 
-    bindings::plus_mult(&utxo_client, utxo_rpc(addr, 0, 0), 42)
+    bindings::plus_mult(&client, utxo_rpc(addr, 0, 0), 42)
         .await
         .unwrap();
 
-    bindings::mult_mult(&utxo_client, utxo_rpc(addr, 0, 0), 200)
+    bindings::mult_mult(&client, utxo_rpc(addr, 0, 0), 200)
         .await
         .unwrap();
 
-    bindings::finish(&utxo_client, utxo_rpc(addr, 0, 0))
+    bindings::finish(&client, utxo_rpc(addr, 0, 0))
         .await
         .unwrap();
 
