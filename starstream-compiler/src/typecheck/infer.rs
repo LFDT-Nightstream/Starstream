@@ -3194,11 +3194,11 @@ impl Inferencer {
                             )
                             .with_primary_message(format!(
                                 "has type `{}`",
-                                left_display.to_compact_string()
+                                left_display.compact_display()
                             ))
                             .with_secondary(
                                 right_label_span,
-                                format!("has type `{}`", right_display.to_compact_string()),
+                                format!("has type `{}`", right_display.compact_display()),
                             ));
                         }
 
@@ -3258,11 +3258,11 @@ impl Inferencer {
                             )
                             .with_primary_message(format!(
                                 "has type `{}`",
-                                left_display.to_compact_string()
+                                left_display.compact_display()
                             ))
                             .with_secondary(
                                 right_label_span,
-                                format!("has type `{}`", right_display.to_compact_string()),
+                                format!("has type `{}`", right_display.compact_display()),
                             ));
                         }
 
@@ -4277,10 +4277,10 @@ impl Inferencer {
                 },
                 left_span,
             )
-            .with_primary_message(format!("has type `{}`", left_display.to_compact_string()))
+            .with_primary_message(format!("has type `{}`", left_display.compact_display()))
             .with_secondary(
                 right_span,
-                format!("has type `{}`", right_display.to_compact_string()),
+                format!("has type `{}`", right_display.compact_display()),
             ))
         }
     }
@@ -4342,10 +4342,10 @@ impl Inferencer {
                 },
                 left_span,
             )
-            .with_primary_message(format!("has type `{}`", left_display.to_compact_string()))
+            .with_primary_message(format!("has type `{}`", left_display.compact_display()))
             .with_secondary(
                 right_span,
-                format!("has type `{}`", right_display.to_compact_string()),
+                format!("has type `{}`", right_display.compact_display()),
             ))
         }
     }
@@ -4779,7 +4779,7 @@ impl Inferencer {
                 .iter()
                 .map(|(name, scheme)| {
                     let display_ty = self.apply_for_display(&scheme.ty);
-                    format!("{name}: {}", display_ty.to_compact_string())
+                    format!("{name}: {}", display_ty.compact_display())
                 })
                 .collect::<Vec<_>>();
             format!("{{{}}}", entries.join(", "))
@@ -4851,7 +4851,7 @@ impl Inferencer {
     /// Resolves int-constrained type vars to their default (`i64`) so that
     /// traces and errors never expose internal variable names like `t3`.
     fn format_type(&self, ty: &Type) -> String {
-        self.apply_for_display(ty).to_compact_string()
+        self.apply_for_display(ty).compact_display().to_string()
     }
 
     /// Format the difference between the stored substitution map and a prior snapshot.

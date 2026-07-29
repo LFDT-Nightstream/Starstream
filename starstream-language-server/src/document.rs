@@ -975,7 +975,7 @@ impl DocumentState {
                     let params = decl
                         .params
                         .iter()
-                        .map(|p| format!("{}: {}", p.name.name, p.ty.to_compact_string()))
+                        .map(|p| format!("{}: {}", p.name.name, p.ty.compact_display()))
                         .collect::<Vec<_>>()
                         .join(", ");
                     let label = if decl.return_type == Type::Unit {
@@ -985,7 +985,7 @@ impl DocumentState {
                             "fn {}({}) -> {}",
                             decl.name.name,
                             params,
-                            decl.return_type.to_compact_string()
+                            decl.return_type.compact_display()
                         )
                     };
 
@@ -1029,14 +1029,10 @@ impl DocumentState {
             let params = function
                 .params
                 .iter()
-                .map(|p| format!("{}: {}", p.name.name, p.ty.to_compact_string()))
+                .map(|p| format!("{}: {}", p.name.name, p.ty.compact_display()))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let signature = format!(
-                "({}) -> {}",
-                params,
-                function.return_type.to_compact_string()
-            );
+            let signature = format!("({}) -> {}", params, function.return_type.compact_display());
 
             self.add_hover_label_with_doc(span, signature.clone(), doc.clone());
 
@@ -1141,7 +1137,7 @@ impl DocumentState {
 
     fn collect_expr(&mut self, expr: &Spanned<TypedExpr>, scopes: &mut Vec<HashMap<String, Span>>) {
         let doc = self.doc_for_type(&expr.node.ty);
-        self.add_hover_label_with_doc(expr.span, expr.node.ty.to_compact_string(), doc);
+        self.add_hover_label_with_doc(expr.span, expr.node.ty.compact_display().to_string(), doc);
 
         match &expr.node.kind {
             TypedExprKind::ScopedName { name, .. } => {
@@ -1846,7 +1842,11 @@ impl DocumentState {
     fn type_label_for_name(&self, name: &str) -> Option<String> {
         // Generic types: show generic definition with named params (e.g. `enum Option<T> { ... }`)
         if let Some(def) = self.generic_types.get(name) {
-            return Some(def.ty.display_with_params(&def.param_name_map()));
+            return Some(
+                def.ty
+                    .display_with_params(&def.param_name_map())
+                    .to_string(),
+            );
         }
         match name {
             "i64" => Some(Type::int().to_string()),
@@ -1895,7 +1895,10 @@ impl DocumentState {
         doc: Option<String>,
     ) {
         if let Some(def) = self.generic_types.get(name) {
-            let label = def.ty.display_with_params(&def.param_name_map());
+            let label = def
+                .ty
+                .display_with_params(&def.param_name_map())
+                .to_string();
             self.add_hover_label_with_doc(span, label, doc);
         } else {
             let ty = self.enum_types.get(name).or(fallback_ty).cloned();
@@ -2194,7 +2197,7 @@ impl DocumentState {
                         .filter_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
-                        name: abi.to_compact_string(),
+                        name: abi.compact_display().to_string(),
                         detail: Some(abi.to_string()),
                         kind: SymbolKind::INTERFACE,
                         tags: None,
@@ -2259,7 +2262,7 @@ impl DocumentState {
                         .flat_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
-                        name: abi.to_compact_string(),
+                        name: abi.compact_display().to_string(),
                         detail: Some(abi.to_string()),
                         kind: SymbolKind::INTERFACE,
                         tags: None,
@@ -2367,7 +2370,7 @@ impl DocumentState {
                         let detail = Some(format!(
                             "({}) -> {}",
                             params,
-                            decl.return_type.to_compact_string()
+                            decl.return_type.compact_display()
                         ));
 
                         #[allow(deprecated)]
@@ -2468,7 +2471,7 @@ fn format_enum_variant_hover_from_info(
             } else {
                 let payload = types
                     .iter()
-                    .map(starstream_types::Type::to_compact_string)
+                    .map(|ty| ty.compact_display().to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{enum_name}::{variant_name}({payload})")
@@ -2477,7 +2480,7 @@ fn format_enum_variant_hover_from_info(
         EnumVariantPayloadInfo::Struct(fields) => {
             let rendered_fields = fields
                 .iter()
-                .map(|(name, ty)| (name.clone(), ty.to_compact_string()))
+                .map(|(name, ty)| (name.clone(), ty.compact_display().to_string()))
                 .collect::<Vec<_>>();
             format_struct_variant_hover(enum_name, variant_name, &rendered_fields)
         }
@@ -2531,7 +2534,7 @@ fn format_variant_with_params(
             } else {
                 let payload = types
                     .iter()
-                    .map(|ty| ty.compact_display_with_params(params))
+                    .map(|ty| ty.compact_display_with_params(params).to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{enum_name}::{variant_name}({payload})")
@@ -2540,7 +2543,12 @@ fn format_variant_with_params(
         EnumVariantKind::Struct(fields) => {
             let rendered: Vec<(String, String)> = fields
                 .iter()
-                .map(|f| (f.name.to_string(), f.ty.compact_display_with_params(params)))
+                .map(|f| {
+                    (
+                        f.name.to_string(),
+                        f.ty.compact_display_with_params(params).to_string(),
+                    )
+                })
                 .collect();
             format_struct_variant_hover(enum_name, variant_name, &rendered)
         }

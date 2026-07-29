@@ -7,7 +7,7 @@
 
 use pretty::RcDoc;
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Display};
 use std::sync::Arc;
 
 use crate::{Identifier, Span, TypedAbiMethodDecl};
@@ -147,7 +147,7 @@ impl FunctionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeVarId(pub u32);
 
-impl std::fmt::Display for TypeVarId {
+impl Display for TypeVarId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "t{}", self.0)
     }
@@ -279,33 +279,29 @@ impl Type {
     }
 }
 
-impl fmt::Display for Type {
+impl Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.to_doc_mode(TypeDocMode::Expanded)
+        self.to_doc(TypeDocMode::Expanded, &HashMap::new())
             .render_fmt(TYPE_FORMAT_WIDTH, f)
     }
 }
 
 impl Type {
     #[must_use]
-    pub fn to_compact_string(&self) -> String {
-        render_doc(self.to_doc_mode(TypeDocMode::Compact))
+    pub fn compact_display(&self) -> impl Display {
+        RenderDoc(self.to_doc(TypeDocMode::Compact, &HashMap::new()))
     }
 
     /// Render expanded display using named type parameters for `Type::Var`.
     #[must_use]
-    pub fn display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
-        render_doc(self.to_doc(TypeDocMode::Expanded, params))
+    pub fn display_with_params(&self, params: &HashMap<TypeVarId, String>) -> impl Display {
+        RenderDoc(self.to_doc(TypeDocMode::Expanded, params))
     }
 
     /// Render compact display using named type parameters for `Type::Var`.
     #[must_use]
-    pub fn compact_display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
-        render_doc(self.to_doc(TypeDocMode::Compact, params))
-    }
-
-    fn to_doc_mode(&self, mode: TypeDocMode) -> RcDoc<'static, ()> {
-        self.to_doc(mode, &HashMap::new())
+    pub fn compact_display_with_params(&self, params: &HashMap<TypeVarId, String>) -> impl Display {
+        RenderDoc(self.to_doc(TypeDocMode::Compact, params))
     }
 
     fn to_doc(&self, mode: TypeDocMode, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
@@ -386,11 +382,13 @@ impl Type {
     }
 }
 
-fn render_doc(doc: RcDoc<'static, ()>) -> String {
-    let mut out = String::new();
-    doc.render_fmt(TYPE_FORMAT_WIDTH, &mut out)
-        .expect("render type doc");
-    out
+/// Like [pretty::PrettyFmt], but owns the doc, so we can `-> impl Display`.
+struct RenderDoc<'a>(RcDoc<'a, ()>);
+
+impl<'a> Display for RenderDoc<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.render_fmt(TYPE_FORMAT_WIDTH, f)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -625,7 +623,7 @@ impl Scheme {
     }
 }
 
-impl fmt::Display for Scheme {
+impl Display for Scheme {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.vars.is_empty() {
             write!(f, "{}", self.ty)
