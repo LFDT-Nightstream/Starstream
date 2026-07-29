@@ -1,0 +1,207 @@
+# starstream-execution-spec
+
+Executable reference semantics for the control-relevant part of Starstream
+component execution.
+
+This crate intentionally contains no proof circuit. It has three jobs:
+
+1. Define a canonical semantic `ExecutionTrace`.
+2. Record/project Wasmtime execution into that trace.
+3. Replay concrete traces against `spec/starstream.qnt`.
+
+## Trace boundary
+
+The Quint model currently covers:
+
+- starting and returning from the entrypoint coordination script;
+- constructing a UTXO;
+- allocating a model-local UTXO identity in constructor order and binding a
+  returned, caller-local resource handle to it;
+- starting a fresh ABI epoch through `abis-clear`;
+- advertising the ABI at a yield point;
+- calling an advertised UTXO method;
+- carrying constructor and method argument tuples as canonical 32-bit-limb
+  lists;
+- a UTXO export returning control, with `abis-clear` distinguishing a fresh
+  yield from a normal method return;
+- the main continuation yielding again or making an explicit terminal
+  coroutine `return`/`burn` call.
+
+Application events emitted through ABI event interfaces are deliberately
+excluded. They are observational and have no control or ledger semantics for
+the interleaving prover. Ledger/environment reads will be modeled separately.
+
+## Verification
+
+`QuintVerifier` generates a deterministic Quint `run` from a concrete
+`ExecutionTrace` and invokes:
+
+```sh
+quint test ... --main=replay_trace --match=execution_satisfies_spec
+```
+
+Every event must be enabled in sequence. Quint returns the first failed action
+as a rejected test trace.
+
+The verifier passes the generated, self-contained Quint test module through
+the child process's stdin and invokes `quint test /dev/stdin`. It does not
+create temporary trace files. This transport is currently Unix-specific.
+
+Install the repository-pinned Quint CLI and run the specification checks:
+
+```sh
+cd starstream-execution-spec
+npm ci
+npm run check
+```
+
+For model exploration, print one reproducible nondeterministic trace or open a
+REPL with the simulation module preloaded:
+
+```sh
+npm run trace
+npm run repl
+```
+
+Inside the REPL, call `init`, concrete semantic actions, or the nondeterministic
+`step`, and evaluate `state` to inspect the current model state.
+
+Run the Quint-backed Rust tests through npm so its local
+`node_modules/.bin/quint` is available on `PATH`:
+
+```sh
+npm test
+```
+
+With a globally installed `quint`, the equivalent workspace command is:
+
+```sh
+cargo test -p starstream-execution-spec
+```
+
+To verify a JSON trace directly:
+
+```sh
+cargo run -p starstream-execution-spec \
+  --bin starstream-verify-trace -- \
+  starstream-execution-spec/examples/score-trace.json
+```
+
+Pass `-` instead of a path to read the trace from standard input. The JSON
+format is the serde representation of `ExecutionTrace`; the example is also a
+starting point for the Wasmtime projection layer.
+
+The npm package pins Quint 0.32.0. A different executable may be supplied
+directly with `QuintVerifier::new`.
+
+## Wasmtime integration status
+
+`TraceRecorder` and `TraceSink` define the semantic integration boundary.
+`starstream-runtime-next` now has an optional Neo-Wasm capture path, and the
+separate `starstream-proving-runtime` crate builds paired host-event grammar and
+decoder templates.
+
+The current vertical slice projects linked UTXO constructor entry/return,
+compiler-emitted `abis-clear` and `implements-method` calls, plus
+interface-derived imported method calls. The full execution trace is not wired
+yet: export-boundary yield/return events and cross-instance turn ordering still
+need projection support.
+
+The control trace deliberately does not contain stable transaction process IDs
+or program hashes. A scheduler allocates model-local process IDs while merging
+the per-instance traces. The transaction/proof context is responsible for
+binding its process slots to concrete input/output identities and program
+hashes; those values constrain the Wasm/ledger proof, not coroutine
+interleaving.
+
+The intended runtime projection can provide:
+
+- coordination-script start/return;
+- imported UTXO constructor and method calls;
+- `abis-clear` calls once compiler/template support is finalized;
+- `implements-method` calls;
+- the provisional terminal coroutine `return`/`burn` call.
+
+The intended protocol emits `abis-clear` exactly once immediately before the
+`implements-method` calls at every yield, including an empty-ABI yield.
+At a `ReturnControl` export exit:
+
+- a preceding `abis-clear` means the UTXO publishes a refreshed ABI at a fresh
+  yield point;
+- without `abis-clear`, a normally returning method preserves the previous
+  ABI; and
+- a preceding coroutine `return`/`burn` call leaves the coroutine terminated.
+
+No internal function reference, yield-global, or yield-site PC needs to enter
+the semantic transcript.
+
+The existing `neo_wasm::WasmtimeTraceHandler` integration under
+`interleaving/starstream-component-runtime` is the intended implementation
+reference. `neo-wasm` supports the guest-to-guest Wasm `return_call` used by
+the current Starstream `resume;` lowering. The interleaving projection does not
+need to interpret that internal transfer.
+
+## Cross-transaction persistence
+
+The compiler's stackless-coroutine storage contains the yield selector and
+saved locals. Restoring it resumes after the previous `yield`, so the
+preceding `abis-clear` and `implements-method` host calls do not execute
+again. A ledger model must therefore persist the yielded UTXO's enabled-method
+set (or an authenticated commitment with a membership witness) and use it to
+initialize the next transaction's execution state. Deriving the set from a
+yield selector is only sound when that selector is checked against
+program-hash-bound compiler metadata.
+
+## Prototype absorbed-block decoding
+
+`nightstream` begins the transport adapter between semantic `ExecutionEvent`s
+and the eight-word blocks returned by
+`neo_wasm::comm_chain::absorbed_event_blocks`. It does not model Nightstream's
+IVC state or permutation schedule.
+
+The encoding is not self-describing. The injected grammar template and static
+component function type determine the block count and the meaning of every
+slot. In the initial `CallMethod` assignment the resource handle is a named
+slot, the method identity comes from the statically selected import, and only
+the encoded Starstream value occupies a variable number of slots:
+
+```text
+first block: [CallMethod, resource, value_0, ..., value_5]
+continuation: [value_6, ..., value_13]
+```
+
+Constructor entry has no resource or process-ID field, so all seven words
+after its discriminant are available to its argument value:
+
+```text
+first block: [BeginNewUtxo, value_0, ..., value_6]
+continuation: [value_7, ..., value_14]
+```
+
+The value width is supplied by the template, so continuation blocks need no
+length or tag. A future genuinely dynamic value type can place a length in its
+own canonical value encoding.
+
+`TemplateRegistry` is the initial component-local registry for this
+projection. A first block is dispatched by:
+
+```text
+(attributed_fref, first_block_discriminant)
+```
+
+The selected `EventTemplate` supplies the static block count and decoding
+rule. This lets one function reference emit different entry/exit opcodes, and
+prevents a continuation word that happens to equal an opcode from being
+mistaken for a new event. Every continuation block must retain the first
+block's `attributed_fref` and `turn_export_fref`.
+
+The registry currently supports static `CallMethod` templates and
+zero-argument control events. It is populated explicitly; deriving these
+entries from compiler component metadata is the next integration boundary.
+The metadata fields are circuit-constrained in a valid Nightstream trace but
+are not part of the event-chain commitment, so the projector must only consume
+them after the Wasm trace has been validated.
+
+`ClearAbi`, UTXO `ReturnControl`, and coordination-script `CoordReturn` have
+Nightstream grammar templates. Method re-entry still needs input-bootstrap
+templates before complete multi-turn UTXO traces can be normalized.
