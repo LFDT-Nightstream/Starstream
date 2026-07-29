@@ -233,14 +233,57 @@ pub enum ImportSource {
     Path(ImportPath),
 }
 
+impl std::fmt::Display for ImportSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImportSource::Wit {
+                namespace,
+                package,
+                interface: Some(interface),
+            } => write!(f, "{namespace}:{package}/{interface}"),
+            ImportSource::Wit {
+                namespace,
+                package,
+                interface: None,
+            } => write!(f, "{namespace}:{package}"),
+            ImportSource::Path(import_path) => import_path.fmt(f),
+        }
+    }
+}
+
 /// A quoted relative path to another `.star` file.
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ImportPath {
     /// The raw path text as written in the source (without surrounding quotes).
     pub value: String,
     /// Span of the literal including surrounding quotes.
     #[serde(skip)]
     pub span: Span,
+}
+
+impl PartialEq for ImportPath {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl std::fmt::Display for ImportPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Write;
+        f.write_char('"')?;
+        for c in self.value.chars() {
+            match c {
+                '"' => f.write_str("\\\"")?,
+                '\\' => f.write_str("\\\\")?,
+                '\n' => f.write_str("\\n")?,
+                '\r' => f.write_str("\\r")?,
+                '\t' => f.write_str("\\t")?,
+                c => f.write_char(c)?,
+            }
+        }
+        f.write_char('"')?;
+        Ok(())
+    }
 }
 
 /// `fn` definition.
@@ -618,6 +661,15 @@ pub enum UnaryOp {
     Not,
 }
 
+impl UnaryOp {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UnaryOp::Negate => "-",
+            UnaryOp::Not => "!",
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]
 pub enum BinaryOp {
     Multiply,
@@ -633,6 +685,26 @@ pub enum BinaryOp {
     NotEqual,
     And,
     Or,
+}
+
+impl BinaryOp {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BinaryOp::Multiply => "*",
+            BinaryOp::Divide => "/",
+            BinaryOp::Remainder => "%",
+            BinaryOp::Add => "+",
+            BinaryOp::Subtract => "-",
+            BinaryOp::Less => "<",
+            BinaryOp::LessEqual => "<=",
+            BinaryOp::Greater => ">",
+            BinaryOp::GreaterEqual => ">=",
+            BinaryOp::Equal => "==",
+            BinaryOp::NotEqual => "!=",
+            BinaryOp::And => "&&",
+            BinaryOp::Or => "||",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

@@ -306,7 +306,10 @@ impl Type {
 
     fn to_doc(&self, mode: TypeDocMode, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
         match self {
-            Type::Var(id) => RcDoc::text(params.get(id).cloned().unwrap_or_else(|| id.to_string())),
+            Type::Var(id) => match params.get(id) {
+                Some(ty) => RcDoc::text(ty.clone()),
+                None => RcDoc::as_string(id),
+            },
             Type::Int(w) => RcDoc::text(w.display_name()),
             Type::Bool => RcDoc::text("bool"),
             Type::Unit => RcDoc::text("()"),
@@ -353,19 +356,19 @@ impl Type {
                 ))
                 .append(RcDoc::text(")")),
             Type::Record(record) => match mode {
-                TypeDocMode::Compact => RcDoc::text(record.name.clone()),
+                TypeDocMode::Compact => RcDoc::as_string(&record.name),
                 TypeDocMode::Expanded => record_doc(record, params),
             },
             Type::Enum(enum_type) => match mode {
                 TypeDocMode::Compact => {
                     if enum_type.type_args.is_empty() {
-                        RcDoc::text(enum_type.name.clone())
+                        RcDoc::as_string(&enum_type.name)
                     } else {
                         let args = enum_type
                             .type_args
                             .iter()
                             .map(|ty| ty.to_doc(TypeDocMode::Compact, params));
-                        RcDoc::text(enum_type.name.clone())
+                        RcDoc::as_string(&enum_type.name)
                             .append(RcDoc::text("<"))
                             .append(comma_separated_docs(args))
                             .append(RcDoc::text(">"))
