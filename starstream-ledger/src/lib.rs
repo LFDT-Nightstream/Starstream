@@ -103,6 +103,18 @@ const CONTRACT_WIT_PACKAGE: &str = "starstream:contract";
 /// instance.
 const CONTRACT_WIT_WORLD: &str = "contract";
 
+pub enum Action {
+    ContractUpload(Bytes),
+    FundAccount { key: Box<str>, amount: u64 },
+    Transaction(Arc<Transaction>),
+}
+
+pub struct Block {
+    pub height: usize,
+    pub actions: Box<[Action]>,
+    // TODO: Add proofs
+}
+
 fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     debug!("binding TCP socket");
     let sock = match address {
@@ -255,13 +267,12 @@ impl DerefMut for Contract {
 }
 
 #[derive(Clone, Debug, Default)]
-struct Utxo {
-    #[expect(unused, reason = "unused for now")]
-    contract_digest: Arc<str>,
-    instance: Arc<str>,
-    wasm: Bytes,
-    implemented: HashSet<(u64, u64, u64, u64)>,
-    storage: Vec<(String, wasmtime::component::Val)>,
+pub struct Utxo {
+    pub contract_digest: Arc<str>,
+    pub instance: Arc<str>,
+    pub wasm: Bytes,
+    pub implemented: HashSet<(u64, u64, u64, u64)>,
+    pub storage: Vec<(String, wasmtime::component::Val)>,
 }
 
 #[derive(Clone)]
@@ -283,8 +294,11 @@ pub struct Account {
     pub last_nonce: u64,
 }
 
-struct Transaction {
-    utxos: Box<[Utxo]>,
+pub struct Transaction {
+    pub coordination_script_digest: Box<str>,
+    pub inputs: Box<[(usize, usize)]>,
+    pub outputs: Box<[Arc<Utxo>]>,
+    // TODO: Add proof
 }
 
 /// A ledger node: published contracts, persisted transactions, and the
@@ -294,8 +308,9 @@ struct Transaction {
 pub struct Ledger {
     engine: wasmtime::Engine,
     wizer: Wizer,
+    blocks: Arc<RwLock<Vec<Block>>>,
     contracts: Arc<RwLock<HashMap<Arc<str>, Contract>>>,
-    transactions: Arc<RwLock<Vec<Transaction>>>,
+    transactions: Arc<RwLock<Vec<Arc<Transaction>>>>,
     accounts: Arc<RwLock<HashMap<Box<str>, Account>>>,
     cardano: CardanoCtx,
     network: Arc<str>,
@@ -320,6 +335,7 @@ impl Ledger {
         Self {
             engine,
             wizer: Wizer::new(),
+            blocks: Arc::default(),
             contracts: Arc::default(),
             transactions: Arc::default(),
             accounts: Arc::new(RwLock::new(accounts)),
@@ -346,6 +362,7 @@ impl Ledger {
             .listen(self.max_requests)
             .context("failed to listen on TCP socket")?;
 
+        let blocks = Arc::clone(&self.blocks);
         let contracts = Arc::clone(&self.contracts);
         let transactions = Arc::clone(&self.transactions);
         let accounts = Arc::clone(&self.accounts);
@@ -355,6 +372,7 @@ impl Ledger {
         let network = Arc::clone(&self.network);
         let wizer = self.wizer.clone();
         let svc = service_fn(move |mut req: http::Request<hyper::body::Incoming>| {
+            let blocks = Arc::clone(&blocks);
             let contracts = Arc::clone(&contracts);
             let transactions = Arc::clone(&transactions);
             let accounts = Arc::clone(&accounts);
@@ -669,8 +687,16 @@ impl Ledger {
                             contract,
                             wasm: wasm.into(),
                             scripts,
-                            envelope,
+                            envelope: envelope.clone(),
                         });
+                        {
+                            let mut blocks = blocks.write().await;
+                            let height = blocks.len().saturating_add(1);
+                            blocks.push(Block {
+                                actions: [Action::ContractUpload(envelope)].into(),
+                                height,
+                            });
+                        }
                         account.balance = balance;
                         account.last_nonce = nonce;
                         build_http_response(http::StatusCode::OK, "")
@@ -1020,17 +1046,30 @@ impl Ledger {
                                     );
                                 }
                             };
-                            utxos.push(Utxo {
+                            utxos.push(Arc::new(Utxo {
                                 contract_digest: Arc::clone(contract_digest),
                                 instance,
                                 wasm: wasm.into(),
                                 implemented,
                                 storage,
+                            }));
+                        }
+                        let tx = Arc::new(Transaction {
+                            coordination_script_digest: digest,
+                            inputs: Box::default(), // TODO: Add input UTXO support
+                            outputs: utxos.into(),
+                        });
+                        {
+                            let mut transactions = transactions.write().await;
+                            transactions.push(Arc::clone(&tx));
+
+                            let mut blocks = blocks.write().await;
+                            let height = blocks.len().saturating_add(1);
+                            blocks.push(Block {
+                                actions: [Action::Transaction(tx)].into(),
+                                height,
                             });
                         }
-                        transactions.write().await.push(Transaction {
-                            utxos: utxos.into(),
-                        });
 
                         let mut data = BytesMut::with_capacity(result_tys.len());
                         for (v, ty) in zip(results, result_tys) {
@@ -1121,39 +1160,35 @@ impl Ledger {
                             &TEXT_PLAIN_UTF_8
                         };
 
-                        let Utxo {
-                            wasm,
-                            instance,
-                            implemented,
-                            ..
-                        } = {
+                        let utxo = {
                             let transactions = transactions.read().await;
-                            let Some(Transaction { utxos }) = transactions.get(tx) else {
+                            let Some(tx) = transactions.get(tx) else {
                                 return build_http_response(
                                     http::StatusCode::NOT_FOUND,
                                     format!("transaction `{tx}` not found"),
                                 );
                             };
-                            let Some(utxo) = utxos.get(utxo) else {
+                            let Some(utxo) = tx.outputs.get(utxo) else {
                                 return build_http_response(
                                     http::StatusCode::NOT_FOUND,
                                     format!("UTXO `{utxo}` not found"),
                                 );
                             };
-                            utxo.clone()
+                            Arc::clone(utxo)
                         };
 
-                        let contract =
-                            match starstream_runtime_next::Contract::<Ctx>::new(&engine, &wasm) {
-                                Ok(contract) => contract,
-                                Err(err) => {
-                                    return build_http_response(
-                                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                                        format!("{err:?}"),
-                                    );
-                                }
-                            };
-                        let export = match contract.get_utxo(&instance) {
+                        let contract = match starstream_runtime_next::Contract::<Ctx>::new(
+                            &engine, &utxo.wasm,
+                        ) {
+                            Ok(contract) => contract,
+                            Err(err) => {
+                                return build_http_response(
+                                    http::StatusCode::INTERNAL_SERVER_ERROR,
+                                    format!("{err:?}"),
+                                );
+                            }
+                        };
+                        let export = match contract.get_utxo(&utxo.instance) {
                             Ok(export) => export,
                             Err(err) => {
                                 return build_http_response(
@@ -1163,7 +1198,7 @@ impl Ledger {
                             }
                         };
 
-                        let world = utxo_world(&instance);
+                        let world = utxo_world(&utxo.instance);
                         let mut wit = String::new();
                         writeln!(wit, "package {UTXO_WIT_PACKAGE};\n").unwrap();
                         writeln!(wit, "world {world} {{").unwrap();
@@ -1177,7 +1212,7 @@ impl Ledger {
                                     );
                                 }
                             };
-                            if implemented.contains(&method_hash(name)) {
+                            if utxo.implemented.contains(&method_hash(name)) {
                                 writeln!(wit, "    import {}", wit_func(name, method.ty(), true))
                                     .unwrap();
                             }
@@ -1270,27 +1305,35 @@ impl Ledger {
                             }
                         };
 
-                        let Utxo {
-                            wasm,
-                            instance,
-                            implemented,
-                            storage,
-                            ..
-                        } = {
+                        let utxo = {
                             let transactions = transactions.read().await;
-                            let Some(Transaction { utxos }) = transactions.get(tx) else {
+                            let Some(tx) = transactions.get(tx) else {
                                 return build_http_response(
                                     http::StatusCode::NOT_FOUND,
                                     format!("transaction `{tx}` not found"),
                                 );
                             };
-                            let Some(utxo) = utxos.get(utxo) else {
+                            let Some(utxo) = tx.outputs.get(utxo) else {
                                 return build_http_response(
                                     http::StatusCode::NOT_FOUND,
                                     format!("UTXO `{utxo}` not found"),
                                 );
                             };
-                            utxo.clone()
+                            Arc::clone(utxo)
+                        };
+
+                        let wasm = {
+                            let contracts = contracts.read().await;
+                            let Some(Contract { wasm, .. }) = contracts.get(&utxo.contract_digest)
+                            else {
+                                return build_http_response(
+                                    http::StatusCode::NOT_FOUND,
+                                    format!("contract `{}` not found", utxo.contract_digest),
+                                );
+                            };
+                            // TODO: Merge UTXO state Wasm with Wasm of the contract
+                            _ = wasm;
+                            utxo.wasm.clone()
                         };
 
                         let contract = match starstream_runtime_next::Contract::new(&engine, &wasm)
@@ -1304,7 +1347,7 @@ impl Ledger {
                                 );
                             }
                         };
-                        let utxo_export = match contract.get_utxo(&instance) {
+                        let utxo_export = match contract.get_utxo(&utxo.instance) {
                             Ok(export) => export,
                             Err(err) => {
                                 return build_http_response(
@@ -1334,12 +1377,12 @@ impl Ledger {
                             &engine,
                             Ctx {
                                 cardano,
-                                implemented,
+                                implemented: utxo.implemented.clone(),
                                 ..Ctx::default()
                             },
                         );
                         let utxo = match contract
-                            .load_utxo(&mut store, storage_export, storage)
+                            .load_utxo(&mut store, storage_export, utxo.storage.clone())
                             .await
                         {
                             Ok(utxo) => utxo,
