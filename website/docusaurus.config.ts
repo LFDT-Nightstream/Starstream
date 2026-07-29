@@ -108,6 +108,22 @@ const config: Config = {
       - For top-level Markdown pages, there is a sidebar_position field in the metadata
     */
     "docusaurus-plugin-generate-llms-txt",
+
+    (context, options) => ({
+      name: "our-webpack-rules",
+      configureWebpack(config, isServer, configureWebpackUtils, content) {
+        return {
+          module: {
+            rules: [
+              {
+                resourceQuery: /raw/,
+                type: "asset/source",
+              },
+            ],
+          },
+        };
+      },
+    }),
   ],
 };
 

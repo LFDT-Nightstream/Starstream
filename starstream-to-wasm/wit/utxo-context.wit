@@ -1,0 +1,14 @@
+package starstream:std;
+
+/// Builtins needed by contracts which declare Utxos.
+interface utxo-context {
+    /// A context through which a Utxo can tell the runtime information about
+    /// its own execution status.
+    resource utxo-context {
+        /// Contracts call this to reset the method hash list and
+        resume: func();
+
+        /// Contracts call this to mark a method hash as currently implemented.
+        implements-method: func(hash: tuple<u64, u64, u64, u64>);
+    }
+}
