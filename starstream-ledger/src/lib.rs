@@ -9,7 +9,8 @@
 //!   transaction `[context, network, nonce, wasm]` (see
 //!   [`PUBLISH_CONTEXT`]), charged to an [`Account`] identified by the
 //!   signer's Ed25519 public key.
-//! - `POST /contracts/<digest>/rpc` — invoke a coordination script over
+//! - `GET`/`POST /contracts/<digest>/rpc` — fetch a contract's
+//!   coordination-script ABI as WIT and invoke a coordination script over
 //!   wRPC framing, with UTXO imports resolved via [`X_STARSTREAM_UTXO`]
 //!   headers; UTXOs the script constructs are snapshotted and persisted
 //!   as a transaction.
@@ -88,12 +89,19 @@ const TEXT_PLAIN_UTF_8: MediaType = MediaType::from_parts(
 /// server preference.
 const CONTRACT_MEDIA_TYPES: &[MediaType] = &[APPLICATION_COSE, APPLICATION_WASM];
 
-/// Representations the WIT of a UTXO can be served as, in order of
-/// server preference.
+/// Representations served WIT can take, in order of server preference.
 const WIT_MEDIA_TYPES: &[MediaType] = &[TEXT_PLAIN_UTF_8, APPLICATION_WASM];
 
 /// The WIT package the served UTXO ABI worlds are defined in.
 const UTXO_WIT_PACKAGE: &str = "starstream:utxo";
+
+/// The WIT package the served coordination-script ABI world is defined in.
+const CONTRACT_WIT_PACKAGE: &str = "starstream:contract";
+
+/// The WIT world name the coordination-script ABI of a contract is served
+/// under. The scripts themselves are invoked on the root (empty) wRPC
+/// instance.
+const CONTRACT_WIT_WORLD: &str = "contract";
 
 fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     debug!("binding TCP socket");
@@ -165,14 +173,15 @@ fn wit_type(ty: &Type) -> String {
     }
 }
 
-/// Render a `[method]utxo.<name>` export as a WIT function declaration: the
-/// trailing `<name>` segment and its params (the leading implicit
-/// `self: borrow<utxo>` receiver dropped) and results.
-fn wit_func(export: &str, ty: &types::ComponentFunc) -> String {
+/// Render an export as a WIT function declaration: the trailing name segment
+/// (the `<name>` of a `[method]utxo.<name>` export), its params — with the
+/// leading implicit `self: borrow<utxo>` receiver dropped when `receiver` is
+/// set — and results.
+fn wit_func(export: &str, ty: &types::ComponentFunc, receiver: bool) -> String {
     let name = export.rsplit('.').next().unwrap_or(export);
     let params = ty
         .params()
-        .skip(1) // the implicit `self` receiver
+        .skip(receiver.into())
         .map(|(n, t)| format!("{n}: {}", wit_type(&t)))
         .collect::<Vec<_>>()
         .join(", ");
@@ -685,6 +694,95 @@ impl Ledger {
                         format!("method `{method}` not allowed for path `{}`", pq.path()),
                     ),
 
+                    ("GET", Some("contracts"), Some(digest), Some("rpc"), None, ..) => {
+                        let accept = if req.headers().contains_key(ACCEPT) {
+                            let accept =
+                                match Accept::decode(&mut req.headers().get_all(ACCEPT).iter()) {
+                                    Ok(accept) => accept,
+                                    Err(err) => {
+                                        return build_http_response(
+                                            http::StatusCode::BAD_REQUEST,
+                                            err.to_string(),
+                                        );
+                                    }
+                                };
+                            let Some(accept) = accept.negotiate(WIT_MEDIA_TYPES) else {
+                                return build_http_response(
+                                    http::StatusCode::NOT_ACCEPTABLE,
+                                    format!(
+                                        "no acceptable media type, available: `{TEXT_PLAIN_UTF_8}`, `{APPLICATION_WASM}`"
+                                    ),
+                                );
+                            };
+                            accept
+                        } else {
+                            &TEXT_PLAIN_UTF_8
+                        };
+
+                        let contracts = contracts.read().await;
+                        let Some(Contract { contract, .. }) = contracts.get(digest) else {
+                            return build_http_response(
+                                http::StatusCode::NOT_FOUND,
+                                format!("contract `{digest}` not found"),
+                            );
+                        };
+
+                        let mut wit = String::new();
+                        writeln!(wit, "package {CONTRACT_WIT_PACKAGE};\n").unwrap();
+                        writeln!(wit, "world {CONTRACT_WIT_WORLD} {{").unwrap();
+                        for (name, script) in contract.coordination_scripts() {
+                            let script = match script {
+                                Ok(script) => script,
+                                Err(err) => {
+                                    return build_http_response(
+                                        http::StatusCode::INTERNAL_SERVER_ERROR,
+                                        format!("{err:?}"),
+                                    );
+                                }
+                            };
+                            writeln!(wit, "    import {}", wit_func(name, script.ty(), false))
+                                .unwrap();
+                        }
+                        writeln!(wit, "}}").unwrap();
+
+                        if *accept == APPLICATION_WASM {
+                            let mut resolve = wit_parser::Resolve::new();
+                            let pkg =
+                                match resolve.push_str(format!("{CONTRACT_WIT_WORLD}.wit"), &wit) {
+                                    Ok(pkg) => pkg,
+                                    Err(err) => {
+                                        return build_http_response(
+                                            http::StatusCode::INTERNAL_SERVER_ERROR,
+                                            format!("failed to parse the rendered WIT: {err:?}"),
+                                        );
+                                    }
+                                };
+                            let wasm = match wit_component::encode(&resolve, pkg) {
+                                Ok(wasm) => wasm,
+                                Err(err) => {
+                                    return build_http_response(
+                                        http::StatusCode::INTERNAL_SERVER_ERROR,
+                                        format!("failed to encode the WIT as Wasm: {err:?}"),
+                                    );
+                                }
+                            };
+                            http::Response::builder()
+                                .header(CONTENT_TYPE, APPLICATION_WASM.to_string())
+                                .body(
+                                    http_body_util::Full::new(wasm.into())
+                                        .map_err(|_| unreachable!())
+                                        .boxed(),
+                                )
+                        } else {
+                            http::Response::builder()
+                                .header(CONTENT_TYPE, TEXT_PLAIN_UTF_8.to_string())
+                                .body(
+                                    http_body_util::Full::new(wit.into())
+                                        .map_err(|_| unreachable!())
+                                        .boxed(),
+                                )
+                        }
+                    }
                     ("POST", Some("contracts"), Some(digest), Some("rpc"), None, ..) => {
                         let digest: Box<str> = digest.into();
 
@@ -1094,7 +1192,7 @@ impl Ledger {
                                 }
                             };
                             if implemented.contains(&method_hash(name)) {
-                                writeln!(wit, "    import {}", wit_func(name, method.ty()))
+                                writeln!(wit, "    import {}", wit_func(name, method.ty(), true))
                                     .unwrap();
                             }
                         }

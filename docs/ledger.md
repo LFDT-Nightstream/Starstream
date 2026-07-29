@@ -119,6 +119,31 @@ Content-negotiated via `Accept`, server preference first:
 `404 Not Found` for an unknown digest, `406 Not Acceptable` when the
 `Accept` header matches neither representation.
 
+## Fetch a contract's script ABI: `GET /contracts/<digest>/rpc`
+
+Serves the coordination-script ABI of a published contract as the
+`contract` WIT world in the `starstream:contract` package. Every
+coordination-script export of the contract appears as a root-level
+function import — the client view, suitable for feeding straight to
+`wit-bindgen-wrpc` to generate invocation bindings:
+
+```wit
+package starstream:contract;
+
+world contract {
+    import example: func();
+}
+```
+
+Content-negotiated via `Accept`, server preference first:
+
+- **`text/plain;charset=utf-8`** (default) — the WIT text.
+- **`application/wasm`** — the same package encoded as Wasm via
+  `wit-component`.
+
+`404 Not Found` for an unknown digest, `406 Not Acceptable` when the
+`Accept` header matches neither representation.
+
 ## Invoke a coordination script: `POST /contracts/<digest>/rpc`
 
 Invokes a coordination-script export of a published contract. The wRPC

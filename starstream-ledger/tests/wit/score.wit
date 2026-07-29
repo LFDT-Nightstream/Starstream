@@ -1,0 +1,5 @@
+package starstream:contract;
+
+world contract {
+    import example: func();
+}
