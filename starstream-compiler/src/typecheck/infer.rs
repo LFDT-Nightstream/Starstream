@@ -2133,7 +2133,7 @@ impl Inferencer {
             .map(|(param, arg)| (param.id, arg.clone()))
             .collect();
 
-        let mut ty = substitute_type(template_ty, &mapping);
+        let mut ty = substitute_type(template_ty, &mapping, &Default::default());
         if let Type::Enum(ref mut enum_type) = ty {
             Arc::make_mut(enum_type).type_args = type_args.to_vec();
         }
@@ -4288,80 +4288,12 @@ impl Inferencer {
     /// variables to `i64` so that error messages show a concrete type name
     /// instead of an internal type variable like `t3`.
     fn apply_for_display(&self, ty: &Type) -> Type {
-        match ty {
-            Type::Var(id) => match self.subst.get(id) {
-                Some(ty) => self.apply_for_display(ty),
-                None if self.int_vars.contains(id) => Type::int(),
-                None => Type::Var(*id),
-            },
-            Type::Function(func) => Type::from(FunctionType {
-                params: func
-                    .params
-                    .iter()
-                    .map(|t| self.apply_for_display(t))
-                    .collect(),
-                param_spans: func.param_spans.clone(),
-                result: self.apply_for_display(&func.result),
-                kind: func.kind,
-                name_span: func.name_span,
-                callee: func.callee.clone(),
-            }),
-            Type::Tuple(items) => Type::Tuple(Arc::new(
-                items.iter().map(|t| self.apply_for_display(t)).collect(),
-            )),
-            Type::Record(record) => Type::from(RecordType {
-                name: record.name.clone(),
-                fields: record
-                    .fields
-                    .iter()
-                    .map(|field| RecordFieldType {
-                        name: field.name.clone(),
-                        ty: self.apply_for_display(&field.ty),
-                    })
-                    .collect(),
-            }),
-            Type::Enum(enum_type) => Type::from(EnumType {
-                name: enum_type.name.clone(),
-                type_args: enum_type
-                    .type_args
-                    .iter()
-                    .map(|t| self.apply_for_display(t))
-                    .collect(),
-                variants: enum_type
-                    .variants
-                    .iter()
-                    .map(|variant| EnumVariantType {
-                        name: variant.name.clone(),
-                        kind: match &variant.kind {
-                            EnumVariantKind::Unit => EnumVariantKind::Unit,
-                            EnumVariantKind::Tuple(payload) => EnumVariantKind::Tuple(
-                                payload
-                                    .iter()
-                                    .map(|ty| self.apply_for_display(ty))
-                                    .collect(),
-                            ),
-                            EnumVariantKind::Struct(fields) => EnumVariantKind::Struct(
-                                fields
-                                    .iter()
-                                    .map(|field| {
-                                        RecordFieldType::new(
-                                            field.name.clone(),
-                                            self.apply_for_display(&field.ty),
-                                        )
-                                    })
-                                    .collect(),
-                            ),
-                        },
-                    })
-                    .collect(),
-            }),
-            _ => ty.clone(),
-        }
+        substitute_type(ty, &self.subst, &self.int_vars)
     }
 
     /// Fully normalize a type by applying the current substitution set.
     fn apply(&self, ty: &Type) -> Type {
-        substitute_type(ty, &self.subst)
+        substitute_type(ty, &self.subst, &Default::default())
     }
 
     /// Rewrite every definition in the program with normalized types.
@@ -4569,7 +4501,7 @@ impl Inferencer {
         for var in &scheme.vars {
             mapping.insert(*var, self.fresh_var());
         }
-        substitute_type(&scheme.ty, &mapping)
+        substitute_type(&scheme.ty, &mapping, &Default::default())
     }
 
     /// Allocate a new inference variable unique to this inferencer.
@@ -5240,20 +5172,25 @@ impl Inferencer {
 }
 
 /// Recursively replace any variables mentioned in `mapping` within `ty`.
-fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
+fn substitute_type(
+    ty: &Type,
+    mapping: &HashMap<TypeVarId, Type>,
+    int_vars: &HashSet<TypeVarId>,
+) -> Type {
     match ty {
         Type::Var(id) => match mapping.get(id) {
-            Some(ty) => substitute_type(ty, mapping),
+            Some(ty) => substitute_type(ty, mapping, int_vars),
+            None if int_vars.contains(id) => Type::int(),
             None => Type::Var(*id),
         },
         Type::Function(func) => Type::from(FunctionType {
             params: func
                 .params
                 .iter()
-                .map(|ty| substitute_type(ty, mapping))
+                .map(|ty| substitute_type(ty, mapping, int_vars))
                 .collect(),
             param_spans: func.param_spans.clone(),
-            result: substitute_type(&func.result, mapping),
+            result: substitute_type(&func.result, mapping, int_vars),
             kind: func.kind,
             name_span: func.name_span,
             callee: func.callee.clone(),
@@ -5261,7 +5198,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
         Type::Tuple(items) => Type::Tuple(Arc::new(
             items
                 .iter()
-                .map(|ty| substitute_type(ty, mapping))
+                .map(|ty| substitute_type(ty, mapping, int_vars))
                 .collect(),
         )),
         Type::Record(record) => Type::from(RecordType {
@@ -5271,7 +5208,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                 .iter()
                 .map(|field| RecordFieldType {
                     name: field.name.clone(),
-                    ty: substitute_type(&field.ty, mapping),
+                    ty: substitute_type(&field.ty, mapping, int_vars),
                 })
                 .collect(),
         }),
@@ -5287,7 +5224,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                         EnumVariantKind::Tuple(payload) => EnumVariantKind::Tuple(
                             payload
                                 .iter()
-                                .map(|ty| substitute_type(ty, mapping))
+                                .map(|ty| substitute_type(ty, mapping, int_vars))
                                 .collect(),
                         ),
                         EnumVariantKind::Struct(fields) => EnumVariantKind::Struct(
@@ -5296,7 +5233,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                                 .map(|field| {
                                     RecordFieldType::new(
                                         field.name.clone(),
-                                        substitute_type(&field.ty, mapping),
+                                        substitute_type(&field.ty, mapping, int_vars),
                                     )
                                 })
                                 .collect(),
@@ -5307,7 +5244,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             type_args: enum_type
                 .type_args
                 .iter()
-                .map(|ty| substitute_type(ty, mapping))
+                .map(|ty| substitute_type(ty, mapping, int_vars))
                 .collect(),
         }),
         Type::Int(w) => Type::Int(*w),
