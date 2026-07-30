@@ -100,18 +100,14 @@ implemented in [Nightstream](https://github.com/LFDT-Nightstream/Nightstream)
 and consumed here through pinned workspace dependencies such as `neo-fold`,
 `neo-ccs`, `neo-memory`, and `neo-vm-trace`.
 
-- `interleaving/starstream-interleaving-spec/` - Transaction and interleaving
+- `starstream-interleaving-spec/` - Executable Quint specification and trace
+verification for the current coroutine interleaving protocol.
+- `interleaving/starstream-interleaving-spec-legacy/` - Legacy transaction and interleaving
 semantics, public instance types (tied to a demo ledger implementation), and
 witness types. Plus a Wasm spec for the requirements on the UTXO zkVM.
-- `interleaving/starstream-interleaving-proof/` - Starstream interleaving proof
+- `interleaving/starstream-interleaving-proof-legacy/` - Legacy Starstream interleaving proof
 circuit (CCS) and Nightstream folding-session integration with MCC middleware
 for Twist and Shout (implemented in Nightstream).
-- `interleaving/starstream-component-runtime/` - Component execution runtime and
-transaction session wiring (witness generation for proving, currently only for
-the interleaving).
-- `interleaving/starstream-runtime/` - Minimal runtime for testing
-Wasm to interleaving proof semantics. Will be replaced completely by
-`starstream-component-runtime` eventually.
 
 Interfaces:
 
