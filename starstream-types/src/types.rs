@@ -209,6 +209,18 @@ impl From<Arc<EnumType>> for Type {
     }
 }
 
+impl From<AbiType> for Type {
+    fn from(value: AbiType) -> Self {
+        Type::Abi(Arc::new(value))
+    }
+}
+
+impl From<Arc<AbiType>> for Type {
+    fn from(value: Arc<AbiType>) -> Self {
+        Type::Abi(value)
+    }
+}
+
 impl IntWidth {
     #[must_use]
     pub fn is_signed(self) -> bool {

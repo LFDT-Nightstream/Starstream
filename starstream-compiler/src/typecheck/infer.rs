@@ -630,7 +630,6 @@ struct Inferencer {
 
     /// Root namespace, and registries for things that can't be namespaced (yet).
     root: Namespace,
-    abis: AbiRegistry,
 
     /// Registry of builtins that are available to be `import`ed.
     builtins: BuiltinRegistry,
@@ -696,6 +695,20 @@ impl Namespace {
         }
         Ok(ns)
     }
+
+    fn get_abi(&self, name: &Identifier) -> Result<&Arc<AbiType>, TypeError> {
+        if let Some(type_entry) = self.types.get(name.as_str()) {
+            if let Type::Abi(abi) = &type_entry.ty {
+                return Ok(abi);
+            }
+        }
+        Err(TypeError::new(
+            TypeErrorKind::UnknownAbi {
+                name: name.to_string(),
+            },
+            name.span(),
+        ))
+    }
 }
 
 #[derive(Clone)]
@@ -736,26 +749,6 @@ impl StructConstructor {
     }
 }
 
-struct AbiRegistry {
-    entries: HashMap<String, Arc<AbiType>>,
-}
-
-impl AbiRegistry {
-    fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-        }
-    }
-
-    fn insert(&mut self, name: String, info: AbiType) {
-        self.entries.insert(name, Arc::new(info));
-    }
-
-    fn get(&self, name: &str) -> Option<&Arc<AbiType>> {
-        self.entries.get(name)
-    }
-}
-
 /// Tracks linearity of method calls on a narrowed ABI variable.
 struct AbiCallTracker {
     var_name: String,
@@ -782,7 +775,6 @@ impl Inferencer {
             int_vars: HashSet::new(),
             int_literal_values: HashMap::new(),
             root: Namespace::default(),
-            abis: AbiRegistry::new(),
             builtins: BuiltinRegistry::new(),
             warnings: Vec::new(),
             abi_call_trackers: Vec::new(),
@@ -807,12 +799,12 @@ impl Inferencer {
             return_type: Type::Unit,
             span: DUMMY_SPAN,
         };
-        self.abis.insert(
+        self.root.types.insert(
             "Token".to_owned(),
-            AbiType {
+            TypeEntry::from(Type::from(AbiType {
                 name: Identifier::new("Token", DUMMY_SPAN),
                 methods: vec![method("attach"), method("detach")],
-            },
+            })),
         );
     }
 
@@ -1209,12 +1201,12 @@ impl Inferencer {
                 }
             }
         }
-        self.abis.insert(
+        self.root.types.insert(
             def.name.name.clone(),
-            AbiType {
+            TypeEntry::from(Type::from(AbiType {
                 name: def.name.clone(),
                 methods,
-            },
+            })),
         );
         Ok(())
     }
@@ -1700,9 +1692,9 @@ impl Inferencer {
                     let Type::Function(func_ty) = &event_info.ty else {
                         unreachable!()
                     };
-                    let params = &func_ty.params;
 
-                    let params = params
+                    let params = func_ty
+                        .params
                         .iter()
                         .zip(&event.params)
                         .map(|(ty, param)| TypedFunctionParam {
@@ -1749,7 +1741,15 @@ impl Inferencer {
                     }));
                 }
                 AbiPart::FnDecl(method) => {
-                    let abi_info = self.abis.get(&def.name.name).expect("abi registered");
+                    let Type::Abi(abi_info) = &self
+                        .root
+                        .types
+                        .get(&def.name.name)
+                        .expect("abi registered")
+                        .ty
+                    else {
+                        unreachable!()
+                    };
                     let method_info = abi_info
                         .methods
                         .iter()
@@ -1810,14 +1810,7 @@ impl Inferencer {
                         .collect::<Result<Vec<_>, _>>()?;
 
                     // Assert that the signature sets match
-                    let Some(abi_info) = self.abis.get(abi.as_str()) else {
-                        return Err(TypeError::new(
-                            TypeErrorKind::UnknownAbi {
-                                name: abi.to_string(),
-                            },
-                            span,
-                        ));
-                    };
+                    let abi_info = self.root.get_abi(&abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
                     let abi = Type::Abi(abi_info.clone());
@@ -1936,14 +1929,7 @@ impl Inferencer {
 
                     // Assert that the signature sets match. `Token` resolves to
                     // the built-in ABI; other names must be user-declared ABIs.
-                    let Some(abi_info) = self.abis.get(abi.as_str()) else {
-                        return Err(TypeError::new(
-                            TypeErrorKind::UnknownAbi {
-                                name: abi.to_string(),
-                            },
-                            span,
-                        ));
-                    };
+                    let abi_info = self.root.get_abi(&abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
                     let abi = Type::Abi(abi_info.clone());
@@ -3580,15 +3566,7 @@ impl Inferencer {
                                 }
                             }
 
-                            let Some(abi) = self.abis.get(&abi_name.name) else {
-                                return Err(TypeError::new(
-                                    TypeErrorKind::UnknownAbi {
-                                        name: abi_name.name.clone(),
-                                    },
-                                    abi_name.span(),
-                                ));
-                            };
-
+                            let abi = self.root.get_abi(&abi_name)?;
                             let var_name_str = name.name.clone();
                             let abi_name_str = abi_name.name.clone();
 
@@ -3833,17 +3811,7 @@ impl Inferencer {
                 // TODO: assert that this utxo impls each abi named
                 let abis = abis
                     .iter()
-                    .map(|abi| {
-                        let abi = self.abis.get(abi.as_str()).ok_or_else(|| {
-                            TypeError::new(
-                                TypeErrorKind::UnknownAbi {
-                                    name: abi.to_string(),
-                                },
-                                expr.span,
-                            )
-                        })?;
-                        Ok(abi.clone())
-                    })
+                    .map(|abi| Ok(self.root.get_abi(&abi)?.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok((
                     Spanned::new(
