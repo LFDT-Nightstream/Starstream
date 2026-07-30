@@ -896,7 +896,11 @@ impl Inferencer {
             })
             .collect();
 
-        let ty = Type::enum_type(name, type_variants);
+        let ty = Type::from(EnumType {
+            name: name.to_owned(),
+            variants: type_variants,
+            type_args: vec![],
+        });
         self.root.types.insert(
             name.to_string(),
             TypeEntry {
@@ -1305,7 +1309,10 @@ impl Inferencer {
             .iter()
             .map(|field| RecordFieldType::new(field.name.clone(), field.ty.clone()))
             .collect();
-        let ty = Type::record(def.name.name.clone(), type_fields);
+        let ty = Type::from(RecordType {
+            name: def.name.to_string(),
+            fields: type_fields,
+        });
         self.root.types.insert(
             def.name.name.clone(),
             TypeEntry {

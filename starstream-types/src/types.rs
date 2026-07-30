@@ -165,28 +165,6 @@ impl Type {
     pub fn int() -> Self {
         Type::Int(IntWidth::I64)
     }
-
-    #[must_use]
-    pub fn int_of(w: IntWidth) -> Self {
-        Type::Int(w)
-    }
-
-    /// Canonical record type helper.
-    pub fn record(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
-        Type::Record(Arc::new(RecordType {
-            name: name.into(),
-            fields,
-        }))
-    }
-
-    /// Canonical enum type helper.
-    pub fn enum_type(name: impl Into<String>, variants: Vec<EnumVariantType>) -> Self {
-        Type::Enum(Arc::new(EnumType {
-            name: name.into(),
-            variants,
-            type_args: vec![],
-        }))
-    }
 }
 
 impl From<IntWidth> for Type {
