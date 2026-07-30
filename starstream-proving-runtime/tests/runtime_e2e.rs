@@ -4,7 +4,7 @@ use std::sync::Arc;
 use neo_wasm::event_grammar::TurnClaims;
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
-use starstream_interleaving_spec::{ExecutionEvent, MethodHash};
+use starstream_interleaving_spec::{ExecutionEvent, ExecutionTrace, MethodHash, interleave_traces};
 use starstream_proving_runtime::{
     TracedContract, WasmTraceHost, build_component_templates, decode_absorbed_blocks,
     new_tracing_wasmtime_store, new_wasmtime_config,
@@ -209,8 +209,7 @@ async fn compiled_coordination_script_traces_utxo_creation_and_abi_publication()
         let absorbed = neo_wasm::comm_chain::absorbed_event_blocks(&trace);
         instance_events.push(
             decode_absorbed_blocks(&templates.decoder, &absorbed)
-                .map_err(|error| wasmtime::format_err!("failed to decode blocks: {error}"))?
-                .0,
+                .map_err(|error| wasmtime::format_err!("failed to decode blocks: {error}"))?,
         );
     }
 
@@ -221,7 +220,7 @@ async fn compiled_coordination_script_traces_utxo_creation_and_abi_publication()
         ExecutionEvent::BeginNewUtxo { arguments },
         ExecutionEvent::NewUtxoReturn { resource: _ },
         ExecutionEvent::CoordReturn,
-    ] = coord_events.as_slice()
+    ] = coord_events.0.as_slice()
     else {
         bail!("unexpected coordination events: {coord_events:?}");
     };
@@ -230,11 +229,26 @@ async fn compiled_coordination_script_traces_utxo_creation_and_abi_publication()
         ExecutionEvent::ClearAbi,
         ExecutionEvent::AdvertiseMethod { method },
         ExecutionEvent::ReturnControl,
-    ] = utxo_events.as_slice()
+    ] = utxo_events.0.as_slice()
     else {
         bail!("unexpected UTXO events: {utxo_events:?}");
     };
     assert_eq!(*method, method_hash("add"));
+
+    let merged = interleave_traces(&instance_events)
+        .map_err(|error| wasmtime::format_err!("failed to interleave traces: {error}"))?;
+    assert_eq!(
+        merged,
+        ExecutionTrace::new([
+            ExecutionEvent::Init,
+            coord_events.0[0].clone(),
+            utxo_events.0[0].clone(),
+            utxo_events.0[1].clone(),
+            utxo_events.0[2].clone(),
+            coord_events.0[1].clone(),
+            coord_events.0[2].clone(),
+        ])
+    );
     Ok(())
 }
 

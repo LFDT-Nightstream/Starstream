@@ -3,11 +3,12 @@
 Executable reference semantics for the control-relevant part of Starstream
 component execution.
 
-This crate intentionally contains no proof circuit. It has three jobs:
+This crate intentionally contains no proof circuit. It has four jobs:
 
 1. Define a canonical semantic `ExecutionTrace`.
-2. Record/project Wasmtime execution into that trace.
-3. Replay concrete traces against `spec/starstream.qnt`.
+2. Record/project Wasmtime execution into process-local traces.
+3. Merge those traces in cooperative control-flow order.
+4. Replay the resulting execution against `spec/starstream.qnt`.
 
 ## Trace boundary
 
@@ -108,9 +109,18 @@ paired host-event grammar and decoder templates.
 
 The current vertical slice projects linked UTXO constructor entry/return,
 compiler-emitted `abis-clear` and `implements-method` calls, plus
-interface-derived imported method calls. The full execution trace is not wired
-yet: export-boundary yield/return events and cross-instance turn ordering still
-need projection support.
+interface-derived imported method calls and export-boundary return events.
+
+`interleave_traces` merges already-decoded process-local traces. The first
+trace is the entrypoint coordination script, and subsequent traces are
+assigned to `BeginNewUtxo` events in constructor order. The merger follows
+`BeginNewUtxo`, `CallMethod`, and `ReturnControl` to select the next local
+trace, while resolving caller-local resource handles to their constructed
+UTXO process. It also adds the transaction-level `Init` event.
+
+Complete method re-entry is not wired through the runtime E2E test yet:
+multi-turn UTXO normalization still needs input-bootstrap claims before all
+turns of one core-instance trace can be decoded and merged.
 
 The control trace deliberately does not contain stable transaction process IDs
 or program hashes. A scheduler allocates model-local process IDs while merging

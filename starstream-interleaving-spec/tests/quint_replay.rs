@@ -1,6 +1,6 @@
 use starstream_interleaving_spec::{
     ExecutionEvent, ExecutionTrace, MethodHash, QuintError, QuintVerifier, ResourceHandle,
-    StarstreamValue, VerificationFailure,
+    StarstreamValue, VerificationFailure, interleave_traces,
 };
 
 fn method(n: u64) -> MethodHash {
@@ -8,41 +8,43 @@ fn method(n: u64) -> MethodHash {
 }
 
 fn score_like_trace() -> ExecutionTrace {
-    ExecutionTrace::new([
-        ExecutionEvent::Init,
+    let resource = ResourceHandle(7);
+    let coordinator = ExecutionTrace::new([
         ExecutionEvent::BeginNewUtxo {
             arguments: StarstreamValue(vec![55]),
         },
+        ExecutionEvent::NewUtxoReturn { resource },
+        ExecutionEvent::CallMethod {
+            resource,
+            method: method(1),
+            arguments: StarstreamValue(vec![13]),
+        },
+        ExecutionEvent::CallMethod {
+            resource,
+            method: method(2),
+            arguments: StarstreamValue(vec![]),
+        },
+        ExecutionEvent::CallMethod {
+            resource,
+            method: method(3),
+            arguments: StarstreamValue(vec![42, 0]),
+        },
+        ExecutionEvent::CoordReturn,
+    ]);
+    let utxo = ExecutionTrace::new([
         ExecutionEvent::ClearAbi,
         ExecutionEvent::AdvertiseMethod { method: method(1) },
         ExecutionEvent::AdvertiseMethod { method: method(2) },
         ExecutionEvent::ReturnControl,
-        ExecutionEvent::NewUtxoReturn {
-            resource: ResourceHandle(7),
-        },
-        ExecutionEvent::CallMethod {
-            resource: ResourceHandle(7),
-            method: method(1),
-            arguments: StarstreamValue(vec![13]),
-        },
         ExecutionEvent::ReturnControl,
-        ExecutionEvent::CallMethod {
-            resource: ResourceHandle(7),
-            method: method(2),
-            arguments: StarstreamValue(vec![]),
-        },
         ExecutionEvent::ClearAbi,
         ExecutionEvent::AdvertiseMethod { method: method(3) },
         ExecutionEvent::ReturnControl,
-        ExecutionEvent::CallMethod {
-            resource: ResourceHandle(7),
-            method: method(3),
-            arguments: StarstreamValue(vec![42, 0]),
-        },
         ExecutionEvent::CoroutineReturn,
         ExecutionEvent::ReturnControl,
-        ExecutionEvent::CoordReturn,
-    ])
+    ]);
+
+    interleave_traces(&[coordinator, utxo]).expect("score process traces should interleave")
 }
 
 fn assert_model_rejection(error: QuintError) -> VerificationFailure {

@@ -7,9 +7,11 @@
 
 pub mod nightstream;
 
+mod interleave;
 mod quint;
 mod trace;
 
+pub use interleave::{InterleavingError, interleave_traces};
 pub use quint::{QuintError, QuintVerifier, VerificationFailure};
 pub use trace::{
     ExecutionEvent, ExecutionTrace, MethodHash, ProcessId, ResourceHandle, StarstreamValue,
