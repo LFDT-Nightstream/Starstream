@@ -90,7 +90,7 @@ fn let_binding_traces() {
             let answer = 42;
             let foo: i64 = 10;
             let bar: bool = false;
-            let baz: _ = 2;
+            let baz: i8 = 2;
         }
         "#
     );

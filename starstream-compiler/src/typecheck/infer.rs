@@ -4102,9 +4102,6 @@ impl Inferencer {
 
         // Look up type information.
         let (last, path) = annotation.name.split_last().unwrap();
-        if path.is_empty() && last.as_str() == "_" {
-            return Ok(self.fresh_var());
-        }
         let ns = self.root.get_child(path)?;
         let Some(entry) = ns.types.get(last.as_str()) else {
             return Err(TypeError::new(
