@@ -49,11 +49,18 @@ fn assert_model_rejection(error: QuintError) -> VerificationFailure {
     let QuintError::Rejected(failure) = error else {
         panic!("expected Quint model rejection, got {error:?}");
     };
-    assert!(
-        !failure.stderr.contains("parsing failed"),
-        "generated Quint failed to parse:\n{}",
-        failure.stderr
-    );
+    let diagnostics = format!("{}\n{}", failure.stdout, failure.stderr);
+    for marker in [
+        "parsing failed",
+        "typechecking failed",
+        "static analysis error",
+    ] {
+        assert!(
+            !diagnostics.contains(marker),
+            "expected a model rejection, but Quint reported a static-analysis failure:\n\
+             {diagnostics}"
+        );
+    }
     failure
 }
 
@@ -65,12 +72,33 @@ fn accepts_a_score_like_execution() {
 }
 
 #[test]
-fn rejects_an_incomplete_execution() {
-    let trace = ExecutionTrace::new([ExecutionEvent::Init]);
+fn reports_generated_quint_static_errors_separately() {
+    let verifier = QuintVerifier::default().with_spec(format!(
+        "{}/tests/invalid-replay-spec.qnt",
+        env!("CARGO_MANIFEST_DIR")
+    ));
+    let error = verifier
+        .verify(&ExecutionTrace::new([ExecutionEvent::Init]))
+        .expect_err("the invalid Quint fixture should fail typechecking");
+
+    let QuintError::Typecheck(failure) = error else {
+        panic!("expected a Quint typechecking failure, got {error:?}");
+    };
+    assert!(
+        failure.stderr.contains("typechecking failed")
+            || failure.stdout.contains("typechecking failed"),
+        "missing Quint typechecking diagnostic: {failure:?}"
+    );
+}
+
+#[test]
+fn rejects_a_trace_truncated_before_coord_return() {
+    let mut trace = score_like_trace();
+    assert_eq!(trace.0.pop(), Some(ExecutionEvent::CoordReturn));
 
     let error = QuintVerifier::default()
         .verify(&trace)
-        .expect_err("an initialized but running execution should be rejected");
+        .expect_err("a trace truncated before coordination-script return should be rejected");
     assert_model_rejection(error);
 }
 
@@ -160,5 +188,8 @@ fn rejects_a_second_init() {
     let error = QuintVerifier::default()
         .verify(&trace)
         .expect_err("invalid execution should be rejected");
-    assert_model_rejection(error);
+    assert!(
+        matches!(error, QuintError::RepeatedInit { index: 1 }),
+        "expected structural rejection of the repeated Init, got {error:?}"
+    );
 }

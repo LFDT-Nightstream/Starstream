@@ -25,6 +25,12 @@ pub enum QuintError {
     #[error("cannot validate an empty execution trace")]
     EmptyTrace,
 
+    #[error("execution trace must start with Init")]
+    MissingInit,
+
+    #[error("execution trace contains another Init at index {index}")]
+    RepeatedInit { index: usize },
+
     #[error("failed to read Quint specification at {path}: {source}")]
     ReadSpec {
         path: PathBuf,
@@ -45,6 +51,9 @@ pub enum QuintError {
         #[source]
         source: std::io::Error,
     },
+
+    #[error("generated Quint replay module failed typechecking")]
+    Typecheck(VerificationFailure),
 
     #[error("Quint rejected the execution trace")]
     Rejected(VerificationFailure),
@@ -85,11 +94,14 @@ impl QuintVerifier {
             })?;
 
         let ExecutionEvent::Init = first else {
-            return Ok(render_rejected_shape(
-                &spec_source,
-                "trace must start with Init",
-            ));
+            return Err(QuintError::MissingInit);
         };
+        if let Some(index) = rest
+            .iter()
+            .position(|event| matches!(event, ExecutionEvent::Init))
+        {
+            return Err(QuintError::RepeatedInit { index: index + 1 });
+        }
 
         let mut source = spec_source;
         if !source.ends_with('\n') {
@@ -114,29 +126,39 @@ impl QuintVerifier {
     /// coordinator state.
     pub fn verify(&self, trace: &ExecutionTrace) -> Result<(), QuintError> {
         let generated_source = self.render(trace)?;
-        let output = self.run_quint(&generated_source)?;
+        let typecheck = self.run_quint(&generated_source, &["typecheck", "/dev/stdin"])?;
+        if !typecheck.status.success() {
+            return Err(QuintError::Typecheck(verification_failure(
+                &generated_source,
+                &typecheck,
+            )));
+        }
+
+        let output = self.run_quint(
+            &generated_source,
+            &[
+                "test",
+                "/dev/stdin",
+                "--main=replay_trace",
+                "--match=execution_satisfies_spec",
+                "--verbosity=3",
+                "--backend=rust",
+            ],
+        )?;
         if output.status.success() {
             Ok(())
         } else {
-            Err(QuintError::Rejected(VerificationFailure {
-                generated_source,
-                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-            }))
+            Err(QuintError::Rejected(verification_failure(
+                &generated_source,
+                &output,
+            )))
         }
     }
 
-    fn run_quint(&self, generated_source: &str) -> Result<Output, QuintError> {
+    fn run_quint(&self, generated_source: &str, args: &[&str]) -> Result<Output, QuintError> {
         let program = self.quint.to_string_lossy().into_owned();
         let mut child = Command::new(&self.quint)
-            .args([
-                OsStr::new("test"),
-                OsStr::new("/dev/stdin"),
-                OsStr::new("--main=replay_trace"),
-                OsStr::new("--match=execution_satisfies_spec"),
-                OsStr::new("--verbosity=1"),
-                OsStr::new("--backend=rust"),
-            ])
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -165,7 +187,7 @@ impl QuintVerifier {
 
 fn render_event(event: &ExecutionEvent) -> String {
     match event {
-        ExecutionEvent::Init => "false".to_owned(),
+        ExecutionEvent::Init => unreachable!("render validates that Init appears only once"),
         ExecutionEvent::BeginNewUtxo { arguments } => {
             format!("begin_new_utxo({})", qnt_value(&arguments.0))
         }
@@ -194,10 +216,12 @@ fn render_event(event: &ExecutionEvent) -> String {
     }
 }
 
-fn render_rejected_shape(spec_source: &str, reason: &str) -> String {
-    format!(
-        "{spec_source}\n\nmodule replay_trace {{\n  import starstream_execution.*\n  // {reason}\n  run execution_satisfies_spec = false\n}}\n"
-    )
+fn verification_failure(generated_source: &str, output: &Output) -> VerificationFailure {
+    VerificationFailure {
+        generated_source: generated_source.to_owned(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
 }
 
 fn qnt_string(value: &str) -> String {

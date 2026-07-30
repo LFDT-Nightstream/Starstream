@@ -44,6 +44,10 @@ Every event must be enabled in sequence, and the entrypoint coordination script
 must have returned with an empty call stack and no pending constructor. Quint
 returns the first failed action as a rejected test trace.
 
+Before running the replay, the verifier passes the same generated module
+through `quint typecheck`. Static-analysis failures and model rejections are
+reported separately.
+
 The verifier passes the generated, self-contained Quint test module through
 the child process's stdin and invokes `quint test /dev/stdin`. It does not
 create temporary trace files. This transport is currently Unix-specific.

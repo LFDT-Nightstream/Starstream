@@ -3,7 +3,9 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::process::ExitCode;
 
-use starstream_interleaving_spec::{ExecutionTrace, QuintError, QuintVerifier};
+use starstream_interleaving_spec::{
+    ExecutionTrace, QuintError, QuintVerifier, VerificationFailure,
+};
 
 fn main() -> ExitCode {
     match run() {
@@ -54,9 +56,40 @@ fn format_quint_error(error: QuintError) -> String {
         QuintError::Rejected(failure) => {
             format!(
                 "trace violates the Starstream execution specification\n{}",
-                failure.stderr
+                format_quint_diagnostics(&failure)
             )
         }
+        QuintError::Typecheck(failure) => format!(
+            "generated Quint replay module failed typechecking\n{}",
+            format_quint_diagnostics(&failure)
+        ),
         other => other.to_string(),
+    }
+}
+
+fn format_quint_diagnostics(failure: &VerificationFailure) -> String {
+    [failure.stdout.trim(), failure.stderr.trim()]
+        .into_iter()
+        .filter(|output| !output.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quint_diagnostics_include_stdout_and_stderr() {
+        let failure = VerificationFailure {
+            generated_source: String::new(),
+            stdout: "failed action trace".into(),
+            stderr: "error: Tests failed".into(),
+        };
+
+        assert_eq!(
+            format_quint_diagnostics(&failure),
+            "failed action trace\nerror: Tests failed"
+        );
     }
 }
