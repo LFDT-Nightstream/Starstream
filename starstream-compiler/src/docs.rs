@@ -94,7 +94,7 @@ impl From<&Type> for TypeRef {
                 name: name.to_owned(),
                 kind: TypeKind::Resource,
             },
-            Type::AbiNarrow(abi) => TypeRef::Resource {
+            Type::Abi(abi) => TypeRef::Resource {
                 name: abi.name.to_string(),
                 kind: TypeKind::Resource,
             },

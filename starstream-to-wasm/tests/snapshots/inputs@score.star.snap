@@ -967,7 +967,7 @@ TypedProgram {
                     ),
                     AbiImpl {
                         span: 343..348,
-                        abi: AbiNarrow(
+                        abi: Abi(
                             AbiType {
                                 name: Identifier {
                                     name: "Score",

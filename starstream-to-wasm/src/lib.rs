@@ -1085,7 +1085,7 @@ impl Compiler {
                     .collect();
                 ComponentAbiType::Variant { cases }
             }
-            Type::AbiNarrow(_) => {
+            Type::Abi(_) => {
                 // ABI narrowing is a type-checker-only concept; no codegen yet.
                 return None;
             }
@@ -1269,7 +1269,7 @@ impl Compiler {
             }
             Type::Function { .. } => todo!(),
             Type::Var(_) => todo!(),
-            Type::AbiNarrow(_) => 0,
+            Type::Abi(_) => 0,
         }
     }
 
@@ -3139,9 +3139,7 @@ impl Compiler {
 
                         Ok(())
                     }
-                    None => {
-                        Err(self.push_error(callee_span, "function pointers not supported"))
-                    }
+                    None => Err(self.push_error(callee_span, "function pointers not supported")),
                 }
             }
             TypedExprKind::Match { scrutinee, arms } => {

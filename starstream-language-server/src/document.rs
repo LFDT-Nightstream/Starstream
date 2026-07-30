@@ -1181,7 +1181,7 @@ impl DocumentState {
 
                 // Add hover with doc comment for field access
                 if let Some(field_span) = field.opt_span() {
-                    if let Type::AbiNarrow(ref abi) = target.node.ty {
+                    if let Type::Abi(ref abi) = target.node.ty {
                         // ABI method access — show method signature with doc comment
                         if let Some((label, doc)) = self
                             .abi_method_info

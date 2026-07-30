@@ -140,7 +140,7 @@ TypedProgram {
                 parts: [
                     AbiImpl {
                         span: 61..66,
-                        abi: AbiNarrow(
+                        abi: Abi(
                             AbiType {
                                 name: Identifier {
                                     name: "MyAbi",

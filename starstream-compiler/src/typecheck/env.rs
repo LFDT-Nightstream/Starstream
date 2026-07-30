@@ -137,7 +137,7 @@ fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
         | Type::UtxoNamed(_)
         | Type::TokenAny
         | Type::TokenNamed(_)
-        | Type::AbiNarrow(_) => {}
+        | Type::Abi(_) => {}
     }
 }
 

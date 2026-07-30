@@ -1820,7 +1820,7 @@ impl Inferencer {
                     };
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
-                    let abi = Type::AbiNarrow(abi_info.clone());
+                    let abi = Type::Abi(abi_info.clone());
                     TypedUtxoPart::AbiImpl { abi, span, parts }
                 }
             });
@@ -1946,7 +1946,7 @@ impl Inferencer {
                     };
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
-                    let abi = Type::AbiNarrow(abi_info.clone());
+                    let abi = Type::Abi(abi_info.clone());
                     TypedTokenPart::AbiImpl { abi, span, parts }
                 }
             });
@@ -3459,7 +3459,7 @@ impl Inferencer {
                                 field.span(),
                             )
                         })?,
-                    Type::AbiNarrow(abi) => {
+                    Type::Abi(abi) => {
                         let method = abi
                             .methods
                             .iter()
@@ -3600,7 +3600,7 @@ impl Inferencer {
                                 Binding {
                                     decl_span: name.span(),
                                     mutable: false,
-                                    scheme: Scheme::monomorphic(Type::AbiNarrow(abi.clone())),
+                                    scheme: Scheme::monomorphic(Type::Abi(abi.clone())),
                                     class: BindingClass::Local,
                                     visibility: BindingVisibility::Private,
                                 },
@@ -3953,7 +3953,7 @@ impl Inferencer {
         // Check linearity: if the callee is a field access on an AbiNarrow target,
         // enforce the one-method-call-per-block constraint.
         if let TypedExprKind::FieldAccess { target, .. } = &typed_callee.node.kind
-            && let Type::AbiNarrow(_) = &target.node.ty
+            && let Type::Abi(_) = &target.node.ty
             && let TypedExprKind::ScopedName { name, .. } = &target.node.kind
             && name.len() == 1
         {
@@ -4457,7 +4457,7 @@ impl Inferencer {
             Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
             Type::TokenAny => Type::TokenAny,
             Type::TokenNamed(id) => Type::TokenNamed(id.clone()),
-            Type::AbiNarrow(name) => Type::AbiNarrow(name.clone()),
+            Type::Abi(name) => Type::Abi(name.clone()),
         }
     }
 
@@ -5026,9 +5026,7 @@ impl Inferencer {
                 self.subst.insert(id, ty.clone());
                 Ok((ty, Vec::new(), "Unify-Var"))
             }
-            (Type::AbiNarrow(l), Type::AbiNarrow(r)) if l == r => {
-                Ok((Type::AbiNarrow(l), Vec::new(), "Unify-Const"))
-            }
+            (Type::Abi(l), Type::Abi(r)) if l == r => Ok((Type::Abi(l), Vec::new(), "Unify-Const")),
             _ => Err(()),
         }
     }
@@ -5408,7 +5406,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
         Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
         Type::TokenAny => Type::TokenAny,
         Type::TokenNamed(id) => Type::TokenNamed(id.clone()),
-        Type::AbiNarrow(name) => Type::AbiNarrow(name.clone()),
+        Type::Abi(name) => Type::Abi(name.clone()),
     }
 }
 
@@ -5453,7 +5451,7 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
         | Type::UtxoNamed(_)
         | Type::TokenAny
         | Type::TokenNamed(_)
-        | Type::AbiNarrow(_) => false,
+        | Type::Abi(_) => false,
     }
 }
 
@@ -5510,6 +5508,6 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
         | Type::UtxoNamed(_)
         | Type::TokenAny
         | Type::TokenNamed(_)
-        | Type::AbiNarrow(_) => {}
+        | Type::Abi(_) => {}
     }
 }

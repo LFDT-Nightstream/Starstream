@@ -85,7 +85,7 @@ impl CtorSet {
             | Type::UtxoNamed(_)
             | Type::TokenAny
             | Type::TokenNamed(_)
-            | Type::AbiNarrow(_) => Some(Self::infinite()),
+            | Type::Abi(_) => Some(Self::infinite()),
         }
     }
 
