@@ -17,6 +17,8 @@ mod runtime;
 
 pub use runtime::{TracedContract, WasmTraceHost, new_tracing_wasmtime_store, new_wasmtime_config};
 
+use std::collections::BTreeSet;
+
 use neo_wasm::comm_chain::COMM_CHAIN_BLOCK_WORDS;
 use neo_wasm::event_grammar::{
     ExportTemplate, GrammarEvent, HostEventGrammar, ImportTemplate, Limb, SlotSource,
@@ -122,23 +124,59 @@ pub enum TemplateBuildError {
         field: String,
         message: String,
     },
+
+    #[error(
+        "plain function export `{name}` is not classified; add a coordination-script allowlist \
+         entry or an explicit export mapping"
+    )]
+    UnclassifiedFunctionExport { name: String },
+
+    #[error(
+        "coordination-script export `{name}` was allowlisted, but no matching function export exists"
+    )]
+    MissingCoordinationExport { name: String },
 }
 
 /// Build matching emitter and decoder templates from a core Wasm module or a
 /// component containing one core module.
-pub fn build_component_templates(wasm: &[u8]) -> Result<ComponentTemplates, TemplateBuildError> {
+///
+/// Every coordination script must be named explicitly. Compiler-shaped UTXO
+/// constructor and method exports are classified automatically; an unknown
+/// plain function export is rejected rather than silently producing a
+/// `CoordReturn`.
+pub fn build_component_templates(
+    wasm: &[u8],
+    coordination_exports: &[&str],
+) -> Result<ComponentTemplates, TemplateBuildError> {
     let module = first_core_module(wasm)?;
     let imports = parse_function_imports(module)?;
+    let exports = parse_function_exports(module)?;
+    let coordination_exports = coordination_exports
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let mut matched_coordination_exports = BTreeSet::new();
     let mut grammar = HostEventGrammar::default();
     let mut decoder = TemplateRegistry::new();
 
-    for export in parse_function_exports(module)? {
+    for export in &exports {
         let fref = export.index.saturating_add(1);
-        let (template, semantic) = build_export_template(&export);
+        let (template, semantic) = build_export_template(export, &coordination_exports)?;
         grammar.exports.insert(fref, template);
         if let Some(event) = semantic {
+            if event == FixedEvent::CoordReturn {
+                matched_coordination_exports.insert(export.name.as_str());
+            }
             decoder.register(fref, EventTemplate::Fixed(FixedEventTemplate::new(event)))?;
         }
+    }
+    if let Some(&name) = coordination_exports
+        .difference(&matched_coordination_exports)
+        .next()
+    {
+        return Err(TemplateBuildError::MissingCoordinationExport {
+            name: name.to_owned(),
+        });
     }
 
     for import in imports {
@@ -205,14 +243,20 @@ struct FunctionExport {
     name: String,
 }
 
-fn build_export_template(export: &FunctionExport) -> (ExportTemplate, Option<FixedEvent>) {
-    let event = if export.name.contains("#[static]utxo.") || export.name.contains("#[method]utxo.")
-    {
+fn build_export_template(
+    export: &FunctionExport,
+    coordination_exports: &BTreeSet<&str>,
+) -> Result<(ExportTemplate, Option<FixedEvent>), TemplateBuildError> {
+    let event = if is_utxo_control_export(&export.name) {
         Some(FixedEvent::ReturnControl)
-    } else if !export.name.contains('#') {
+    } else if coordination_exports.contains(export.name.as_str()) {
         Some(FixedEvent::CoordReturn)
-    } else {
+    } else if export.name.contains('#') {
         None
+    } else {
+        return Err(TemplateBuildError::UnclassifiedFunctionExport {
+            name: export.name.clone(),
+        });
     };
     let exit = event
         .map(|event| {
@@ -222,13 +266,20 @@ fn build_export_template(export: &FunctionExport) -> (ExportTemplate, Option<Fix
             )]
         })
         .unwrap_or_default();
-    (
+    Ok((
         ExportTemplate {
             exit,
             ..ExportTemplate::default()
         },
         event,
-    )
+    ))
+}
+
+fn is_utxo_control_export(name: &str) -> bool {
+    let Some((instance, item)) = name.split_once('#') else {
+        return false;
+    };
+    !instance.is_empty() && (item.starts_with("[static]utxo.") || item.starts_with("[method]utxo."))
 }
 
 fn build_import_template(
@@ -622,7 +673,7 @@ mod tests {
             "#,
         )
         .expect("test module compiles");
-        let templates = build_component_templates(&wasm).expect("templates build");
+        let templates = build_component_templates(&wasm, &[]).expect("templates build");
         let import = &templates.grammar.imports[&1];
         let expanded = expand_import_events(import, &[(11, 12), (13, 0)], Some((7, 0)), &[])
             .expect("template expands");
@@ -656,7 +707,7 @@ mod tests {
             "#,
         )
         .expect("test module compiles");
-        let templates = build_component_templates(&wasm).expect("templates build");
+        let templates = build_component_templates(&wasm, &[]).expect("templates build");
         let import = &templates.grammar.imports[&1];
         let expanded = expand_import_events(import, &[(7, 0), (11, 12), (13, 0)], None, &[])
             .expect("template expands");
@@ -681,6 +732,35 @@ mod tests {
     }
 
     #[test]
+    fn rejects_plain_exports_outside_the_coordination_allowlist() {
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (func (export "cabi_realloc"))
+                )
+            "#,
+        )
+        .expect("test module compiles");
+
+        assert!(matches!(
+            build_component_templates(&wasm, &[]),
+            Err(TemplateBuildError::UnclassifiedFunctionExport { name })
+                if name == "cabi_realloc"
+        ));
+    }
+
+    #[test]
+    fn rejects_missing_coordination_allowlist_entries() {
+        let wasm = wat::parse_str("(module)").expect("test module compiles");
+
+        assert!(matches!(
+            build_component_templates(&wasm, &["missing"]),
+            Err(TemplateBuildError::MissingCoordinationExport { name })
+                if name == "missing"
+        ));
+    }
+
+    #[test]
     fn utxo_and_coordination_exports_emit_control_returns() {
         let wasm = wat::parse_str(
             r#"
@@ -693,7 +773,7 @@ mod tests {
             "#,
         )
         .expect("test module compiles");
-        let templates = build_component_templates(&wasm).expect("templates build");
+        let templates = build_component_templates(&wasm, &["example"]).expect("templates build");
 
         let constructor = expand_export_exit(&templates.grammar.exports[&1], Some((7, 0)), &[])
             .expect("constructor exit expands");

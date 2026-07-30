@@ -159,7 +159,7 @@ fn method_hash(name: &str) -> MethodHash {
 async fn compiled_coordination_script_traces_utxo_creation_and_abi_publication()
 -> wasmtime::Result<()> {
     let wasm = compile_contract(SOURCE);
-    let templates = build_component_templates(&wasm)
+    let templates = build_component_templates(&wasm, &["example"])
         .map_err(|error| wasmtime::format_err!("failed to build templates: {error}"))?;
     let engine = Engine::new(&new_wasmtime_config())?;
     let contract = TracedContract::new(&engine, &wasm)?;
@@ -302,7 +302,7 @@ fn method_calling_coord_component() -> Vec<u8> {
 async fn coordination_script_trace_decodes_method_call() -> wasmtime::Result<()> {
     let utxo_wasm = compile_contract(SOURCE);
     let coord_wasm = method_calling_coord_component();
-    let templates = build_component_templates(&coord_wasm)
+    let templates = build_component_templates(&coord_wasm, &["example"])
         .map_err(|error| wasmtime::format_err!("failed to build templates: {error}"))?;
     let engine = Engine::new(&new_wasmtime_config())?;
     let utxo_contract = TracedContract::new(&engine, &utxo_wasm)?;

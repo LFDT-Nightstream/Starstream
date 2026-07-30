@@ -18,8 +18,13 @@ script begins executing. Consequently, `starstream-runtime-next` does not
 depend on `neo-wasm` or enable Wasmtime's debug feature; those details live here.
 
 `build_component_templates` parses the first core Wasm module and constructs
-the emitter and decoder sides together. The current supported semantic events
-are:
+the emitter and decoder sides together. Its coordination-export allowlist is
+explicit: compiler-shaped UTXO exports are classified automatically, but
+every plain function export must be named as a coordination script. An
+unclassified plain export such as `cabi_realloc` is rejected instead of
+silently producing `CoordReturn`; a missing allowlist entry is also an error.
+
+The current supported semantic events are:
 
 - `NewUtxo`, atomically carrying the statically typed constructor arguments
   and its returned caller-local resource handle;
