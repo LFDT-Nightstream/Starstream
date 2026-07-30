@@ -1,12 +1,12 @@
 //! Bridge between Starstream's semantic execution trace and Neo-Wasm's
 //! host-event grammar.
 //!
-//! `starstream-execution-spec` deliberately does not depend on Neo-Wasm. This
+//! `starstream-interleaving-spec` deliberately does not depend on Neo-Wasm. This
 //! crate owns the paired construction of:
 //!
 //! - the [`neo_wasm::event_grammar::HostEventGrammar`] that emits committed
 //!   blocks; and
-//! - the [`starstream_execution_spec::nightstream::TemplateRegistry`] that
+//! - the [`starstream_interleaving_spec::nightstream::TemplateRegistry`] that
 //!   decodes those blocks into semantic events.
 //!
 //! The initial integration covers compiler-emitted ABI publication calls,
@@ -22,12 +22,12 @@ use neo_wasm::event_grammar::{
     ExportTemplate, GrammarEvent, HostEventGrammar, ImportTemplate, Limb, SlotSource,
 };
 use sha2::{Digest as _, Sha256};
-use starstream_execution_spec::nightstream::{
+use starstream_interleaving_spec::nightstream::{
     AdvertiseMethodTemplate, AttributedBlock, BeginNewUtxoTemplate, BlockCodecError,
     CallMethodTemplate, EventTemplate, FixedEvent, FixedEventTemplate, NewUtxoReturnTemplate,
     OpcodeDiscriminant, TemplateRegistry,
 };
-use starstream_execution_spec::{ExecutionTrace, MethodHash};
+use starstream_interleaving_spec::{ExecutionTrace, MethodHash};
 use wasmparser::{CompositeInnerType, Parser, Payload, TypeRef, ValType};
 
 #[derive(Clone, Debug)]
@@ -624,7 +624,7 @@ fn parse_function_exports(module: &[u8]) -> Result<Vec<FunctionExport>, Template
 mod tests {
     use super::*;
     use neo_wasm::event_grammar::{absorbed_blocks, expand_export_exit, expand_import_events};
-    use starstream_execution_spec::{ExecutionEvent, ResourceHandle, StarstreamValue};
+    use starstream_interleaving_spec::{ExecutionEvent, ResourceHandle, StarstreamValue};
 
     #[test]
     fn constructor_emits_entry_and_return_without_identity_claims() {

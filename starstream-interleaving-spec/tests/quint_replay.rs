@@ -1,4 +1,4 @@
-use starstream_execution_spec::{
+use starstream_interleaving_spec::{
     ExecutionEvent, ExecutionTrace, MethodHash, QuintError, QuintVerifier, ResourceHandle,
     StarstreamValue, VerificationFailure,
 };

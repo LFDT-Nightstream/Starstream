@@ -8,7 +8,7 @@ This crate is the dependency boundary between:
   verifier-authored host-event grammar templates; and
 - `starstream-runtime-next`, which exposes backend-neutral callbacks after
   component instantiation but before an exported function is called; and
-- `starstream-execution-spec`, which decodes committed blocks into semantic
+- `starstream-interleaving-spec`, which decodes committed blocks into semantic
   events and replays complete traces through Quint.
 
 `TracedContract` pairs a runtime contract with its Neo-Wasm program artifacts.

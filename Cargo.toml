@@ -6,6 +6,8 @@ members = [
   "starstream-interpreter",
   "starstream-language-server",
   "starstream-language-server-web",
+  "starstream-interleaving-spec",
+  "starstream-proving-runtime",
   "starstream-runtime-next",
   "starstream-sandbox-web",
   "starstream-to-wasm",

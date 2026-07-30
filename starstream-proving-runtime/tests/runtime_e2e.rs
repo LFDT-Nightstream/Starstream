@@ -4,7 +4,7 @@ use std::sync::Arc;
 use neo_wasm::event_grammar::TurnClaims;
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
-use starstream_execution_spec::{ExecutionEvent, MethodHash};
+use starstream_interleaving_spec::{ExecutionEvent, MethodHash};
 use starstream_proving_runtime::{
     TracedContract, WasmTraceHost, build_component_templates, decode_absorbed_blocks,
     new_tracing_wasmtime_store, new_wasmtime_config,
@@ -351,7 +351,7 @@ async fn component_method_call_to_nightstream_call_method() -> wasmtime::Result<
     assert_eq!(*method, method_hash("add"));
     assert_eq!(
         *arguments,
-        starstream_execution_spec::StarstreamValue(vec![13, 0])
+        starstream_interleaving_spec::StarstreamValue(vec![13, 0])
     );
     Ok(())
 }

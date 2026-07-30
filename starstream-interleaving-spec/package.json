@@ -1,5 +1,5 @@
 {
-  "name": "@starstream/execution-spec",
+  "name": "@starstream/interleaving-spec",
   "version": "0.0.0",
   "private": true,
   "scripts": {
@@ -8,7 +8,7 @@
     "trace": "quint run spec/starstream.qnt --main=starstream_sim --max-samples=1 --max-steps=20 --seed=0x12060 --backend=rust --verbosity=3 --mbt",
     "repl": "quint repl -r spec/starstream.qnt::starstream_sim --seed=0x12060",
     "check": "npm run typecheck && npm run simulate",
-    "test": "cargo test -p starstream-execution-spec"
+    "test": "cargo test -p starstream-interleaving-spec"
   },
   "devDependencies": {
     "@informalsystems/quint": "0.32.0"

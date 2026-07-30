@@ -3,7 +3,7 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::process::ExitCode;
 
-use starstream_execution_spec::{ExecutionTrace, QuintError, QuintVerifier};
+use starstream_interleaving_spec::{ExecutionTrace, QuintError, QuintVerifier};
 
 fn main() -> ExitCode {
     match run() {

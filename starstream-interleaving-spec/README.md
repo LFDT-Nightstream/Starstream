@@ -1,4 +1,4 @@
-# starstream-execution-spec
+# starstream-interleaving-spec
 
 Executable reference semantics for the control-relevant part of Starstream
 component execution.
@@ -50,7 +50,7 @@ create temporary trace files. This transport is currently Unix-specific.
 Install the repository-pinned Quint CLI and run the specification checks:
 
 ```sh
-cd starstream-execution-spec
+cd starstream-interleaving-spec
 npm ci
 npm run check
 ```
@@ -76,15 +76,15 @@ npm test
 With a globally installed `quint`, the equivalent workspace command is:
 
 ```sh
-cargo test -p starstream-execution-spec
+cargo test -p starstream-interleaving-spec
 ```
 
 To verify a JSON trace directly:
 
 ```sh
-cargo run -p starstream-execution-spec \
+cargo run -p starstream-interleaving-spec \
   --bin starstream-verify-trace -- \
-  starstream-execution-spec/examples/score-trace.json
+  starstream-interleaving-spec/examples/score-trace.json
 ```
 
 Pass `-` instead of a path to read the trace from standard input. The JSON
@@ -97,9 +97,9 @@ directly with `QuintVerifier::new`.
 ## Wasmtime integration status
 
 `TraceRecorder` and `TraceSink` define the semantic integration boundary.
-`starstream-runtime-next` now has an optional Neo-Wasm capture path, and the
-separate `starstream-proving-runtime` crate builds paired host-event grammar and
-decoder templates.
+`starstream-runtime-next` exposes backend-neutral instance hooks, while the
+separate `starstream-proving-runtime` crate owns Neo-Wasm tracing and builds
+paired host-event grammar and decoder templates.
 
 The current vertical slice projects linked UTXO constructor entry/return,
 compiler-emitted `abis-clear` and `implements-method` calls, plus
@@ -135,11 +135,11 @@ At a `ReturnControl` export exit:
 No internal function reference, yield-global, or yield-site PC needs to enter
 the semantic transcript.
 
-The existing `neo_wasm::WasmtimeTraceHandler` integration under
-`interleaving/starstream-component-runtime` is the intended implementation
-reference. `neo-wasm` supports the guest-to-guest Wasm `return_call` used by
-the current Starstream `resume;` lowering. The interleaving projection does not
-need to interpret that internal transfer.
+The `neo_wasm::WasmtimeTraceHandler` integration in
+`starstream-proving-runtime` is the current implementation reference.
+`neo-wasm` supports the guest-to-guest Wasm `return_call` used by the current
+Starstream `resume;` lowering. The interleaving projection does not need to
+interpret that internal transfer.
 
 ## Cross-transaction persistence
 

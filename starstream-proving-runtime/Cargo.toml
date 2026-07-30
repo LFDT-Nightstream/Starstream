@@ -10,7 +10,7 @@ license.workspace = true
 [dependencies]
 neo-wasm = { workspace = true }
 sha2 = { workspace = true }
-starstream-execution-spec = { path = "../starstream-execution-spec" }
+starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 starstream-runtime-next = { workspace = true }
 thiserror = { workspace = true }
 wasmparser = { workspace = true }
