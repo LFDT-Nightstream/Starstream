@@ -599,17 +599,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "bellpepper"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ae286c2cb403324ab644c7cc68dceb25fe52ca9429908a726d7ed272c1edf7b"
-dependencies = [
- "bellpepper-core",
- "byteorder",
- "ff",
-]
-
-[[package]]
 name = "bellpepper-core"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -757,6 +746,17 @@ name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+
+[[package]]
+name = "chacha20"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "rand_core 0.10.1",
+]
 
 [[package]]
 name = "chrono"
@@ -926,6 +926,15 @@ name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cpufeatures"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
 dependencies = [
  "libc",
 ]
@@ -1399,16 +1408,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
-name = "flate2"
-version = "1.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
-dependencies = [
- "crc32fast",
- "miniz_oxide",
-]
-
-[[package]]
 name = "fluent-uri"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1449,6 +1448,7 @@ checksum = "65bc07b1a8bc7c85c5f2e110c476c7389b4554ba72af57d8445ea63a576b0876"
 dependencies = [
  "futures-channel",
  "futures-core",
+ "futures-executor",
  "futures-io",
  "futures-sink",
  "futures-task",
@@ -1470,6 +1470,17 @@ name = "futures-core"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f29059c0c2090612e8d742178b0580d2dc940c837851ad723096f87af6663e"
+
+[[package]]
+name = "futures-executor"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e28d1d997f585e54aebc3f97d39e72338912123a67330d723fdbb564d646c9f"
+dependencies = [
+ "futures-core",
+ "futures-task",
+ "futures-util",
+]
 
 [[package]]
 name = "futures-io"
@@ -1562,10 +1573,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1576,8 +1585,20 @@ checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
  "libc",
- "r-efi",
+ "r-efi 5.3.0",
  "wasip2",
+]
+
+[[package]]
+name = "getrandom"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "r-efi 6.0.0",
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -1624,17 +1645,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "group"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
-dependencies = [
- "ff",
- "rand_core 0.6.4",
- "subtle",
-]
-
-[[package]]
 name = "half"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1649,48 +1659,6 @@ dependencies = [
  "cfg-if",
  "crunchy",
  "zerocopy",
-]
-
-[[package]]
-name = "halo2curves"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f82f3e7809d6118c2afbde9667b3ba5c7621723df3729cc2157fac39121ecb62"
-dependencies = [
- "digest",
- "ff",
- "group",
- "halo2derive",
- "hex",
- "lazy_static",
- "libm",
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "pairing",
- "paste",
- "plonky2_maybe_rayon",
- "rand_core 0.6.4",
- "rayon",
- "serde",
- "serde_arrays",
- "sha2",
- "static_assertions",
- "subtle",
-]
-
-[[package]]
-name = "halo2derive"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0d74794c1b24716c5abf5d6bfd98ee3c2d346bc67da374ba21d80adb38c336c"
-dependencies = [
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -1751,9 +1719,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "httparse"
@@ -1983,7 +1948,7 @@ version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
 dependencies = [
- "cpufeatures",
+ "cpufeatures 0.2.17",
 ]
 
 [[package]]
@@ -2000,9 +1965,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-dependencies = [
- "spin 0.9.8",
-]
 
 [[package]]
 name = "leb128fmt"
@@ -2148,7 +2110,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
- "simd-adler32",
 ]
 
 [[package]]
@@ -2165,7 +2126,7 @@ dependencies = [
 [[package]]
 name = "neo-ajtai"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=c6315040131a19865aefea6b104d16edcd1ef91f#c6315040131a19865aefea6b104d16edcd1ef91f"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=ca7e87154af39b732d9cd378f15f83dc5164f702#ca7e87154af39b732d9cd378f15f83dc5164f702"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2183,7 +2144,7 @@ dependencies = [
 [[package]]
 name = "neo-ccs"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=c6315040131a19865aefea6b104d16edcd1ef91f#c6315040131a19865aefea6b104d16edcd1ef91f"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=ca7e87154af39b732d9cd378f15f83dc5164f702#ca7e87154af39b732d9cd378f15f83dc5164f702"
 dependencies = [
  "neo-math",
  "neo-params",
@@ -2193,6 +2154,7 @@ dependencies = [
  "p3-matrix",
  "p3-poseidon2",
  "p3-symmetric",
+ "rand 0.10.2",
  "rand 0.9.2",
  "rand_chacha 0.10.0",
  "rand_chacha 0.9.0",
@@ -2205,7 +2167,7 @@ dependencies = [
 [[package]]
 name = "neo-fold-clean"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=c6315040131a19865aefea6b104d16edcd1ef91f#c6315040131a19865aefea6b104d16edcd1ef91f"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=ca7e87154af39b732d9cd378f15f83dc5164f702#ca7e87154af39b732d9cd378f15f83dc5164f702"
 dependencies = [
  "bellpepper-core",
  "ff",
@@ -2218,16 +2180,16 @@ dependencies = [
  "p3-field",
  "p3-goldilocks",
  "rand_chacha 0.10.0",
+ "rand_chacha 0.9.0",
  "rayon",
  "serde",
- "spartan2",
  "thiserror 2.0.17",
 ]
 
 [[package]]
 name = "neo-math"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=c6315040131a19865aefea6b104d16edcd1ef91f#c6315040131a19865aefea6b104d16edcd1ef91f"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=ca7e87154af39b732d9cd378f15f83dc5164f702#ca7e87154af39b732d9cd378f15f83dc5164f702"
 dependencies = [
  "neo-params",
  "p3-field",
@@ -2242,7 +2204,7 @@ dependencies = [
 [[package]]
 name = "neo-params"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=c6315040131a19865aefea6b104d16edcd1ef91f#c6315040131a19865aefea6b104d16edcd1ef91f"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=ca7e87154af39b732d9cd378f15f83dc5164f702#ca7e87154af39b732d9cd378f15f83dc5164f702"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
@@ -2251,7 +2213,7 @@ dependencies = [
 [[package]]
 name = "neo-reductions"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=c6315040131a19865aefea6b104d16edcd1ef91f#c6315040131a19865aefea6b104d16edcd1ef91f"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=ca7e87154af39b732d9cd378f15f83dc5164f702#ca7e87154af39b732d9cd378f15f83dc5164f702"
 dependencies = [
  "bincode",
  "neo-ajtai",
@@ -2276,7 +2238,7 @@ dependencies = [
 [[package]]
 name = "neo-transcript"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=c6315040131a19865aefea6b104d16edcd1ef91f#c6315040131a19865aefea6b104d16edcd1ef91f"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=ca7e87154af39b732d9cd378f15f83dc5164f702#ca7e87154af39b732d9cd378f15f83dc5164f702"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2285,6 +2247,35 @@ dependencies = [
  "p3-symmetric",
  "rand 0.9.2",
  "rand_chacha 0.9.0",
+]
+
+[[package]]
+name = "neo-wasm"
+version = "0.1.0"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=ca7e87154af39b732d9cd378f15f83dc5164f702#ca7e87154af39b732d9cd378f15f83dc5164f702"
+dependencies = [
+ "bincode",
+ "ff",
+ "futures",
+ "neo-ajtai",
+ "neo-ccs",
+ "neo-fold-clean",
+ "neo-math",
+ "neo-params",
+ "neo-reductions",
+ "neo-transcript",
+ "once_cell",
+ "p3-field",
+ "p3-goldilocks",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "rand_chacha 0.10.0",
+ "rayon",
+ "serde",
+ "sha2",
+ "thiserror 2.0.17",
+ "wasmparser 0.240.0",
+ "wasmtime",
 ]
 
 [[package]]
@@ -2315,8 +2306,6 @@ checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
 dependencies = [
  "num-integer",
  "num-traits",
- "rand 0.8.5",
- "serde",
 ]
 
 [[package]]
@@ -2414,7 +2403,7 @@ dependencies = [
  "p3-matrix",
  "p3-maybe-rayon",
  "p3-util",
- "spin 0.10.0",
+ "spin",
  "tracing",
 ]
 
@@ -2508,7 +2497,7 @@ dependencies = [
  "paste",
  "rand 0.10.2",
  "serde",
- "spin 0.10.0",
+ "spin",
  "tracing",
 ]
 
@@ -2556,15 +2545,6 @@ checksum = "d08a58162a4c264269ef454f0b28dcda89939490eecacb2b2cf5b00f719b80f6"
 dependencies = [
  "serde",
  "transpose",
-]
-
-[[package]]
-name = "pairing"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81fec4625e73cf41ef4bb6846cafa6d44736525f442ba45e407c4a000a13996f"
-dependencies = [
- "group",
 ]
 
 [[package]]
@@ -2646,15 +2626,6 @@ name = "pkg-config"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
-
-[[package]]
-name = "plonky2_maybe_rayon"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e1e554181dc95243b8d9948ae7bae5759c7fb2502fed28f671f95ef38079406"
-dependencies = [
- "rayon",
-]
 
 [[package]]
 name = "plotters"
@@ -2793,6 +2764,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
+name = "r-efi"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
 name = "radium"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2825,6 +2802,8 @@ version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
 dependencies = [
+ "chacha20",
+ "getrandom 0.4.3",
  "rand_core 0.10.1",
 ]
 
@@ -2893,9 +2872,9 @@ dependencies = [
 
 [[package]]
 name = "rayon"
-version = "1.11.0"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "368f01d005bf8fd9b1206fb6fa653e6c4a81ceb1466406b81792d87c5677a58f"
+checksum = "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
 dependencies = [
  "either",
  "rayon-core",
@@ -3130,15 +3109,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_arrays"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94a16b99c5ea4fe3daccd14853ad260ec00ea043b2708d1fd1da3106dcd8d9df"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "serde_cbor"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3226,18 +3196,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.2.17",
  "digest",
-]
-
-[[package]]
-name = "sha3"
-version = "0.10.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
-dependencies = [
- "digest",
- "keccak",
 ]
 
 [[package]]
@@ -3263,12 +3223,6 @@ checksum = "b2a4719bff48cee6b39d12c020eeb490953ad2443b7055bd0b21fca26bd8c28b"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "simd-adler32"
-version = "0.3.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214"
 
 [[package]]
 name = "similar"
@@ -3300,53 +3254,6 @@ dependencies = [
  "libc",
  "windows-sys 0.60.2",
 ]
-
-[[package]]
-name = "spartan2"
-version = "0.4.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=c6315040131a19865aefea6b104d16edcd1ef91f#c6315040131a19865aefea6b104d16edcd1ef91f"
-dependencies = [
- "bellpepper",
- "bellpepper-core",
- "bincode",
- "bitvec",
- "byteorder",
- "digest",
- "ff",
- "flate2",
- "generic-array",
- "getrandom 0.2.17",
- "group",
- "halo2curves",
- "itertools 0.14.0",
- "js-sys",
- "neo-params",
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "once_cell",
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
- "rand 0.9.2",
- "rand_chacha 0.10.0",
- "rand_chacha 0.9.0",
- "rand_core 0.6.4",
- "rayon",
- "serde",
- "sha3",
- "subtle",
- "thiserror 2.0.17",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "spin"
-version = "0.9.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 
 [[package]]
 name = "spin"
@@ -3432,6 +3339,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "starstream-interleaving-spec"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "starstream-interleaving-spec-legacy"
 version = "0.1.0"
 dependencies = [
@@ -3479,6 +3395,23 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "starstream-proving-runtime"
+version = "0.0.0"
+dependencies = [
+ "neo-wasm",
+ "sha2",
+ "starstream-compiler",
+ "starstream-interleaving-spec",
+ "starstream-runtime-next",
+ "starstream-to-wasm",
+ "thiserror 2.0.17",
+ "tokio",
+ "wasmparser 0.240.0",
+ "wasmtime",
+ "wat",
 ]
 
 [[package]]
@@ -3538,12 +3471,6 @@ dependencies = [
  "serde",
  "thiserror 2.0.17",
 ]
-
-[[package]]
-name = "static_assertions"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "str_indices"
@@ -3931,7 +3858,6 @@ dependencies = [
  "sharded-slab",
  "smallvec",
  "thread_local",
- "time",
  "tracing",
  "tracing-core",
  "tracing-log",
