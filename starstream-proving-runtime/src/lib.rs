@@ -1,7 +1,7 @@
-//! Bridge between Starstream's semantic execution trace and Neo-Wasm's
-//! host-event grammar.
+//! Bridge between Starstream's semantic execution trace and the host-event
+//! grammar emitted by the Wasm tracing adapter.
 //!
-//! `starstream-interleaving-spec` deliberately does not depend on Neo-Wasm. This
+//! `starstream-interleaving-spec` deliberately does not depend on `neo-wasm`. This
 //! crate owns the paired construction of:
 //!
 //! - the [`neo_wasm::event_grammar::HostEventGrammar`] that emits committed
@@ -117,7 +117,7 @@ pub enum TemplateBuildError {
     #[error("invalid semantic decoder template: {0}")]
     Decoder(#[from] BlockCodecError),
 
-    #[error("invalid Neo-Wasm import template for `{module}`.`{field}`: {message}")]
+    #[error("invalid host-event import template for `{module}`.`{field}`: {message}")]
     InvalidGrammar {
         module: String,
         field: String,
@@ -172,8 +172,8 @@ pub fn build_component_templates(wasm: &[u8]) -> Result<ComponentTemplates, Temp
     Ok(ComponentTemplates { grammar, decoder })
 }
 
-/// Decode Neo-Wasm's absorbed block representation through the matching
-/// Starstream semantic registry.
+/// Decode absorbed event blocks through the matching Starstream semantic
+/// registry.
 pub fn decode_absorbed_blocks(
     decoder: &TemplateRegistry,
     blocks: &[neo_wasm::comm_chain::AbsorbedEventBlock],

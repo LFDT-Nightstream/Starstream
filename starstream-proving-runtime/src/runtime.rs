@@ -5,7 +5,7 @@ use starstream_runtime_next::{Contract, Host};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut, Engine, Store, StoreContextMut, bail};
 
-/// Store data used by the Neo-Wasm tracing adapter.
+/// Store data used by the Wasm tracing adapter.
 ///
 /// The Starstream runtime only exposes a neutral post-instantiation hook.
 /// This trait and all proving instrumentation state remain owned by
@@ -18,7 +18,7 @@ pub trait WasmTraceHost: Host + neo_wasm::WasmTraceSink {
     ) -> wasmtime::Result<()>;
 }
 
-/// A Wasmtime configuration suitable for Neo-Wasm instruction tracing.
+/// A Wasmtime configuration suitable for Wasm instruction tracing.
 #[must_use]
 pub fn new_wasmtime_config() -> wasmtime::Config {
     let mut config = wasmtime::Config::new();
@@ -27,7 +27,8 @@ pub fn new_wasmtime_config() -> wasmtime::Config {
     config
 }
 
-/// Construct a store that forwards guest instruction breakpoints to Neo-Wasm.
+/// Construct a store that forwards guest instruction breakpoints to the trace
+/// handler.
 pub fn new_tracing_wasmtime_store<T: WasmTraceHost + Send>(
     engine: &Engine,
     data: T,
@@ -42,8 +43,8 @@ pub fn new_tracing_wasmtime_store<T: WasmTraceHost + Send>(
     Ok(store)
 }
 
-/// A runtime contract paired with the Neo-Wasm artifacts needed to trace each
-/// core instance it creates.
+/// A runtime contract paired with the artifacts needed to trace each core
+/// instance it creates.
 pub struct TracedContract<T: 'static> {
     contract: Contract<T>,
 }
@@ -65,7 +66,7 @@ impl<T: 'static> Deref for TracedContract<T> {
 }
 
 impl<T: WasmTraceHost> TracedContract<T> {
-    /// Compile a Starstream contract and its matching Neo-Wasm trace artifacts.
+    /// Compile a Starstream contract and its matching trace artifacts.
     pub fn new(engine: &Engine, wasm: impl AsRef<[u8]>) -> wasmtime::Result<Self> {
         let wasm = wasm.as_ref();
         let trace_artifacts = Arc::new(
@@ -94,6 +95,11 @@ fn register_unregistered_core_instance<T: WasmTraceHost>(
     mut store: StoreContextMut<'_, T>,
     trace_artifacts: &neo_wasm::WasmProgramArtifacts,
 ) -> wasmtime::Result<()> {
+    // Core Wasm start functions execute before the post-instantiation hook.
+    // The trace handler reports their instructions through
+    // `WasmTraceSink::record_untraced_instance`, since no trace state has
+    // been registered yet.
+    //
     // TODO: The hook receives the newly created component `Instance`, but
     // Wasmtime currently has no API for obtaining the core debug instances
     // instantiated underneath it. Until it does, scan the entire store and
@@ -114,7 +120,7 @@ fn register_unregistered_core_instance<T: WasmTraceHost>(
         .collect::<Vec<_>>();
     let [core_instance] = unregistered_core_instances.as_slice() else {
         bail!(
-            "Neo-Wasm tracing requires exactly one unregistered core instance after component \
+            "instruction tracing requires exactly one unregistered core instance after component \
              instantiation, but found {}",
             unregistered_core_instances.len()
         )
@@ -123,7 +129,7 @@ fn register_unregistered_core_instance<T: WasmTraceHost>(
     let instance_index = core_instance.debug_index_in_store();
     let function_ids = neo_wasm::build_debug_function_id_map(core_instance, store.as_context_mut())
         .map_err(|error| {
-            wasmtime::format_err!("failed to build the Neo-Wasm function-reference map: {error}")
+            wasmtime::format_err!("failed to build the trace function-reference map: {error}")
         })?;
     let mut trace = neo_wasm::WasmtimeTraceState::from_program_artifacts(trace_artifacts);
     trace.set_func_ref_ids(function_ids);

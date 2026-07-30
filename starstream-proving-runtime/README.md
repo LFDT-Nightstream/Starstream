@@ -1,6 +1,6 @@
 # starstream-proving-runtime
 
-Neo-Wasm integration for Starstream execution traces.
+Wasm instruction-tracing integration for Starstream execution traces.
 
 This crate is the dependency boundary between:
 
@@ -11,11 +11,11 @@ This crate is the dependency boundary between:
 - `starstream-interleaving-spec`, which decodes committed blocks into semantic
   events and replays complete traces through Quint.
 
-`TracedContract` pairs a runtime contract with its Neo-Wasm program artifacts.
+`TracedContract` pairs a runtime contract with its Wasm tracing artifacts.
 It installs a post-instantiation hook on the runtime contract, which registers
 each new core instance before the constructor, storage setter, or coordination
 script begins executing. Consequently, `starstream-runtime-next` does not
-depend on Neo-Wasm or enable Wasmtime's debug feature; those details live here.
+depend on `neo-wasm` or enable Wasmtime's debug feature; those details live here.
 
 `build_component_templates` parses the first core Wasm module and constructs
 the emitter and decoder sides together. The current supported semantic events
@@ -33,14 +33,14 @@ are:
   method export; and
 - `CoordReturn`, emitted by coordination-script exit templates.
 
-Other unsupported imports receive advice-only Neo-Wasm templates. Empty export
+Other unsupported imports receive advice-only host-event templates. Empty export
 templates allow their turns to normalize without claiming semantic entry/exit
 events.
 
 The runtime E2E tests cover:
 
 1. Starstream source compilation through a linked constructor and
-   compiler-emitted `abis-clear`/`implements-method` calls, Neo-Wasm capture
+   compiler-emitted `abis-clear`/`implements-method` calls, instruction capture
    and normalization, commitment sanity checking, and per-instance semantic
    decoding.
 2. A coordination component calling a runtime-linked UTXO method, including
@@ -52,13 +52,13 @@ The second component is written directly in component WAT because
 `starstream-to-wasm`. Once that lowering exists, the test can use compiled
 Starstream source on both sides.
 
-Wasmtime runs all component instances in one `Store`, but Neo-Wasm keeps one
-trace buffer per core instance because function references, PCs, and lowering
-tables are module-local. The adapter preserves deterministic order inside each
-instance. A control scheduler can flatten those lists without a store-global
-instruction timestamp: it starts at the coordination script, switches to the
-next allocated process on `BeginNewUtxo`, resolves and switches on
-`CallMethod`, and pops its call stack on `ReturnControl`.
+Wasmtime runs all component instances in one `Store`, but the tracing adapter
+keeps one trace buffer per core instance because function references, PCs, and
+lowering tables are module-local. The adapter preserves deterministic order
+inside each instance. A control scheduler can flatten those lists without a
+store-global instruction timestamp: it starts at the coordination script,
+switches to the next allocated process on `BeginNewUtxo`, resolves and switches
+on `CallMethod`, and pops its call stack on `ReturnControl`.
 Constructor entry/return currently decode in the coordinator trace, while ABI
 publication decodes in the constructed UTXO trace.
 

@@ -156,7 +156,8 @@ fn method_hash(name: &str) -> MethodHash {
 }
 
 #[tokio::test]
-async fn compiler_to_nightstream_to_semantic_abi_publication() -> wasmtime::Result<()> {
+async fn compiled_coordination_script_traces_utxo_creation_and_abi_publication()
+-> wasmtime::Result<()> {
     let wasm = compile_contract(SOURCE);
     let templates = build_component_templates(&wasm)
         .map_err(|error| wasmtime::format_err!("failed to build templates: {error}"))?;
@@ -283,7 +284,7 @@ fn method_calling_coord_component() -> Vec<u8> {
 }
 
 #[tokio::test]
-async fn component_method_call_to_nightstream_call_method() -> wasmtime::Result<()> {
+async fn coordination_script_trace_decodes_method_call() -> wasmtime::Result<()> {
     let utxo_wasm = compile_contract(SOURCE);
     let coord_wasm = method_calling_coord_component();
     let templates = build_component_templates(&coord_wasm)
