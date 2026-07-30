@@ -53,7 +53,10 @@ wasmparser = "0.240.0"
 wasmtime = { version = "47.0", default-features = false }
 wit-component = "0.240.0"
 
-# NOTE: this doesn't point to main, but to the wasm-vm branch
+# NOTE: this doesn't point to main, but to the enzo/wasm-vm-host-abi-impl branch
+#
+# this is temporary/wip since both branches are currently moving kind of together
+# for easy experimentation
 neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "ca7e87154af39b732d9cd378f15f83dc5164f702" }
 neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "ca7e87154af39b732d9cd378f15f83dc5164f702" }
 neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "ca7e87154af39b732d9cd378f15f83dc5164f702" }
