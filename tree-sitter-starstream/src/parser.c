@@ -1882,9 +1882,7 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
     case 7:
       if (lookahead == '"') ADVANCE(137);
       if (lookahead == '\\') ADVANCE(123);
-      if (lookahead != 0 &&
-          lookahead != 0x17f &&
-          lookahead != 0x212a) ADVANCE(7);
+      if (lookahead != 0) ADVANCE(7);
       END_STATE();
     case 8:
       if (lookahead == '&') ADVANCE(186);
@@ -1909,15 +1907,11 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
     case 11:
       if (lookahead == '*') ADVANCE(11);
       if (lookahead == '/') ADVANCE(275);
-      if (lookahead != 0 &&
-          lookahead != 0x17f &&
-          lookahead != 0x212a) ADVANCE(12);
+      if (lookahead != 0) ADVANCE(12);
       END_STATE();
     case 12:
       if (lookahead == '*') ADVANCE(11);
-      if (lookahead != 0 &&
-          lookahead != 0x17f &&
-          lookahead != 0x212a) ADVANCE(12);
+      if (lookahead != 0) ADVANCE(12);
       END_STATE();
     case 13:
       if (lookahead == '/') ADVANCE(10);
@@ -3154,16 +3148,12 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
     case 273:
       ACCEPT_TOKEN(sym_shebang);
       if (lookahead != 0 &&
-          lookahead != '\n' &&
-          lookahead != 0x17f &&
-          lookahead != 0x212a) ADVANCE(273);
+          lookahead != '\n') ADVANCE(273);
       END_STATE();
     case 274:
       ACCEPT_TOKEN(sym_doc_comment);
       if (lookahead != 0 &&
-          lookahead != '\n' &&
-          lookahead != 0x17f &&
-          lookahead != 0x212a) ADVANCE(274);
+          lookahead != '\n') ADVANCE(274);
       END_STATE();
     case 275:
       ACCEPT_TOKEN(sym_comment);
@@ -3172,16 +3162,12 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
       ACCEPT_TOKEN(sym_comment);
       if (lookahead == '/') ADVANCE(274);
       if (lookahead != 0 &&
-          lookahead != '\n' &&
-          lookahead != 0x17f &&
-          lookahead != 0x212a) ADVANCE(277);
+          lookahead != '\n') ADVANCE(277);
       END_STATE();
     case 277:
       ACCEPT_TOKEN(sym_comment);
       if (lookahead != 0 &&
-          lookahead != '\n' &&
-          lookahead != 0x17f &&
-          lookahead != 0x212a) ADVANCE(277);
+          lookahead != '\n') ADVANCE(277);
       END_STATE();
     default:
       return false;
