@@ -11,14 +11,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup component add clippy rustfmt
+      - name: Install the pinned Quint CLI
+        run: npm ci
+        working-directory: starstream-interleaving-spec
+      - name: Add the local Quint CLI to PATH
+        run: echo "$GITHUB_WORKSPACE/starstream-interleaving-spec/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Check and simulate the execution specification
+        run: npm run check
+        working-directory: starstream-interleaving-spec
       # Enforce lockfile correctness.
       - run: cargo check --locked
       # Test all crates, except those that force-target WASM.
       # Skip the tests that make proofs, since we'll run those on the release profile
-      - run: cargo test --workspace --exclude starstream-runtime -- --skip circuit_test
+      - run: cargo test --workspace -- --skip circuit_test
       # The tests that do Nightstream proofs are quite slow without --release
-      - run: cargo test -p starstream-interleaving-proof --release circuit_test
-      - run: cargo test -p starstream-runtime --release
+      - run: cargo test -p starstream-interleaving-proof-legacy --release circuit_test
       # Cosmetic checks.
       - run: cargo clippy
       - run: cargo fmt --check
