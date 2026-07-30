@@ -4306,9 +4306,9 @@ impl Inferencer {
                 name_span: func.name_span,
                 callee: func.callee.clone(),
             }),
-            Type::Tuple(items) => {
-                Type::Tuple(items.iter().map(|t| self.apply_for_display(t)).collect())
-            }
+            Type::Tuple(items) => Type::Tuple(Arc::new(
+                items.iter().map(|t| self.apply_for_display(t)).collect(),
+            )),
             Type::Record(record) => Type::from(RecordType {
                 name: record.name.clone(),
                 fields: record
@@ -4374,7 +4374,9 @@ impl Inferencer {
                 name_span: func.name_span,
                 callee: func.callee.clone(),
             }),
-            Type::Tuple(items) => Type::Tuple(items.iter().map(|t| self.apply(t)).collect()),
+            Type::Tuple(items) => {
+                Type::Tuple(Arc::new(items.iter().map(|t| self.apply(t)).collect()))
+            }
             Type::Record(record) => Type::from(RecordType {
                 name: record.name.clone(),
                 fields: record
@@ -4848,6 +4850,11 @@ impl Inferencer {
             }
             (Type::Bool, Type::Bool) => Ok((Type::Bool, Vec::new(), "Unify-Const")),
             (Type::Unit, Type::Unit) => Ok((Type::Unit, Vec::new(), "Unify-Const")),
+            (Type::Tuple(left), Type::Tuple(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                Ok((Type::Tuple(left), vec![], "Unify-Tuple-Identity"))
+            }
             (Type::Tuple(ls), Type::Tuple(rs)) if ls.len() == rs.len() => {
                 let mut children = Vec::new();
                 for (l, r) in ls.iter().zip(rs.iter()) {
@@ -5315,12 +5322,12 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
             name_span: func.name_span,
             callee: func.callee.clone(),
         }),
-        Type::Tuple(items) => Type::Tuple(
+        Type::Tuple(items) => Type::Tuple(Arc::new(
             items
                 .iter()
                 .map(|ty| substitute_type(ty, mapping))
                 .collect(),
-        ),
+        )),
         Type::Record(record) => Type::from(RecordType {
             name: record.name.clone(),
             fields: record
@@ -5443,7 +5450,7 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
             collect_free_type_vars(&func.result, set);
         }
         Type::Tuple(items) => {
-            for ty in items {
+            for ty in items.iter() {
                 collect_free_type_vars(ty, set);
             }
         }

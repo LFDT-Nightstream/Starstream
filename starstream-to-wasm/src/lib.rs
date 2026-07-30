@@ -1110,7 +1110,7 @@ impl Compiler {
             }
             Type::Tuple(items) => {
                 // flatten_record
-                for each in items {
+                for each in items.iter() {
                     ok = self.star_to_core_types(span, dest, each).and(ok);
                 }
             }

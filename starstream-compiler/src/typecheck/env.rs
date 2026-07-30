@@ -104,7 +104,7 @@ fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
             free_type_vars_type(&func.result, out);
         }
         Type::Tuple(types) => {
-            for ty in types {
+            for ty in types.iter() {
                 free_type_vars_type(ty, out);
             }
         }

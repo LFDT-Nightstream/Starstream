@@ -30,7 +30,7 @@ pub enum Type {
     /// Function type `(params) -> result` with an optional kind.
     Function(Arc<FunctionType>),
     /// Tuple type `(T0, T1, …)`.
-    Tuple(Vec<Type>),
+    Tuple(Arc<Vec<Type>>),
     /// Struct/record type with named fields.
     Record(Arc<RecordType>),
     /// Enum/sum type with named variants.
