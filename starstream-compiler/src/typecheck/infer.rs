@@ -4361,74 +4361,7 @@ impl Inferencer {
 
     /// Fully normalize a type by applying the current substitution set.
     fn apply(&self, ty: &Type) -> Type {
-        match ty {
-            Type::Var(id) => match self.subst.get(id) {
-                Some(ty) => self.apply(ty),
-                None => Type::Var(*id),
-            },
-            Type::Function(func) => Type::from(FunctionType {
-                params: func.params.iter().map(|t| self.apply(t)).collect(),
-                param_spans: func.param_spans.clone(),
-                result: self.apply(&func.result),
-                kind: func.kind,
-                name_span: func.name_span,
-                callee: func.callee.clone(),
-            }),
-            Type::Tuple(items) => {
-                Type::Tuple(Arc::new(items.iter().map(|t| self.apply(t)).collect()))
-            }
-            Type::Record(record) => Type::from(RecordType {
-                name: record.name.clone(),
-                fields: record
-                    .fields
-                    .iter()
-                    .map(|field| RecordFieldType {
-                        name: field.name.clone(),
-                        ty: self.apply(&field.ty),
-                    })
-                    .collect(),
-            }),
-            Type::Enum(enum_type) => Type::from(EnumType {
-                name: enum_type.name.clone(),
-                variants: enum_type
-                    .variants
-                    .iter()
-                    .map(|variant| EnumVariantType {
-                        name: variant.name.clone(),
-                        kind: match &variant.kind {
-                            EnumVariantKind::Unit => EnumVariantKind::Unit,
-                            EnumVariantKind::Tuple(payload) => EnumVariantKind::Tuple(
-                                payload.iter().map(|ty| self.apply(ty)).collect(),
-                            ),
-                            EnumVariantKind::Struct(fields) => EnumVariantKind::Struct(
-                                fields
-                                    .iter()
-                                    .map(|field| {
-                                        RecordFieldType::new(
-                                            field.name.clone(),
-                                            self.apply(&field.ty),
-                                        )
-                                    })
-                                    .collect(),
-                            ),
-                        },
-                    })
-                    .collect(),
-                type_args: enum_type
-                    .type_args
-                    .iter()
-                    .map(|ty| self.apply(ty))
-                    .collect(),
-            }),
-            Type::Int(w) => Type::Int(*w),
-            Type::Bool => Type::Bool,
-            Type::Unit => Type::Unit,
-            Type::UtxoAny => Type::UtxoAny,
-            Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
-            Type::TokenAny => Type::TokenAny,
-            Type::TokenNamed(id) => Type::TokenNamed(id.clone()),
-            Type::Abi(name) => Type::Abi(name.clone()),
-        }
+        substitute_type(ty, &self.subst)
     }
 
     /// Rewrite every definition in the program with normalized types.
@@ -5309,7 +5242,10 @@ impl Inferencer {
 /// Recursively replace any variables mentioned in `mapping` within `ty`.
 fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
-        Type::Var(id) => mapping.get(id).cloned().unwrap_or(Type::Var(*id)),
+        Type::Var(id) => match mapping.get(id) {
+            Some(ty) => substitute_type(ty, mapping),
+            None => Type::Var(*id),
+        },
         Type::Function(func) => Type::from(FunctionType {
             params: func
                 .params
@@ -5386,38 +5322,38 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
 }
 
 /// Return `true` if `var` appears anywhere inside `ty`, expanding substitutions as needed.
-fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> bool {
+fn occurs_in(var: TypeVarId, ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> bool {
     match ty {
         Type::Var(id) => {
             if id == &var {
                 true
             } else {
-                subst
+                mapping
                     .get(id)
-                    .map(|ty| occurs_in(var, ty, subst))
+                    .map(|ty| occurs_in(var, ty, mapping))
                     .unwrap_or(false)
             }
         }
         Type::Function(func) => {
-            func.params.iter().any(|t| occurs_in(var, t, subst))
-                || occurs_in(var, &func.result, subst)
+            func.params.iter().any(|t| occurs_in(var, t, mapping))
+                || occurs_in(var, &func.result, mapping)
         }
-        Type::Tuple(items) => items.iter().any(|t| occurs_in(var, t, subst)),
+        Type::Tuple(items) => items.iter().any(|t| occurs_in(var, t, mapping)),
         Type::Record(record) => record
             .fields
             .iter()
-            .any(|field| occurs_in(var, &field.ty, subst)),
+            .any(|field| occurs_in(var, &field.ty, mapping)),
         Type::Enum(enum_type) => enum_type
             .variants
             .iter()
             .any(|variant| match &variant.kind {
                 EnumVariantKind::Unit => false,
                 EnumVariantKind::Tuple(payload) => {
-                    payload.iter().any(|ty| occurs_in(var, ty, subst))
+                    payload.iter().any(|ty| occurs_in(var, ty, mapping))
                 }
-                EnumVariantKind::Struct(fields) => {
-                    fields.iter().any(|field| occurs_in(var, &field.ty, subst))
-                }
+                EnumVariantKind::Struct(fields) => fields
+                    .iter()
+                    .any(|field| occurs_in(var, &field.ty, mapping)),
             }),
         Type::Int(_)
         | Type::Bool
