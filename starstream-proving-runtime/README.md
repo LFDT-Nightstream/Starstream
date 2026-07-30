@@ -12,10 +12,10 @@ This crate is the dependency boundary between:
   events and replays complete traces through Quint.
 
 `TracedContract` pairs a runtime contract with its Neo-Wasm program artifacts.
-Its constructor, load, and coordination-script methods use the runtime's
-`*_with_hook` entry points to register each new core instance before guest
-execution. Consequently, `starstream-runtime-next` does not depend on
-Neo-Wasm or enable Wasmtime's debug feature; those details live here.
+It installs a post-instantiation hook on the runtime contract, which registers
+each new core instance before the constructor, storage setter, or coordination
+script begins executing. Consequently, `starstream-runtime-next` does not
+depend on Neo-Wasm or enable Wasmtime's debug feature; those details live here.
 
 `build_component_templates` parses the first core Wasm module and constructs
 the emitter and decoder sides together. The current supported semantic events
