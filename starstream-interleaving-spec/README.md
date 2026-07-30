@@ -40,8 +40,9 @@ the interleaving prover. Ledger/environment reads will be modeled separately.
 quint test ... --main=replay_trace --match=execution_satisfies_spec
 ```
 
-Every event must be enabled in sequence. Quint returns the first failed action
-as a rejected test trace.
+Every event must be enabled in sequence, and the entrypoint coordination script
+must have returned with an empty call stack and no pending constructor. Quint
+returns the first failed action as a rejected test trace.
 
 The verifier passes the generated, self-contained Quint test module through
 the child process's stdin and invokes `quint test /dev/stdin`. It does not

@@ -244,6 +244,16 @@ module starstream_execution {
     },
   }
 
+  // A complete trace has returned from the entrypoint coordination script and
+  // has no unfinished constructor or caller waiting for control.
+  action execution_complete: bool = all {
+    state.curr.is_coord(),
+    state.phases.get(state.curr) == Completed,
+    state.call_stack.length() == 0,
+    state.pending_new_utxo == None,
+    state' = state,
+  }
+
   pure def owns_turn(phase: Phase): bool =
     match phase {
       | CoordRunning => true

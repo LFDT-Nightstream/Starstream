@@ -65,6 +65,16 @@ fn accepts_a_score_like_execution() {
 }
 
 #[test]
+fn rejects_an_incomplete_execution() {
+    let trace = ExecutionTrace::new([ExecutionEvent::Init]);
+
+    let error = QuintVerifier::default()
+        .verify(&trace)
+        .expect_err("an initialized but running execution should be rejected");
+    assert_model_rejection(error);
+}
+
+#[test]
 fn rejects_a_call_to_an_unadvertised_method() {
     let mut trace = score_like_trace();
     trace.0[7] = ExecutionEvent::CallMethod {

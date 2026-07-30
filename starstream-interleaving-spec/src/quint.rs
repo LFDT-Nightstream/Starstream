@@ -103,13 +103,15 @@ impl QuintVerifier {
         for event in rest {
             write!(source, "\n    .then({})", render_event(event)).unwrap();
         }
+        write!(source, "\n    .then(execution_complete)").unwrap();
         writeln!(source).unwrap();
         writeln!(source, "}}").unwrap();
         Ok(source)
     }
 
     /// Replay `trace` through Quint. Success means every concrete transition
-    /// was enabled by the specification.
+    /// was enabled by the specification and the execution reached its terminal
+    /// coordinator state.
     pub fn verify(&self, trace: &ExecutionTrace) -> Result<(), QuintError> {
         let generated_source = self.render(trace)?;
         let output = self.run_quint(&generated_source)?;
