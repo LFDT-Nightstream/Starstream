@@ -431,7 +431,12 @@ impl Compiler {
             .map(|g| self.global_details[g as usize].1)
             .collect();
         if storage_flat.is_empty() {
-            return;
+            // The runtime requires get-storage and set-storage to exist. WIT
+            // requires record types to be non-empty, so we can only output
+            // them if there's at least one storage variable. Right now Utxos
+            // are always given a yield point ID, so this is satisfied, but
+            // bail early if there's a change.
+            panic!("utxo has no storage")
         }
 
         let storage_record = Rc::new(ComponentAbiType::Record {
