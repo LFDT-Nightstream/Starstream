@@ -10,10 +10,8 @@ members = [
   "starstream-sandbox-web",
   "starstream-to-wasm",
   "starstream-types",
-  "interleaving/starstream-interleaving-proof",
-  "interleaving/starstream-interleaving-spec",
-  "interleaving/starstream-component-runtime",
-  "interleaving/starstream-runtime",
+  "interleaving/starstream-interleaving-proof-legacy",
+  "interleaving/starstream-interleaving-spec-legacy",
   "ark-poseidon2",
   "ark-goldilocks",
 ]
