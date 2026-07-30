@@ -4918,7 +4918,7 @@ impl Inferencer {
                 Ok((Type::Function(left), vec![], "Unify-Arrow-Identity"))
             }
             (Type::Function(left), Type::Function(right))
-                if left.params.len() == right.params.len() =>
+                if left.params.len() == right.params.len() && left.kind == right.kind =>
             {
                 let mut children = Vec::new();
                 for (l, r) in left.params.iter().zip(right.params.iter()) {
@@ -5113,6 +5113,10 @@ impl Inferencer {
                 if left.params.len() != right.params.len() {
                     return Err(TypeError::new(error_kind, left_span)
                         .with_secondary(right_span, "function arity mismatch"));
+                }
+                if left.kind != right.kind {
+                    return Err(TypeError::new(error_kind, left_span)
+                        .with_secondary(right_span, "function kind mismatch"));
                 }
 
                 let mut arrow_children = Vec::new();
