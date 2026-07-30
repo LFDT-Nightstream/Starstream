@@ -59,15 +59,17 @@ pub enum ExecutionEvent {
     /// program and on-ledger identity; neither is part of the control trace.
     Init,
 
-    /// A running coordinator entered a UTXO constructor. The replay scheduler
-    /// allocates the new control identity in constructor order.
-    BeginNewUtxo { arguments: StarstreamValue },
-
-    /// The constructor import returned an `own<utxo>` handle to its caller.
+    /// A coordinator atomically called an imported UTXO constructor.
     ///
-    /// The handle is caller-local. The specification binds it to the process
-    /// allocated by the preceding `BeginNewUtxo`.
-    NewUtxoReturn { resource: ResourceHandle },
+    /// Neo-Wasm observes the import arguments and result together. The
+    /// resource is the caller-local `own<utxo>` handle returned by the
+    /// Component Model lowering. The scheduler keeps that handle pending while
+    /// the constructed UTXO runs and binds it when the UTXO returns control
+    /// from its initial yield.
+    NewUtxo {
+        arguments: StarstreamValue,
+        resource: ResourceHandle,
+    },
 
     /// The running UTXO reached a yield point and began a fresh ABI epoch.
     /// The protocol emits this even when the new ABI has no methods.

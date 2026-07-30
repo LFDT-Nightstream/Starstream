@@ -217,8 +217,10 @@ async fn compiled_coordination_script_traces_utxo_creation_and_abi_publication()
         bail!("unexpected per-instance events: {instance_events:?}");
     };
     let [
-        ExecutionEvent::BeginNewUtxo { arguments },
-        ExecutionEvent::NewUtxoReturn { resource: _ },
+        ExecutionEvent::NewUtxo {
+            arguments,
+            resource: _,
+        },
         ExecutionEvent::CoordReturn,
     ] = coord_events.0.as_slice()
     else {
@@ -246,7 +248,6 @@ async fn compiled_coordination_script_traces_utxo_creation_and_abi_publication()
             utxo_events.0[1].clone(),
             utxo_events.0[2].clone(),
             coord_events.0[1].clone(),
-            coord_events.0[2].clone(),
         ])
     );
     Ok(())
@@ -345,10 +346,8 @@ async fn coordination_script_trace_decodes_method_call() -> wasmtime::Result<()>
     .map_err(|error| wasmtime::format_err!("failed to decode blocks: {error}"))?;
 
     let [
-        ExecutionEvent::BeginNewUtxo {
+        ExecutionEvent::NewUtxo {
             arguments: constructor_arguments,
-        },
-        ExecutionEvent::NewUtxoReturn {
             resource: returned_resource,
         },
         ExecutionEvent::CallMethod {

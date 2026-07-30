@@ -8,6 +8,11 @@ module starstream_execution {
     handle: int,
   }
 
+  type PendingNewUtxo = {
+    target: CoroutineId,
+    key: ResourceKey,
+  }
+
   type Phase =
       CoordRunning
     | CoordWaiting
@@ -25,7 +30,7 @@ module starstream_execution {
     next_utxo_id: int,
     enabled_methods: CoroutineId -> Set[str],
     resource_targets: ResourceKey -> CoroutineId,
-    pending_new_utxo: Option[CoroutineId],
+    pending_new_utxo: Option[PendingNewUtxo],
   }
 
   pure def is_coord(cid: CoroutineId): bool =
@@ -60,17 +65,23 @@ module starstream_execution {
     }
   }
 
-  // A coordination script enters a constructor. The constructor executes the
-  // UTXO main continuation until it yields or completes.
-  action begin_new_utxo(arguments: List[int]): bool = {
+  // Neo-Wasm observes a constructor import atomically, including both its
+  // arguments and returned caller-local resource handle. Keep the handle
+  // pending while the constructed UTXO executes its main continuation; its
+  // initial ReturnControl makes the binding visible to the caller.
+  action new_utxo(arguments: List[int], resource: int): bool = {
     val caller = state.curr
     val target = Utxo(state.next_utxo_id)
+    val key = { holder: caller, handle: resource }
 
     all {
       caller.is_coord(),
       state.phases.get(caller) == CoordRunning,
       arguments.is_starstream_value(),
+      0 <= resource,
+      resource < 4294967296,
       state.pending_new_utxo == None,
+      not(state.resource_targets.keys().contains(key)),
       state' = {
         curr: target,
         call_stack: state.call_stack.append(caller),
@@ -79,7 +90,7 @@ module starstream_execution {
           .put(target, Constructing),
         next_utxo_id: state.next_utxo_id + 1,
         enabled_methods: state.enabled_methods.put(target, Set()),
-        pending_new_utxo: Some(target),
+        pending_new_utxo: Some({ target: target, key: key }),
         ...state,
       },
     }
@@ -120,11 +131,20 @@ module starstream_execution {
   // Every UTXO export exit returns control to its caller. If `abis-clear`
   // occurred during the turn, this closes a fresh yield point; otherwise a
   // method handler returned while preserving the previous enabled-method set.
-  // An explicit coroutine return also waits for this boundary to return.
+  // An explicit coroutine return also waits for this boundary to return. The
+  // exit does not repeat the caller-local constructor handle: an atomic
+  // NewUtxo already committed it, so an initial-yield return installs the
+  // pending binding here.
   action return_control: bool = {
     val caller =
       if (state.call_stack.length() > 0) state.call_stack.last()
       else state.curr
+    val resource_targets =
+      match state.pending_new_utxo {
+        | Some(pending) =>
+            state.resource_targets.put(pending.key, pending.target)
+        | None => state.resource_targets
+      }
 
     all {
       not(state.curr.is_coord()),
@@ -135,6 +155,10 @@ module starstream_execution {
       },
       state.call_stack.length() > 0,
       state.phases.get(caller) == CoordWaiting,
+      match state.pending_new_utxo {
+        | Some(pending) => pending.target == state.curr
+        | None => true
+      },
       state' = {
         curr: caller,
         call_stack: state.call_stack.pop_last(),
@@ -145,37 +169,12 @@ module starstream_execution {
             else Yielded
           )
           .set(caller, CoordRunning),
+        resource_targets: resource_targets,
+        pending_new_utxo: None,
         ...state,
       },
     }
   }
-
-  // A constructor import exposes its caller-local Component Model resource
-  // handle only when it returns. Bind that handle to the model-local UTXO
-  // identity allocated when construction began.
-  action new_utxo_return(resource: int): bool =
-    match state.pending_new_utxo {
-      | Some(target) => {
-          val caller = state.curr
-          val key = { holder: caller, handle: resource }
-
-          all {
-            caller.is_coord(),
-            state.phases.get(caller) == CoordRunning,
-            state.phases.get(target) == Yielded,
-            not(state.resource_targets.keys().contains(key)),
-            state' = {
-              resource_targets: state.resource_targets.put(key, target),
-              pending_new_utxo: None,
-              ...state,
-            },
-          }
-        }
-      | None => all {
-          false,
-          state' = state,
-        }
-    }
 
   // Calling an exported method enters its handler. It does not consume the ABI:
   // a handler may return normally while the UTXO stays at the same yield point.
@@ -226,8 +225,12 @@ module starstream_execution {
       state' = {
         phases: state.phases.set(state.curr, Returning),
         pending_new_utxo:
-          if (state.pending_new_utxo == Some(state.curr)) None
-          else state.pending_new_utxo,
+          match state.pending_new_utxo {
+            | Some(pending) =>
+                if (pending.target == state.curr) None
+                else state.pending_new_utxo
+            | None => None
+          },
         ...state,
       },
     }
@@ -298,14 +301,19 @@ module starstream_execution {
 
   val pending_constructor_is_well_formed =
     match state.pending_new_utxo {
-      | Some(target) => and {
-          not(target.is_coord()),
-          state.phases.keys().contains(target),
+      | Some(pending) => and {
+          not(pending.target.is_coord()),
+          state.phases.keys().contains(pending.target),
           or {
-            state.phases.get(target) == Constructing,
-            state.phases.get(target) == PreparingYield,
-            state.phases.get(target) == Yielded,
+            state.phases.get(pending.target) == Constructing,
+            state.phases.get(pending.target) == PreparingYield,
           },
+          pending.key.holder.is_coord(),
+          state.phases.keys().contains(pending.key.holder),
+          state.phases.get(pending.key.holder) == CoordWaiting,
+          state.call_stack.length() > 0,
+          state.call_stack.last() == pending.key.holder,
+          not(state.resource_targets.keys().contains(pending.key)),
       }
       | None => true
     }
@@ -360,15 +368,11 @@ module starstream_sim {
   pure val SIM_RESOURCE_HANDLES = Set(0, 1, 2, 3)
   pure val SIM_MAX_UTXOS = 4
 
-  action simulate_begin_new_utxo: bool = all {
+  action simulate_new_utxo: bool = all {
     state.next_utxo_id < SIM_MAX_UTXOS,
     nondet arguments = SIM_VALUES.oneOf()
-    begin_new_utxo(arguments),
-  }
-
-  action simulate_new_utxo_return: bool = {
     nondet resource = SIM_RESOURCE_HANDLES.oneOf()
-    new_utxo_return(resource)
+    new_utxo(arguments, resource),
   }
 
   action simulate_advertise_method: bool = {
@@ -390,8 +394,7 @@ module starstream_sim {
 
   // Choose one enabled semantic event at each simulated transition.
   action step: bool = any {
-    simulate_begin_new_utxo,
-    simulate_new_utxo_return,
+    simulate_new_utxo,
     abis_clear,
     simulate_advertise_method,
     return_control,

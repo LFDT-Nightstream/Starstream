@@ -3,8 +3,9 @@
     "event": "init"
   },
   {
-    "event": "begin_new_utxo",
-    "arguments": [55]
+    "event": "new_utxo",
+    "arguments": [55],
+    "resource": 7
   },
   {
     "event": "clear_abi"
@@ -19,10 +20,6 @@
   },
   {
     "event": "return_control"
-  },
-  {
-    "event": "new_utxo_return",
-    "resource": 7
   },
   {
     "event": "call_method",

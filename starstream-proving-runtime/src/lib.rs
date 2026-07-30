@@ -23,9 +23,8 @@ use neo_wasm::event_grammar::{
 };
 use sha2::{Digest as _, Sha256};
 use starstream_interleaving_spec::nightstream::{
-    AdvertiseMethodTemplate, AttributedBlock, BeginNewUtxoTemplate, BlockCodecError,
-    CallMethodTemplate, EventTemplate, FixedEvent, FixedEventTemplate, NewUtxoReturnTemplate,
-    OpcodeDiscriminant, TemplateRegistry,
+    AdvertiseMethodTemplate, AttributedBlock, BlockCodecError, CallMethodTemplate, EventTemplate,
+    FixedEvent, FixedEventTemplate, NewUtxoTemplate, OpcodeDiscriminant, TemplateRegistry,
 };
 use starstream_interleaving_spec::{ExecutionTrace, MethodHash};
 use wasmparser::{CompositeInnerType, Parser, Payload, TypeRef, ValType};
@@ -291,45 +290,31 @@ fn build_new_utxo_template(
         }
     }
 
-    let mut events = Vec::new();
-    let mut first = [SlotSource::Const(0); COMM_CHAIN_BLOCK_WORDS];
-    first[0] = SlotSource::Const(OpcodeDiscriminant::BeginNewUtxo as u64);
-    let first_payload_count = payload.len().min(COMM_CHAIN_BLOCK_WORDS - 1);
-    first[1..1 + first_payload_count].copy_from_slice(&payload[..first_payload_count]);
-    events.push(GrammarEvent {
-        block: first,
-        absorb: true,
-    });
-    for chunk in payload[first_payload_count..].chunks(COMM_CHAIN_BLOCK_WORDS) {
-        let mut continuation = [SlotSource::Const(0); COMM_CHAIN_BLOCK_WORDS];
-        continuation[..chunk.len()].copy_from_slice(chunk);
-        events.push(GrammarEvent {
-            block: continuation,
-            absorb: true,
-        });
-    }
-    events.push(GrammarEvent::op(
-        OpcodeDiscriminant::NewUtxoReturn as u64,
-        [
-            SlotSource::ResultElem { limb: Limb::Lo },
-            SlotSource::ResultElem { limb: Limb::Hi },
-            SlotSource::Const(0),
-            SlotSource::Const(0),
-            SlotSource::Const(0),
-            SlotSource::Const(0),
-            SlotSource::Const(0),
-        ],
-    ));
+    let mut slots = Vec::with_capacity(payload.len() + 3);
+    slots.push(SlotSource::Const(OpcodeDiscriminant::NewUtxo as u64));
+    slots.extend(payload.iter().copied());
+    slots.extend([
+        SlotSource::ResultElem { limb: Limb::Lo },
+        SlotSource::ResultElem { limb: Limb::Hi },
+    ]);
+    let events = slots
+        .chunks(COMM_CHAIN_BLOCK_WORDS)
+        .map(|chunk| {
+            let mut block = [SlotSource::Const(0); COMM_CHAIN_BLOCK_WORDS];
+            block[..chunk.len()].copy_from_slice(chunk);
+            GrammarEvent {
+                block,
+                absorb: true,
+            }
+        })
+        .collect();
 
     Ok((
         ImportTemplate {
             events,
             claim_count: 0,
         },
-        vec![
-            EventTemplate::BeginNewUtxo(BeginNewUtxoTemplate::new(payload.len())),
-            EventTemplate::NewUtxoReturn(NewUtxoReturnTemplate::new()),
-        ],
+        vec![EventTemplate::NewUtxo(NewUtxoTemplate::new(payload.len()))],
     ))
 }
 
@@ -627,7 +612,7 @@ mod tests {
     use starstream_interleaving_spec::{ExecutionEvent, ResourceHandle, StarstreamValue};
 
     #[test]
-    fn constructor_emits_entry_and_return_without_identity_claims() {
+    fn constructor_import_is_one_atomic_semantic_event() {
         let wasm = wat::parse_str(
             r#"
                 (module
@@ -643,10 +628,7 @@ mod tests {
             .expect("template expands");
         let blocks = absorbed_blocks(import, &expanded).expect("blocks absorb");
 
-        assert_eq!(
-            blocks,
-            [[2, 11, 12, 13, 0, 0, 0, 0], [3, 7, 0, 0, 0, 0, 0, 0],]
-        );
+        assert_eq!(blocks, [[2, 11, 12, 13, 7, 0, 0, 0]]);
         let attributed = blocks
             .into_iter()
             .map(|words| AttributedBlock::new(words, 1, 9))
@@ -656,14 +638,10 @@ mod tests {
                 .decoder
                 .decode_blocks(&attributed)
                 .expect("blocks decode"),
-            ExecutionTrace::new([
-                ExecutionEvent::BeginNewUtxo {
-                    arguments: StarstreamValue(vec![11, 12, 13]),
-                },
-                ExecutionEvent::NewUtxoReturn {
-                    resource: ResourceHandle(7),
-                },
-            ])
+            ExecutionTrace::new([ExecutionEvent::NewUtxo {
+                arguments: StarstreamValue(vec![11, 12, 13]),
+                resource: ResourceHandle(7),
+            }])
         );
     }
 

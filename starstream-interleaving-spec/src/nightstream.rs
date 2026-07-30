@@ -30,8 +30,9 @@ pub const GOLDILOCKS_ORDER: u64 = 0xffff_ffff_0000_0001;
 #[repr(u64)]
 pub enum OpcodeDiscriminant {
     Init = 1,
-    BeginNewUtxo = 2,
-    NewUtxoReturn = 3,
+    NewUtxo = 2,
+    // 3 was the split NewUtxoReturn opcode. Constructor imports are now one
+    // atomic event containing both their arguments and returned resource.
     ClearAbi = 4,
     AdvertiseMethod = 5,
     ReturnControl = 6,
@@ -80,56 +81,37 @@ impl CallMethodTemplate {
     }
 }
 
-/// Static decoding information for entering a UTXO constructor.
+/// Static decoding information for an atomic UTXO constructor import.
 ///
-/// Constructor arguments use a statically sized, untagged Starstream-value
-/// encoding. Process allocation and program/ledger identity are supplied by the
-/// replay and transaction contexts rather than committed as host-call fields:
+/// Constructor arguments and the caller-local returned resource are observed
+/// together by Neo-Wasm. Arguments use a statically sized, untagged
+/// Starstream-value encoding; the final two words are the low/high limbs of
+/// the import's `i32` result:
 ///
 /// ```text
-/// first block: [BeginNewUtxo, value_0, ..., value_6]
-/// continuation: [value_7, ..., value_14]
+/// [NewUtxo, value_0, ..., value_n, resource_lo, resource_hi, padding...]
 /// ```
+///
+/// Process allocation and program/ledger identity are supplied by the replay
+/// and transaction contexts rather than committed as host-call fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BeginNewUtxoTemplate {
+pub struct NewUtxoTemplate {
     pub discriminant: u64,
     pub value_word_count: usize,
 }
 
-impl BeginNewUtxoTemplate {
+impl NewUtxoTemplate {
     #[must_use]
     pub const fn new(value_word_count: usize) -> Self {
         Self {
-            discriminant: OpcodeDiscriminant::BeginNewUtxo as u64,
+            discriminant: OpcodeDiscriminant::NewUtxo as u64,
             value_word_count,
         }
     }
 
     #[must_use]
     pub fn block_count(self) -> usize {
-        constructor_block_count(self.value_word_count)
-    }
-}
-
-/// Decoding information for the caller-local resource handle returned by a
-/// UTXO constructor import.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NewUtxoReturnTemplate {
-    pub discriminant: u64,
-}
-
-impl NewUtxoReturnTemplate {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            discriminant: OpcodeDiscriminant::NewUtxoReturn as u64,
-        }
-    }
-}
-
-impl Default for NewUtxoReturnTemplate {
-    fn default() -> Self {
-        Self::new()
+        new_utxo_block_count(self.value_word_count)
     }
 }
 
@@ -248,8 +230,7 @@ impl FixedEventTemplate {
 /// dense data and deliberately carry no opcode tag of their own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EventTemplate {
-    BeginNewUtxo(BeginNewUtxoTemplate),
-    NewUtxoReturn(NewUtxoReturnTemplate),
+    NewUtxo(NewUtxoTemplate),
     Fixed(FixedEventTemplate),
     AdvertiseMethod(AdvertiseMethodTemplate),
     CallMethod(CallMethodTemplate),
@@ -258,8 +239,7 @@ pub enum EventTemplate {
 impl EventTemplate {
     pub const fn discriminant(&self) -> u64 {
         match self {
-            Self::BeginNewUtxo(template) => template.discriminant,
-            Self::NewUtxoReturn(template) => template.discriminant,
+            Self::NewUtxo(template) => template.discriminant,
             Self::Fixed(template) => template.discriminant,
             Self::AdvertiseMethod(template) => template.discriminant,
             Self::CallMethod(template) => template.discriminant,
@@ -268,8 +248,7 @@ impl EventTemplate {
 
     pub fn block_count(&self) -> usize {
         match self {
-            Self::BeginNewUtxo(template) => template.block_count(),
-            Self::NewUtxoReturn(_) => 1,
+            Self::NewUtxo(template) => template.block_count(),
             Self::Fixed(_) => 1,
             Self::AdvertiseMethod(template) => template.block_count(),
             Self::CallMethod(template) => template.block_count(),
@@ -282,8 +261,7 @@ impl EventTemplate {
 
     fn decode(&self, blocks: &[AbsorbedBlock]) -> Result<ExecutionEvent, BlockCodecError> {
         match self {
-            Self::BeginNewUtxo(template) => decode_begin_new_utxo_blocks(blocks, template),
-            Self::NewUtxoReturn(template) => decode_new_utxo_return_blocks(blocks, *template),
+            Self::NewUtxo(template) => decode_new_utxo_blocks(blocks, template),
             Self::Fixed(template) => decode_fixed_blocks(blocks, *template),
             Self::AdvertiseMethod(template) => decode_advertise_method_blocks(blocks, *template),
             Self::CallMethod(template) => decode_call_method_blocks(blocks, *template),
@@ -483,10 +461,10 @@ pub enum BlockCodecError {
     },
 }
 
-/// Decode the committed entry half of a linked UTXO constructor call.
-pub fn decode_begin_new_utxo_blocks(
+/// Decode one atomic linked UTXO constructor import.
+pub fn decode_new_utxo_blocks(
     blocks: &[AbsorbedBlock],
-    template: &BeginNewUtxoTemplate,
+    template: &NewUtxoTemplate,
 ) -> Result<ExecutionEvent, BlockCodecError> {
     validate_discriminant(template.discriminant)?;
     let expected_blocks = template.block_count();
@@ -504,7 +482,7 @@ pub fn decode_begin_new_utxo_blocks(
         });
     }
 
-    let locations = constructor_value_locations(template.value_word_count);
+    let locations = new_utxo_value_locations(template.value_word_count);
     let mut value = Vec::with_capacity(locations.len());
     for (block, word) in locations {
         let raw = blocks[block][word];
@@ -517,17 +495,28 @@ pub fn decode_begin_new_utxo_blocks(
             })?,
         );
     }
-    validate_constructor_padding(blocks, template.value_word_count)?;
+    let (resource_block, resource_word) = new_utxo_resource_location(template.value_word_count);
+    let raw_resource = blocks[resource_block][resource_word];
+    let resource =
+        u32::try_from(raw_resource).map_err(|_| BlockCodecError::NamedArgumentOutOfRange {
+            block: resource_block,
+            word: resource_word,
+            name: "resource",
+            value: raw_resource,
+        })?;
+    validate_new_utxo_padding(blocks, template.value_word_count)?;
 
-    Ok(ExecutionEvent::BeginNewUtxo {
+    Ok(ExecutionEvent::NewUtxo {
         arguments: StarstreamValue(value),
+        resource: ResourceHandle(resource),
     })
 }
 
-/// Encode a constructor-entry event for pinned vectors and grammar tests.
-pub fn encode_begin_new_utxo_blocks(
+/// Encode an atomic constructor import for pinned vectors and grammar tests.
+pub fn encode_new_utxo_blocks(
     value: &StarstreamValue,
-    template: BeginNewUtxoTemplate,
+    resource: ResourceHandle,
+    template: NewUtxoTemplate,
 ) -> Result<Vec<AbsorbedBlock>, BlockCodecError> {
     validate_discriminant(template.discriminant)?;
     if value.0.len() != template.value_word_count {
@@ -539,71 +528,15 @@ pub fn encode_begin_new_utxo_blocks(
 
     let mut blocks = vec![[0; ABSORBED_BLOCK_WORDS]; template.block_count()];
     blocks[0][0] = template.discriminant;
-    for ((block, word), &limb) in constructor_value_locations(template.value_word_count)
+    for ((block, word), &limb) in new_utxo_value_locations(template.value_word_count)
         .into_iter()
         .zip(&value.0)
     {
         blocks[block][word] = u64::from(limb);
     }
+    let (resource_block, resource_word) = new_utxo_resource_location(template.value_word_count);
+    blocks[resource_block][resource_word] = u64::from(resource.0);
     Ok(blocks)
-}
-
-/// Decode the caller-local resource handle returned by a constructor import.
-pub fn decode_new_utxo_return_blocks(
-    blocks: &[AbsorbedBlock],
-    template: NewUtxoReturnTemplate,
-) -> Result<ExecutionEvent, BlockCodecError> {
-    if blocks.len() != 1 {
-        return Err(BlockCodecError::WrongBlockCount {
-            expected: 1,
-            actual: blocks.len(),
-        });
-    }
-    validate_discriminant(template.discriminant)?;
-    validate_fields(blocks)?;
-    if blocks[0][0] != template.discriminant {
-        return Err(BlockCodecError::WrongDiscriminant {
-            expected: template.discriminant,
-            actual: blocks[0][0],
-        });
-    }
-    let resource =
-        u32::try_from(blocks[0][1]).map_err(|_| BlockCodecError::NamedArgumentOutOfRange {
-            block: 0,
-            word: 1,
-            name: "resource",
-            value: blocks[0][1],
-        })?;
-    for (word, &value) in blocks[0].iter().enumerate().skip(2) {
-        if value != 0 {
-            return Err(BlockCodecError::NonZeroPadding {
-                block: 0,
-                word,
-                value,
-            });
-        }
-    }
-    Ok(ExecutionEvent::NewUtxoReturn {
-        resource: ResourceHandle(resource),
-    })
-}
-
-/// Encode a constructor-return event for pinned vectors and grammar tests.
-pub fn encode_new_utxo_return_blocks(
-    resource: ResourceHandle,
-    template: NewUtxoReturnTemplate,
-) -> Result<[AbsorbedBlock; 1], BlockCodecError> {
-    validate_discriminant(template.discriminant)?;
-    Ok([[
-        template.discriminant,
-        u64::from(resource.0),
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-    ]])
 }
 
 /// Decode one logical method call using its statically derived template.
@@ -809,9 +742,9 @@ fn payload_block_count(value_word_count: usize) -> usize {
         .div_ceil(ABSORBED_BLOCK_WORDS)
 }
 
-fn constructor_block_count(value_word_count: usize) -> usize {
-    1 + value_word_count
-        .saturating_sub(OPCODE_ARG_WORDS)
+fn new_utxo_block_count(value_word_count: usize) -> usize {
+    value_word_count
+        .saturating_add(3)
         .div_ceil(ABSORBED_BLOCK_WORDS)
 }
 
@@ -832,31 +765,31 @@ fn value_locations(count: usize) -> Vec<(usize, usize)> {
         .collect()
 }
 
-fn constructor_value_locations(count: usize) -> Vec<(usize, usize)> {
-    (0..count)
-        .map(|index| {
-            if index < OPCODE_ARG_WORDS {
-                (0, index + 1)
-            } else {
-                let continuation_index = index - OPCODE_ARG_WORDS;
-                (
-                    1 + continuation_index / ABSORBED_BLOCK_WORDS,
-                    continuation_index % ABSORBED_BLOCK_WORDS,
-                )
-            }
-        })
-        .collect()
+fn dense_location(offset: usize) -> (usize, usize) {
+    (offset / ABSORBED_BLOCK_WORDS, offset % ABSORBED_BLOCK_WORDS)
 }
 
-fn validate_constructor_padding(
+fn new_utxo_value_locations(count: usize) -> Vec<(usize, usize)> {
+    (0..count).map(|index| dense_location(index + 1)).collect()
+}
+
+fn new_utxo_resource_location(value_word_count: usize) -> (usize, usize) {
+    dense_location(value_word_count + 1)
+}
+
+fn validate_new_utxo_padding(
     blocks: &[AbsorbedBlock],
     value_word_count: usize,
 ) -> Result<(), BlockCodecError> {
     let mut used = vec![[false; ABSORBED_BLOCK_WORDS]; blocks.len()];
     used[0][0] = true;
-    for (block, word) in constructor_value_locations(value_word_count) {
+    for (block, word) in new_utxo_value_locations(value_word_count) {
         used[block][word] = true;
     }
+    let (resource_block, resource_word) = new_utxo_resource_location(value_word_count);
+    used[resource_block][resource_word] = true;
+    // The following slot is ResultElem::Hi. Constructor imports return i32,
+    // so it must be zero and is deliberately validated as padding.
 
     validate_unused_slots(blocks, &used)
 }
@@ -902,29 +835,48 @@ mod tests {
     }
 
     #[test]
-    fn constructor_entry_allocates_identity_outside_the_committed_event() {
-        let begin_template = BeginNewUtxoTemplate::new(3);
+    fn constructor_import_is_one_atomic_event() {
+        let template = NewUtxoTemplate::new(3);
         let arguments = StarstreamValue(vec![10, 11, 12]);
-        let begin_blocks = encode_begin_new_utxo_blocks(&arguments, begin_template)
-            .expect("constructor entry encodes");
-        let return_template = NewUtxoReturnTemplate::new();
-        let return_blocks = encode_new_utxo_return_blocks(ResourceHandle(7), return_template)
-            .expect("constructor return encodes");
+        let blocks = encode_new_utxo_blocks(&arguments, ResourceHandle(7), template)
+            .expect("constructor import encodes");
 
-        assert_eq!(begin_blocks, [[2, 10, 11, 12, 0, 0, 0, 0]]);
-        assert_eq!(return_blocks, [[3, 7, 0, 0, 0, 0, 0, 0]]);
+        assert_eq!(blocks, [[2, 10, 11, 12, 7, 0, 0, 0]]);
         assert_eq!(
-            decode_begin_new_utxo_blocks(&begin_blocks, &begin_template)
-                .expect("constructor entry decodes"),
-            ExecutionEvent::BeginNewUtxo { arguments }
-        );
-        assert_eq!(
-            decode_new_utxo_return_blocks(&return_blocks, return_template)
-                .expect("constructor return decodes"),
-            ExecutionEvent::NewUtxoReturn {
+            decode_new_utxo_blocks(&blocks, &template).expect("constructor import decodes"),
+            ExecutionEvent::NewUtxo {
+                arguments,
                 resource: ResourceHandle(7),
             }
         );
+    }
+
+    #[test]
+    fn constructor_result_follows_its_statically_sized_arguments() {
+        let template = NewUtxoTemplate::new(7);
+        let arguments = StarstreamValue((0..7).collect());
+        let blocks = encode_new_utxo_blocks(&arguments, ResourceHandle(9), template)
+            .expect("constructor import encodes");
+
+        assert_eq!(blocks, [[2, 0, 1, 2, 3, 4, 5, 6], [9, 0, 0, 0, 0, 0, 0, 0]]);
+        assert_eq!(
+            decode_new_utxo_blocks(&blocks, &template).expect("constructor import decodes"),
+            ExecutionEvent::NewUtxo {
+                arguments,
+                resource: ResourceHandle(9),
+            }
+        );
+
+        let mut invalid = blocks;
+        invalid[1][1] = 1;
+        assert!(matches!(
+            decode_new_utxo_blocks(&invalid, &template),
+            Err(BlockCodecError::NonZeroPadding {
+                block: 1,
+                word: 1,
+                value: 1,
+            })
+        ));
     }
 
     #[test]

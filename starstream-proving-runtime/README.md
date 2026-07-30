@@ -21,9 +21,8 @@ depend on `neo-wasm` or enable Wasmtime's debug feature; those details live here
 the emitter and decoder sides together. The current supported semantic events
 are:
 
-- `BeginNewUtxo`, carrying only the statically typed constructor arguments;
-- `NewUtxoReturn`, derived from the constructor's returned guest resource
-  handle;
+- `NewUtxo`, atomically carrying the statically typed constructor arguments
+  and its returned caller-local resource handle;
 - `ClearAbi`, derived from the fixed `abis-clear: func()` interface;
 - `AdvertiseMethod`, derived from the four-`u64` `implements-method`
   interface; and
@@ -57,10 +56,11 @@ keeps one trace buffer per core instance because function references, PCs, and
 lowering tables are module-local. The adapter preserves deterministic order
 inside each instance. A control scheduler can flatten those lists without a
 store-global instruction timestamp: it starts at the coordination script,
-switches to the next allocated process on `BeginNewUtxo`, resolves and switches
-on `CallMethod`, and pops its call stack on `ReturnControl`.
-Constructor entry/return currently decode in the coordinator trace, while ABI
-publication decodes in the constructed UTXO trace.
+switches to the next allocated process on `NewUtxo`, resolves and switches on
+`CallMethod`, and pops its call stack on `ReturnControl`. A `NewUtxo` handle
+stays pending until that constructor return, when it becomes bound to the new
+process. The atomic constructor import decodes in the coordinator trace, while
+ABI publication decodes in the constructed UTXO trace.
 
 The per-instance process list is verifier advice, but the scheduler checks its
 contiguous allocation order; process IDs are not guest values or host-call

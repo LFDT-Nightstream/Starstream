@@ -188,11 +188,11 @@ impl QuintVerifier {
 fn render_event(event: &ExecutionEvent) -> String {
     match event {
         ExecutionEvent::Init => unreachable!("render validates that Init appears only once"),
-        ExecutionEvent::BeginNewUtxo { arguments } => {
-            format!("begin_new_utxo({})", qnt_value(&arguments.0))
-        }
-        ExecutionEvent::NewUtxoReturn { resource } => {
-            format!("new_utxo_return({})", resource.0)
+        ExecutionEvent::NewUtxo {
+            arguments,
+            resource,
+        } => {
+            format!("new_utxo({}, {})", qnt_value(&arguments.0), resource.0)
         }
         ExecutionEvent::ClearAbi => "abis_clear".to_owned(),
         ExecutionEvent::AdvertiseMethod { method } => {

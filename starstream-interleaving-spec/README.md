@@ -107,16 +107,18 @@ directly with `QuintVerifier::new`.
 separate `starstream-proving-runtime` crate owns Neo-Wasm tracing and builds
 paired host-event grammar and decoder templates.
 
-The current vertical slice projects linked UTXO constructor entry/return,
+The current vertical slice projects atomic linked UTXO constructor imports,
 compiler-emitted `abis-clear` and `implements-method` calls, plus
 interface-derived imported method calls and export-boundary return events.
 
 `interleave_traces` merges already-decoded process-local traces. The first
 trace is the entrypoint coordination script, and subsequent traces are
-assigned to `BeginNewUtxo` events in constructor order. The merger follows
-`BeginNewUtxo`, `CallMethod`, and `ReturnControl` to select the next local
-trace, while resolving caller-local resource handles to their constructed
-UTXO process. It also adds the transaction-level `Init` event.
+assigned to `NewUtxo` events in constructor order. `NewUtxo` contains the
+arguments and returned caller-local resource handle observed atomically by
+Neo-Wasm. The merger keeps that handle pending while it follows the
+constructed trace, binds it to the new process at `ReturnControl`, and
+resolves later `CallMethod` events through that binding. It also adds the
+transaction-level `Init` event.
 
 Complete method re-entry is not wired through the runtime E2E test yet:
 multi-turn UTXO normalization still needs input-bootstrap claims before all
@@ -185,17 +187,17 @@ first block: [CallMethod, resource, value_0, ..., value_5]
 continuation: [value_6, ..., value_13]
 ```
 
-Constructor entry has no resource or process-ID field, so all seven words
-after its discriminant are available to its argument value:
+Neo-Wasm observes a constructor import's arguments and result atomically.
+`NewUtxo` therefore places the statically sized argument value followed by the
+low/high limbs of the returned caller-local `i32` resource handle:
 
 ```text
-first block: [BeginNewUtxo, value_0, ..., value_6]
-continuation: [value_7, ..., value_14]
+[NewUtxo, value_0, ..., value_n, resource_lo, resource_hi, padding...]
 ```
 
-The value width is supplied by the template, so continuation blocks need no
-length or tag. A future genuinely dynamic value type can place a length in its
-own canonical value encoding.
+The value width locates the resource statically, so continuation blocks need
+no length or tag. A future genuinely dynamic value type can place a length in
+its own canonical value encoding.
 
 `TemplateRegistry` is the initial component-local registry for this
 projection. A first block is dispatched by:
@@ -210,8 +212,8 @@ prevents a continuation word that happens to equal an opcode from being
 mistaken for a new event. Every continuation block must retain the first
 block's `attributed_fref` and `turn_export_fref`.
 
-The registry currently supports static `CallMethod` templates and
-zero-argument control events. It is populated explicitly; deriving these
+The registry currently supports atomic `NewUtxo`, static `CallMethod`, and
+zero-argument control templates. It is populated explicitly; deriving these
 entries from compiler component metadata is the next integration boundary.
 The metadata fields are circuit-constrained in a valid Nightstream trace but
 are not part of the event-chain commitment, so the projector must only consume

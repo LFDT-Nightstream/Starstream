@@ -11,10 +11,10 @@ fn method(value: u64) -> MethodHash {
 fn interleaves_constructor_and_reentered_method_turns() {
     let resource = ResourceHandle(7);
     let coordinator = ExecutionTrace::new([
-        ExecutionEvent::BeginNewUtxo {
+        ExecutionEvent::NewUtxo {
             arguments: StarstreamValue(vec![55]),
+            resource,
         },
-        ExecutionEvent::NewUtxoReturn { resource },
         ExecutionEvent::CallMethod {
             resource,
             method: method(1),
@@ -44,14 +44,14 @@ fn interleaves_constructor_and_reentered_method_turns() {
         merged,
         ExecutionTrace::new([
             ExecutionEvent::Init,
-            ExecutionEvent::BeginNewUtxo {
+            ExecutionEvent::NewUtxo {
                 arguments: StarstreamValue(vec![55]),
+                resource,
             },
             ExecutionEvent::ClearAbi,
             ExecutionEvent::AdvertiseMethod { method: method(1) },
             ExecutionEvent::AdvertiseMethod { method: method(2) },
             ExecutionEvent::ReturnControl,
-            ExecutionEvent::NewUtxoReturn { resource },
             ExecutionEvent::CallMethod {
                 resource,
                 method: method(1),
@@ -76,16 +76,12 @@ fn resolves_each_caller_local_resource_to_its_constructor_trace() {
     let first_resource = ResourceHandle(3);
     let second_resource = ResourceHandle(9);
     let coordinator = ExecutionTrace::new([
-        ExecutionEvent::BeginNewUtxo {
+        ExecutionEvent::NewUtxo {
             arguments: StarstreamValue::default(),
-        },
-        ExecutionEvent::NewUtxoReturn {
             resource: first_resource,
         },
-        ExecutionEvent::BeginNewUtxo {
+        ExecutionEvent::NewUtxo {
             arguments: StarstreamValue::default(),
-        },
-        ExecutionEvent::NewUtxoReturn {
             resource: second_resource,
         },
         ExecutionEvent::CallMethod {

@@ -10,10 +10,10 @@ fn method(n: u64) -> MethodHash {
 fn score_like_trace() -> ExecutionTrace {
     let resource = ResourceHandle(7);
     let coordinator = ExecutionTrace::new([
-        ExecutionEvent::BeginNewUtxo {
+        ExecutionEvent::NewUtxo {
             arguments: StarstreamValue(vec![55]),
+            resource,
         },
-        ExecutionEvent::NewUtxoReturn { resource },
         ExecutionEvent::CallMethod {
             resource,
             method: method(1),
@@ -107,7 +107,7 @@ fn rejects_a_trace_truncated_before_coord_return() {
 #[test]
 fn rejects_a_call_to_an_unadvertised_method() {
     let mut trace = score_like_trace();
-    trace.0[7] = ExecutionEvent::CallMethod {
+    trace.0[6] = ExecutionEvent::CallMethod {
         resource: ResourceHandle(7),
         method: method(999),
         arguments: StarstreamValue(vec![13]),
@@ -122,7 +122,7 @@ fn rejects_a_call_to_an_unadvertised_method() {
 #[test]
 fn rejects_a_call_through_an_unknown_resource_handle() {
     let mut trace = score_like_trace();
-    trace.0[7] = ExecutionEvent::CallMethod {
+    trace.0[6] = ExecutionEvent::CallMethod {
         resource: ResourceHandle(8),
         method: method(1),
         arguments: StarstreamValue(vec![13]),
@@ -135,20 +135,20 @@ fn rejects_a_call_through_an_unknown_resource_handle() {
 }
 
 #[test]
-fn rejects_a_call_before_the_constructor_handle_is_returned() {
+fn rejects_a_call_before_the_constructor_returns_control() {
     let mut trace = score_like_trace();
-    trace.0.remove(6);
+    trace.0.remove(5);
 
     let error = QuintVerifier::default()
         .verify(&trace)
-        .expect_err("the resource must be bound before it can be called");
+        .expect_err("the resource must remain pending until the constructor returns control");
     assert_model_rejection(error);
 }
 
 #[test]
 fn clear_abi_replaces_the_previous_method_set() {
     let mut trace = score_like_trace();
-    trace.0[13] = ExecutionEvent::CallMethod {
+    trace.0[12] = ExecutionEvent::CallMethod {
         resource: ResourceHandle(7),
         method: method(1),
         arguments: StarstreamValue(vec![42, 0]),
@@ -163,7 +163,7 @@ fn clear_abi_replaces_the_previous_method_set() {
 #[test]
 fn coroutine_return_waits_for_the_export_to_return_control() {
     let mut trace = score_like_trace();
-    trace.0.remove(15);
+    trace.0.remove(14);
 
     let error = QuintVerifier::default()
         .verify(&trace)
@@ -174,7 +174,7 @@ fn coroutine_return_waits_for_the_export_to_return_control() {
 #[test]
 fn coroutine_return_rejects_intervening_semantic_actions() {
     let mut trace = score_like_trace();
-    trace.0.insert(15, ExecutionEvent::ClearAbi);
+    trace.0.insert(14, ExecutionEvent::ClearAbi);
 
     let error = QuintVerifier::default()
         .verify(&trace)

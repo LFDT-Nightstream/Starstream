@@ -5,10 +5,9 @@ use crate::{ExecutionEvent, ExecutionTrace, ProcessId, ResourceHandle};
 /// Merge process-local semantic traces in cooperative control-flow order.
 ///
 /// `traces[0]` is the transaction entrypoint coordination script. Each
-/// subsequent trace is assigned to the next `BeginNewUtxo` in constructor
-/// order. A constructor return binds its caller-local resource handle to that
-/// assigned process, allowing later `CallMethod` events to select the correct
-/// trace.
+/// subsequent trace is assigned to the next `NewUtxo` in constructor order.
+/// The atomic import event supplies a caller-local resource handle, which is
+/// bound to the assigned process when its constructor returns control.
 ///
 /// The local traces omit the transaction-level [`ExecutionEvent::Init`], so
 /// the merger prepends it to the canonical execution trace.
@@ -27,7 +26,7 @@ pub fn interleave_traces(traces: &[ExecutionTrace]) -> Result<ExecutionTrace, In
     let mut current = 0_usize;
     let mut next_process = 1_usize;
     let mut call_stack = Vec::new();
-    let mut pending_constructors = HashMap::<usize, usize>::new();
+    let mut pending_constructors = HashMap::<usize, (usize, ResourceHandle)>::new();
     let mut resource_targets = HashMap::<(usize, ResourceHandle), usize>::new();
 
     loop {
@@ -47,8 +46,8 @@ pub fn interleave_traces(traces: &[ExecutionTrace]) -> Result<ExecutionTrace, In
                     event_index,
                 });
             }
-            ExecutionEvent::BeginNewUtxo { .. } => {
-                if let Some(&target) = pending_constructors.get(&current) {
+            ExecutionEvent::NewUtxo { resource, .. } => {
+                if let Some(&(target, _)) = pending_constructors.get(&current) {
                     return Err(InterleavingError::ConstructorAlreadyPending {
                         caller: process_id(current),
                         target: process_id(target),
@@ -63,17 +62,6 @@ pub fn interleave_traces(traces: &[ExecutionTrace]) -> Result<ExecutionTrace, In
 
                 let target = next_process;
                 next_process += 1;
-                pending_constructors.insert(current, target);
-                call_stack.push(current);
-                current = target;
-            }
-            ExecutionEvent::NewUtxoReturn { resource } => {
-                let Some(target) = pending_constructors.remove(&current) else {
-                    return Err(InterleavingError::UnexpectedConstructorReturn {
-                        caller: process_id(current),
-                        resource,
-                    });
-                };
                 let key = (current, resource);
                 if resource_targets.contains_key(&key) {
                     return Err(InterleavingError::DuplicateResourceBinding {
@@ -81,7 +69,9 @@ pub fn interleave_traces(traces: &[ExecutionTrace]) -> Result<ExecutionTrace, In
                         resource,
                     });
                 }
-                resource_targets.insert(key, target);
+                pending_constructors.insert(current, (target, resource));
+                call_stack.push(current);
+                current = target;
             }
             ExecutionEvent::CallMethod { resource, .. } => {
                 let Some(&target) = resource_targets.get(&(current, resource)) else {
@@ -94,11 +84,18 @@ pub fn interleave_traces(traces: &[ExecutionTrace]) -> Result<ExecutionTrace, In
                 current = target;
             }
             ExecutionEvent::ReturnControl => {
+                let returning = current;
                 let Some(caller) = call_stack.pop() else {
                     return Err(InterleavingError::ReturnWithoutCaller {
                         process: process_id(current),
                     });
                 };
+                if let Some(&(target, resource)) = pending_constructors.get(&caller) {
+                    if target == returning {
+                        pending_constructors.remove(&caller);
+                        resource_targets.insert((caller, resource), target);
+                    }
+                }
                 current = caller;
             }
             ExecutionEvent::CoordReturn => {
@@ -176,12 +173,6 @@ pub enum InterleavingError {
     MissingConstructorTrace {
         caller: ProcessId,
         event_index: usize,
-    },
-
-    #[error("process {caller:?} returned resource {resource:?} without a pending constructor")]
-    UnexpectedConstructorReturn {
-        caller: ProcessId,
-        resource: ResourceHandle,
     },
 
     #[error("process {holder:?} returned already-bound caller-local resource {resource:?}")]
