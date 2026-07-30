@@ -2244,7 +2244,7 @@ impl Inferencer {
                     value_span,
                     *span,
                     TypeErrorKind::GeneralMismatch {
-                        expected: self.apply_for_display(&expected_ty),
+                        expected: self.apply_for_display(expected_ty),
                         found: literal_ty.clone(),
                     },
                 )?;
@@ -2371,14 +2371,14 @@ impl Inferencer {
                     last.span,
                     TypeErrorKind::PatternEnumMismatch {
                         enum_name: enum_name.to_owned(),
-                        found: self.apply_for_display(&expected_ty),
+                        found: self.apply_for_display(expected_ty),
                     },
                 )?;
                 let mut traces = vec![unify_trace];
                 let mut typed = Vec::with_capacity(fields.len());
                 for (pattern, ty) in fields.iter().zip(&func.params) {
                     let (typed_pattern, mut pattern_traces) =
-                        self.infer_pattern(env, pattern, &ty, value_span)?;
+                        self.infer_pattern(env, pattern, ty, value_span)?;
                     traces.append(&mut pattern_traces);
                     typed.push(typed_pattern);
                 }
@@ -5128,7 +5128,7 @@ impl Inferencer {
                         param_spans: left.param_spans.clone(),
                         result: left.result.clone(),
                         kind: left.kind,
-                        name_span: left.name_span.clone(),
+                        name_span: left.name_span,
                         callee: if left.callee == right.callee {
                             left.callee.clone()
                         } else {

@@ -3140,7 +3140,7 @@ impl Compiler {
                         Ok(())
                     }
                     None => {
-                        return Err(self.push_error(callee_span, "function pointers not supported"));
+                        Err(self.push_error(callee_span, "function pointers not supported"))
                     }
                 }
             }
