@@ -80,26 +80,6 @@ pub struct TypecheckFailure {
     pub warnings: Vec<TypeWarning>,
 }
 
-struct TypeRegistry {
-    entries: HashMap<String, TypeEntry>,
-}
-
-impl TypeRegistry {
-    fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-        }
-    }
-
-    fn insert(&mut self, name: String, entry: TypeEntry) -> &TypeEntry {
-        self.entries.entry(name).insert_entry(entry).into_mut()
-    }
-
-    fn get(&self, name: &str) -> Option<&TypeEntry> {
-        self.entries.get(name)
-    }
-}
-
 #[derive(Clone)]
 struct TypeEntry {
     ty: Type,
@@ -107,6 +87,18 @@ struct TypeEntry {
     type_params: Vec<TypeParam>,
     doc: Option<String>,
     variant_docs: HashMap<String, String>,
+}
+
+impl From<Type> for TypeEntry {
+    fn from(value: Type) -> Self {
+        TypeEntry {
+            ty: value,
+            span: DUMMY_SPAN,
+            type_params: vec![],
+            doc: None,
+            variant_docs: Default::default(),
+        }
+    }
 }
 
 /// Run Hindley–Milner style inference over the parsed program and return the
@@ -507,9 +499,9 @@ fn resolve_path_imports(
                         // original name. If the local name differs, register an
                         // alias so look-ups under the local name succeed.
                         if item.local.name != item.imported.name
-                            && let Some(entry) = inferencer.types.entries.get(imported).cloned()
+                            && let Some(entry) = inferencer.root.types.get(imported).cloned()
                         {
-                            inferencer.types.insert(item.local.name.clone(), entry);
+                            inferencer.root.types.insert(item.local.name.clone(), entry);
                         }
                         typed_items.push(TypedImportNamedItem {
                             imported: item.imported.clone(),
@@ -638,7 +630,6 @@ struct Inferencer {
 
     /// Root namespace, and registries for things that can't be namespaced (yet).
     root: Namespace,
-    types: TypeRegistry,
     abis: AbiRegistry,
 
     /// Registry of builtins that are available to be `import`ed.
@@ -653,10 +644,12 @@ struct Inferencer {
 struct Namespace {
     /// Child namespaces.
     namespaces: HashMap<String, Namespace>,
-    /// Constants in the value namespace, namely functions and unit enum variants.
+    /// Constants in the value zone, namely functions and unit enum variants.
     constants: HashMap<String, ConstantInfo>,
-    /// Struct constructors, including those for struct enum variants.
+    /// Struct constructor zone, including those for struct enum variants.
     struct_constructors: HashMap<String, StructConstructor>,
+    /// Type zone.
+    types: HashMap<String, TypeEntry>,
 }
 
 impl Namespace {
@@ -675,6 +668,11 @@ impl Namespace {
         }
         for (k, v) in other.struct_constructors {
             if let Some(_old) = self.struct_constructors.insert(k, v) {
+                // TODO: TypeError on name collision
+            }
+        }
+        for (k, v) in other.types {
+            if let Some(_old) = self.types.insert(k, v) {
                 // TODO: TypeError on name collision
             }
         }
@@ -784,7 +782,6 @@ impl Inferencer {
             int_vars: HashSet::new(),
             int_literal_values: HashMap::new(),
             root: Namespace::default(),
-            types: TypeRegistry::new(),
             abis: AbiRegistry::new(),
             builtins: BuiltinRegistry::new(),
             warnings: Vec::new(),
@@ -821,6 +818,23 @@ impl Inferencer {
 
     /// Register builtin prelude types (`Option<T>`, `Result<T, E>`).
     fn register_prelude_types(&mut self) {
+        // Primitives
+        let mut primitive =
+            |name: &str, ty| self.root.types.insert(name.to_owned(), TypeEntry::from(ty));
+        primitive("()", Type::Unit);
+        primitive("bool", Type::Bool);
+        primitive("i8", Type::from(IntWidth::I8));
+        primitive("i16", Type::from(IntWidth::I16));
+        primitive("i32", Type::from(IntWidth::I32));
+        primitive("i64", Type::from(IntWidth::I64));
+        primitive("u8", Type::from(IntWidth::U8));
+        primitive("u16", Type::from(IntWidth::U16));
+        primitive("u32", Type::from(IntWidth::U32));
+        primitive("u64", Type::from(IntWidth::U64));
+
+        primitive("Utxo", Type::UtxoAny);
+        primitive("Token", Type::TokenAny);
+
         // Option<T>
         let t = self.fresh_var_id();
         self.register_prelude_enum(
@@ -882,22 +896,20 @@ impl Inferencer {
             })
             .collect();
 
-        let ty = &self
-            .types
-            .insert(
-                name.to_string(),
-                TypeEntry {
-                    ty: Type::enum_type(name, type_variants),
-                    span: DUMMY_SPAN,
-                    type_params: type_params.clone(),
-                    doc: Some(doc.into()),
-                    variant_docs: variant_docs
-                        .iter()
-                        .map(|(k, v)| (k.to_string(), v.to_string()))
-                        .collect(),
-                },
-            )
-            .ty;
+        let ty = Type::enum_type(name, type_variants);
+        self.root.types.insert(
+            name.to_string(),
+            TypeEntry {
+                ty: ty.clone(),
+                span: DUMMY_SPAN,
+                type_params: type_params.clone(),
+                doc: Some(doc.into()),
+                variant_docs: variant_docs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            },
+        );
 
         // TODO: we need to create fresh variables for type parameters on use
         let namespace = self.root.add_child(name.to_string());
@@ -948,8 +960,8 @@ impl Inferencer {
     }
 
     fn build_generic_type_defs(&self) -> HashMap<String, GenericTypeDef> {
-        self.types
-            .entries
+        self.root
+            .types
             .iter()
             .filter(|(_, entry)| !entry.type_params.is_empty() || entry.doc.is_some())
             .map(|(name, entry)| {
@@ -1212,7 +1224,7 @@ impl Inferencer {
         for param in &event.params {
             let ty = self.type_from_annotation(&param.ty)?;
             param_types.push(ty);
-            param_spans.push(param.ty.name.span());
+            param_spans.push(param.ty.name_span());
         }
         self.root.constants.insert(
             name.clone(),
@@ -1237,7 +1249,7 @@ impl Inferencer {
         for param in &effect.params {
             let ty = self.type_from_annotation(&param.ty)?;
             param_types.push(ty);
-            param_spans.push(param.ty.name.span());
+            param_spans.push(param.ty.name_span());
         }
         let return_type = match &effect.return_type {
             Some(ann) => self.type_from_annotation(ann)?,
@@ -1259,7 +1271,7 @@ impl Inferencer {
 
     fn register_struct(&mut self, def: &StructDef) -> Result<(), TypeError> {
         let name = def.name.name.clone();
-        if let Some(existing) = self.types.get(&name) {
+        if let Some(existing) = self.root.types.get(&name) {
             return Err(TypeError::new(
                 TypeErrorKind::TypeAlreadyDefined { name },
                 def.name.span(),
@@ -1294,7 +1306,7 @@ impl Inferencer {
             .map(|field| RecordFieldType::new(field.name.clone(), field.ty.clone()))
             .collect();
         let ty = Type::record(def.name.name.clone(), type_fields);
-        self.types.insert(
+        self.root.types.insert(
             def.name.name.clone(),
             TypeEntry {
                 ty: ty.clone(),
@@ -1317,7 +1329,7 @@ impl Inferencer {
 
     fn register_enum(&mut self, def: &EnumDef) -> Result<(), TypeError> {
         let name = def.name.name.clone();
-        if let Some(existing) = self.types.get(&name) {
+        if let Some(existing) = self.root.types.get(&name) {
             return Err(TypeError::new(
                 TypeErrorKind::TypeAlreadyDefined { name },
                 def.name.span(),
@@ -1384,23 +1396,22 @@ impl Inferencer {
             });
         }
 
-        let ty = Type::enum_type(def.name.name.clone(), variants);
-        let ty = &self
-            .types
-            .insert(
-                def.name.name.clone(),
-                TypeEntry {
-                    ty,
-                    span: def.name.span(),
-                    type_params: vec![],
-                    doc: None,
-                    variant_docs: HashMap::new(),
-                },
-            )
-            .ty;
-        let Type::Enum(enum_type) = ty else {
-            unreachable!()
-        };
+        let enum_type = Arc::new(EnumType {
+            name: def.name.to_string(),
+            variants,
+            type_args: vec![],
+        });
+        let ty = Type::from(enum_type.clone());
+        self.root.types.insert(
+            def.name.name.clone(),
+            TypeEntry {
+                ty: ty.clone(),
+                span: def.name.span(),
+                type_params: vec![],
+                doc: None,
+                variant_docs: HashMap::new(),
+            },
+        );
 
         let namespace = self
             .root
@@ -1453,7 +1464,7 @@ impl Inferencer {
 
     fn register_utxo(&mut self, def: &UtxoDef) -> Result<(), TypeError> {
         let ty = Type::UtxoNamed(def.name.to_string());
-        self.types.insert(
+        self.root.types.insert(
             def.name.to_string(),
             TypeEntry {
                 ty: ty.clone(),
@@ -1493,7 +1504,7 @@ impl Inferencer {
 
     fn register_token(&mut self, def: &TokenDef) -> Result<(), TypeError> {
         let ty = Type::TokenNamed(def.name.to_string());
-        self.types.insert(
+        self.root.types.insert(
             def.name.to_string(),
             TypeEntry {
                 ty,
@@ -1526,7 +1537,7 @@ impl Inferencer {
     }
 
     fn build_typed_enum(&self, def: &EnumDef) -> Result<TypedEnumDef, TypeError> {
-        let info = self.types.get(&def.name.name).unwrap();
+        let info = self.root.types.get(&def.name.name).unwrap();
         let Type::Enum(enum_ty) = &info.ty else {
             unreachable!()
         };
@@ -2121,16 +2132,6 @@ impl Inferencer {
         Self::apply_type_args(ty, type_params, &fresh_args)
     }
 
-    /// Instantiate a generic enum with explicit type arguments.
-    fn get_type_and_apply_args(&mut self, name: &str, type_args: &[Type]) -> Option<Type> {
-        let entry = self.types.get(name)?;
-        Some(Self::apply_type_args(
-            &entry.ty,
-            &entry.type_params,
-            type_args,
-        ))
-    }
-
     /// Substitute type parameters with concrete args in a template.
     fn apply_type_args(template_ty: &Type, type_params: &[TypeParam], type_args: &[Type]) -> Type {
         let mapping: HashMap<TypeVarId, Type> = type_params
@@ -2445,7 +2446,7 @@ impl Inferencer {
         let param_spans = function
             .params
             .iter()
-            .map(|param| param.ty.name.span)
+            .map(|param| param.ty.name_span())
             .collect::<Vec<_>>();
         Ok(FunctionType {
             params: param_types.clone(),
@@ -4092,78 +4093,49 @@ impl Inferencer {
     }
 
     fn type_from_annotation(&mut self, annotation: &TypeAnnotation) -> Result<Type, TypeError> {
-        if !annotation.generics.is_empty() {
-            let name = &annotation.name.name;
+        // Resolve each generic arg (done first for lifetime reasons).
+        let type_args: Vec<Type> = annotation
+            .generics
+            .iter()
+            .map(|g| self.type_from_annotation(g))
+            .collect::<Result<_, _>>()?;
 
-            // Check if this type exists and has type_params
-            let (has_params, param_count) = match self.types.get(name) {
-                Some(entry) => (!entry.type_params.is_empty(), entry.type_params.len()),
-                None => (false, 0),
-            };
+        // Look up type information.
+        let (last, path) = annotation.name.split_last().unwrap();
+        if path.is_empty() && last.as_str() == "_" {
+            return Ok(self.fresh_var());
+        }
+        let ns = self.root.get_child(path)?;
+        let Some(entry) = ns.types.get(last.as_str()) else {
+            return Err(TypeError::new(
+                TypeErrorKind::UnknownTypeAnnotation {
+                    name: last.to_string(),
+                },
+                annotation.name_span(),
+            ));
+        };
 
-            if !has_params {
-                return Err(TypeError::new(
-                    TypeErrorKind::UnsupportedTypeFeature {
-                        description: "generic type parameters are not supported yet".to_string(),
-                    },
-                    annotation.name.span(),
-                )
-                .with_help("remove `<...>` until generics are implemented"));
-            }
-
-            // Check arity
-            if annotation.generics.len() != param_count {
-                return Err(TypeError::new(
-                    TypeErrorKind::WrongGenericArity {
-                        type_name: name.clone(),
-                        expected: param_count,
-                        found: annotation.generics.len(),
-                    },
-                    annotation.name.span(),
-                ));
-            }
-
-            // Resolve each generic arg
-            let type_args: Vec<Type> = annotation
-                .generics
-                .iter()
-                .map(|g| self.type_from_annotation(g))
-                .collect::<Result<_, _>>()?;
-
-            return Ok(self.get_type_and_apply_args(name, &type_args).unwrap());
+        // Check generic arity match.
+        if entry.type_params.len() != annotation.generics.len() {
+            return Err(TypeError::new(
+                TypeErrorKind::WrongGenericArity {
+                    type_name: last.to_string(),
+                    expected: entry.type_params.len(),
+                    found: annotation.generics.len(),
+                },
+                annotation.name_span(),
+            ));
         }
 
-        match annotation.name.name.as_str() {
-            "i8" => Ok(Type::int_of(IntWidth::I8)),
-            "i16" => Ok(Type::int_of(IntWidth::I16)),
-            "i32" => Ok(Type::int_of(IntWidth::I32)),
-            "i64" => Ok(Type::int()),
-            "u8" => Ok(Type::int_of(IntWidth::U8)),
-            "u16" => Ok(Type::int_of(IntWidth::U16)),
-            "u32" => Ok(Type::int_of(IntWidth::U32)),
-            "u64" => Ok(Type::int_of(IntWidth::U64)),
-            "bool" => Ok(Type::bool()),
-            "()" => Ok(Type::unit()),
-            "_" => Ok(self.fresh_var()),
-            "Utxo" => Ok(Type::UtxoAny),
-            "Token" => Ok(Type::TokenAny),
-            other => match self.types.get(other) {
-                Some(entry) if !entry.type_params.is_empty() => Err(TypeError::new(
-                    TypeErrorKind::WrongGenericArity {
-                        type_name: other.to_string(),
-                        expected: entry.type_params.len(),
-                        found: 0,
-                    },
-                    annotation.name.span(),
-                )),
-                Some(entry) => Ok(entry.ty.clone()),
-                None => Err(TypeError::new(
-                    TypeErrorKind::UnknownTypeAnnotation {
-                        name: other.to_string(),
-                    },
-                    annotation.name.span(),
-                )),
-            },
+        // Apply generics if needed.
+        if entry.type_params.is_empty() {
+            Ok(entry.ty.clone())
+        } else {
+            Ok(Self::apply_type_args(
+                &entry.ty,
+                &entry.type_params,
+                &type_args,
+            ))
         }
     }
 

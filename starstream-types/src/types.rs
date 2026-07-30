@@ -189,6 +189,48 @@ impl Type {
     }
 }
 
+impl From<IntWidth> for Type {
+    fn from(value: IntWidth) -> Self {
+        Type::Int(value)
+    }
+}
+
+impl From<FunctionType> for Type {
+    fn from(value: FunctionType) -> Self {
+        Type::Function(Arc::new(value))
+    }
+}
+
+impl From<Arc<FunctionType>> for Type {
+    fn from(value: Arc<FunctionType>) -> Self {
+        Type::Function(value)
+    }
+}
+
+impl From<RecordType> for Type {
+    fn from(value: RecordType) -> Self {
+        Type::Record(Arc::new(value))
+    }
+}
+
+impl From<Arc<RecordType>> for Type {
+    fn from(value: Arc<RecordType>) -> Self {
+        Type::Record(value)
+    }
+}
+
+impl From<EnumType> for Type {
+    fn from(value: EnumType) -> Self {
+        Type::Enum(Arc::new(value))
+    }
+}
+
+impl From<Arc<EnumType>> for Type {
+    fn from(value: Arc<EnumType>) -> Self {
+        Type::Enum(value)
+    }
+}
+
 impl IntWidth {
     #[must_use]
     pub fn is_signed(self) -> bool {
@@ -494,42 +536,6 @@ impl Type {
             Type::TokenNamed(id) => RcDoc::text(id.to_owned()),
             Type::AbiNarrow(abi) => RcDoc::text(abi.name.to_string()),
         }
-    }
-}
-
-impl From<FunctionType> for Type {
-    fn from(value: FunctionType) -> Self {
-        Type::Function(Arc::new(value))
-    }
-}
-
-impl From<Arc<FunctionType>> for Type {
-    fn from(value: Arc<FunctionType>) -> Self {
-        Type::Function(value)
-    }
-}
-
-impl From<RecordType> for Type {
-    fn from(value: RecordType) -> Self {
-        Type::Record(Arc::new(value))
-    }
-}
-
-impl From<Arc<RecordType>> for Type {
-    fn from(value: Arc<RecordType>) -> Self {
-        Type::Record(value)
-    }
-}
-
-impl From<EnumType> for Type {
-    fn from(value: EnumType) -> Self {
-        Type::Enum(Arc::new(value))
-    }
-}
-
-impl From<Arc<EnumType>> for Type {
-    fn from(value: Arc<EnumType>) -> Self {
-        Type::Enum(value)
     }
 }
 

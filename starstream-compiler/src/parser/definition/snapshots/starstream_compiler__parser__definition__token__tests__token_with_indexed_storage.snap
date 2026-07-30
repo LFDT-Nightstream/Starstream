@@ -17,10 +17,12 @@ TokenDef {
                         span: 54..75,
                     },
                     ty: TypeAnnotation {
-                        name: Identifier {
-                            name: "u32",
-                            span: 77..80,
-                        },
+                        name: [
+                            Identifier {
+                                name: "u32",
+                                span: 77..80,
+                            },
+                        ],
                         generics: [],
                     },
                 },
@@ -31,10 +33,12 @@ TokenDef {
                         span: 98..112,
                     },
                     ty: TypeAnnotation {
-                        name: Identifier {
-                            name: "u8",
-                            span: 114..116,
-                        },
+                        name: [
+                            Identifier {
+                                name: "u8",
+                                span: 114..116,
+                            },
+                        ],
                         generics: [],
                     },
                 },

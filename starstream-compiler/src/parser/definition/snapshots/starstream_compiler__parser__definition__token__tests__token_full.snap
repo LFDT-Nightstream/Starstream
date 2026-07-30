@@ -17,10 +17,12 @@ TokenDef {
                         span: 54..75,
                     },
                     ty: TypeAnnotation {
-                        name: Identifier {
-                            name: "u32",
-                            span: 77..80,
-                        },
+                        name: [
+                            Identifier {
+                                name: "u32",
+                                span: 77..80,
+                            },
+                        ],
                         generics: [],
                     },
                 },
@@ -82,10 +84,12 @@ TokenDef {
                                 span: 179..181,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Utxo",
-                                    span: 183..187,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Utxo",
+                                        span: 183..187,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -111,10 +115,12 @@ TokenDef {
                                 span: 210..216,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Utxo",
-                                    span: 218..222,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Utxo",
+                                        span: 218..222,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },

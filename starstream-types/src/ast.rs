@@ -23,6 +23,10 @@ pub fn span(start: usize, end: usize) -> Span {
     Span::new((), start..end)
 }
 
+fn span_or(first: Span, second: Span) -> Span {
+    if first != DUMMY_SPAN { first } else { second }
+}
+
 /// AST node with a source span attached.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Spanned<T> {
@@ -298,9 +302,9 @@ pub struct FunctionDef {
 
 impl FunctionDef {
     pub fn return_span(&self) -> Span {
-        self.return_type
-            .as_ref()
-            .map_or(self.name.span, |ret| ret.name.span_or(self.name.span))
+        self.return_type.as_ref().map_or(self.name.span, |ret| {
+            span_or(scoped_name_span(&ret.name), self.name.span)
+        })
     }
 }
 
@@ -484,14 +488,20 @@ pub struct EffectDef {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct TypeAnnotation {
-    pub name: Identifier,
+    pub name: ScopedName,
     pub generics: Vec<TypeAnnotation>,
+}
+
+impl TypeAnnotation {
+    pub fn name_span(&self) -> Span {
+        scoped_name_span(&self.name)
+    }
 }
 
 impl From<Identifier> for TypeAnnotation {
     fn from(name: Identifier) -> Self {
         TypeAnnotation {
-            name,
+            name: vec![name],
             generics: Default::default(),
         }
     }
@@ -554,6 +564,18 @@ pub enum IfCondition {
 
 /// Identifiers separated by `::`. Non-empty.
 pub type ScopedName = Vec<Identifier>;
+
+pub fn scoped_name_span(name: &ScopedName) -> Span {
+    name.iter().fold(DUMMY_SPAN, |s, i| {
+        if s == DUMMY_SPAN {
+            i.span
+        } else if i.span == DUMMY_SPAN {
+            s
+        } else {
+            s.union(i.span)
+        }
+    })
+}
 
 /// Expressions within parentheses and separated by commas.
 pub type Arguments = Vec<Spanned<Expr>>;

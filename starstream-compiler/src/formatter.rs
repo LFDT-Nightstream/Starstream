@@ -854,7 +854,7 @@ fn identifier_to_doc<'a>(identifier: &Identifier, _source: &'a str) -> RcDoc<'a,
 }
 
 fn type_annotation_to_doc<'a>(annotation: &TypeAnnotation, source: &'a str) -> RcDoc<'a, ()> {
-    let mut doc = identifier_to_doc(&annotation.name, source);
+    let mut doc = scoped_name_to_doc(&annotation.name, source);
     if !annotation.generics.is_empty() {
         let generics = RcDoc::intersperse(
             annotation

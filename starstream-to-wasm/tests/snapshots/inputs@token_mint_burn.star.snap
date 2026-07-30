@@ -23,10 +23,12 @@ Program {
                                         span: 46..51,
                                     },
                                     ty: TypeAnnotation {
-                                        name: Identifier {
-                                            name: "u64",
-                                            span: 53..56,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "u64",
+                                                span: 53..56,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 },
@@ -158,10 +160,12 @@ Program {
                                                 span: 207..209,
                                             },
                                             ty: TypeAnnotation {
-                                                name: Identifier {
-                                                    name: "Utxo",
-                                                    span: 211..215,
-                                                },
+                                                name: [
+                                                    Identifier {
+                                                        name: "Utxo",
+                                                        span: 211..215,
+                                                    },
+                                                ],
                                                 generics: [],
                                             },
                                         },
@@ -187,10 +191,12 @@ Program {
                                                 span: 239..245,
                                             },
                                             ty: TypeAnnotation {
-                                                name: Identifier {
-                                                    name: "Utxo",
-                                                    span: 247..251,
-                                                },
+                                                name: [
+                                                    Identifier {
+                                                        name: "Utxo",
+                                                        span: 247..251,
+                                                    },
+                                                ],
                                                 generics: [],
                                             },
                                         },

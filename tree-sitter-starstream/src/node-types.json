@@ -1295,7 +1295,7 @@
       "required": true,
       "types": [
         {
-          "type": "identifier",
+          "type": "scoped_name",
           "named": true
         },
         {

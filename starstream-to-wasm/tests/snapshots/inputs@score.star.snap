@@ -28,10 +28,12 @@ Program {
                                             span: 30..35,
                                         },
                                         ty: TypeAnnotation {
-                                            name: Identifier {
-                                                name: "u64",
-                                                span: 37..40,
-                                            },
+                                            name: [
+                                                Identifier {
+                                                    name: "u64",
+                                                    span: 37..40,
+                                                },
+                                            ],
                                             generics: [],
                                         },
                                     },
@@ -54,10 +56,12 @@ Program {
                                             span: 60..64,
                                         },
                                         ty: TypeAnnotation {
-                                            name: Identifier {
-                                                name: "u64",
-                                                span: 66..69,
-                                            },
+                                            name: [
+                                                Identifier {
+                                                    name: "u64",
+                                                    span: 66..69,
+                                                },
+                                            ],
                                             generics: [],
                                         },
                                     },
@@ -80,10 +84,12 @@ Program {
                                             span: 89..97,
                                         },
                                         ty: TypeAnnotation {
-                                            name: Identifier {
-                                                name: "u64",
-                                                span: 99..102,
-                                            },
+                                            name: [
+                                                Identifier {
+                                                    name: "u64",
+                                                    span: 99..102,
+                                                },
+                                            ],
                                             generics: [],
                                         },
                                     },
@@ -117,10 +123,12 @@ Program {
                                             span: 139..144,
                                         },
                                         ty: TypeAnnotation {
-                                            name: Identifier {
-                                                name: "u64",
-                                                span: 146..149,
-                                            },
+                                            name: [
+                                                Identifier {
+                                                    name: "u64",
+                                                    span: 146..149,
+                                                },
+                                            ],
                                             generics: [],
                                         },
                                     },
@@ -149,10 +157,12 @@ Program {
                                         span: 206..211,
                                     },
                                     ty: TypeAnnotation {
-                                        name: Identifier {
-                                            name: "u64",
-                                            span: 213..216,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "u64",
+                                                span: 213..216,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 },
@@ -162,10 +172,12 @@ Program {
                                         span: 234..238,
                                     },
                                     ty: TypeAnnotation {
-                                        name: Identifier {
-                                            name: "u64",
-                                            span: 240..243,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "u64",
+                                                span: 240..243,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 },
@@ -277,10 +289,12 @@ Program {
                                                 span: 377..383,
                                             },
                                             ty: TypeAnnotation {
-                                                name: Identifier {
-                                                    name: "u64",
-                                                    span: 385..388,
-                                                },
+                                                name: [
+                                                    Identifier {
+                                                        name: "u64",
+                                                        span: 385..388,
+                                                    },
+                                                ],
                                                 generics: [],
                                             },
                                         },
@@ -344,10 +358,12 @@ Program {
                                                 span: 463..468,
                                             },
                                             ty: TypeAnnotation {
-                                                name: Identifier {
-                                                    name: "u64",
-                                                    span: 470..473,
-                                                },
+                                                name: [
+                                                    Identifier {
+                                                        name: "u64",
+                                                        span: 470..473,
+                                                    },
+                                                ],
                                                 generics: [],
                                             },
                                         },
@@ -411,10 +427,12 @@ Program {
                                                 span: 545..553,
                                             },
                                             ty: TypeAnnotation {
-                                                name: Identifier {
-                                                    name: "u64",
-                                                    span: 555..558,
-                                                },
+                                                name: [
+                                                    Identifier {
+                                                        name: "u64",
+                                                        span: 555..558,
+                                                    },
+                                                ],
                                                 generics: [],
                                             },
                                         },

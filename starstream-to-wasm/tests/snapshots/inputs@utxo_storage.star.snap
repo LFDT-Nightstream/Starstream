@@ -22,10 +22,12 @@ Program {
                                         span: 44..51,
                                     },
                                     ty: TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 53..56,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 53..56,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 },
@@ -35,10 +37,12 @@ Program {
                                         span: 74..84,
                                     },
                                     ty: TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 86..89,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 86..89,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 },

@@ -16,10 +16,12 @@ UtxoDef {
                         span: 45..50,
                     },
                     ty: TypeAnnotation {
-                        name: Identifier {
-                            name: "i64",
-                            span: 52..55,
-                        },
+                        name: [
+                            Identifier {
+                                name: "i64",
+                                span: 52..55,
+                            },
+                        ],
                         generics: [],
                     },
                 },

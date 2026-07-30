@@ -1820,16 +1820,17 @@ impl DocumentState {
     }
 
     fn collect_type_annotation_node(&mut self, annotation: &TypeAnnotation) {
-        self.add_type_usage(annotation.name.opt_span(), &annotation.name.name);
+        let last = annotation.name.last().unwrap();
+        self.add_type_usage(last.opt_span(), &last.name);
 
-        if let Some(span) = annotation.name.opt_span()
-            && let Some(label) = self.type_label_for_name(&annotation.name.name)
+        if let Some(span) = last.opt_span()
+            && let Some(label) = self.type_label_for_name(&last.name)
         {
             // Look up doc comment for struct or enum types
             let doc = self
                 .struct_docs
-                .get(&annotation.name.name)
-                .or_else(|| self.enum_docs.get(&annotation.name.name))
+                .get(&last.name)
+                .or_else(|| self.enum_docs.get(&last.name))
                 .cloned();
             self.add_hover_label_with_doc(span, label, doc);
         }

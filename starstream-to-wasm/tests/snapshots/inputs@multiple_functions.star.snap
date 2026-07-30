@@ -106,10 +106,12 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 119..122,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 119..122,
+                                },
+                            ],
                             generics: [],
                         },
                     ),

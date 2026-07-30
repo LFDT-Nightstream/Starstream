@@ -22,10 +22,12 @@ Program {
                             payload: Tuple(
                                 [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "bool",
-                                            span: 19..23,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "bool",
+                                                span: 19..23,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -40,10 +42,12 @@ Program {
                             payload: Tuple(
                                 [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 34..37,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 34..37,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -71,10 +75,12 @@ Program {
                                 span: 58..61,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Foo",
-                                    span: 63..66,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Foo",
+                                        span: 63..66,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },

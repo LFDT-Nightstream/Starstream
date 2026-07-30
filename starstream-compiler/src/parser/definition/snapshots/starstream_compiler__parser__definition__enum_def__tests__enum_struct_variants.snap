@@ -21,10 +21,12 @@ EnumDef {
                             span: 19..24,
                         },
                         ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 26..29,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 26..29,
+                                },
+                            ],
                             generics: [],
                         },
                         span: 19..30,
@@ -46,10 +48,12 @@ EnumDef {
                             span: 39..42,
                         },
                         ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 44..47,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 44..47,
+                                },
+                            ],
                             generics: [],
                         },
                         span: 39..48,

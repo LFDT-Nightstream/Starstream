@@ -1186,7 +1186,7 @@
       "members": [
         {
           "type": "SYMBOL",
-          "name": "identifier"
+          "name": "scoped_name"
         },
         {
           "type": "CHOICE",

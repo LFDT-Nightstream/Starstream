@@ -56,10 +56,12 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 77..80,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 77..80,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -126,10 +128,12 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 161..164,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 161..164,
+                                },
+                            ],
                             generics: [],
                         },
                     ),

@@ -24,10 +24,12 @@ Program {
                                 span: 14..15,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "i64",
-                                    span: 17..20,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "i64",
+                                        span: 17..20,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -38,20 +40,24 @@ Program {
                                 span: 22..23,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "i64",
-                                    span: 25..28,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "i64",
+                                        span: 25..28,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
                     ],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 33..36,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 33..36,
+                                },
+                            ],
                             generics: [],
                         },
                     ),

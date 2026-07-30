@@ -1,5 +1,8 @@
 use chumsky::{prelude::*, recursive::recursive};
-use starstream_types::ast::{Identifier, TypeAnnotation};
+use starstream_types::{
+    ScopedName,
+    ast::{Identifier, TypeAnnotation},
+};
 
 use super::{context::Extra, primitives};
 
@@ -27,8 +30,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, TypeAnnotation, Extra<'a>> {
     })
 }
 
-fn type_name<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> {
-    let unit = just("()").map_with(|_, extra| Identifier::new("()", extra.span()));
+fn type_name<'a>() -> impl Parser<'a, &'a str, ScopedName, Extra<'a>> {
+    let unit = just("()").map_with(|_, extra| vec![Identifier::new("()", extra.span())]);
 
-    primitives::identifier().or(unit).padded()
+    primitives::scoped_name().or(unit).padded()
 }

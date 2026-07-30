@@ -28,10 +28,12 @@ TokenDef {
                                 span: 51..53,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Utxo",
-                                    span: 55..59,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Utxo",
+                                        span: 55..59,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -57,10 +59,12 @@ TokenDef {
                                 span: 82..88,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Utxo",
-                                    span: 90..94,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Utxo",
+                                        span: 90..94,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },

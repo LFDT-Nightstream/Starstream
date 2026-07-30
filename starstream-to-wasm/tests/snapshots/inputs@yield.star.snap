@@ -55,10 +55,12 @@ Program {
                                             span: 64..65,
                                         },
                                         ty: TypeAnnotation {
-                                            name: Identifier {
-                                                name: "i32",
-                                                span: 67..70,
-                                            },
+                                            name: [
+                                                Identifier {
+                                                    name: "i32",
+                                                    span: 67..70,
+                                                },
+                                            ],
                                             generics: [],
                                         },
                                     },

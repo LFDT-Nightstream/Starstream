@@ -17,16 +17,20 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "Option",
-                                span: 18..24,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "Option",
+                                    span: 18..24,
+                                },
+                            ],
                             generics: [
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "i64",
-                                        span: 25..28,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "i64",
+                                            span: 25..28,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                             ],
@@ -83,16 +87,20 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "Option",
-                                span: 74..80,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "Option",
+                                    span: 74..80,
+                                },
+                            ],
                             generics: [
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "i64",
-                                        span: 81..84,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "i64",
+                                            span: 81..84,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                             ],
@@ -139,16 +147,20 @@ Program {
                                 span: 125..128,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Option",
-                                    span: 130..136,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Option",
+                                        span: 130..136,
+                                    },
+                                ],
                                 generics: [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 137..140,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 137..140,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -157,10 +169,12 @@ Program {
                     ],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 146..149,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 146..149,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -274,23 +288,29 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "Result",
-                                span: 298..304,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "Result",
+                                    span: 298..304,
+                                },
+                            ],
                             generics: [
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "i64",
-                                        span: 305..308,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "i64",
+                                            span: 305..308,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "bool",
-                                        span: 310..314,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "bool",
+                                            span: 310..314,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                             ],
@@ -347,23 +367,29 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "Result",
-                                span: 357..363,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "Result",
+                                    span: 357..363,
+                                },
+                            ],
                             generics: [
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "i64",
-                                        span: 364..367,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "i64",
+                                            span: 364..367,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "bool",
-                                        span: 369..373,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "bool",
+                                            span: 369..373,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                             ],
@@ -425,23 +451,29 @@ Program {
                                 span: 420..423,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Result",
-                                    span: 425..431,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Result",
+                                        span: 425..431,
+                                    },
+                                ],
                                 generics: [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 432..435,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 432..435,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "bool",
-                                            span: 437..441,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "bool",
+                                                span: 437..441,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -450,10 +482,12 @@ Program {
                     ],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 447..450,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 447..450,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -580,16 +614,20 @@ Program {
                                 span: 602..603,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Option",
-                                    span: 605..611,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Option",
+                                        span: 605..611,
+                                    },
+                                ],
                                 generics: [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 612..615,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 612..615,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -619,10 +657,12 @@ Program {
                                 span: 635..636,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Thing",
-                                    span: 638..643,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Thing",
+                                        span: 638..643,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -633,23 +673,29 @@ Program {
                                 span: 645..646,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Result",
-                                    span: 648..654,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Result",
+                                        span: 648..654,
+                                    },
+                                ],
                                 generics: [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 655..658,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 655..658,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "bool",
-                                            span: 660..664,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "bool",
+                                                span: 660..664,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],

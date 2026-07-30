@@ -201,7 +201,7 @@ module.exports = grammar({
 
     type_annotation: ($) =>
       seq(
-        $.identifier,
+        $.scoped_name,
         optional(
           seq("<", $.type_annotation, repeat(seq(",", $.type_annotation)), ">"),
         ),

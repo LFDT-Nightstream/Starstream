@@ -181,9 +181,6 @@ pub enum TypeErrorKind {
         enum_name: String,
         found: Type,
     },
-    UnsupportedTypeFeature {
-        description: String,
-    },
     /// Pattern matching is not exhaustive; some cases are not covered.
     NonExhaustiveMatch {
         missing_patterns: Vec<String>,
@@ -349,7 +346,7 @@ impl TypeErrorKind {
             TypeErrorKind::UnknownEnumVariant { .. } => error_code!(E0023),
             TypeErrorKind::EnumPayloadMismatch { .. } => error_code!(E0024),
             TypeErrorKind::PatternEnumMismatch { .. } => error_code!(E0025),
-            TypeErrorKind::UnsupportedTypeFeature { .. } => error_code!(E0026),
+            // E0026 was UnsupportedTypeFeature
             TypeErrorKind::NonExhaustiveMatch { .. } => error_code!(E0027),
             TypeErrorKind::UnreachablePattern => error_code!(E0028),
             TypeErrorKind::NotAFunction { .. } => error_code!(E0029),
@@ -583,9 +580,6 @@ impl fmt::Display for TypeErrorKind {
                 "pattern references enum `{enum_name}` but scrutinee has type `{}`",
                 found.compact_display()
             ),
-            TypeErrorKind::UnsupportedTypeFeature { description } => {
-                write!(f, "unsupported type feature: {description}")
-            }
             TypeErrorKind::NonExhaustiveMatch { .. } => {
                 write!(f, "non-exhaustive match")
             }

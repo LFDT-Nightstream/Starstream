@@ -354,17 +354,6 @@ fn unknown_type_annotation_error() {
 }
 
 #[test]
-fn unsupported_type_feature_error() {
-    assert_typecheck_snapshot!(
-        r#"
-        fn takes(value: Box<i64>) {
-            value;
-        }
-        "#
-    );
-}
-
-#[test]
 fn type_already_defined_error() {
     assert_typecheck_snapshot!(
         r#"

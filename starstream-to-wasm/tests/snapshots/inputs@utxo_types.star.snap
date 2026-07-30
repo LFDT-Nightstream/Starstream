@@ -36,10 +36,12 @@ Program {
                                 span: 49..53,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Utxo",
-                                    span: 55..59,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Utxo",
+                                        span: 55..59,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -50,10 +52,12 @@ Program {
                                 span: 61..68,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "MyUtxo",
-                                    span: 70..76,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "MyUtxo",
+                                        span: 70..76,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
