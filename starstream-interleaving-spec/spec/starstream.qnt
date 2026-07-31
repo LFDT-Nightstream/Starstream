@@ -165,6 +165,9 @@ module starstream_execution {
         phases: state.phases
           .set(
             state.curr,
+            // Completed is the model's logical retirement boundary. The
+            // runtime may physically drop the Component Model resource after
+            // this export has returned and its borrow scope has ended.
             if (state.phases.get(state.curr) == Returning) Completed
             else Yielded
           )
@@ -211,26 +214,18 @@ module starstream_execution {
     }
   }
 
-  // Provisional semantics: coroutine return is an explicit terminal host call
-  // (`return` or `burn`), not an inference from a particular return PC. It
-  // marks the UTXO here; the export boundary performs the control transfer.
+  // Provisional semantics: after its required initial yield, coroutine return
+  // is an explicit terminal host call (`return` or `burn`), not an inference
+  // from a particular return PC. It marks the UTXO here; the export boundary
+  // performs the control transfer. Constructors cannot terminate before their
+  // initial yield, because their component ABI must return a live resource.
   action coroutine_return: bool = {
     all {
       not(state.curr.is_coord()),
-      or {
-        state.phases.get(state.curr) == Constructing,
-        state.phases.get(state.curr) == HandlerRunning,
-      },
+      state.phases.get(state.curr) == HandlerRunning,
       state.call_stack.length() > 0,
       state' = {
         phases: state.phases.set(state.curr, Returning),
-        pending_new_utxo:
-          match state.pending_new_utxo {
-            | Some(pending) =>
-                if (pending.target == state.curr) None
-                else state.pending_new_utxo
-            | None => None
-          },
         ...state,
       },
     }

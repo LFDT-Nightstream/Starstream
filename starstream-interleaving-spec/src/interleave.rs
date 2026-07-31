@@ -7,7 +7,8 @@ use crate::{ExecutionEvent, ExecutionTrace, ProcessId, ResourceHandle};
 /// `traces[0]` is the transaction entrypoint coordination script. Each
 /// subsequent trace is assigned to the next `NewUtxo` in constructor order.
 /// The atomic import event supplies a caller-local resource handle, which is
-/// bound to the assigned process when its constructor returns control.
+/// bound to the assigned process when its constructor reaches its required
+/// initial yield and returns control.
 ///
 /// The local traces omit the transaction-level [`ExecutionEvent::Init`], so
 /// the merger prepends it to the canonical execution trace.
@@ -90,11 +91,11 @@ pub fn interleave_traces(traces: &[ExecutionTrace]) -> Result<ExecutionTrace, In
                         process: process_id(current),
                     });
                 };
-                if let Some(&(target, resource)) = pending_constructors.get(&caller) {
-                    if target == returning {
-                        pending_constructors.remove(&caller);
-                        resource_targets.insert((caller, resource), target);
-                    }
+                if let Some(&(target, resource)) = pending_constructors.get(&caller)
+                    && target == returning
+                {
+                    pending_constructors.remove(&caller);
+                    resource_targets.insert((caller, resource), target);
                 }
                 current = caller;
             }

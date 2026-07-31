@@ -25,6 +25,8 @@ The Quint model currently covers:
   lists;
 - a UTXO export returning control, with `abis-clear` distinguishing a fresh
   yield from a normal method return;
+- requiring every constructor path to reach an initial yield before returning
+  its live resource;
 - the main continuation yielding again or making an explicit terminal
   coroutine `return`/`burn` call.
 
@@ -116,8 +118,10 @@ trace is the entrypoint coordination script, and subsequent traces are
 assigned to `NewUtxo` events in constructor order. `NewUtxo` contains the
 arguments and returned caller-local resource handle observed atomically by
 Neo-Wasm. The merger keeps that handle pending while it follows the
-constructed trace, binds it to the new process at `ReturnControl`, and
-resolves later `CallMethod` events through that binding. It also adds the
+constructed trace, binds it to the new process when an initial yield reaches
+`ReturnControl`, and resolves later `CallMethod` events through that binding.
+Constructors are required to reach that initial yield: `CoroutineReturn` is
+only valid on a later method/main-continuation turn. The merger also adds the
 transaction-level `Init` event.
 
 Complete method re-entry is not wired through the runtime E2E test yet:
@@ -148,6 +152,11 @@ At a `ReturnControl` export exit:
 - without `abis-clear`, a normally returning method preserves the previous
   ABI; and
 - a preceding coroutine `return`/`burn` call leaves the coroutine terminated.
+
+`Completed` is the interleaving model's logical retirement boundary. Physical
+destruction of the guest resource happens in the runtime after the export has
+returned and any Component Model borrow has ended; it does not require a
+separate interleaving event.
 
 No internal function reference, yield-global, or yield-site PC needs to enter
 the semantic transcript.

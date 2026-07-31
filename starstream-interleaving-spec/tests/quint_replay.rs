@@ -74,6 +74,29 @@ fn accepts_a_score_like_execution() {
 }
 
 #[test]
+fn rejects_a_constructor_that_terminates_before_its_initial_yield() {
+    let resource = ResourceHandle(5);
+    let coordinator = ExecutionTrace::new([
+        ExecutionEvent::NewUtxo {
+            arguments: StarstreamValue::default(),
+            resource,
+        },
+        ExecutionEvent::CoordReturn,
+    ]);
+    let terminated_constructor = ExecutionTrace::new([
+        ExecutionEvent::CoroutineReturn,
+        ExecutionEvent::ReturnControl,
+    ]);
+    let trace = interleave_traces(&[coordinator, terminated_constructor])
+        .expect("the scheduler can merge the trace before semantic validation");
+
+    let error = QuintVerifier::default()
+        .verify(&trace)
+        .expect_err("a constructor must reach its initial yield before returning");
+    assert_model_rejection(error);
+}
+
+#[test]
 fn reports_generated_quint_static_errors_separately() {
     let verifier = QuintVerifier::default().with_spec(format!(
         "{}/tests/invalid-replay-spec.qnt",
