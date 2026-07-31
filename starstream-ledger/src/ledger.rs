@@ -439,7 +439,8 @@ impl Ledger {
         max_requests: u32,
         cardano: CardanoCtx,
         network: impl Into<Arc<str>>,
-        accounts: HashMap<Box<str>, Account>,
+        admin_key: impl Into<Box<str>>,
+        admin_balance: u64,
     ) -> Self {
         let max_requests = usize::try_from(max_requests)
             .unwrap_or(Semaphore::MAX_PERMITS)
@@ -451,7 +452,13 @@ impl Ledger {
             utxos: Arc::default(),
             contracts: Arc::default(),
             transactions: Arc::default(),
-            accounts: Arc::new(RwLock::new(accounts)),
+            accounts: Arc::new(RwLock::new(HashMap::from([(
+                admin_key.into(),
+                Account {
+                    balance: admin_balance,
+                    last_nonce: 0,
+                },
+            )]))),
             cardano,
             network: network.into(),
             max_requests: max_requests as _,

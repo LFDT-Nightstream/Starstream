@@ -83,8 +83,10 @@ async fn score_contract_flow_via_cli() {
             NETWORK,
             "--addr",
             &addr.to_string(),
-            "--account",
-            &format!("{account}={}", wasm.len()),
+            "--admin-key",
+            &account,
+            "--admin-balance",
+            &wasm.len().to_string(),
         ])
         .kill_on_drop(true)
         .spawn()

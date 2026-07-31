@@ -15,7 +15,6 @@
 use core::net::{Ipv4Addr, SocketAddr};
 use core::time::Duration;
 
-use std::collections::HashMap;
 use std::net::TcpListener;
 use std::sync::{Arc, LazyLock};
 
@@ -29,7 +28,7 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_ledger::{
-    Account, CardanoCtx, Ledger, PUBLISH_CONTEXT, X_STARSTREAM_BLOCK, X_STARSTREAM_TRANSACTION,
+    CardanoCtx, Ledger, PUBLISH_CONTEXT, X_STARSTREAM_BLOCK, X_STARSTREAM_TRANSACTION,
     X_STARSTREAM_UTXO, encode_digest,
 };
 use starstream_runtime_next::componentize;
@@ -67,11 +66,20 @@ fn other_signing_key() -> SigningKey {
     SigningKey::from_bytes(&[0x24; 32])
 }
 
-/// Start a `Ledger` HTTP server on an ephemeral loopback port with the given
-/// initial accounts, returning its address once it is bound and listening.
-async fn spawn_ledger(accounts: HashMap<Box<str>, Account>) -> SocketAddr {
+/// Start a `Ledger` HTTP server on an ephemeral loopback port with the admin
+/// account funded for the given key, returning its address once it is bound
+/// and listening.
+async fn spawn_ledger(admin_key: &SigningKey, admin_balance: u64) -> SocketAddr {
+    let admin_key = hex::encode(admin_key.verifying_key().to_bytes());
     let engine = wasmtime::Engine::default();
-    let ledger = Ledger::new(engine, 128, CardanoCtx::default(), NETWORK, accounts);
+    let ledger = Ledger::new(
+        engine,
+        128,
+        CardanoCtx::default(),
+        NETWORK,
+        admin_key,
+        admin_balance,
+    );
     let ledger = Arc::new(ledger);
 
     // Grab a free port, then let the ledger rebind it (SO_REUSEADDR).
@@ -207,7 +215,7 @@ fn post_invocation(
 /// whole verification pipeline ran; with no such account it is 403.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn valid_signature_reaches_account_lookup() {
-    let addr = spawn_ledger(HashMap::default()).await;
+    let addr = spawn_ledger(&other_signing_key(), 0).await;
     let key = signing_key();
     let wasm = b"\0asm\x01\0\0\0";
     let envelope = sign_envelope(
@@ -234,16 +242,8 @@ async fn publish_charges_account_and_stores_envelope() {
     assert_ne!(wasm, next_wasm);
 
     // Enough for the first publish, one byte short for the second.
-    let account = hex::encode(key.verifying_key().to_bytes());
     let balance = (wasm.len() + next_wasm.len() - 1) as u64;
-    let addr = spawn_ledger(HashMap::from([(
-        account.into(),
-        Account {
-            balance,
-            last_nonce: 0,
-        },
-    )]))
-    .await;
+    let addr = spawn_ledger(&key, balance).await;
 
     let envelope = sign_envelope(
         &key,
@@ -349,7 +349,7 @@ async fn publish_charges_account_and_stores_envelope() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn raw_wasm_body_is_unsupported_media_type() {
-    let addr = spawn_ledger(HashMap::default()).await;
+    let addr = spawn_ledger(&other_signing_key(), 0).await;
     let body = b"\0asm\x01\0\0\0";
     let digest = encode_digest(&Sha256::digest(body).into());
     let req = Request::builder()
@@ -369,7 +369,7 @@ async fn raw_wasm_body_is_unsupported_media_type() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn garbage_envelope_is_bad_request() {
-    let addr = spawn_ledger(HashMap::default()).await;
+    let addr = spawn_ledger(&other_signing_key(), 0).await;
     let (status, body) = send(
         addr,
         put_contract(addr, b"\0asm\x01\0\0\0", b"not cose".to_vec()),
@@ -382,7 +382,7 @@ async fn garbage_envelope_is_bad_request() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalid_digest_is_bad_request() {
-    let addr = spawn_ledger(HashMap::default()).await;
+    let addr = spawn_ledger(&other_signing_key(), 0).await;
     let req = Request::builder()
         .method("PUT")
         .uri(format!("http://{addr}/contracts/not-a-digest"))
@@ -401,7 +401,7 @@ async fn invalid_digest_is_bad_request() {
 /// Signed with one key but advertising a different public key in `kid`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn wrong_key_is_unauthorized() {
-    let addr = spawn_ledger(HashMap::default()).await;
+    let addr = spawn_ledger(&other_signing_key(), 0).await;
     let wasm = b"\0asm\x01\0\0\0";
     let kid = other_signing_key().verifying_key().to_bytes();
     let envelope = sign_envelope(
@@ -421,7 +421,7 @@ async fn wrong_key_is_unauthorized() {
 /// Keep the signature, swap the signed transaction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tampered_payload_is_unauthorized() {
-    let addr = spawn_ledger(HashMap::default()).await;
+    let addr = spawn_ledger(&other_signing_key(), 0).await;
     let key = signing_key();
     let wasm = b"\0asm\x01\0\0\0";
     let tampered = b"tampered payload";
@@ -445,7 +445,7 @@ async fn tampered_payload_is_unauthorized() {
 /// A signature over another protocol's payload must not count as a publish.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn wrong_context_is_rejected() {
-    let addr = spawn_ledger(HashMap::default()).await;
+    let addr = spawn_ledger(&other_signing_key(), 0).await;
     let key = signing_key();
     let wasm = b"\0asm\x01\0\0\0";
     let tx = publish_tx("starstream:other", NETWORK, 0, wasm);
@@ -459,7 +459,7 @@ async fn wrong_context_is_rejected() {
 /// A publish signed for one network must not replay on another.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn wrong_network_is_rejected() {
-    let addr = spawn_ledger(HashMap::default()).await;
+    let addr = spawn_ledger(&other_signing_key(), 0).await;
     let key = signing_key();
     let wasm = b"\0asm\x01\0\0\0";
     let tx = publish_tx(PUBLISH_CONTEXT, "starstream:mainnet", 0, wasm);
@@ -472,7 +472,7 @@ async fn wrong_network_is_rejected() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn missing_alg_is_bad_request() {
-    let addr = spawn_ledger(HashMap::default()).await;
+    let addr = spawn_ledger(&other_signing_key(), 0).await;
     let key = signing_key();
     let wasm = b"\0asm\x01\0\0\0";
     let protected = coset::HeaderBuilder::new()
@@ -501,15 +501,7 @@ async fn score_contract_flow() {
     let wasm = SCORE.as_slice();
     let digest = encode_digest(&Sha256::digest(wasm).into());
 
-    let account = hex::encode(key.verifying_key().to_bytes());
-    let addr = spawn_ledger(HashMap::from([(
-        account.into(),
-        Account {
-            balance: wasm.len() as u64,
-            last_nonce: 0,
-        },
-    )]))
-    .await;
+    let addr = spawn_ledger(&key, wasm.len() as u64).await;
 
     let envelope = sign_envelope(
         &key,
@@ -695,8 +687,9 @@ interface {utxo_digest} {{
     );
 }
 
-/// The compiled `starstream-ledger` binary, given a funded account via
-/// `--account`, accepts a publish signed with the corresponding key.
+/// The compiled `starstream-ledger` binary, given an admin account via
+/// `--admin-key` (funded with the default `u64::MAX` balance), accepts a
+/// publish signed with the corresponding key.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exe_funded_account_can_publish() {
     let key = SigningKey::from_bytes(&Sha256::digest("starstream:test:account:0").into());
@@ -713,12 +706,54 @@ async fn exe_funded_account_can_publish() {
             NETWORK,
             "--addr",
             &addr.to_string(),
-            "--account",
-            &format!("{account}={}", 1u64 << 40),
+            "--admin-key",
+            &account,
         ])
         .kill_on_drop(true)
         .spawn()
         .unwrap();
+    for _ in 0..100 {
+        if let Some(status) = ledger.try_wait().unwrap() {
+            panic!("ledger exited early: {status}");
+        }
+        if TcpStream::connect(addr).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let wasm = wat::parse_str("(component)").unwrap();
+    let envelope = sign_envelope(
+        &key,
+        key.verifying_key().as_bytes(),
+        publish_tx(PUBLISH_CONTEXT, NETWORK, 1, &wasm),
+    );
+    let (status, body) = send(addr, put_contract(addr, &wasm, envelope)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "body: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+/// The compiled `starstream-ledger` binary, run without `--admin-key`, uses
+/// the well-known pre-seeded admin key and accepts a publish signed with it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn exe_default_admin_key_can_publish() {
+    let key = SigningKey::from_bytes(&Sha256::digest("admin").into());
+
+    // Grab a free port, then let the ledger rebind it (SO_REUSEADDR).
+    let addr = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let mut ledger = tokio::process::Command::new(env!("CARGO_BIN_EXE_starstream-ledger"))
+        .args(["--network", NETWORK, "--addr", &addr.to_string()])
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+
     for _ in 0..100 {
         if let Some(status) = ledger.try_wait().unwrap() {
             panic!("ledger exited early: {status}");

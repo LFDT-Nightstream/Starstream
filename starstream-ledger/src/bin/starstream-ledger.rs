@@ -3,16 +3,20 @@ use core::net::{IpAddr, Ipv6Addr, SocketAddr};
 use core::pin::pin;
 use core::task::{Poll, ready};
 
-use std::collections::HashMap;
 use std::io::stderr;
 use std::sync::Arc;
 
 use clap::Parser;
-use ed25519_dalek::VerifyingKey;
-use starstream_ledger::{Account, CardanoCtx, Ledger};
+use ed25519_dalek::{SigningKey, VerifyingKey};
+use sha2::{Digest as _, Sha256};
+use starstream_ledger::{CardanoCtx, Ledger};
 use tokio::signal;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
+
+/// The seed the default admin key is derived from (as its SHA-256 digest)
+/// when `--admin-key` is not specified.
+const DEFAULT_ADMIN_KEY_SEED: &str = "admin";
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -29,9 +33,15 @@ struct Args {
     #[arg(long, default_value = "dev")]
     network: String,
 
-    /// Pre-funded account (genesis allocation), repeatable.
-    #[arg(long = "account", value_name = "PUBKEY=BALANCE", value_parser = parse_account)]
-    accounts: Vec<(Box<str>, Account)>,
+    /// Hex-encoded Ed25519 public key of the pre-funded admin account
+    /// (genesis allocation). Defaults to the well-known pre-seeded key
+    /// derived from the SHA-256 digest of `admin`.
+    #[arg(long, value_name = "PUBKEY", value_parser = parse_admin_key, default_value_t = default_admin_key())]
+    admin_key: Box<str>,
+
+    /// Initial balance of the pre-funded admin account.
+    #[arg(long, value_name = "BALANCE", default_value_t = u64::MAX)]
+    admin_balance: u64,
 
     /// Address to serve API on
     #[arg(long, global = true, value_name = "ADDR", default_value_t = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 9000))]
@@ -42,25 +52,18 @@ struct Args {
     max_requests: u32,
 }
 
-fn parse_account(s: &str) -> Result<(Box<str>, Account), String> {
-    let (key, balance) = s
-        .split_once('=')
-        .ok_or("expected `<hex-ed25519-pubkey>=<balance>`")?;
+fn default_admin_key() -> Box<str> {
+    let key = SigningKey::from_bytes(&Sha256::digest(DEFAULT_ADMIN_KEY_SEED).into());
+    hex::encode(key.verifying_key().as_bytes()).into()
+}
+
+fn parse_admin_key(key: &str) -> Result<Box<str>, String> {
     let mut buf = [0u8; 32];
     hex::decode_to_slice(key, &mut buf)
         .map_err(|err| format!("public key is not a valid hex-encoded 32 bytes: {err}"))?;
     VerifyingKey::from_bytes(&buf)
         .map_err(|err| format!("public key is not a valid Ed25519 public key: {err}"))?;
-    let balance = balance
-        .parse()
-        .map_err(|err| format!("balance is not a valid u64: {err}"))?;
-    Ok((
-        key.to_ascii_lowercase().into(),
-        Account {
-            balance,
-            last_nonce: 0,
-        },
-    ))
+    Ok(key.to_ascii_lowercase().into())
 }
 
 #[tokio::main]
@@ -69,7 +72,8 @@ async fn main() -> anyhow::Result<()> {
         cardano_block_height,
         cardano_current_slot,
         network,
-        accounts,
+        admin_key,
+        admin_balance,
         addr,
         max_requests,
     } = Args::parse();
@@ -83,8 +87,6 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let accounts: HashMap<Box<str>, Account> = accounts.into_iter().collect();
-
     debug!("creating Wasmtime engine");
     let engine = wasmtime::Engine::default();
 
@@ -94,7 +96,14 @@ async fn main() -> anyhow::Result<()> {
         block_height: cardano_block_height,
         current_slot: cardano_current_slot,
     };
-    let ledger = Ledger::new(engine, max_requests, cardano, network, accounts);
+    let ledger = Ledger::new(
+        engine,
+        max_requests,
+        cardano,
+        network,
+        admin_key,
+        admin_balance,
+    );
     let ledger = Arc::new(ledger);
     let http_task = ledger.handle_http(addr).await?;
     tasks.spawn(http_task);

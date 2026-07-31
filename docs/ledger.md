@@ -16,7 +16,7 @@ Run `starstream-ledger --help` for the auto-generated flag overview.
 
 ```
 starstream-ledger [--addr ADDR] [--network NETWORK]
-                  [--account PUBKEY=BALANCE]...
+                  [--admin-key PUBKEY] [--admin-balance BALANCE]
                   [--cardano-block-height N] [--cardano-current-slot N]
                   [--max-requests N]
 ```
@@ -25,9 +25,12 @@ starstream-ledger [--addr ADDR] [--network NETWORK]
 - **`--network`** (default `dev`) — the network identifier publish
   transactions must be bound to; a publish signed for a different network
   is rejected.
-- **`--account PUBKEY=BALANCE`** (repeatable) — a pre-funded account
-  (genesis allocation). `PUBKEY` is a hex-encoded raw 32-byte Ed25519
-  public key, `BALANCE` a `u64`.
+- **`--admin-key PUBKEY`** — the pre-funded admin account (genesis
+  allocation). `PUBKEY` is a hex-encoded raw 32-byte Ed25519 public key.
+  If not specified, a well-known pre-seeded key is used: the Ed25519 key
+  whose private key is the SHA-256 digest of `admin`.
+- **`--admin-balance BALANCE`** (default `u64::MAX`) — the initial
+  balance of the admin account.
 - **`--cardano-block-height`**, **`--cardano-current-slot`** (default
   `0`) — the Cardano context reported to running contracts via the
   `starstream:std/cardano` host interface (`block-height`,
@@ -91,8 +94,8 @@ starstream-ledger-cli method $UTXO plus-chips 7
   lowercase-hex encoding of its Ed25519 public key. A publish charges the
   account one balance unit per byte of Wasm and consumes a nonce: every
   publish must carry a nonce strictly greater than the account's last
-  accepted one (replay protection). Accounts only come into existence via
-  `--account`.
+  accepted one (replay protection). The only account is the admin account
+  configured via `--admin-key`.
 - **UTXOs are content-addressed too.** Each successful
   coordination-script invocation is recorded as a transaction in a new
   block. Every UTXO the script constructs becomes an output of that
