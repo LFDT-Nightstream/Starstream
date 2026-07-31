@@ -24,7 +24,6 @@
 //! Running contracts observe the ledger's [`CardanoCtx`] through the
 //! `starstream:std/cardano` host interface.
 
-use core::fmt::{self, Display};
 use core::ops::{Deref, DerefMut};
 
 use std::collections::{HashMap, HashSet};
@@ -32,6 +31,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use starstream_runtime_next::{CoordinationScriptExport, UtxoExport};
+use thiserror::Error;
 use wasmtime::component::ResourceTable;
 
 pub mod codec;
@@ -75,26 +75,17 @@ pub fn encode_digest(digest: &[u8; 32]) -> String {
     multibase::encode(multibase::Base::Base32Lower, digest.to_bytes())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum DigestParseError {
+    #[error(transparent)]
     Base(multibase::Error),
+    #[error(transparent)]
     Hash(multihash::Error),
+    #[error("unexpected multihash code `{0}`")]
     Code(u64),
+    #[error("unexpected multihash size {0}")]
     Size(u8),
 }
-
-impl Display for DigestParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Base(err) => err.fmt(f),
-            Self::Hash(err) => err.fmt(f),
-            Self::Code(code) => write!(f, "unexpected multihash code `{code}`"),
-            Self::Size(size) => write!(f, "unexpected multihash size {size}"),
-        }
-    }
-}
-
-impl core::error::Error for DigestParseError {}
 
 pub fn parse_digest(s: &str) -> Result<[u8; 32], DigestParseError> {
     let (_, buf) = multibase::decode(s).map_err(DigestParseError::Base)?;

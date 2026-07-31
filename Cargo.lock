@@ -4121,6 +4121,7 @@ dependencies = [
  "starstream-compiler",
  "starstream-runtime-next",
  "starstream-to-wasm",
+ "thiserror 2.0.19",
  "tokio",
  "tokio-util",
  "tracing",

@@ -1,4 +1,3 @@
-use core::fmt::{self, Display};
 use core::iter::zip;
 use core::mem;
 use core::net::SocketAddr;
@@ -20,6 +19,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
+use thiserror::Error;
 use tokio::io::AsyncRead;
 use tokio::net::TcpSocket;
 use tokio::sync::{RwLock, Semaphore, TryAcquireError};
@@ -132,69 +132,39 @@ fn wit_func(export: &str, ty: &types::ComponentFunc, receiver: bool) -> String {
     format!("{name}: func({params}){ret};")
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum CoordinationScriptInvocationError {
+    #[error("failed to parse contract digest: {0}")]
     DigestParsing(DigestParseError),
+    #[error("`{X_STARSTREAM_UTXO}` header value is not a valid string: {0}")]
     UtxoHeaderToStr(http::header::ToStrError),
+    #[error("`{X_STARSTREAM_UTXO}` header value format is not valid")]
     UtxoHeaderFormat,
+    #[error("failed to parse `{X_STARSTREAM_UTXO}` header digest: {0:#}")]
     UtxoHeaderParsing(DigestParseError),
+    #[error("contract not found")]
     ContractNotFound,
+    #[error("imported contract not found for instance `{0}`")]
     ImportNotFound(Box<str>),
+    #[error("function export not found")]
     FunctionExportNotFound,
+    #[error("failed to get UTXO export for instance `{0}`: {1:#}")]
     UtxoInstanceExport(Box<str>, wasmtime::Error),
+    #[error("UTXO storage export not found for instance `{0}`")]
     UtxoStorageExportNotFound(Arc<str>),
+    #[error("instrumentation failed: {0:#}")]
     Wizer(wasmtime::Error),
+    #[error("runtime failed: {0:#}")]
     Runtime(wasmtime::Error),
+    #[error("failed to decode parameters: {0}")]
     ParameterDecoding(std::io::Error),
+    #[error("failed to encode results: {0:#}")]
     ResultEncoding(wasmtime::Error),
+    #[error("failed to encode frame: {0}")]
     FrameEncoding(std::io::Error),
+    #[error(transparent)]
     Http(http::Error),
 }
-
-impl Display for CoordinationScriptInvocationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DigestParsing(err) => write!(f, "failed to parse contract digest: {err}"),
-            Self::UtxoHeaderToStr(err) => {
-                write!(
-                    f,
-                    "`{X_STARSTREAM_UTXO}` header value is not a valid string: {err}"
-                )
-            }
-            Self::UtxoHeaderFormat => {
-                write!(f, "`{X_STARSTREAM_UTXO}` header value format is not valid")
-            }
-            Self::UtxoHeaderParsing(err) => {
-                write!(
-                    f,
-                    "failed to parse `{X_STARSTREAM_UTXO}` header digest: {err:#}"
-                )
-            }
-            Self::ContractNotFound => write!(f, "contract not found"),
-            Self::ImportNotFound(instance) => {
-                write!(f, "imported contract not found for instance `{instance}`")
-            }
-            Self::FunctionExportNotFound => write!(f, "function export not found"),
-            Self::UtxoInstanceExport(instance, err) => {
-                write!(
-                    f,
-                    "failed to get UTXO export for instance `{instance}`: {err:#}"
-                )
-            }
-            Self::UtxoStorageExportNotFound(instance) => {
-                write!(f, "UTXO storage export not found for instance `{instance}`")
-            }
-            Self::Wizer(err) => write!(f, "instrumentation failed: {err:#}"),
-            Self::Runtime(err) => write!(f, "runtime failed: {err:#}"),
-            Self::ParameterDecoding(err) => write!(f, "failed to decode parameters: {err}"),
-            Self::ResultEncoding(err) => write!(f, "failed to encode results: {err:#}"),
-            Self::FrameEncoding(err) => write!(f, "failed to encode frame: {err}"),
-            Self::Http(err) => err.fmt(f),
-        }
-    }
-}
-
-impl core::error::Error for CoordinationScriptInvocationError {}
 
 impl CoordinationScriptInvocationError {
     fn http_status_code(&self) -> http::StatusCode {
@@ -218,47 +188,31 @@ impl CoordinationScriptInvocationError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum UtxoMethodInvocationError {
+    #[error("failed to parse UTXO digest: {0}")]
     DigestParsing(DigestParseError),
+    #[error("UTXO not found")]
     UtxoNotFound,
+    #[error("contract not found")]
     ContractNotFound,
+    #[error("method export not found")]
     MethodExportNotFound,
+    #[error("failed to get UTXO export for instance `{0}`: {1:#}")]
     UtxoInstanceExport(Arc<str>, wasmtime::Error),
+    #[error("UTXO storage export not found for instance `{0}`")]
     UtxoStorageExportNotFound(Arc<str>),
+    #[error("runtime failed: {0:#}")]
     Runtime(wasmtime::Error),
+    #[error("failed to decode parameters: {0}")]
     ParameterDecoding(std::io::Error),
+    #[error("failed to encode results: {0:#}")]
     ResultEncoding(wasmtime::Error),
+    #[error("failed to encode frame: {0}")]
     FrameEncoding(std::io::Error),
+    #[error(transparent)]
     Http(http::Error),
 }
-
-impl Display for UtxoMethodInvocationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DigestParsing(err) => write!(f, "failed to parse UTXO digest: {err}"),
-            Self::UtxoNotFound => write!(f, "UTXO not found"),
-            Self::ContractNotFound => write!(f, "contract not found"),
-            Self::MethodExportNotFound => write!(f, "method export not found"),
-            Self::UtxoInstanceExport(instance, err) => {
-                write!(
-                    f,
-                    "failed to get UTXO export for instance `{instance}`: {err:#}"
-                )
-            }
-            Self::UtxoStorageExportNotFound(instance) => {
-                write!(f, "UTXO storage export not found for instance `{instance}`")
-            }
-            Self::Runtime(err) => write!(f, "runtime failed: {err:#}"),
-            Self::ParameterDecoding(err) => write!(f, "failed to decode parameters: {err}"),
-            Self::ResultEncoding(err) => write!(f, "failed to encode results: {err:#}"),
-            Self::FrameEncoding(err) => write!(f, "failed to encode frame: {err}"),
-            Self::Http(err) => err.fmt(f),
-        }
-    }
-}
-
-impl core::error::Error for UtxoMethodInvocationError {}
 
 impl UtxoMethodInvocationError {
     fn http_status_code(&self) -> http::StatusCode {
@@ -278,26 +232,17 @@ impl UtxoMethodInvocationError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum ContractGetError {
+    #[error("failed to parse contract digest: {0}")]
     DigestParsing(DigestParseError),
+    #[error("contract not found")]
     ContractNotFound,
+    #[error(transparent)]
     AcceptHeader(AcceptHeaderError),
+    #[error(transparent)]
     Http(http::Error),
 }
-
-impl Display for ContractGetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DigestParsing(err) => write!(f, "failed to parse contract digest: {err}"),
-            Self::ContractNotFound => write!(f, "contract not found"),
-            Self::AcceptHeader(err) => err.fmt(f),
-            Self::Http(err) => err.fmt(f),
-        }
-    }
-}
-
-impl core::error::Error for ContractGetError {}
 
 impl ContractGetError {
     fn http_status_code(&self) -> http::StatusCode {
@@ -310,89 +255,53 @@ impl ContractGetError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum ContractPutError {
+    #[error(transparent)]
     DigestParsing(DigestParseError),
+    #[error(transparent)]
     ContentTypeToStr(http::header::ToStrError),
+    #[error(transparent)]
     ContentTypeParsing(mediatype::MediaTypeError),
+    #[error("expected `{APPLICATION_COSE}` content-type, got `{0}`")]
     UnsupportedContentType(Box<str>),
+    #[error(transparent)]
     Body(hyper::Error),
+    #[error("body is not a valid COSE_Sign1: {0}")]
     CoseSign1Parsing(coset::CoseError),
+    #[error("protected `alg` header must be EdDSA")]
     Algorithm,
+    #[error("protected `kid` header must be a raw 32-byte Ed25519 public key")]
     KeyIdFormat,
+    #[error("`kid` is not a valid Ed25519 public key: {0}")]
     Key(ed25519_dalek::SignatureError),
+    #[error("signature verification failed: {0}")]
     SignatureVerification(ed25519_dalek::SignatureError),
+    #[error("COSE_Sign1 payload missing")]
     PayloadMissing,
+    #[error("COSE_Sign1 payload is not valid CBOR: {0}")]
     PayloadParsing(ciborium::de::Error<std::io::Error>),
+    #[error("publish transaction must be a `[context, network, nonce, wasm]` array")]
     TransactionFormat,
+    #[error("unexpected context `{0}`, expected `{PUBLISH_CONTEXT}`")]
     Context(Box<str>),
+    #[error("unexpected network `{got}`, expected `{expected}`")]
     Network { got: Box<str>, expected: Arc<str> },
+    #[error("publish transaction nonce does not fit in u64")]
     NonceOverflow,
+    #[error("digest mismatch, got: `{}`", encode_digest(.0))]
     DigestMismatch([u8; 32]),
+    #[error("account ID `{0}` not found")]
     AccountNotFound(Box<str>),
+    #[error("nonce must be higher than {last_nonce}, got {nonce}")]
     NonceTooLow { last_nonce: u64, nonce: u64 },
+    #[error("balance insufficient, required at least {required}, available {available}")]
     InsufficientBalance { required: u64, available: u64 },
+    #[error("{0:?}")]
     Runtime(wasmtime::Error),
+    #[error(transparent)]
     Http(http::Error),
 }
-
-impl Display for ContractPutError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DigestParsing(err) => err.fmt(f),
-            Self::ContentTypeToStr(err) => err.fmt(f),
-            Self::ContentTypeParsing(err) => err.fmt(f),
-            Self::UnsupportedContentType(ct) => {
-                write!(f, "expected `{APPLICATION_COSE}` content-type, got `{ct}`")
-            }
-            Self::Body(err) => err.fmt(f),
-            Self::CoseSign1Parsing(err) => write!(f, "body is not a valid COSE_Sign1: {err}"),
-            Self::Algorithm => write!(f, "protected `alg` header must be EdDSA"),
-            Self::KeyIdFormat => write!(
-                f,
-                "protected `kid` header must be a raw 32-byte Ed25519 public key"
-            ),
-            Self::Key(err) => write!(f, "`kid` is not a valid Ed25519 public key: {err}"),
-            Self::SignatureVerification(err) => {
-                write!(f, "signature verification failed: {err}")
-            }
-            Self::PayloadMissing => write!(f, "COSE_Sign1 payload missing"),
-            Self::PayloadParsing(err) => {
-                write!(f, "COSE_Sign1 payload is not valid CBOR: {err}")
-            }
-            Self::TransactionFormat => write!(
-                f,
-                "publish transaction must be a `[context, network, nonce, wasm]` array"
-            ),
-            Self::Context(context) => write!(
-                f,
-                "unexpected context `{context}`, expected `{PUBLISH_CONTEXT}`"
-            ),
-            Self::Network { got, expected } => {
-                write!(f, "unexpected network `{got}`, expected `{expected}`")
-            }
-            Self::NonceOverflow => write!(f, "publish transaction nonce does not fit in u64"),
-            Self::DigestMismatch(digest) => {
-                write!(f, "digest mismatch, got: `{}`", encode_digest(digest))
-            }
-            Self::AccountNotFound(id) => write!(f, "account ID `{id}` not found"),
-            Self::NonceTooLow { last_nonce, nonce } => {
-                write!(f, "nonce must be higher than {last_nonce}, got {nonce}")
-            }
-            Self::InsufficientBalance {
-                required,
-                available,
-            } => write!(
-                f,
-                "balance insufficient, required at least {required}, available {available}"
-            ),
-            Self::Runtime(err) => write!(f, "{err:?}"),
-            Self::Http(err) => err.fmt(f),
-        }
-    }
-}
-
-impl core::error::Error for ContractPutError {}
 
 impl ContractPutError {
     fn http_status_code(&self) -> http::StatusCode {
@@ -424,30 +333,21 @@ impl ContractPutError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum ContractRpcGetError {
+    #[error("failed to parse contract digest: {0}")]
     DigestParsing(DigestParseError),
+    #[error("contract not found")]
     ContractNotFound,
+    #[error(transparent)]
     AcceptHeader(AcceptHeaderError),
+    #[error("runtime failed: {0:#}")]
     Runtime(wasmtime::Error),
+    #[error("failed to generate Wasm: {0:#}")]
     Wasm(anyhow::Error),
+    #[error(transparent)]
     Http(http::Error),
 }
-
-impl Display for ContractRpcGetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DigestParsing(err) => write!(f, "failed to parse contract digest: {err}"),
-            Self::ContractNotFound => write!(f, "contract not found"),
-            Self::AcceptHeader(err) => err.fmt(f),
-            Self::Runtime(err) => write!(f, "runtime failed: {err:#}"),
-            Self::Wasm(err) => write!(f, "failed to generate Wasm: {err:#}"),
-            Self::Http(err) => err.fmt(f),
-        }
-    }
-}
-
-impl core::error::Error for ContractRpcGetError {}
 
 impl ContractRpcGetError {
     fn http_status_code(&self) -> http::StatusCode {
@@ -462,36 +362,25 @@ impl ContractRpcGetError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum UtxoRpcGetError {
+    #[error("failed to parse UTXO digest: {0}")]
     DigestParsing(DigestParseError),
+    #[error("UTXO not found")]
     UtxoNotFound,
+    #[error("contract not found")]
     ContractNotFound,
+    #[error("UTXO export not found for instance `{0}`")]
     UtxoInstanceExportNotFound(Arc<str>),
+    #[error(transparent)]
     AcceptHeader(AcceptHeaderError),
+    #[error("runtime failed: {0:#}")]
     Runtime(wasmtime::Error),
+    #[error("failed to generate Wasm: {0:#}")]
     Wasm(anyhow::Error),
+    #[error(transparent)]
     Http(http::Error),
 }
-
-impl Display for UtxoRpcGetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DigestParsing(err) => write!(f, "failed to parse UTXO digest: {err}"),
-            Self::UtxoNotFound => write!(f, "UTXO not found"),
-            Self::ContractNotFound => write!(f, "contract not found"),
-            Self::UtxoInstanceExportNotFound(instance) => {
-                write!(f, "UTXO export not found for instance `{instance}`")
-            }
-            Self::AcceptHeader(err) => err.fmt(f),
-            Self::Runtime(err) => write!(f, "runtime failed: {err:#}"),
-            Self::Wasm(err) => write!(f, "failed to generate Wasm: {err:#}"),
-            Self::Http(err) => err.fmt(f),
-        }
-    }
-}
-
-impl core::error::Error for UtxoRpcGetError {}
 
 impl UtxoRpcGetError {
     fn http_status_code(&self) -> http::StatusCode {
@@ -508,31 +397,21 @@ impl UtxoRpcGetError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum AcceptHeaderError {
+    #[error("failed to decode `Accept` header: {0}")]
     Decoding(headers_core::Error),
+    #[error("no acceptable media type, available: {}", format_media_types(.0))]
     NotAcceptable(&'static [MediaType<'static>]),
 }
 
-impl Display for AcceptHeaderError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Decoding(err) => write!(f, "failed to decode `Accept` header: {err}"),
-            Self::NotAcceptable(available) => {
-                write!(f, "no acceptable media type, available: ")?;
-                for (i, mt) in available.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "`{mt}`")?;
-                }
-                Ok(())
-            }
-        }
-    }
+fn format_media_types(available: &[MediaType<'_>]) -> String {
+    available
+        .iter()
+        .map(|mt| format!("`{mt}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
-
-impl core::error::Error for AcceptHeaderError {}
 
 impl AcceptHeaderError {
     fn http_status_code(&self) -> http::StatusCode {
