@@ -1117,9 +1117,6 @@ impl Ledger {
                     path.next(),
                     path.next(),
                     path.next(),
-                    path.next(),
-                    path.next(),
-                    path.next(),
                 ) {
                     ("POST", Some("rpc"), None, ..) => {
                         let mut body = wrpc_http::data_reader_from_incoming(body);
