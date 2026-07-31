@@ -1,7 +1,7 @@
 //! End-to-end test driving the compiled `starstream-ledger` server with
-//! the compiled `starstream-ledger-cli` client: the full
-//! `score_contract_flow` from `tests/ledger.rs`, reproduced from the CLI
-//! alone.
+//! the compiled `starstream-ledger-cli` client: the admin funds a fresh
+//! account, then the full `score_contract_flow` from `tests/ledger.rs`
+//! is reproduced from the CLI alone, paid for by that account.
 
 #![cfg(feature = "cli")]
 
@@ -63,6 +63,10 @@ async fn cli(addr: SocketAddr, args: &[&str]) -> (String, String) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn score_contract_flow_via_cli() {
+    let admin_seed = Sha256::digest("starstream:test:cli:admin");
+    let admin_key = SigningKey::from_bytes(&admin_seed.into());
+    let admin_account = hex::encode(admin_key.verifying_key().to_bytes());
+
     let seed = Sha256::digest("starstream:test:cli:account");
     let key = SigningKey::from_bytes(&seed.into());
     let account = hex::encode(key.verifying_key().to_bytes());
@@ -84,7 +88,7 @@ async fn score_contract_flow_via_cli() {
             "--addr",
             &addr.to_string(),
             "--admin-key",
-            &account,
+            &admin_account,
             "--admin-balance",
             &wasm.len().to_string(),
         ])
@@ -100,6 +104,25 @@ async fn score_contract_flow_via_cli() {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+
+    // The admin transfers its whole genesis allocation to a fresh account,
+    // which then pays for the publish.
+    let (stdout, _) = cli(
+        addr,
+        &[
+            "fund-account",
+            "--key",
+            &hex::encode(admin_seed),
+            "--network",
+            NETWORK,
+            "--nonce",
+            "1",
+            &account,
+            &wasm.len().to_string(),
+        ],
+    )
+    .await;
+    assert_eq!(stdout, "");
 
     let (stdout, _) = cli(
         addr,

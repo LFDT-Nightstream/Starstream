@@ -57,6 +57,11 @@ invocation itself is `POST`ed to `/rpc`.
 - **`publish --key HEX --network NETWORK --nonce N <wasm>`** — sign the
   publish transaction with the hex-encoded 32-byte Ed25519 key, `PUT`
   the `COSE_Sign1` envelope, and print the contract digest.
+- **`fund-account --key HEX --network NETWORK --nonce N <account> <amount>`** —
+  sign the fund-account transaction with the hex-encoded 32-byte
+  Ed25519 admin key and `POST` the `COSE_Sign1` envelope, transferring
+  `<amount>` from the admin balance to the account `<account>` (a
+  hex-encoded raw 32-byte Ed25519 public key).
 - **`script [--utxo INSTANCE=DIGEST]... <digest> [<name> [<arg>]...]`** —
   invoke coordination script `<name>` of contract `<digest>`; each
   `--utxo` maps a UTXO import instance of the contract to the digest of
@@ -93,9 +98,11 @@ starstream-ledger-cli method $UTXO plus-chips 7
 - **Accounts pay for publishing.** An account is identified by the
   lowercase-hex encoding of its Ed25519 public key. A publish charges the
   account one balance unit per byte of Wasm and consumes a nonce: every
-  publish must carry a nonce strictly greater than the account's last
-  accepted one (replay protection). The only account is the admin account
-  configured via `--admin-key`.
+  signed transaction (publish or fund-account) must carry a nonce
+  strictly greater than the signing account's last accepted one (replay
+  protection). The admin account configured via `--admin-key` is the
+  genesis allocation; further accounts are created and credited by
+  admin-signed fund-account transfers (`POST /accounts/<account>`).
 - **UTXOs are content-addressed too.** Each successful
   coordination-script invocation is recorded as a transaction in a new
   block. Every UTXO the script constructs becomes an output of that
@@ -160,6 +167,46 @@ Failure responses:
 - `403 Forbidden` — no account exists for `kid`.
 - `409 Conflict` — the nonce is not strictly greater than the last
   accepted one (e.g. a replayed envelope).
+- `415 Unsupported Media Type` — a `Content-Type` other than
+  `application/cose`.
+
+## Fund an account: `POST /accounts/<account>`
+
+`<account>` is a hex-encoded raw 32-byte Ed25519 public key; its
+lowercase form is the funded account's identifier. The body is a
+`COSE_Sign1` envelope under the same rules as a publish (protected
+EdDSA `alg`, protected raw 32-byte `kid`, signature over `Signature1`
+with empty external AAD), except that the signer must be the admin
+account: funding is a transfer from the admin balance. The payload is
+the CBOR fund-account transaction, a five-element array
+
+```
+["starstream:fund-account", <network: text>, <nonce: uint>, <account: bytes>, <amount: uint>]
+```
+
+where `starstream:fund-account` is the domain-separation context,
+`network` must equal the server's `--network`, `nonce` must fit in a
+`u64` and be strictly greater than the admin account's last accepted
+nonce, `account` is the raw 32-byte public key that must match
+`<account>`, and `amount` must fit in a `u64`.
+
+On success `amount` is transferred from the admin balance to the
+account — created first if it does not exist yet — the admin nonce is
+advanced, and the server responds `200 OK`.
+
+Failure responses:
+
+- `400 Bad Request` — `<account>` is not a hex-encoded 32-byte Ed25519
+  public key; the body is not a `COSE_Sign1`; `alg` or `kid` is
+  malformed; the payload is not the five-element fund-account array;
+  wrong context or network; the nonce or amount overflows `u64`; or
+  the payload account does not match `<account>`.
+- `401 Unauthorized` — the signature does not verify against `kid`.
+- `402 Payment Required` — the admin balance is smaller than `amount`.
+- `403 Forbidden` — the signer is not the admin account.
+- `409 Conflict` — the nonce is not strictly greater than the admin's
+  last accepted one (e.g. a replayed envelope), or the credit would
+  overflow the account balance.
 - `415 Unsupported Media Type` — a `Content-Type` other than
   `application/cose`.
 

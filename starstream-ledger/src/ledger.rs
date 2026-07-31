@@ -32,9 +32,9 @@ use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
 
 use crate::codec::{ValEncoder, read_value};
 use crate::{
-    Account, Action, Block, CardanoCtx, Contract, Ctx, DigestParseError, PUBLISH_CONTEXT,
-    Transaction, Utxo, UtxoImport, UtxoOutput, X_STARSTREAM_BLOCK, X_STARSTREAM_TRANSACTION,
-    X_STARSTREAM_UTXO, encode_digest, parse_digest,
+    Account, Action, Block, CardanoCtx, Contract, Ctx, DigestParseError, FUND_ACCOUNT_CONTEXT,
+    PUBLISH_CONTEXT, Transaction, Utxo, UtxoImport, UtxoOutput, X_STARSTREAM_BLOCK,
+    X_STARSTREAM_TRANSACTION, X_STARSTREAM_UTXO, encode_digest, parse_digest,
 };
 
 const APPLICATION_OCTET_STREAM: MediaType = MediaType::new(
@@ -303,6 +303,90 @@ impl ContractPutError {
 }
 
 #[derive(Debug, Error)]
+enum AccountFundError {
+    #[error("account is not a valid hex-encoded 32 bytes: {0}")]
+    AccountParsing(hex::FromHexError),
+    #[error("account is not a valid Ed25519 public key: {0}")]
+    AccountKey(ed25519_dalek::SignatureError),
+    #[error(transparent)]
+    ContentTypeToStr(http::header::ToStrError),
+    #[error(transparent)]
+    ContentTypeParsing(mediatype::MediaTypeError),
+    #[error("expected `{APPLICATION_COSE}` content-type, got `{0}`")]
+    UnsupportedContentType(Box<str>),
+    #[error(transparent)]
+    Body(hyper::Error),
+    #[error("body is not a valid COSE_Sign1: {0}")]
+    CoseSign1Parsing(coset::CoseError),
+    #[error("protected `alg` header must be EdDSA")]
+    Algorithm,
+    #[error("protected `kid` header must be a raw 32-byte Ed25519 public key")]
+    KeyIdFormat,
+    #[error("`kid` is not a valid Ed25519 public key: {0}")]
+    Key(ed25519_dalek::SignatureError),
+    #[error("signature verification failed: {0}")]
+    SignatureVerification(ed25519_dalek::SignatureError),
+    #[error("COSE_Sign1 payload missing")]
+    PayloadMissing,
+    #[error("COSE_Sign1 payload is not valid CBOR: {0}")]
+    PayloadParsing(ciborium::de::Error<std::io::Error>),
+    #[error(
+        "fund-account transaction must be a `[context, network, nonce, account, amount]` array"
+    )]
+    TransactionFormat,
+    #[error("unexpected context `{0}`, expected `{FUND_ACCOUNT_CONTEXT}`")]
+    Context(Box<str>),
+    #[error("unexpected network `{got}`, expected `{expected}`")]
+    Network { got: Box<str>, expected: Arc<str> },
+    #[error("fund-account transaction nonce does not fit in u64")]
+    NonceOverflow,
+    #[error("fund-account transaction amount does not fit in u64")]
+    AmountOverflow,
+    #[error("transaction account does not match `{0}`")]
+    AccountMismatch(Box<str>),
+    #[error("signer `{0}` is not the admin account")]
+    NotAdmin(Box<str>),
+    #[error("nonce must be higher than {last_nonce}, got {nonce}")]
+    NonceTooLow { last_nonce: u64, nonce: u64 },
+    #[error("balance insufficient, required at least {required}, available {available}")]
+    InsufficientBalance { required: u64, available: u64 },
+    #[error("account balance overflow")]
+    BalanceOverflow,
+    #[error(transparent)]
+    Http(http::Error),
+}
+
+impl AccountFundError {
+    fn http_status_code(&self) -> http::StatusCode {
+        match self {
+            Self::AccountParsing(..)
+            | Self::AccountKey(..)
+            | Self::ContentTypeToStr(..)
+            | Self::ContentTypeParsing(..)
+            | Self::Body(..)
+            | Self::CoseSign1Parsing(..)
+            | Self::Algorithm
+            | Self::KeyIdFormat
+            | Self::Key(..)
+            | Self::PayloadMissing
+            | Self::PayloadParsing(..)
+            | Self::TransactionFormat
+            | Self::Context(..)
+            | Self::Network { .. }
+            | Self::NonceOverflow
+            | Self::AmountOverflow
+            | Self::AccountMismatch(..) => http::StatusCode::BAD_REQUEST,
+            Self::UnsupportedContentType(..) => http::StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Self::SignatureVerification(..) => http::StatusCode::UNAUTHORIZED,
+            Self::NotAdmin(..) => http::StatusCode::FORBIDDEN,
+            Self::NonceTooLow { .. } | Self::BalanceOverflow => http::StatusCode::CONFLICT,
+            Self::InsufficientBalance { .. } => http::StatusCode::PAYMENT_REQUIRED,
+            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
 enum ContractRpcGetError {
     #[error("failed to parse contract digest: {0}")]
     DigestParsing(DigestParseError),
@@ -427,6 +511,7 @@ pub struct Ledger {
     contracts: Arc<RwLock<HashMap<[u8; 32], Arc<Contract>>>>,
     transactions: Arc<RwLock<Vec<Arc<Transaction>>>>,
     accounts: Arc<RwLock<HashMap<Box<str>, Account>>>,
+    admin: Box<str>,
     cardano: CardanoCtx,
     network: Arc<str>,
     max_requests: u32,
@@ -445,6 +530,7 @@ impl Ledger {
         let max_requests = usize::try_from(max_requests)
             .unwrap_or(Semaphore::MAX_PERMITS)
             .min(Semaphore::MAX_PERMITS);
+        let admin = admin_key.into();
         Self {
             engine,
             wizer: Wizer::new(),
@@ -453,12 +539,13 @@ impl Ledger {
             contracts: Arc::default(),
             transactions: Arc::default(),
             accounts: Arc::new(RwLock::new(HashMap::from([(
-                admin_key.into(),
+                admin.clone(),
                 Account {
                     balance: admin_balance,
                     last_nonce: 0,
                 },
             )]))),
+            admin,
             cardano,
             network: network.into(),
             max_requests: max_requests as _,
@@ -943,6 +1030,142 @@ impl Ledger {
         build_http_response(http::StatusCode::OK, "").map_err(ContractPutError::Http)
     }
 
+    async fn handle_account_fund(
+        &self,
+        headers: http::HeaderMap,
+        account: &str,
+        body: hyper::body::Incoming,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, AccountFundError> {
+        let mut account_key = [0u8; 32];
+        hex::decode_to_slice(account, &mut account_key)
+            .map_err(AccountFundError::AccountParsing)?;
+        VerifyingKey::from_bytes(&account_key).map_err(AccountFundError::AccountKey)?;
+
+        match headers.get(CONTENT_TYPE).map(HeaderValue::to_str) {
+            None => {}
+            Some(Ok(ct)) => match MediaType::parse(ct) {
+                Ok(ct) if ct.essence() == APPLICATION_COSE => {}
+                Ok(ct) => {
+                    return Err(AccountFundError::UnsupportedContentType(
+                        ct.to_string().into_boxed_str(),
+                    ));
+                }
+                Err(err) => return Err(AccountFundError::ContentTypeParsing(err)),
+            },
+            Some(Err(err)) => return Err(AccountFundError::ContentTypeToStr(err)),
+        }
+
+        let envelope = body
+            .collect()
+            .await
+            .map_err(AccountFundError::Body)?
+            .to_bytes();
+        let sign1 = CoseSign1::from_tagged_slice(&envelope)
+            .or_else(|_| CoseSign1::from_slice(&envelope))
+            .map_err(AccountFundError::CoseSign1Parsing)?;
+        if sign1.protected.header.alg != Some(coset::Algorithm::Assigned(iana::Algorithm::EdDSA)) {
+            return Err(AccountFundError::Algorithm);
+        }
+        let key = <[u8; 32]>::try_from(sign1.protected.header.key_id.as_slice())
+            .map_err(|_| AccountFundError::KeyIdFormat)?;
+        let key = VerifyingKey::from_bytes(&key).map_err(AccountFundError::Key)?;
+        sign1
+            .verify_signature(b"", |signature, data| {
+                Signature::from_slice(signature)
+                    .and_then(|signature| key.verify_strict(data, &signature))
+            })
+            .map_err(AccountFundError::SignatureVerification)?;
+        let payload = sign1
+            .payload
+            .as_deref()
+            .ok_or(AccountFundError::PayloadMissing)?;
+        let tx = match ciborium::from_reader(payload) {
+            Ok(ciborium::Value::Array(tx)) => tx,
+            Ok(..) => return Err(AccountFundError::TransactionFormat),
+            Err(err) => return Err(AccountFundError::PayloadParsing(err)),
+        };
+        let (context, tx_network, nonce, tx_account, amount) =
+            match <[ciborium::Value; 5]>::try_from(tx) {
+                Ok(
+                    [
+                        ciborium::Value::Text(context),
+                        ciborium::Value::Text(network),
+                        ciborium::Value::Integer(nonce),
+                        ciborium::Value::Bytes(account),
+                        ciborium::Value::Integer(amount),
+                    ],
+                ) => (context, network, nonce, account, amount),
+                _ => return Err(AccountFundError::TransactionFormat),
+            };
+        if context != FUND_ACCOUNT_CONTEXT {
+            return Err(AccountFundError::Context(context.into_boxed_str()));
+        }
+        if tx_network != *self.network {
+            return Err(AccountFundError::Network {
+                got: tx_network.into_boxed_str(),
+                expected: Arc::clone(&self.network),
+            });
+        }
+        let nonce = u64::try_from(nonce).map_err(|_| AccountFundError::NonceOverflow)?;
+        let amount = u64::try_from(amount).map_err(|_| AccountFundError::AmountOverflow)?;
+        let account_id = hex::encode(account_key).into_boxed_str();
+        if tx_account != account_key {
+            return Err(AccountFundError::AccountMismatch(account_id));
+        }
+
+        let signer = hex::encode(&sign1.protected.header.key_id);
+        if *signer != *self.admin {
+            return Err(AccountFundError::NotAdmin(signer.into_boxed_str()));
+        }
+
+        let mut accounts = self.accounts.write().await;
+        let admin = accounts
+            .get(self.admin.as_ref())
+            .expect("admin account exists");
+        if nonce <= admin.last_nonce {
+            return Err(AccountFundError::NonceTooLow {
+                last_nonce: admin.last_nonce,
+                nonce,
+            });
+        }
+        let Some(admin_balance) = admin.balance.checked_sub(amount) else {
+            return Err(AccountFundError::InsufficientBalance {
+                required: amount,
+                available: admin.balance,
+            });
+        };
+        if account_id == self.admin {
+            let admin = accounts
+                .get_mut(self.admin.as_ref())
+                .expect("admin account exists");
+            admin.last_nonce = nonce;
+        } else {
+            let account = accounts.entry(account_id.clone()).or_default();
+            let Some(balance) = account.balance.checked_add(amount) else {
+                return Err(AccountFundError::BalanceOverflow);
+            };
+            account.balance = balance;
+            let admin = accounts
+                .get_mut(self.admin.as_ref())
+                .expect("admin account exists");
+            admin.balance = admin_balance;
+            admin.last_nonce = nonce;
+        }
+        {
+            let mut blocks = self.blocks.write().await;
+            let height = blocks.len().saturating_add(1);
+            blocks.push(Block {
+                actions: [Action::FundAccount {
+                    key: account_id,
+                    amount,
+                }]
+                .into(),
+                height,
+            });
+        }
+        build_http_response(http::StatusCode::OK, "").map_err(AccountFundError::Http)
+    }
+
     async fn handle_contract_rpc_get(
         &self,
         headers: http::HeaderMap,
@@ -1176,6 +1399,18 @@ impl Ledger {
                         Err(err) => build_http_response(err.http_status_code(), err.to_string()),
                     },
                     (method, Some("contracts"), Some(..), None, ..) => build_http_response(
+                        http::StatusCode::METHOD_NOT_ALLOWED,
+                        format!("method `{method}` not allowed for path `{}`", pq.path()),
+                    ),
+
+                    ("POST", Some("accounts"), Some(account), None, ..) => match ledger
+                        .handle_account_fund(headers, account, body)
+                        .await
+                    {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_http_response(err.http_status_code(), err.to_string()),
+                    },
+                    (method, Some("accounts"), Some(..), None, ..) => build_http_response(
                         http::StatusCode::METHOD_NOT_ALLOWED,
                         format!("method `{method}` not allowed for path `{}`", pq.path()),
                     ),

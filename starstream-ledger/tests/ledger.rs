@@ -28,8 +28,8 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_ledger::{
-    CardanoCtx, Ledger, PUBLISH_CONTEXT, X_STARSTREAM_BLOCK, X_STARSTREAM_TRANSACTION,
-    X_STARSTREAM_UTXO, encode_digest,
+    CardanoCtx, FUND_ACCOUNT_CONTEXT, Ledger, PUBLISH_CONTEXT, X_STARSTREAM_BLOCK,
+    X_STARSTREAM_TRANSACTION, X_STARSTREAM_UTXO, encode_digest,
 };
 use starstream_runtime_next::componentize;
 use tokio::net::TcpStream;
@@ -140,6 +140,24 @@ fn publish_tx(context: &str, network: &str, nonce: u64, wasm: &[u8]) -> Vec<u8> 
     payload
 }
 
+/// The CBOR fund-account transaction
+/// `[context, network, nonce, account, amount]`.
+fn fund_tx(context: &str, network: &str, nonce: u64, account: &[u8], amount: u64) -> Vec<u8> {
+    let mut payload = Vec::new();
+    ciborium::into_writer(
+        &ciborium::Value::Array(vec![
+            ciborium::Value::Text(context.into()),
+            ciborium::Value::Text(network.into()),
+            ciborium::Value::Integer(nonce.into()),
+            ciborium::Value::Bytes(account.to_vec()),
+            ciborium::Value::Integer(amount.into()),
+        ]),
+        &mut payload,
+    )
+    .unwrap();
+    payload
+}
+
 /// A tagged COSE_Sign1 envelope over `payload`, signed with `key` and carrying
 /// `kid` as the protected key ID.
 fn sign_envelope(key: &SigningKey, kid: &[u8], payload: Vec<u8>) -> Vec<u8> {
@@ -162,6 +180,16 @@ fn put_contract(addr: SocketAddr, wasm: &[u8], envelope: Vec<u8>) -> Request<Ful
     Request::builder()
         .method("PUT")
         .uri(format!("http://{addr}/contracts/{digest}"))
+        .header(CONTENT_TYPE, "application/cose")
+        .body(Full::new(Bytes::from(envelope)))
+        .unwrap()
+}
+
+/// Build a POST funding the account at its hex-addressed URL with `envelope`.
+fn post_fund(addr: SocketAddr, account: &str, envelope: Vec<u8>) -> Request<Full<Bytes>> {
+    Request::builder()
+        .method("POST")
+        .uri(format!("http://{addr}/accounts/{account}"))
         .header(CONTENT_TYPE, "application/cose")
         .body(Full::new(Bytes::from(envelope)))
         .unwrap()
@@ -345,6 +373,181 @@ async fn publish_charges_account_and_stores_envelope() {
                 .and_then(|signature| verifying_key.verify_strict(data, &signature))
         })
         .unwrap();
+}
+
+/// The full fund-account happy path: an admin-signed transfer creates a new
+/// account, replaying it fails on the bumped admin nonce, the funded account
+/// can pay for a publish, and the admin balance was debited by the transfer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fund_account_transfers_and_enables_publishing() {
+    let admin = signing_key();
+    let other = other_signing_key();
+    let other_account = hex::encode(other.verifying_key().to_bytes());
+    let wasm = wat::parse_str("(component)").unwrap();
+
+    // Exactly enough to fund the other account for one publish.
+    let addr = spawn_ledger(&admin, wasm.len() as u64).await;
+
+    let envelope = sign_envelope(
+        &admin,
+        admin.verifying_key().as_bytes(),
+        fund_tx(
+            FUND_ACCOUNT_CONTEXT,
+            NETWORK,
+            1,
+            other.verifying_key().as_bytes(),
+            wasm.len() as u64,
+        ),
+    );
+    let (status, body) = send(addr, post_fund(addr, &other_account, envelope.clone())).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "body: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // Replaying the accepted transfer fails: the admin nonce moved on.
+    let (status, body) = send(addr, post_fund(addr, &other_account, envelope)).await;
+    let body = String::from_utf8_lossy(&body);
+    assert_eq!(status, StatusCode::CONFLICT, "body: {body}");
+    assert!(body.contains("nonce"), "unexpected body: {body}");
+
+    // The funded account can pay for a publish...
+    let envelope = sign_envelope(
+        &other,
+        other.verifying_key().as_bytes(),
+        publish_tx(PUBLISH_CONTEXT, NETWORK, 1, &wasm),
+    );
+    let (status, body) = send(addr, put_contract(addr, &wasm, envelope)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "body: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // ...while the transfer left the admin unable to pay for one.
+    let next_wasm = wat::parse_str("(component (core module))").unwrap();
+    let envelope = sign_envelope(
+        &admin,
+        admin.verifying_key().as_bytes(),
+        publish_tx(PUBLISH_CONTEXT, NETWORK, 2, &next_wasm),
+    );
+    let (status, body) = send(addr, put_contract(addr, &next_wasm, envelope)).await;
+    assert_eq!(
+        status,
+        StatusCode::PAYMENT_REQUIRED,
+        "body: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+/// Only the admin may fund accounts: a validly signed envelope from any
+/// other key is rejected.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fund_account_requires_admin_signer() {
+    let addr = spawn_ledger(&signing_key(), u64::MAX).await;
+    let other = other_signing_key();
+    let account = hex::encode(other.verifying_key().to_bytes());
+    let envelope = sign_envelope(
+        &other,
+        other.verifying_key().as_bytes(),
+        fund_tx(
+            FUND_ACCOUNT_CONTEXT,
+            NETWORK,
+            1,
+            other.verifying_key().as_bytes(),
+            42,
+        ),
+    );
+    let (status, body) = send(addr, post_fund(addr, &account, envelope)).await;
+    let body = String::from_utf8_lossy(&body);
+    assert_eq!(status, StatusCode::FORBIDDEN, "body: {body}");
+    assert!(body.contains("admin"), "unexpected body: {body}");
+}
+
+/// Mismatched or malformed fund-account transactions are rejected without
+/// consuming the admin nonce.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fund_account_rejections() {
+    let admin = signing_key();
+    let other = other_signing_key();
+    let account = hex::encode(other.verifying_key().to_bytes());
+    let addr = spawn_ledger(&admin, 100).await;
+
+    // The signed account must match the addressed one.
+    let envelope = sign_envelope(
+        &admin,
+        admin.verifying_key().as_bytes(),
+        fund_tx(
+            FUND_ACCOUNT_CONTEXT,
+            NETWORK,
+            1,
+            admin.verifying_key().as_bytes(),
+            42,
+        ),
+    );
+    let (status, body) = send(addr, post_fund(addr, &account, envelope)).await;
+    let body = String::from_utf8_lossy(&body);
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(body.contains("account"), "unexpected body: {body}");
+
+    // A signature over another protocol's payload must not count as a
+    // transfer.
+    let envelope = sign_envelope(
+        &admin,
+        admin.verifying_key().as_bytes(),
+        publish_tx(PUBLISH_CONTEXT, NETWORK, 1, b"\0asm\x01\0\0\0"),
+    );
+    let (status, body) = send(addr, post_fund(addr, &account, envelope)).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "body: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // Transferring more than the admin balance is rejected.
+    let envelope = sign_envelope(
+        &admin,
+        admin.verifying_key().as_bytes(),
+        fund_tx(
+            FUND_ACCOUNT_CONTEXT,
+            NETWORK,
+            1,
+            other.verifying_key().as_bytes(),
+            101,
+        ),
+    );
+    let (status, body) = send(addr, post_fund(addr, &account, envelope)).await;
+    assert_eq!(
+        status,
+        StatusCode::PAYMENT_REQUIRED,
+        "body: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    // None of the rejections consumed the nonce: the transfer still goes
+    // through with it.
+    let envelope = sign_envelope(
+        &admin,
+        admin.verifying_key().as_bytes(),
+        fund_tx(
+            FUND_ACCOUNT_CONTEXT,
+            NETWORK,
+            1,
+            other.verifying_key().as_bytes(),
+            100,
+        ),
+    );
+    let (status, body) = send(addr, post_fund(addr, &account, envelope)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "body: {}",
+        String::from_utf8_lossy(&body)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

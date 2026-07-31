@@ -10,6 +10,12 @@
 //!   transaction `[context, network, nonce, wasm]` (see
 //!   [`PUBLISH_CONTEXT`]), charged to an [`Account`] identified by the
 //!   signer's Ed25519 public key.
+//! - `POST /accounts/<account>` — fund an account, identified by the
+//!   lowercase-hex encoding of its Ed25519 public key, with a transfer
+//!   from the admin account's balance. The body is a signed `COSE_Sign1`
+//!   envelope over the CBOR transaction
+//!   `[context, network, nonce, account, amount]` (see
+//!   [`FUND_ACCOUNT_CONTEXT`]) and must be signed by the admin key.
 //! - `GET /contracts/<digest>/rpc` — fetch a contract's
 //!   coordination-script ABI as WIT.
 //! - `GET /utxos/<digest>/rpc` — fetch a persisted UTXO's ABI as WIT,
@@ -44,6 +50,10 @@ pub use ledger::*;
 /// The domain-separation context every publish transaction must carry as its
 /// first element, binding the signature to this protocol.
 pub const PUBLISH_CONTEXT: &str = "starstream:publish";
+
+/// The domain-separation context every fund-account transaction must carry as
+/// its first element, binding the signature to this protocol.
+pub const FUND_ACCOUNT_CONTEXT: &str = "starstream:fund-account";
 
 /// The header mapping a UTXO import instance to the digest of the contract
 /// providing it on coordination-script invocation requests

@@ -30,8 +30,8 @@ use hyper_util::rt::TokioExecutor;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::codec::{ValEncoder, read_value};
 use starstream_ledger::{
-    PUBLISH_CONTEXT, X_STARSTREAM_BLOCK, X_STARSTREAM_TRANSACTION, X_STARSTREAM_UTXO,
-    encode_digest, parse_digest,
+    FUND_ACCOUNT_CONTEXT, PUBLISH_CONTEXT, X_STARSTREAM_BLOCK, X_STARSTREAM_TRANSACTION,
+    X_STARSTREAM_UTXO, encode_digest, parse_digest,
 };
 use tokio_util::codec::{Decoder as _, Encoder as _};
 use tracing::info;
@@ -72,6 +72,29 @@ enum Command {
 
         /// Path to the contract Wasm.
         wasm: PathBuf,
+    },
+    /// Fund an account with a transfer from the admin balance, signed by
+    /// the admin key.
+    FundAccount {
+        /// Hex-encoded 32-byte Ed25519 admin signing key.
+        #[arg(long, value_parser = parse_key)]
+        key: SigningKey,
+
+        /// Network identifier the fund-account transaction is bound to.
+        #[arg(long, default_value = "dev")]
+        network: String,
+
+        /// Fund-account transaction nonce; must be strictly greater than
+        /// the last nonce the admin account transacted with.
+        #[arg(long)]
+        nonce: u64,
+
+        /// Hex-encoded raw 32-byte Ed25519 public key of the account to
+        /// fund.
+        account: String,
+
+        /// Amount to credit the account with.
+        amount: u64,
     },
     /// Invoke a coordination script of a published contract.
     Script {
@@ -313,6 +336,57 @@ async fn publish(
     Ok(())
 }
 
+async fn fund_account(
+    client: &HttpClient,
+    url: &str,
+    key: SigningKey,
+    network: String,
+    nonce: u64,
+    account: String,
+    amount: u64,
+) -> anyhow::Result<()> {
+    let mut account_key = [0u8; 32];
+    hex::decode_to_slice(&account, &mut account_key)
+        .map_err(|err| anyhow::anyhow!("account is not a valid hex-encoded 32 bytes: {err}"))?;
+    let account = hex::encode(account_key);
+    let mut payload = Vec::new();
+    ciborium::into_writer(
+        &ciborium::Value::Array(vec![
+            ciborium::Value::Text(FUND_ACCOUNT_CONTEXT.into()),
+            ciborium::Value::Text(network),
+            ciborium::Value::Integer(nonce.into()),
+            ciborium::Value::Bytes(account_key.into()),
+            ciborium::Value::Integer(amount.into()),
+        ]),
+        &mut payload,
+    )
+    .context("failed to encode fund-account transaction")?;
+    let protected = coset::HeaderBuilder::new()
+        .algorithm(iana::Algorithm::EdDSA)
+        .key_id(key.verifying_key().to_bytes().to_vec())
+        .build();
+    let envelope = coset::CoseSign1Builder::new()
+        .protected(protected)
+        .payload(payload)
+        .create_signature(b"", |data| key.sign(data).to_bytes().to_vec())
+        .build()
+        .to_tagged_vec()
+        .map_err(|err| anyhow::anyhow!("failed to encode COSE_Sign1 envelope: {err}"))?;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("{url}/accounts/{account}"))
+        .header(CONTENT_TYPE, "application/cose")
+        .body(Full::new(envelope.into()))?;
+    let res = send(client, req).await?;
+    ensure!(
+        res.status() == StatusCode::OK,
+        "fund-account failed: {} {}",
+        res.status(),
+        String::from_utf8_lossy(res.body()),
+    );
+    Ok(())
+}
+
 async fn script(
     client: &HttpClient,
     url: &str,
@@ -434,6 +508,13 @@ async fn main() -> anyhow::Result<()> {
             nonce,
             wasm,
         } => publish(&client, url, key, network, nonce, wasm).await,
+        Command::FundAccount {
+            key,
+            network,
+            nonce,
+            account,
+            amount,
+        } => fund_account(&client, url, key, network, nonce, account, amount).await,
         Command::Script {
             utxos,
             contract,
