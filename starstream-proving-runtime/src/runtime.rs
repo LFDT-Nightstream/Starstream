@@ -22,7 +22,6 @@ pub trait WasmTraceHost: Host + neo_wasm::WasmTraceSink {
 #[must_use]
 pub fn new_wasmtime_config() -> wasmtime::Config {
     let mut config = wasmtime::Config::new();
-    config.wasm_component_model(true);
     config.guest_debug(true);
     config
 }
