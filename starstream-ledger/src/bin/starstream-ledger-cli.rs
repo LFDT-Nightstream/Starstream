@@ -6,7 +6,10 @@
 //! Invocation parameters are given in WAVE (WebAssembly Value Encoding)
 //! and results are printed back as WAVE. The parameter and result types
 //! come from the WIT the ledger itself serves for the invocation target
-//! (`GET` on the same `/rpc` URL the invocation is `POST`ed to).
+//! (`GET /contracts/<digest>/rpc` and `GET /utxos/<digest>/rpc`); the
+//! invocation itself is `POST`ed to `/rpc`, addressed by the
+//! `starstream:contract/<digest>` or `starstream:utxo/<digest>` wRPC
+//! instance — the very interface ID the served WIT declares.
 
 use core::iter::zip;
 
@@ -14,7 +17,7 @@ use std::io::stderr;
 use std::path::PathBuf;
 
 use anyhow::{Context as _, ensure};
-use bytes::{BufMut as _, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use clap::{Parser, Subcommand};
 use coset::{TaggedCborSerializable as _, iana};
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -26,10 +29,12 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::codec::{ValEncoder, read_value};
-use starstream_ledger::{PUBLISH_CONTEXT, X_STARSTREAM_UTXO, encode_digest};
+use starstream_ledger::{
+    PUBLISH_CONTEXT, X_STARSTREAM_BLOCK, X_STARSTREAM_TRANSACTION, X_STARSTREAM_UTXO,
+    encode_digest, parse_digest,
+};
 use tokio_util::codec::{Decoder as _, Encoder as _};
 use tracing::info;
-use wasm_tokio::CoreNameEncoder;
 use wasmtime::component::{Component, Type, Val, types};
 
 #[derive(Debug, Parser)]
@@ -87,11 +92,8 @@ enum Command {
     },
     /// Invoke a method on a persisted UTXO.
     Method {
-        /// Transaction index.
-        tx: usize,
-
-        /// UTXO output index within the transaction.
-        utxo: usize,
+        /// Digest of the persisted UTXO, as reported by `script`.
+        utxo: String,
 
         /// Method name as served in the UTXO WIT (kebab-case); when
         /// omitted, the UTXO's ABI is printed as WIT instead.
@@ -141,17 +143,21 @@ async fn fetch_wit(client: &HttpClient, rpc: &str) -> anyhow::Result<String> {
     String::from_utf8(res.into_body().into()).context("served WIT is not valid utf-8")
 }
 
-/// Recover each root-level function import of the served `wit` along
-/// with its type, in served order: a dummy component implementing the
-/// served world is synthesized and compiled, and the types are read off
-/// its imports.
+/// Recover each function of the `iface` interface of the served `wit`
+/// along with its type, in served order: a world importing the interface
+/// is appended, a dummy component implementing it is synthesized and
+/// compiled, and the types are read off the resulting instance import.
 fn parse_funcs(
     engine: &wasmtime::Engine,
     wit: &str,
+    iface: &str,
 ) -> anyhow::Result<Vec<(String, types::ComponentFunc)>> {
     let mut resolve = wit_parser::Resolve::new();
     let pkg = resolve
-        .push_str("served.wit", wit)
+        .push_str(
+            "served.wit",
+            &format!("{wit}world client {{ import {iface}; }}\n"),
+        )
         .context("failed to parse served WIT")?;
     let world = resolve
         .select_world(&[pkg], None)
@@ -176,10 +182,19 @@ fn parse_funcs(
     Ok(component
         .component_type()
         .imports(engine)
-        .filter_map(|(name, types::ComponentExtern { ty, .. })| match ty {
-            types::ComponentItem::ComponentFunc(ty) => Some((name.to_string(), ty)),
+        .filter_map(|(_, types::ComponentExtern { ty, .. })| match ty {
+            types::ComponentItem::ComponentInstance(instance) => Some(
+                instance
+                    .exports(engine)
+                    .filter_map(|(name, types::ComponentExtern { ty, .. })| match ty {
+                        types::ComponentItem::ComponentFunc(ty) => Some((name.to_string(), ty)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+            ),
             _ => None,
         })
+        .flatten()
         .collect())
 }
 
@@ -201,17 +216,13 @@ fn parse_params(tys: &[Type], args: &[String]) -> anyhow::Result<Vec<Val>> {
 }
 
 /// The wRPC invocation request body: the invocation header naming `func`
-/// on the root (empty) instance, followed by one frame carrying the
-/// encoded parameters.
-fn encode_invocation(func: &str, params: &[Val], tys: &[Type]) -> anyhow::Result<Bytes> {
-    let mut buf = BytesMut::new();
-    buf.put_u8(0x00);
-    CoreNameEncoder
-        .encode("", &mut buf)
-        .context("failed to encode instance")?;
-    CoreNameEncoder
-        .encode(func, &mut buf)
-        .context("failed to encode function name")?;
+/// on `instance`, followed by the encoded parameters.
+fn encode_invocation(
+    instance: &str,
+    func: &str,
+    params: &[Val],
+    tys: &[Type],
+) -> anyhow::Result<Bytes> {
     let mut data = BytesMut::new();
     for (v, ty) in zip(params, tys) {
         ValEncoder::new(ty)
@@ -219,15 +230,9 @@ fn encode_invocation(func: &str, params: &[Val], tys: &[Type]) -> anyhow::Result
             .map_err(anyhow::Error::from)
             .context("failed to encode parameter")?;
     }
-    wrpc_transport::FrameEncoder
-        .encode(
-            wrpc_transport::FrameRef {
-                path: &[],
-                data: &data,
-            },
-            &mut buf,
-        )
-        .context("failed to encode parameter frame")?;
+    let mut buf = BytesMut::new();
+    wrpc_transport::frame::encode_invocation(&mut buf, instance, func, &data)
+        .context("failed to encode invocation")?;
     Ok(buf.freeze())
 }
 
@@ -316,22 +321,31 @@ async fn script(
     name: Option<String>,
     args: Vec<String>,
 ) -> anyhow::Result<()> {
-    let rpc = format!("{url}/contracts/{contract}/rpc");
-    let wit = fetch_wit(client, &rpc).await?;
+    let contract = parse_digest(&contract)
+        .map(|digest| encode_digest(&digest))
+        .map_err(|err| anyhow::anyhow!("invalid contract digest: {err}"))?;
+    let wit = fetch_wit(client, &format!("{url}/contracts/{contract}/rpc")).await?;
     let Some(name) = name else {
         print!("{wit}");
         return Ok(());
     };
     let engine = wasmtime::Engine::default();
-    let funcs = parse_funcs(&engine, &wit)?;
+    let funcs = parse_funcs(&engine, &wit, &contract)?;
     let (_, func) = funcs
         .iter()
         .find(|(func, ..)| *func == name)
         .with_context(|| format!("coordination script `{name}` not found"))?;
     let tys: Vec<Type> = func.params().map(|(_, ty)| ty).collect();
     let params = parse_params(&tys, &args)?;
-    let body = encode_invocation(&name, &params, &tys)?;
-    let mut req = Request::builder().method(Method::POST).uri(rpc);
+    let body = encode_invocation(
+        &format!("starstream:contract/{contract}"),
+        &name,
+        &params,
+        &tys,
+    )?;
+    let mut req = Request::builder()
+        .method(Method::POST)
+        .uri(format!("{url}/rpc"));
     for utxo in utxos {
         req = req.header(X_STARSTREAM_UTXO, utxo);
     }
@@ -342,8 +356,18 @@ async fn script(
         res.status(),
         String::from_utf8_lossy(res.body()),
     );
-    for (index, instance) in res.headers().get_all(X_STARSTREAM_UTXO).iter().enumerate() {
-        info!(index, instance = %String::from_utf8_lossy(instance.as_bytes()), "UTXO persisted");
+    for (index, utxo) in res.headers().get_all(X_STARSTREAM_UTXO).iter().enumerate() {
+        info!(index, utxo = %String::from_utf8_lossy(utxo.as_bytes()), "UTXO persisted");
+    }
+    if let (Some(transaction), Some(block)) = (
+        res.headers().get(X_STARSTREAM_TRANSACTION),
+        res.headers().get(X_STARSTREAM_BLOCK),
+    ) {
+        info!(
+            transaction = %String::from_utf8_lossy(transaction.as_bytes()),
+            block = %String::from_utf8_lossy(block.as_bytes()),
+            "transaction recorded",
+        );
     }
     print_results(res.into_body(), func.results()).await
 }
@@ -351,19 +375,20 @@ async fn script(
 async fn method(
     client: &HttpClient,
     url: &str,
-    tx: usize,
-    utxo: usize,
+    utxo: String,
     name: Option<String>,
     args: Vec<String>,
 ) -> anyhow::Result<()> {
-    let rpc = format!("{url}/transactions/{tx}/utxos/{utxo}/rpc");
-    let wit = fetch_wit(client, &rpc).await?;
+    let utxo = parse_digest(&utxo)
+        .map(|digest| encode_digest(&digest))
+        .map_err(|err| anyhow::anyhow!("invalid UTXO digest: {err}"))?;
+    let wit = fetch_wit(client, &format!("{url}/utxos/{utxo}/rpc")).await?;
     let Some(name) = name else {
         print!("{wit}");
         return Ok(());
     };
     let engine = wasmtime::Engine::default();
-    let funcs = parse_funcs(&engine, &wit)?;
+    let funcs = parse_funcs(&engine, &wit, &utxo)?;
     let (_, func) = funcs
         .iter()
         .find(|(func, ..)| *func == name)
@@ -372,10 +397,10 @@ async fn method(
     // ledger supplies it.
     let tys: Vec<Type> = func.params().map(|(_, ty)| ty).collect();
     let params = parse_params(&tys, &args)?;
-    let body = encode_invocation(&name, &params, &tys)?;
+    let body = encode_invocation(&format!("starstream:utxo/{utxo}"), &name, &params, &tys)?;
     let req = Request::builder()
         .method(Method::POST)
-        .uri(rpc)
+        .uri(format!("{url}/rpc"))
         .body(Full::new(body))?;
     let res = send(client, req).await?;
     ensure!(
@@ -415,11 +440,6 @@ async fn main() -> anyhow::Result<()> {
             name,
             args,
         } => script(&client, url, utxos, contract, name, args).await,
-        Command::Method {
-            tx,
-            utxo,
-            name,
-            args,
-        } => method(&client, url, tx, utxo, name, args).await,
+        Command::Method { utxo, name, args } => method(&client, url, utxo, name, args).await,
     }
 }

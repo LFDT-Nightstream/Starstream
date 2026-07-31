@@ -1,10 +1,11 @@
 use core::future::poll_fn;
 use core::net::{IpAddr, Ipv6Addr, SocketAddr};
 use core::pin::pin;
-use core::task::Poll;
+use core::task::{Poll, ready};
 
 use std::collections::HashMap;
 use std::io::stderr;
+use std::sync::Arc;
 
 use clap::Parser;
 use ed25519_dalek::VerifyingKey;
@@ -94,6 +95,7 @@ async fn main() -> anyhow::Result<()> {
         current_slot: cardano_current_slot,
     };
     let ledger = Ledger::new(engine, max_requests, cardano, network, accounts);
+    let ledger = Arc::new(ledger);
     let http_task = ledger.handle_http(addr).await?;
     tasks.spawn(http_task);
 
@@ -112,16 +114,15 @@ async fn main() -> anyhow::Result<()> {
                 Poll::Pending => break,
             }
         }
-        match ctrl_c.as_mut().poll(cx) {
-            Poll::Ready(Ok(())) => {
+        match ready!(ctrl_c.as_mut().poll(cx)) {
+            Ok(()) => {
                 info!("^C received, shutting down");
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(Err(err)) => {
+            Err(err) => {
                 warn!(?err, "failed to listen for ^C, shutting down");
                 Poll::Ready(Err(err))
             }
-            Poll::Pending => Poll::Pending,
         }
     })
     .await?;

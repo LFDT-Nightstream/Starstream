@@ -1,8 +1,0 @@
-package starstream:utxo;
-
-world score-progress {
-    import plus-chips: func(chips2: u64);
-    import plus-mult: func(mult2: u64);
-    import mult-mult: func(mult-pct: u64);
-    import finish: func();
-}

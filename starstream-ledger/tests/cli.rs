@@ -1,6 +1,6 @@
 //! End-to-end test driving the compiled `starstream-ledger` server with
 //! the compiled `starstream-ledger-cli` client: the full
-//! `score_contract_flow` from `tests/test.rs`, reproduced from the CLI
+//! `score_contract_flow` from `tests/ledger.rs`, reproduced from the CLI
 //! alone.
 
 #![cfg(feature = "cli")]
@@ -14,14 +14,11 @@ use std::process::Output;
 use ed25519_dalek::SigningKey;
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
+use starstream_ledger::encode_digest;
 use starstream_runtime_next::componentize;
 use tokio::net::TcpStream;
 
 const NETWORK: &str = "starstream:test";
-
-const SCORE_WIT: &str = include_str!("wit/score.wit");
-
-const SCORE_PROGRESS_WIT: &str = include_str!("wit/score-progress.wit");
 
 /// Compile a Starstream contract source to a Wasm component, the publishable
 /// representation.
@@ -42,8 +39,8 @@ fn compile_contract(source: &str) -> Vec<u8> {
 }
 
 /// Run the CLI against the ledger at `addr` and assert it succeeded,
-/// returning its stdout.
-async fn cli(addr: SocketAddr, args: &[&str]) -> String {
+/// returning its stdout and stderr.
+async fn cli(addr: SocketAddr, args: &[&str]) -> (String, String) {
     let Output {
         status,
         stdout,
@@ -56,12 +53,12 @@ async fn cli(addr: SocketAddr, args: &[&str]) -> String {
         .await
         .expect("failed to run the CLI");
     let stdout = String::from_utf8_lossy(&stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&stderr);
+    let stderr = String::from_utf8_lossy(&stderr).into_owned();
     assert!(
         status.success(),
         "CLI {args:?} failed: {status}\nstdout: {stdout}\nstderr: {stderr}"
     );
-    stdout
+    (stdout, stderr)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -71,7 +68,7 @@ async fn score_contract_flow_via_cli() {
     let account = hex::encode(key.verifying_key().to_bytes());
 
     let wasm = compile_contract(include_str!("../../examples/score.star"));
-    let digest = starstream_ledger::encode_digest(&Sha256::digest(&wasm).into());
+    let digest = encode_digest(&Sha256::digest(&wasm).into());
     let wasm_path = std::env::temp_dir().join(format!("starstream-score-{digest}.wasm"));
     std::fs::write(&wasm_path, &wasm).unwrap();
 
@@ -102,7 +99,7 @@ async fn score_contract_flow_via_cli() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
-    let stdout = cli(
+    let (stdout, _) = cli(
         addr,
         &[
             "publish",
@@ -119,13 +116,23 @@ async fn score_contract_flow_via_cli() {
     assert_eq!(stdout.trim(), digest);
 
     // With no script name the contract's script ABI is served as WIT.
-    let stdout = cli(addr, &["script", &digest]).await;
-    assert_eq!(stdout, SCORE_WIT);
+    let (stdout, _) = cli(addr, &["script", &digest]).await;
+    assert_eq!(
+        stdout,
+        format!(
+            "package starstream:contract;
+interface {digest} {{
+  example: func();
+}}
+"
+        )
+    );
 
     // `ScoreProgress::new()` in the script resolves through the UTXO import,
     // mapped back to this same contract; the script returns no results. The
-    // resulting UTXO is persisted as transaction 0.
-    let stdout = cli(
+    // resulting UTXO is persisted under its snapshot digest, which the CLI
+    // reports on stderr.
+    let (stdout, stderr) = cli(
         addr,
         &[
             "script",
@@ -137,10 +144,35 @@ async fn score_contract_flow_via_cli() {
     )
     .await;
     assert_eq!(stdout, "");
+    let (_, report) = stderr
+        .split_once("UTXO persisted")
+        .unwrap_or_else(|| panic!("no persisted UTXO reported on stderr: {stderr}"));
+    // The canonical digest encoding of a sha2-256 multihash always starts
+    // with `bciq`.
+    let i = report
+        .find("bciq")
+        .unwrap_or_else(|| panic!("no UTXO digest reported on stderr: {stderr}"));
+    let utxo: String = report[i..]
+        .chars()
+        .take_while(char::is_ascii_alphanumeric)
+        .collect();
+    assert_ne!(utxo, digest);
 
     // With no method name the UTXO's ABI is served as WIT.
-    let stdout = cli(addr, &["method", "0", "0"]).await;
-    assert_eq!(stdout, SCORE_PROGRESS_WIT);
+    let (stdout, _) = cli(addr, &["method", &utxo]).await;
+    assert_eq!(
+        stdout,
+        format!(
+            "package starstream:utxo;
+interface {utxo} {{
+  plus-chips: func(chips2: u64);
+  plus-mult: func(mult2: u64);
+  mult-mult: func(mult-pct: u64);
+  finish: func();
+}}
+"
+        )
+    );
 
     for (method, args) in [
         ("plus-chips", &["7"][..]),
@@ -148,7 +180,7 @@ async fn score_contract_flow_via_cli() {
         ("mult-mult", &["200"]),
         ("finish", &[]),
     ] {
-        let stdout = cli(addr, &[&["method", "0", "0", method], args].concat()).await;
+        let (stdout, _) = cli(addr, &[&["method", &utxo, method], args].concat()).await;
         assert_eq!(stdout, "", "unexpected `{method}` results");
     }
 }

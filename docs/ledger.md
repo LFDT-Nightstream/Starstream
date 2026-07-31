@@ -47,8 +47,9 @@ Invocation parameters are given in
 [WAVE](https://github.com/bytecodealliance/wasm-wave) (WebAssembly Value
 Encoding), one argument per parameter, and results are printed back as
 WAVE, one line per result. The parameter and result types come from the
-WIT the ledger serves for the invocation target — a `GET` on the same
-`/rpc` URL the invocation is `POST`ed to.
+WIT the ledger serves for the invocation target
+(`GET /contracts/<digest>/rpc` and `GET /utxos/<digest>/rpc`); the
+invocation itself is `POST`ed to `/rpc`.
 
 - **`publish --key HEX --network NETWORK --nonce N <wasm>`** — sign the
   publish transaction with the hex-encoded 32-byte Ed25519 key, `PUT`
@@ -56,20 +57,23 @@ WIT the ledger serves for the invocation target — a `GET` on the same
 - **`script [--utxo INSTANCE=DIGEST]... <digest> [<name> [<arg>]...]`** —
   invoke coordination script `<name>` of contract `<digest>`; each
   `--utxo` maps a UTXO import instance of the contract to the digest of
-  the contract providing it. The persisted UTXOs are reported on stderr.
+  the contract providing it. The digests of the persisted UTXOs and the
+  recorded transaction index and block height are reported on stderr.
   With no `<name>`, print the contract's script ABI as WIT instead.
-- **`method <tx> <utxo> [<name> [<arg>]...]`** — invoke method `<name>`
-  on the persisted UTXO `/transactions/<tx>/utxos/<utxo>`. With no
-  `<name>`, print the UTXO's ABI as WIT instead.
+- **`method <utxo-digest> [<name> [<arg>]...]`** — invoke method
+  `<name>` on the persisted UTXO addressed by `<utxo-digest>`, as
+  reported by `script`. With no `<name>`, print the UTXO's ABI as WIT
+  instead.
 
 The full contract flow — publish, construct a UTXO through a
-coordination script, inspect its ABI, invoke its methods:
+coordination script (its digest is reported on stderr), inspect its ABI,
+invoke its methods:
 
 ```sh
 starstream-ledger-cli publish --key $KEY --network dev --nonce 1 score.wasm
 starstream-ledger-cli script --utxo score-progress=$DIGEST $DIGEST example
-starstream-ledger-cli method 0 0                # print the ABI as WIT
-starstream-ledger-cli method 0 0 plus-chips 7
+starstream-ledger-cli method $UTXO              # print the ABI as WIT
+starstream-ledger-cli method $UTXO plus-chips 7
 ```
 
 ## Model
@@ -89,17 +93,24 @@ starstream-ledger-cli method 0 0 plus-chips 7
   publish must carry a nonce strictly greater than the account's last
   accepted one (replay protection). Accounts only come into existence via
   `--account`.
-- **Transactions persist UTXOs.** Each successful coordination-script
-  invocation is recorded as a transaction. Every UTXO the script
-  constructs becomes an output of that transaction, in construction
-  order: its instance state is snapshotted with Wizer and its storage
-  extracted. Transactions and outputs are addressed by zero-based index —
-  the first invocation is transaction `0`, its first UTXO
-  `/transactions/0/utxos/0`.
-- **Invocation uses wRPC framing.** RPC request bodies are wRPC frame
-  streams: an invocation header naming the function on the root (empty)
-  instance, followed by the parameters encoded with the wRPC value codec.
-  Responses are a single frame carrying the encoded results, served as
+- **UTXOs are content-addressed too.** Each successful
+  coordination-script invocation is recorded as a transaction in a new
+  block. Every UTXO the script constructs becomes an output of that
+  transaction, in construction order: its instance state is snapshotted
+  with Wizer and its storage extracted, and the snapshot is persisted
+  under the SHA-256 digest of its Wasm, encoded the same way as contract
+  digests. That digest — reported by the invocation response — is the
+  UTXO's address. The response also reports the recorded transaction
+  index and block height, though transactions and blocks are not (yet)
+  addressable over HTTP.
+- **Invocation uses wRPC framing.** All invocations `POST` to the single
+  `/rpc` endpoint. The request body is a wRPC frame stream: an
+  invocation header naming the target instance and function, followed by
+  the parameters encoded with the wRPC value codec. The instance selects
+  the target — `starstream:contract/<digest>` a coordination script,
+  `starstream:utxo/<digest>` a persisted-UTXO method — and is exactly the
+  ID of the WIT interface the ledger serves for that target. Responses
+  are a single frame carrying the encoded results, served as
   `application/octet-stream`. Async values (streams, futures) are not
   supported.
 
@@ -164,19 +175,22 @@ Content-negotiated via `Accept`, server preference first:
 
 ## Fetch a contract's script ABI: `GET /contracts/<digest>/rpc`
 
-Serves the coordination-script ABI of a published contract as the
-`contract` WIT world in the `starstream:contract` package. Every
-coordination-script export of the contract appears as a root-level
-function import — the client view, suitable for feeding straight to
-`wit-bindgen-wrpc` to generate invocation bindings:
+Serves the coordination-script ABI of a published contract as a WIT
+interface in the `starstream:contract` package, named after the
+contract's canonical digest. Every coordination-script export of the
+contract appears as a function of that interface:
 
 ```wit
 package starstream:contract;
-
-world contract {
-    import example: func();
+interface bciqfbwcy4cmf5td7mbayvlymywvvq72cyjlqvccaswu6rtfm2d3fixa {
+  example: func();
 }
 ```
+
+The interface's fully-qualified ID —
+`starstream:contract/<digest>` — is exactly the wRPC instance the
+invocation is addressed to; a world importing the interface can be fed
+straight to `wit-bindgen-wrpc` to generate invocation bindings.
 
 Content-negotiated via `Accept`, server preference first:
 
@@ -187,10 +201,20 @@ Content-negotiated via `Accept`, server preference first:
 `404 Not Found` for an unknown digest, `406 Not Acceptable` when the
 `Accept` header matches neither representation.
 
-## Invoke a coordination script: `POST /contracts/<digest>/rpc`
+## Invoke: `POST /rpc`
 
-Invokes a coordination-script export of a published contract. The wRPC
-invocation header names the script; the instance must be empty.
+The single invocation endpoint. The wRPC invocation header opening the
+request body names the target instance and function; the instance is
+dispatched on:
+
+- `starstream:contract/<digest>` — invoke coordination script
+  `<function>` of the published contract `<digest>`;
+- `starstream:utxo/<digest>` — invoke method `<function>` on the
+  persisted UTXO `<digest>`;
+- anything else responds `501 Not Implemented` (reserved for ledger
+  RPC). A malformed invocation header is `400 Bad Request`.
+
+### Coordination scripts (`starstream:contract/<digest>`)
 
 Each UTXO type the script uses resolves through a UTXO import of the
 contract; the request must map every such import instance to the digest
@@ -202,34 +226,59 @@ X-Starstream-Utxo: <instance>=<contract-digest>
 ```
 
 On success the UTXOs the script constructed are persisted as a new
-transaction (see [Model](#model)). The response carries one
-`X-Starstream-Utxo: <instance>` header per persisted UTXO — in output
-order, so the *n*-th header describes `/transactions/<tx>/utxos/<n>` —
-and the body is the wRPC-framed script results.
+transaction (see [Model](#model)), reported by the response headers:
+
+- `X-Starstream-Utxo: <utxo-digest>` — one per persisted UTXO, in
+  output order: the digest now addressing it;
+- `X-Starstream-Transaction: <index>` — the zero-based index of the
+  recorded transaction;
+- `X-Starstream-Block: <height>` — the height of the block recording
+  it.
+
+The body is the wRPC-framed script results.
 
 `404 Not Found` for an unknown contract digest, script name, or UTXO
 import digest; `400 Bad Request` for malformed headers, framing, or
-parameters, and for a failed script or snapshot.
+parameters; `500 Internal Server Error` for a failed script or
+snapshot.
 
-## Fetch a UTXO's ABI: `GET /transactions/<tx>/utxos/<utxo>/rpc`
+### UTXO methods (`starstream:utxo/<digest>`)
 
-Serves the ABI of a persisted UTXO as a WIT world in the
-`starstream:utxo` package, named after the UTXO's exported instance. Only
+The function is named as served in the WIT (kebab-case, e.g.
+`plus-chips`). The parameters are the WIT-declared ones — the implicit
+`self` receiver is supplied by the server, which restores the UTXO from
+its persisted snapshot and storage before the call. The response body is
+the wRPC-framed results.
+
+Invocations run against the persisted snapshot: state the method mutates
+is not written back as a new transaction (yet), so every invocation
+observes the state captured when the UTXO was persisted.
+
+`404 Not Found` for an unknown UTXO digest or a method the UTXO does not
+implement; `400 Bad Request` for malformed framing or parameters;
+`500 Internal Server Error` for a failed method.
+
+## Fetch a UTXO's ABI: `GET /utxos/<digest>/rpc`
+
+Serves the ABI of a persisted UTXO as a WIT interface in the
+`starstream:utxo` package, named after the UTXO's canonical digest. Only
 the methods the UTXO declared it implements (via `implements-method`
-during construction) appear, as root-level function imports — the client
-view, suitable for feeding straight to `wit-bindgen-wrpc` to generate
-invocation bindings:
+during construction) appear, as functions of that interface, without the
+implicit `self` receiver:
 
 ```wit
 package starstream:utxo;
-
-world score-progress {
-    import plus-chips: func(chips2: u64);
-    import plus-mult: func(mult2: u64);
-    import mult-mult: func(mult-pct: u64);
-    import finish: func();
+interface bciqelzhvansl7qzql6bbqpkluky3ryapr2sf2aoewquyusjra2dfz4q {
+  plus-chips: func(chips2: u64);
+  plus-mult: func(mult2: u64);
+  mult-mult: func(mult-pct: u64);
+  finish: func();
 }
 ```
+
+As with contracts, the interface's fully-qualified ID —
+`starstream:utxo/<digest>` — is exactly the wRPC instance method
+invocations are addressed to.
 
 Content-negotiated via `Accept`, server preference first:
 
@@ -237,26 +286,8 @@ Content-negotiated via `Accept`, server preference first:
 - **`application/wasm`** — the same package encoded as Wasm via
   `wit-component`.
 
-`404 Not Found` for an unknown transaction or output index,
-`406 Not Acceptable` when the `Accept` header matches neither
-representation.
-
-## Invoke a UTXO method: `POST /transactions/<tx>/utxos/<utxo>/rpc`
-
-Invokes a method on a persisted UTXO. The wRPC invocation header names
-the function as served in the WIT (kebab-case, e.g. `plus-chips`); the
-instance must be empty. The parameters are the WIT-declared ones — the
-implicit `self` receiver is supplied by the server, which restores the
-UTXO from its persisted snapshot and storage before the call. The
-response body is the wRPC-framed results.
-
-Invocations run against the persisted snapshot: state the method mutates
-is not written back as a new transaction (yet), so every invocation
-observes the state captured when the transaction persisted the UTXO.
-
-`404 Not Found` for an unknown transaction or output index;
-`400 Bad Request` for an unknown method or malformed framing or
-parameters.
+`404 Not Found` for an unknown UTXO digest, `406 Not Acceptable` when
+the `Accept` header matches neither representation.
 
 ## Everything else
 

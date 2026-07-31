@@ -85,6 +85,5 @@ starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
 tokio = { version = "1", features = ["process", "time"] }
 wat = { version = "1" }
-wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc" }
 wit-component = { workspace = true }
 wit-parser = { version = "0.240" }
