@@ -169,21 +169,21 @@ enum CoordinationScriptInvocationError {
 impl CoordinationScriptInvocationError {
     fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::DigestParsing(..) => http::StatusCode::BAD_REQUEST,
-            Self::UtxoHeaderToStr(..) => http::StatusCode::BAD_REQUEST,
-            Self::UtxoHeaderFormat => http::StatusCode::BAD_REQUEST,
-            Self::UtxoHeaderParsing(..) => http::StatusCode::BAD_REQUEST,
-            Self::ContractNotFound => http::StatusCode::NOT_FOUND,
-            Self::ImportNotFound(..) => http::StatusCode::NOT_FOUND,
-            Self::FunctionExportNotFound => http::StatusCode::NOT_FOUND,
-            Self::UtxoInstanceExport(..) => http::StatusCode::BAD_REQUEST,
-            Self::UtxoStorageExportNotFound(..) => http::StatusCode::BAD_REQUEST,
-            Self::Wizer(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Runtime(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::ParameterDecoding(..) => http::StatusCode::BAD_REQUEST,
-            Self::ResultEncoding(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::FrameEncoding(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::DigestParsing(..)
+            | Self::UtxoHeaderToStr(..)
+            | Self::UtxoHeaderFormat
+            | Self::UtxoHeaderParsing(..)
+            | Self::UtxoInstanceExport(..)
+            | Self::UtxoStorageExportNotFound(..)
+            | Self::ParameterDecoding(..) => http::StatusCode::BAD_REQUEST,
+            Self::ContractNotFound | Self::ImportNotFound(..) | Self::FunctionExportNotFound => {
+                http::StatusCode::NOT_FOUND
+            }
+            Self::Wizer(..)
+            | Self::Runtime(..)
+            | Self::ResultEncoding(..)
+            | Self::FrameEncoding(..)
+            | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -217,17 +217,16 @@ enum UtxoMethodInvocationError {
 impl UtxoMethodInvocationError {
     fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::DigestParsing(..) => http::StatusCode::BAD_REQUEST,
-            Self::UtxoNotFound => http::StatusCode::NOT_FOUND,
-            Self::ContractNotFound => http::StatusCode::NOT_FOUND,
-            Self::MethodExportNotFound => http::StatusCode::NOT_FOUND,
-            Self::UtxoInstanceExport(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::UtxoStorageExportNotFound(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Runtime(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::ParameterDecoding(..) => http::StatusCode::BAD_REQUEST,
-            Self::ResultEncoding(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::FrameEncoding(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::UtxoNotFound | Self::ContractNotFound | Self::MethodExportNotFound => {
+                http::StatusCode::NOT_FOUND
+            }
+            Self::DigestParsing(..) | Self::ParameterDecoding(..) => http::StatusCode::BAD_REQUEST,
+            Self::UtxoInstanceExport(..)
+            | Self::UtxoStorageExportNotFound(..)
+            | Self::Runtime(..)
+            | Self::ResultEncoding(..)
+            | Self::FrameEncoding(..)
+            | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -306,28 +305,27 @@ enum ContractPutError {
 impl ContractPutError {
     fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::DigestParsing(..) => http::StatusCode::BAD_REQUEST,
-            Self::ContentTypeToStr(..) => http::StatusCode::BAD_REQUEST,
-            Self::ContentTypeParsing(..) => http::StatusCode::BAD_REQUEST,
+            Self::DigestParsing(..)
+            | Self::ContentTypeToStr(..)
+            | Self::ContentTypeParsing(..)
+            | Self::Body(..)
+            | Self::CoseSign1Parsing(..)
+            | Self::Algorithm
+            | Self::KeyIdFormat
+            | Self::Key(..)
+            | Self::PayloadMissing
+            | Self::PayloadParsing(..)
+            | Self::TransactionFormat
+            | Self::Context(..)
+            | Self::Network { .. }
+            | Self::NonceOverflow
+            | Self::DigestMismatch(..)
+            | Self::Runtime(..) => http::StatusCode::BAD_REQUEST,
             Self::UnsupportedContentType(..) => http::StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            Self::Body(..) => http::StatusCode::BAD_REQUEST,
-            Self::CoseSign1Parsing(..) => http::StatusCode::BAD_REQUEST,
-            Self::Algorithm => http::StatusCode::BAD_REQUEST,
-            Self::KeyIdFormat => http::StatusCode::BAD_REQUEST,
-            Self::Key(..) => http::StatusCode::BAD_REQUEST,
             Self::SignatureVerification(..) => http::StatusCode::UNAUTHORIZED,
-            Self::PayloadMissing => http::StatusCode::BAD_REQUEST,
-            Self::PayloadParsing(..) => http::StatusCode::BAD_REQUEST,
-            Self::TransactionFormat => http::StatusCode::BAD_REQUEST,
-            Self::Context(..) => http::StatusCode::BAD_REQUEST,
-            Self::Network { .. } => http::StatusCode::BAD_REQUEST,
-            Self::NonceOverflow => http::StatusCode::BAD_REQUEST,
-            Self::DigestMismatch(..) => http::StatusCode::BAD_REQUEST,
             Self::AccountNotFound(..) => http::StatusCode::FORBIDDEN,
             Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::InsufficientBalance { .. } => http::StatusCode::PAYMENT_REQUIRED,
-            // TODO: Handle error type and set status accordingly
-            Self::Runtime(..) => http::StatusCode::BAD_REQUEST,
             Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -355,9 +353,9 @@ impl ContractRpcGetError {
             Self::DigestParsing(..) => http::StatusCode::BAD_REQUEST,
             Self::ContractNotFound => http::StatusCode::NOT_FOUND,
             Self::AcceptHeader(err) => err.http_status_code(),
-            Self::Runtime(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Wasm(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Runtime(..) | Self::Wasm(..) | Self::Http(..) => {
+                http::StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
@@ -386,13 +384,12 @@ impl UtxoRpcGetError {
     fn http_status_code(&self) -> http::StatusCode {
         match self {
             Self::DigestParsing(..) => http::StatusCode::BAD_REQUEST,
-            Self::UtxoNotFound => http::StatusCode::NOT_FOUND,
-            Self::ContractNotFound => http::StatusCode::NOT_FOUND,
-            Self::UtxoInstanceExportNotFound(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::UtxoNotFound | Self::ContractNotFound => http::StatusCode::NOT_FOUND,
             Self::AcceptHeader(err) => err.http_status_code(),
-            Self::Runtime(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Wasm(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::UtxoInstanceExportNotFound(..)
+            | Self::Runtime(..)
+            | Self::Wasm(..)
+            | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
