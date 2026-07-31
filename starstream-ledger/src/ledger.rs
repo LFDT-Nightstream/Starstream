@@ -73,30 +73,6 @@ fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     Ok(sock)
 }
 
-/// The hash a contract declares for `export` via `implements-method`.
-///
-/// The Starstream compiler identifies each method by `sha256` of its source
-/// name (`snake_case`), split into four little-endian `u64` words. An exported
-/// method is named `[method]utxo.plus-chips` in WIT (`kebab-case`); take the
-/// trailing segment and undo the `kebab-case` mangling (`-` → `_`) to recover
-/// the name the compiler hashed.
-fn method_hash(export: &str) -> (u64, u64, u64, u64) {
-    let name = export
-        .rsplit('.')
-        .next()
-        .unwrap_or(export)
-        .replace('-', "_");
-    let digest = Sha256::digest(name.as_bytes());
-    let word = |i: usize| {
-        u64::from_le_bytes(
-            digest[i * 8..i * 8 + 8]
-                .try_into()
-                .expect("a sha256 digest is 32 bytes"),
-        )
-    };
-    (word(0), word(1), word(2), word(3))
-}
-
 /// Render a component-model [`Type`] as WIT. `wasm_wave`'s `DisplayType` covers
 /// the structural types but renders resource handles as `<<UNSUPPORTED>>`; the
 /// `utxo` resource is the only one in play here, so spell its handles by name.
@@ -108,12 +84,7 @@ fn wit_type(ty: &Type) -> String {
     }
 }
 
-/// Render an export as a WIT function declaration: the trailing name segment
-/// (the `<name>` of a `[method]utxo.<name>` export), its params — with the
-/// leading implicit `self: borrow<utxo>` receiver dropped when `receiver` is
-/// set — and results.
-fn wit_func(export: &str, ty: &types::ComponentFunc, receiver: bool) -> String {
-    let name = export.rsplit('.').next().unwrap_or(export);
+fn wit_func(name: &str, ty: &types::ComponentFunc, receiver: bool) -> String {
     let params = ty
         .params()
         .skip(receiver.into())
@@ -734,12 +705,11 @@ impl Ledger {
         let utxo_export = contract.get_utxo(&utxo.instance).map_err(|err| {
             UtxoMethodInvocationError::UtxoInstanceExport(Arc::clone(&utxo.instance), err)
         })?;
-        let name = format!("[method]utxo.{name}");
-        if !utxo.implemented.contains(&method_hash(&name)) {
+        if !utxo.implements_method(&name.replace('-', "_")) {
             return Err(UtxoMethodInvocationError::MethodExportNotFound);
         }
         let method_export = contract
-            .get_utxo_method(&utxo_export, &name)
+            .get_utxo_method(&utxo_export, &format!("[method]utxo.{name}"))
             .map_err(|_| UtxoMethodInvocationError::MethodExportNotFound)?;
         let storage_export = utxo_export.storage().ok_or_else(|| {
             UtxoMethodInvocationError::UtxoStorageExportNotFound(Arc::clone(&utxo.instance))
@@ -1050,11 +1020,16 @@ impl Ledger {
         wit.push_str(" {\n");
         for (name, method) in contract.utxo_methods(export) {
             let method = method.map_err(UtxoRpcGetError::Runtime)?;
-            if utxo.implemented.contains(&method_hash(name)) {
-                wit.push_str("  ");
-                wit.push_str(&wit_func(name, method.ty(), true));
-                wit.push('\n');
+            let Some(name) = name.strip_prefix("[method]utxo.") else {
+                error!(name, "unexpected UTXO method name");
+                continue;
+            };
+            if !utxo.implements_method(&name.replace('-', "_")) {
+                continue;
             }
+            wit.push_str("  ");
+            wit.push_str(&wit_func(name, method.ty(), true));
+            wit.push('\n');
         }
         wit.push_str("}\n");
 
