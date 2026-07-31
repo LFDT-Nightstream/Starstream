@@ -5,9 +5,12 @@
 //! (RFC 9052, Ed25519) whose payload is the CBOR publish transaction
 //! `[nonce, wasm]`. The signer's raw 32-byte public key is the protected
 //! `kid` header; its lowercase hex is the account identifier. Coordination
-//! scripts and UTXO methods are invoked over wRPC framing `POST`ed to
-//! `/rpc`, addressed by the `starstream:contract/<digest>` and
-//! `starstream:utxo/<digest>` instances of the very WIT the ledger serves.
+//! scripts and UTXO methods are invoked through the typed wRPC client API
+//! (`InvokeExt::invoke_values_blocking` over `wrpc_http::Client`), addressed
+//! by the `starstream:contract/<digest>` and `starstream:utxo/<digest>`
+//! instances of the very WIT the ledger serves. The `X-Starstream-*`
+//! response envelope and rejection statuses are not observable through the
+//! wRPC client abstraction, so those are asserted over plain HTTP.
 
 use core::net::{Ipv4Addr, SocketAddr};
 use core::time::Duration;
@@ -22,7 +25,7 @@ use ed25519_dalek::{Signer as _, SigningKey};
 use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Request, StatusCode};
 use http_body_util::{BodyExt as _, Empty, Full};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_ledger::{
@@ -31,7 +34,7 @@ use starstream_ledger::{
 };
 use starstream_runtime_next::componentize;
 use tokio::net::TcpStream;
-use tokio_util::codec::Decoder as _;
+use wrpc_transport::InvokeExt as _;
 
 const NETWORK: &str = "starstream:test";
 
@@ -82,8 +85,8 @@ async fn spawn_ledger(accounts: HashMap<Box<str>, Account>) -> SocketAddr {
 }
 
 /// Send a request over a fresh HTTP/1 connection and return the response
-/// status and body.
-async fn send<B>(addr: SocketAddr, req: Request<B>) -> (StatusCode, Bytes)
+/// with its body collected.
+async fn request<B>(addr: SocketAddr, req: Request<B>) -> http::Response<Bytes>
 where
     B: hyper::body::Body + Send + 'static,
     B::Data: Send,
@@ -96,10 +99,21 @@ where
     tokio::spawn(async move {
         let _ = conn.await;
     });
-    let resp = sender.send_request(req).await.unwrap();
-    let status = resp.status();
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    (status, body)
+    let (parts, body) = sender.send_request(req).await.unwrap().into_parts();
+    let body = body.collect().await.unwrap().to_bytes();
+    http::Response::from_parts(parts, body)
+}
+
+/// Send a request over a fresh HTTP/1 connection and return the response
+/// status and body.
+async fn send<B>(addr: SocketAddr, req: Request<B>) -> (StatusCode, Bytes)
+where
+    B: hyper::body::Body + Send + 'static,
+    B::Data: Send,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    let res = request(addr, req).await;
+    (res.status(), res.into_body())
 }
 
 /// The CBOR publish transaction `[context, network, nonce, wasm]`.
@@ -145,51 +159,48 @@ fn put_contract(addr: SocketAddr, wasm: &[u8], envelope: Vec<u8>) -> Request<Ful
         .unwrap()
 }
 
-/// `POST` a wRPC invocation of `func` on `instance` to `/rpc`, returning
-/// the response status, headers, and body.
-async fn invoke_rpc(
+/// A typed wRPC client over the ledger HTTP API.
+fn rpc_client() -> wrpc_http::Client<
+    hyper_util::client::legacy::Client<
+        hyper_util::client::legacy::connect::HttpConnector,
+        wrpc_http::OutgoingBody,
+    >,
+> {
+    wrpc_http::Client::new(
+        hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http(),
+    )
+}
+
+/// The context of a wRPC invocation `POST`ed to the `/rpc` endpoint of the
+/// ledger at `addr`.
+fn rpc_context(addr: SocketAddr) -> http::request::Parts {
+    let (parts, ()) = Request::builder()
+        .uri(format!("http://{addr}/rpc"))
+        .body(())
+        .unwrap()
+        .into_parts();
+    parts
+}
+
+/// Build a wRPC invocation of `func` on `instance`, with no parameters,
+/// `POST`ed to `/rpc` as plain HTTP: for asserting the parts of a response
+/// the wRPC client abstraction does not expose — its status and its
+/// `X-Starstream-*` headers.
+fn post_invocation(
     addr: SocketAddr,
     headers: &[(&str, String)],
     instance: &str,
     func: &str,
-    params: &[u8],
-) -> (StatusCode, http::HeaderMap, Bytes) {
+) -> Request<Full<Bytes>> {
     let mut body = BytesMut::new();
-    wrpc_transport::frame::encode_invocation(&mut body, instance, func, params).unwrap();
+    wrpc_transport::frame::encode_invocation(&mut body, instance, func, &[]).unwrap();
     let mut req = Request::builder()
         .method("POST")
         .uri(format!("http://{addr}/rpc"));
     for (name, value) in headers {
         req = req.header(*name, value);
     }
-    let req = req.body(Full::new(body.freeze())).unwrap();
-
-    let stream = TcpStream::connect(addr).await.unwrap();
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
-        .await
-        .unwrap();
-    tokio::spawn(async move {
-        let _ = conn.await;
-    });
-    let resp = sender.send_request(req).await.unwrap();
-    let status = resp.status();
-    let headers = resp.headers().clone();
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    (status, headers, body)
-}
-
-/// Decode the wRPC-framed results carried by an invocation response body.
-fn decode_results(body: &Bytes) -> Bytes {
-    let mut src = BytesMut::from(&body[..]);
-    let mut decoder = wrpc_transport::FrameDecoder::default();
-    let mut data = BytesMut::new();
-    while let Some(wrpc_transport::Frame { path, data: frame }) =
-        decoder.decode_eof(&mut src).unwrap()
-    {
-        assert!(path.is_empty(), "async values not supported");
-        data.extend_from_slice(&frame);
-    }
-    data.freeze()
+    req.body(Full::new(body.freeze())).unwrap()
 }
 
 /// A valid signature over a known key reaches the account lookup, proving the
@@ -550,22 +561,23 @@ interface {digest} {{
     // mapped back to this same contract; the script returns no results. The
     // resulting UTXO is persisted under the digest of its snapshot, carried
     // by the response header.
-    let (status, headers, body) = invoke_rpc(
+    let res = request(
         addr,
-        &[(X_STARSTREAM_UTXO, format!("score-progress={digest}"))],
-        &format!("starstream:contract/{digest}"),
-        "example",
-        &[],
+        post_invocation(
+            addr,
+            &[(X_STARSTREAM_UTXO, format!("score-progress={digest}"))],
+            &format!("starstream:contract/{digest}"),
+            "example",
+        ),
     )
     .await;
     assert_eq!(
-        status,
+        res.status(),
         StatusCode::OK,
         "body: {}",
-        String::from_utf8_lossy(&body)
+        String::from_utf8_lossy(res.body())
     );
-    assert!(decode_results(&body).is_empty());
-    let utxos: Vec<_> = headers.get_all(X_STARSTREAM_UTXO).iter().collect();
+    let utxos: Vec<_> = res.headers().get_all(X_STARSTREAM_UTXO).iter().collect();
     let [utxo] = utxos.as_slice() else {
         panic!("expected exactly one persisted UTXO, got {utxos:?}");
     };
@@ -574,9 +586,9 @@ interface {digest} {{
 
     // The first invocation is transaction 0, recorded in the block after the
     // publish.
-    let transaction = headers.get(X_STARSTREAM_TRANSACTION).unwrap();
+    let transaction = res.headers().get(X_STARSTREAM_TRANSACTION).unwrap();
     assert_eq!(transaction.to_str().unwrap(), "0");
-    let block = headers.get(X_STARSTREAM_BLOCK).unwrap();
+    let block = res.headers().get(X_STARSTREAM_BLOCK).unwrap();
     assert_eq!(block.to_str().unwrap(), "2");
 
     // The ABI the persisted UTXO declared via `implements-method` is served
@@ -636,41 +648,25 @@ interface {utxo_digest} {{
     assert!(body.contains("application/wasm"), "unexpected body: {body}");
 
     // Every method the UTXO implements is invocable against the persisted
-    // snapshot; none of them return results. u64 parameters are LEB128 on
-    // the wire.
-    for (func, params) in [
-        ("plus-chips", &[0x07][..]),
-        ("plus-mult", &[0x2a]),
-        ("mult-mult", &[0xc8, 0x01]),
-        ("finish", &[]),
-    ] {
-        let (status, _, body) = invoke_rpc(
-            addr,
-            &[],
-            &format!("starstream:utxo/{utxo_digest}"),
-            func,
-            params,
-        )
-        .await;
-        assert_eq!(
-            status,
-            StatusCode::OK,
-            "`{func}` failed: {}",
-            String::from_utf8_lossy(&body)
-        );
-        assert!(
-            decode_results(&body).is_empty(),
-            "unexpected `{func}` results"
-        );
+    // snapshot through the typed wRPC client; none of them return results.
+    let rpc = rpc_client();
+    let utxo_instance = format!("starstream:utxo/{utxo_digest}");
+    for (func, arg) in [("plus-chips", 7u64), ("plus-mult", 42), ("mult-mult", 200)] {
+        let () = rpc
+            .invoke_values_blocking(rpc_context(addr), &utxo_instance, func, (arg,), &[[]; 0])
+            .await
+            .unwrap_or_else(|err| panic!("`{func}` failed: {err:#}"));
     }
+    let () = rpc
+        .invoke_values_blocking(rpc_context(addr), &utxo_instance, "finish", (), &[[]; 0])
+        .await
+        .unwrap_or_else(|err| panic!("`finish` failed: {err:#}"));
 
-    // A method the UTXO does not export is not found.
-    let (status, _, body) = invoke_rpc(
+    // A method the UTXO does not export is not found; the rejection precedes
+    // parameter decoding.
+    let (status, body) = send(
         addr,
-        &[],
-        &format!("starstream:utxo/{utxo_digest}"),
-        "no-such-method",
-        &[],
+        post_invocation(addr, &[], &utxo_instance, "no-such-method"),
     )
     .await;
     assert_eq!(
@@ -681,12 +677,14 @@ interface {utxo_digest} {{
     );
 
     // An unknown UTXO digest is not found.
-    let (status, _, body) = invoke_rpc(
+    let (status, body) = send(
         addr,
-        &[],
-        &format!("starstream:utxo/{digest}"),
-        "plus-chips",
-        &[0x07],
+        post_invocation(
+            addr,
+            &[],
+            &format!("starstream:utxo/{digest}"),
+            "plus-chips",
+        ),
     )
     .await;
     assert_eq!(
