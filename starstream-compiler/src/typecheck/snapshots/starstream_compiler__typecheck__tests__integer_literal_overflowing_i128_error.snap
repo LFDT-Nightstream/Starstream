@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let x = 170141183460469231731687303715884105728;\n}\n"
+---
+E0044 (https://starstream.nightstream.dev/errors/E0044)
+
+  x integer literal `170141183460469231731687303715884105728` does not fit in type `i64`
+   ,-[test.star:2:13]
+ 1 | fn test() {
+ 2 |     let x = 170141183460469231731687303715884105728;
+   :             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 3 | }
+   `----

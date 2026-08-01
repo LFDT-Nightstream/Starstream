@@ -14,8 +14,8 @@ use starstream_types::{
     UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
-        ImportDef, ImportItems, ImportSource, Literal, Pattern, Program, Statement, StructDef,
-        TypeAnnotation, UnaryOp,
+        ImportDef, ImportItems, ImportSource, IntegerLiteral, Literal, Pattern, Program, Statement,
+        StructDef, TypeAnnotation, UnaryOp,
     },
     typed_ast::{
         TypedAbiDef, TypedAbiMethodDecl, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
@@ -637,7 +637,7 @@ struct Inferencer {
     /// Type variables constrained to integer types (from polymorphic integer literals).
     int_vars: HashSet<TypeVarId>,
     /// Tracks the literal value associated with each integer type variable for range checking.
-    int_literal_values: HashMap<TypeVarId, (i128, Span)>,
+    int_literal_values: HashMap<TypeVarId, (IntegerLiteral, Span)>,
 
     /// Root namespace, and registries for things that can't be namespaced (yet).
     root: Namespace,
@@ -2226,7 +2226,19 @@ impl Inferencer {
             Pattern::Literal { value, span } => {
                 // Literal patterns must match the expected type
                 let literal_ty = match value {
-                    Literal::Integer(_) => Type::int(),
+                    Literal::Integer(literal) => {
+                        // Digits overflowing `i128` cannot fit any integer type.
+                        if literal.value().is_none() {
+                            return Err(TypeError::new(
+                                TypeErrorKind::LiteralOutOfRange {
+                                    literal: literal.to_string(),
+                                    ty: Type::int(),
+                                },
+                                *span,
+                            ));
+                        }
+                        Type::int()
+                    }
                     Literal::Boolean(_) => Type::Bool,
                     Literal::Unit => Type::Unit,
                 };
@@ -3029,11 +3041,12 @@ impl Inferencer {
                     Literal::Integer(value) => {
                         let ty = self.fresh_int_var();
                         if let Type::Var(id) = &ty {
-                            self.int_literal_values.insert(*id, (*value, expr.span));
+                            self.int_literal_values
+                                .insert(*id, (value.clone(), expr.span));
                         }
                         (
                             ty,
-                            TypedExprKind::Literal(Literal::Integer(*value)),
+                            TypedExprKind::Literal(Literal::Integer(value.clone())),
                             "T-Int",
                         )
                     }
@@ -4752,17 +4765,19 @@ impl Inferencer {
     /// Check that all integer literals fit within the range of their resolved type.
     fn check_int_literal_ranges(&self) -> Result<(), Vec<TypeError>> {
         let mut errors = Vec::new();
-        for (&id, &(value, span)) in &self.int_literal_values {
+        for (&id, (literal, span)) in &self.int_literal_values {
             let resolved = self.apply(&Type::Var(id));
             if let Type::Int(w) = resolved
-                && !w.fits(value)
+                // `value()` is `None` when the digits overflow `i128`, which no
+                // supported integer type can hold either.
+                && !literal.value().is_some_and(|value| w.fits(value))
             {
                 errors.push(TypeError::new(
                     TypeErrorKind::LiteralOutOfRange {
-                        value,
+                        literal: literal.to_string(),
                         ty: Type::Int(w),
                     },
-                    span,
+                    *span,
                 ));
             }
         }
@@ -5038,7 +5053,7 @@ impl Inferencer {
                             // Propagate int constraint to the other var
                             self.int_vars.insert(*other_id);
                             // Also propagate literal value tracking if present
-                            if let Some(val) = self.int_literal_values.get(&id).copied() {
+                            if let Some(val) = self.int_literal_values.get(&id).cloned() {
                                 self.int_literal_values.entry(*other_id).or_insert(val);
                             }
                         }
@@ -5062,7 +5077,7 @@ impl Inferencer {
                         Type::Int(_) => {} // OK
                         Type::Var(other_id) => {
                             self.int_vars.insert(*other_id);
-                            if let Some(val) = self.int_literal_values.get(&id).copied() {
+                            if let Some(val) = self.int_literal_values.get(&id).cloned() {
                                 self.int_literal_values.entry(*other_id).or_insert(val);
                             }
                         }
@@ -5357,7 +5372,7 @@ impl Inferencer {
                     // Propagate int constraint to the other var
                     self.int_vars.insert(*other_id);
                     // Also propagate literal value tracking if present
-                    if let Some(val) = self.int_literal_values.get(&var).copied() {
+                    if let Some(val) = self.int_literal_values.get(&var).cloned() {
                         self.int_literal_values.entry(*other_id).or_insert(val);
                     }
                 }

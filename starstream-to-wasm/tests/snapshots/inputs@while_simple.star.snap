@@ -32,7 +32,10 @@ Program {
                                     value: Spanned {
                                         node: Literal(
                                             Integer(
-                                                0,
+                                                IntegerLiteral {
+                                                    digits: "0",
+                                                    radix: Decimal,
+                                                },
                                             ),
                                         ),
                                         span: 37..38,
@@ -59,7 +62,10 @@ Program {
                                             right: Spanned {
                                                 node: Literal(
                                                     Integer(
-                                                        10,
+                                                        IntegerLiteral {
+                                                            digits: "10",
+                                                            radix: Decimal,
+                                                        },
                                                     ),
                                                 ),
                                                 span: 57..59,
@@ -92,7 +98,10 @@ Program {
                                                             right: Spanned {
                                                                 node: Literal(
                                                                     Integer(
-                                                                        1,
+                                                                        IntegerLiteral {
+                                                                            digits: "1",
+                                                                            radix: Decimal,
+                                                                        },
                                                                     ),
                                                                 ),
                                                                 span: 83..84,
@@ -172,7 +181,10 @@ TypedProgram {
                                     ),
                                     kind: Literal(
                                         Integer(
-                                            0,
+                                            IntegerLiteral {
+                                                digits: "0",
+                                                radix: Decimal,
+                                            },
                                         ),
                                     ),
                                 },
@@ -209,7 +221,10 @@ TypedProgram {
                                                 ),
                                                 kind: Literal(
                                                     Integer(
-                                                        10,
+                                                        IntegerLiteral {
+                                                            digits: "10",
+                                                            radix: Decimal,
+                                                        },
                                                     ),
                                                 ),
                                             },
@@ -257,7 +272,10 @@ TypedProgram {
                                                             ),
                                                             kind: Literal(
                                                                 Integer(
-                                                                    1,
+                                                                    IntegerLiteral {
+                                                                        digits: "1",
+                                                                        radix: Decimal,
+                                                                    },
                                                                 ),
                                                             ),
                                                         },

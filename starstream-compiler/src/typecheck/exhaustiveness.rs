@@ -586,7 +586,9 @@ pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
         TypedPattern::Binding(_) | TypedPattern::Wildcard => SimplePat::Wildcard,
         TypedPattern::Literal(lit) => {
             let simple_lit = match lit {
-                Literal::Integer(n) => SimpleLiteral::Int(*n),
+                // Overflowing digits are rejected during pattern inference, so
+                // by the time exhaustiveness runs every literal has a value.
+                Literal::Integer(n) => SimpleLiteral::Int(n.value().unwrap_or(0)),
                 Literal::Boolean(b) => SimpleLiteral::Bool(*b),
                 Literal::Unit => SimpleLiteral::Unit,
             };

@@ -1,0 +1,589 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/integer_radix.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "main",
+                        span: 10..14,
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: 20..23,
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: VariableDeclaration {
+                                    public: false,
+                                    mutable: false,
+                                    name: Identifier {
+                                        name: "hex",
+                                        span: 34..37,
+                                    },
+                                    ty: Some(
+                                        TypeAnnotation {
+                                            name: Identifier {
+                                                name: "i64",
+                                                span: 39..42,
+                                            },
+                                            generics: [],
+                                        },
+                                    ),
+                                    value: Spanned {
+                                        node: Literal(
+                                            Integer(
+                                                IntegerLiteral {
+                                                    digits: "FF",
+                                                    radix: Hexadecimal,
+                                                },
+                                            ),
+                                        ),
+                                        span: 45..49,
+                                    },
+                                },
+                                span: 30..55,
+                            },
+                            Spanned {
+                                node: VariableDeclaration {
+                                    public: false,
+                                    mutable: false,
+                                    name: Identifier {
+                                        name: "octal",
+                                        span: 59..64,
+                                    },
+                                    ty: Some(
+                                        TypeAnnotation {
+                                            name: Identifier {
+                                                name: "u8",
+                                                span: 66..68,
+                                            },
+                                            generics: [],
+                                        },
+                                    ),
+                                    value: Spanned {
+                                        node: Literal(
+                                            Integer(
+                                                IntegerLiteral {
+                                                    digits: "17",
+                                                    radix: Octal,
+                                                },
+                                            ),
+                                        ),
+                                        span: 71..75,
+                                    },
+                                },
+                                span: 55..81,
+                            },
+                            Spanned {
+                                node: VariableDeclaration {
+                                    public: false,
+                                    mutable: false,
+                                    name: Identifier {
+                                        name: "binary",
+                                        span: 85..91,
+                                    },
+                                    ty: Some(
+                                        TypeAnnotation {
+                                            name: Identifier {
+                                                name: "u16",
+                                                span: 93..96,
+                                            },
+                                            generics: [],
+                                        },
+                                    ),
+                                    value: Spanned {
+                                        node: Literal(
+                                            Integer(
+                                                IntegerLiteral {
+                                                    digits: "1010",
+                                                    radix: Binary,
+                                                },
+                                            ),
+                                        ),
+                                        span: 99..105,
+                                    },
+                                },
+                                span: 81..111,
+                            },
+                            Spanned {
+                                node: VariableDeclaration {
+                                    public: false,
+                                    mutable: false,
+                                    name: Identifier {
+                                        name: "masked",
+                                        span: 115..121,
+                                    },
+                                    ty: None,
+                                    value: Spanned {
+                                        node: Binary {
+                                            op: Add,
+                                            left: Spanned {
+                                                node: Binary {
+                                                    op: Add,
+                                                    left: Spanned {
+                                                        node: Binary {
+                                                            op: Add,
+                                                            left: Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        IntegerLiteral {
+                                                                            digits: "10",
+                                                                            radix: Hexadecimal,
+                                                                        },
+                                                                    ),
+                                                                ),
+                                                                span: 124..128,
+                                                            },
+                                                            right: Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        IntegerLiteral {
+                                                                            digits: "1",
+                                                                            radix: Binary,
+                                                                        },
+                                                                    ),
+                                                                ),
+                                                                span: 131..134,
+                                                            },
+                                                        },
+                                                        span: 124..134,
+                                                    },
+                                                    right: Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                IntegerLiteral {
+                                                                    digits: "7",
+                                                                    radix: Octal,
+                                                                },
+                                                            ),
+                                                        ),
+                                                        span: 137..140,
+                                                    },
+                                                },
+                                                span: 124..140,
+                                            },
+                                            right: Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        IntegerLiteral {
+                                                            digits: "9",
+                                                            radix: Decimal,
+                                                        },
+                                                    ),
+                                                ),
+                                                span: 143..144,
+                                            },
+                                        },
+                                        span: 124..144,
+                                    },
+                                },
+                                span: 111..150,
+                            },
+                        ],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Binary {
+                                    op: Add,
+                                    left: Spanned {
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "hex",
+                                                    span: 150..153,
+                                                },
+                                            ],
+                                        ),
+                                        span: 150..154,
+                                    },
+                                    right: Spanned {
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "masked",
+                                                    span: 156..162,
+                                                },
+                                            ],
+                                        ),
+                                        span: 156..163,
+                                    },
+                                },
+                                span: 150..163,
+                            },
+                        ),
+                        span: 24..165,
+                    },
+                },
+            ),
+            span: 0..165,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Fn: main => i64
+  T-Let: {main: fn() -> i64 [main]} ⊢ let hex: i64 = 0xFF; ⇒ i64
+    T-Int: {main: fn() -> i64 [main]} ⊢ 0xFF ⇒ i64
+    Unify-Var: i64 ~ i64 => {i64/t3}
+  T-Let: {hex: i64, main: fn() -> i64 [main]} ⊢ let octal: u8 = 0o17; ⇒ u8
+    T-Int: {hex: i64, main: fn() -> i64 [main]} ⊢ 0o17 ⇒ i64
+    Unify-Var: u8 ~ i64 => {u8/t4}
+  T-Let: {hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ let binary: u16 = 0b1010; ⇒ u16
+    T-Int: {hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0b1010 ⇒ i64
+    Unify-Var: u16 ~ i64 => {u16/t5}
+  T-Let: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ let masked = 0x10 + 0b1 + 0o7 + 9; ⇒ i64
+    T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0x10 + 0b1 + 0o7 + 9 ⇒ i64
+      T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0x10 + 0b1 + 0o7 ⇒ i64
+        T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0x10 + 0b1 ⇒ i64
+          T-Int: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0x10 ⇒ i64
+          T-Int: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0b1 ⇒ i64
+          Unify-Var: i64 ~ i64 => {i64/t6}
+        T-Int: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0o7 ⇒ i64
+        Unify-Var: i64 ~ i64 => {i64/t7}
+      T-Int: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 9 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t8}
+  T-ReturnTail: hex + masked => i64
+    T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64 [main], masked: i64, octal: u8} ⊢ hex + masked ⇒ i64
+      T-Var: {binary: u16, hex: i64, main: fn() -> i64 [main], masked: i64, octal: u8} ⊢ hex ⇒ i64
+      T-Var: {binary: u16, hex: i64, main: fn() -> i64 [main], masked: i64, octal: u8} ⊢ masked ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t9}
+    Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    has_yields: false,
+    definitions: [
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "main",
+                    span: 10..14,
+                },
+                params: [],
+                return_type: Int(
+                    I64,
+                ),
+                body: TypedBlock {
+                    statements: [
+                        VariableDeclaration {
+                            public: false,
+                            mutable: false,
+                            name: Identifier {
+                                name: "hex",
+                                span: 34..37,
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Int(
+                                        I64,
+                                    ),
+                                    kind: Literal(
+                                        Integer(
+                                            IntegerLiteral {
+                                                digits: "FF",
+                                                radix: Hexadecimal,
+                                            },
+                                        ),
+                                    ),
+                                },
+                                span: 45..49,
+                            },
+                        },
+                        VariableDeclaration {
+                            public: false,
+                            mutable: false,
+                            name: Identifier {
+                                name: "octal",
+                                span: 59..64,
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Int(
+                                        U8,
+                                    ),
+                                    kind: Literal(
+                                        Integer(
+                                            IntegerLiteral {
+                                                digits: "17",
+                                                radix: Octal,
+                                            },
+                                        ),
+                                    ),
+                                },
+                                span: 71..75,
+                            },
+                        },
+                        VariableDeclaration {
+                            public: false,
+                            mutable: false,
+                            name: Identifier {
+                                name: "binary",
+                                span: 85..91,
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Int(
+                                        U16,
+                                    ),
+                                    kind: Literal(
+                                        Integer(
+                                            IntegerLiteral {
+                                                digits: "1010",
+                                                radix: Binary,
+                                            },
+                                        ),
+                                    ),
+                                },
+                                span: 99..105,
+                            },
+                        },
+                        VariableDeclaration {
+                            public: false,
+                            mutable: false,
+                            name: Identifier {
+                                name: "masked",
+                                span: 115..121,
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Int(
+                                        I64,
+                                    ),
+                                    kind: Binary {
+                                        op: Add,
+                                        left: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int(
+                                                    I64,
+                                                ),
+                                                kind: Binary {
+                                                    op: Add,
+                                                    left: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
+                                                            kind: Binary {
+                                                                op: Add,
+                                                                left: Spanned {
+                                                                    node: TypedExpr {
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
+                                                                        kind: Literal(
+                                                                            Integer(
+                                                                                IntegerLiteral {
+                                                                                    digits: "10",
+                                                                                    radix: Hexadecimal,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                    },
+                                                                    span: 124..128,
+                                                                },
+                                                                right: Spanned {
+                                                                    node: TypedExpr {
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
+                                                                        kind: Literal(
+                                                                            Integer(
+                                                                                IntegerLiteral {
+                                                                                    digits: "1",
+                                                                                    radix: Binary,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                    },
+                                                                    span: 131..134,
+                                                                },
+                                                            },
+                                                        },
+                                                        span: 124..134,
+                                                    },
+                                                    right: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    IntegerLiteral {
+                                                                        digits: "7",
+                                                                        radix: Octal,
+                                                                    },
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 137..140,
+                                                    },
+                                                },
+                                            },
+                                            span: 124..140,
+                                        },
+                                        right: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int(
+                                                    I64,
+                                                ),
+                                                kind: Literal(
+                                                    Integer(
+                                                        IntegerLiteral {
+                                                            digits: "9",
+                                                            radix: Decimal,
+                                                        },
+                                                    ),
+                                                ),
+                                            },
+                                            span: 143..144,
+                                        },
+                                    },
+                                },
+                                span: 124..144,
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int(
+                                    I64,
+                                ),
+                                kind: Binary {
+                                    op: Add,
+                                    left: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int(
+                                                I64,
+                                            ),
+                                            kind: ScopedName {
+                                                name: [
+                                                    Identifier {
+                                                        name: "hex",
+                                                        span: 150..153,
+                                                    },
+                                                ],
+                                                constant: None,
+                                            },
+                                        },
+                                        span: 150..154,
+                                    },
+                                    right: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int(
+                                                I64,
+                                            ),
+                                            kind: ScopedName {
+                                                name: [
+                                                    Identifier {
+                                                        name: "masked",
+                                                        span: 156..162,
+                                                    },
+                                                ],
+                                                constant: None,
+                                            },
+                                        },
+                                        span: 156..163,
+                                    },
+                                },
+                            },
+                            span: 150..163,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i64 i64) (result i64)))
+  (type (;1;) (func (result i64)))
+  (export "main" (func 1))
+  (func (;0;) (type 0) (param i64 i64) (result i64)
+    (local i64)
+    (local.tee 2
+      (i64.add
+        (local.get 0)
+        (local.get 1)))
+    (if ;; label = @1
+      (i32.ne
+        (i32.and
+          (i64.ge_s
+            (i64.xor
+              (local.get 0)
+              (local.get 1))
+            (i64.const 0))
+          (i64.lt_s
+            (i64.xor
+              (local.get 2)
+              (local.get 0))
+            (i64.const 0)))
+        (i32.const 0))
+      (then
+        (unreachable)))
+  )
+  (func (;1;) (type 1) (result i64)
+    (local i64 i32 i32 i64)
+    (local.set 0
+      (i64.const 255))
+    (local.set 1
+      (i32.const 15))
+    (local.set 2
+      (i32.const 10))
+    (local.set 3
+      (call 0
+        (call 0
+          (call 0
+            (i64.const 16)
+            (i64.const 1))
+          (i64.const 7))
+        (i64.const 9)))
+    (call 0
+      (local.get 0)
+      (local.get 3))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func (result s64)))
+              (export (;0;) "main" (func (type 0)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  export main: func() -> s64;
+}

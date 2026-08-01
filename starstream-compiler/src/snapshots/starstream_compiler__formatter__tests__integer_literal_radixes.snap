@@ -1,0 +1,10 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn main() {\n    let hex = 0xFf;\n    let octal = 0o17;\n    let binary =    0b1010;\n    let decimal = 042;\n}\n"
+---
+fn main() {
+    let hex = 0xFf;
+    let octal = 0o17;
+    let binary = 0b1010;
+    let decimal = 042;
+}
