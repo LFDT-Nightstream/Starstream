@@ -1,0 +1,191 @@
+==================
+Trailing commas everywhere
+==================
+
+import { foo, bar, } from "./helpers.star";
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+enum Shape {
+    Circle(i64,),
+    Rect {
+        w: i64,
+        h: i64,
+    },
+}
+
+abi MyAbi {
+    event Moved(x: i64, y: i64,);
+    effect Pause(ms: i64,) -> i64;
+    fn poke(times: i64,);
+}
+
+fn add(a: i64, b: i64,) -> i64 {
+    let opt: Option<i64,> = Option::Some(a,);
+    let p = Point { x: a, y: b, };
+    match opt {
+        Option::Some(v,) => { v },
+        Option::None => { add(a, b,) },
+    }
+}
+
+utxo Foo {
+    main fn new() {
+        yield(MyAbi,);
+    }
+}
+
+---
+
+(program
+  (import_definition
+    (import_named_items
+      (import_named_item
+        (identifier))
+      (import_named_item
+        (identifier)))
+    (import_source
+      (import_path_source
+        (string_literal))))
+  (struct_definition
+    (identifier)
+    (struct_field
+      (identifier)
+      (type_annotation
+        (identifier)))
+    (struct_field
+      (identifier)
+      (type_annotation
+        (identifier))))
+  (enum_definition
+    (identifier)
+    (enum_variant
+      (identifier)
+      (enum_variant_tuple_payload
+        (type_annotation
+          (identifier))))
+    (enum_variant
+      (identifier)
+      (enum_variant_struct_payload
+        (struct_field
+          (identifier)
+          (type_annotation
+            (identifier)))
+        (struct_field
+          (identifier)
+          (type_annotation
+            (identifier))))))
+  (abi_definition
+    (identifier)
+    (event_definition
+      (identifier)
+      (parameter
+        (identifier)
+        (type_annotation
+          (identifier)))
+      (parameter
+        (identifier)
+        (type_annotation
+          (identifier))))
+    (effect_definition
+      (identifier)
+      (parameter
+        (identifier)
+        (type_annotation
+          (identifier)))
+      (type_annotation
+        (identifier)))
+    (abi_fn_declaration
+      (identifier)
+      (parameter
+        (identifier)
+        (type_annotation
+          (identifier)))))
+  (function_definition
+    (identifier)
+    (function_parameter
+      (identifier)
+      (type_annotation
+        (identifier)))
+    (function_parameter
+      (identifier)
+      (type_annotation
+        (identifier)))
+    (type_annotation
+      (identifier))
+    (block
+      (variable_declaration
+        (identifier)
+        (type_annotation
+          (identifier)
+          (type_annotation
+            (identifier)))
+        (expression
+          (scoped_name
+            (identifier)
+            (identifier))
+          (arguments
+            (expression
+              (scoped_name
+                (identifier))))))
+      (variable_declaration
+        (identifier)
+        (expression
+          (struct_constructor
+            (scoped_name
+              (identifier))
+            (struct_field_initializer
+              (identifier)
+              (expression
+                (scoped_name
+                  (identifier))))
+            (struct_field_initializer
+              (identifier)
+              (expression
+                (scoped_name
+                  (identifier)))))))
+      (expression
+        (match_expression
+          (expression
+            (scoped_name
+              (identifier)))
+          (match_arm
+            (pattern
+              (tuple_pattern
+                (scoped_name
+                  (identifier)
+                  (identifier))
+                (pattern
+                  (scoped_name
+                    (identifier)))))
+            (block
+              (expression
+                (scoped_name
+                  (identifier)))))
+          (match_arm
+            (pattern
+              (scoped_name
+                (identifier)
+                (identifier)))
+            (block
+              (expression
+                (scoped_name
+                  (identifier))
+                (arguments
+                  (expression
+                    (scoped_name
+                      (identifier)))
+                  (expression
+                    (scoped_name
+                      (identifier)))))))))))
+  (utxo_definition
+    (identifier)
+    (fn_utxo_part
+      (identifier)
+      (block
+        (expression
+          (yield_expression
+            (identifier)))))))

@@ -33,6 +33,9 @@ and prefer to bundle concepts in codeblocks where it makes sense.
 
 ### Grammar rules
 
+Every comma-separated list accepts an optional trailing comma, spelled `","?`
+in the rules below.
+
 ```ebnf
 program ::= definition*
 
@@ -51,7 +54,7 @@ definition ::=
 contract_definition ::= "contract" ";"
 
 import_definition ::=
-  | "import" "{" import_named_item ( "," import_named_item )* "}" "from" import_source ";"
+  | "import" "{" import_named_item ( "," import_named_item )* ","? "}" "from" import_source ";"
   | "import" identifier "from" import_source ";"
 
 import_named_item ::= identifier ( "as" identifier )?
@@ -67,7 +70,7 @@ function_export ::=
 
 function ::=
   "fn" identifier
-  "(" ( function_parameter ( "," function_parameter )* )? ")"
+  "(" ( function_parameter ( "," function_parameter )* ","? )? ")"
   ( "->" type_annotation )?
   block
 
@@ -76,18 +79,18 @@ function_parameter ::= ("pub")? identifier ":" type_annotation
 parameter ::= identifier ":" type_annotation
 
 struct_definition ::=
-  "struct" identifier "{" ( struct_field ( "," struct_field )* )? "}"
+  "struct" identifier "{" ( struct_field ( "," struct_field )* ","? )? "}"
 
 struct_field ::= identifier ":" type_annotation
 
 enum_definition ::=
-  "enum" identifier "{" ( enum_variant ( "," enum_variant )* )? "}"
+  "enum" identifier "{" ( enum_variant ( "," enum_variant )* ","? )? "}"
 
 enum_variant ::= identifier ( enum_variant_tuple_payload | enum_variant_struct_payload )?
 
-enum_variant_tuple_payload ::= "(" ( type_annotation ( "," type_annotation )* )? ")"
+enum_variant_tuple_payload ::= "(" ( type_annotation ( "," type_annotation )* ","? )? ")"
 
-enum_variant_struct_payload ::= "{" ( struct_field ( "," struct_field )* )? "}"
+enum_variant_struct_payload ::= "{" ( struct_field ( "," struct_field )* ","? )? "}"
 
 utxo_definition ::=
   "utxo" identifier "{" utxo_part* "}"
@@ -135,17 +138,17 @@ abi_part ::=
   | abi_fn_declaration
 
 event_definition ::=
-  "event" identifier "(" ( parameter ( "," parameter )* )? ")" ";"
+  "event" identifier "(" ( parameter ( "," parameter )* ","? )? ")" ";"
 
 effect_definition ::=
-  "effect" identifier "(" ( parameter ( "," parameter )* )? ")" ( "->" type_annotation )? ";"
+  "effect" identifier "(" ( parameter ( "," parameter )* ","? )? ")" ( "->" type_annotation )? ";"
 
 abi_fn_declaration ::=
-  "fn" identifier "(" ( parameter ( "," parameter )* )? ")" ( "->" type_annotation )? ";"
+  "fn" identifier "(" ( parameter ( "," parameter )* ","? )? ")" ( "->" type_annotation )? ";"
 
 (* Type syntax *)
 
-type_annotation ::= identifier ( "<" type_annotation ( "," type_annotation )* ">" )?
+type_annotation ::= identifier ( "<" type_annotation ( "," type_annotation )* ","? ">" )?
 
 (* Blocks and statements *)
 
@@ -225,7 +228,7 @@ raise_expression ::= "raise" primary_expression arguments
 
 runtime_expression ::= "runtime" primary_expression arguments
 
-yield_expression ::= "yield" "(" ( identifier ( "," identifier )* )? ")"
+yield_expression ::= "yield" "(" ( identifier ( "," identifier )* ","? )? ")"
 
 if_expression ::= "if" if_condition block ( "else" "if" if_condition block )* ( "else" block )?
 
@@ -233,7 +236,7 @@ if_condition ::=
   | "(" expression ")"
   | identifier "is" identifier
 
-match_expression ::= "match" expression "{" ( match_arm ( "," match_arm )* )? "}"
+match_expression ::= "match" expression "{" ( match_arm ( "," match_arm )* ","? )? "}"
 
 match_arm ::= pattern "=>" block
 
@@ -246,13 +249,13 @@ pattern ::=
   | tuple_pattern
   | scoped_name
 
-struct_pattern ::= scoped_name "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
+struct_pattern ::= scoped_name "{" ( struct_field_pattern ( "," struct_field_pattern )* ","? )? "}"
 
 struct_field_pattern ::=
   | identifier ":" pattern
   | identifier
 
-tuple_pattern ::= scoped_name "(" ( pattern ( "," pattern )* )? ")"
+tuple_pattern ::= scoped_name "(" ( pattern ( "," pattern )* ","? )? ")"
 
 unary_expression ::= ("-" | "!") expression
 

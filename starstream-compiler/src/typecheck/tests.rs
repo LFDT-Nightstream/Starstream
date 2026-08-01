@@ -1880,3 +1880,49 @@ fn if_else_record_field_order_mismatch_error() {
         "#
     );
 }
+
+// ── trailing commas ──────────────────────────────────────────────────────────
+
+#[test]
+fn trailing_commas_everywhere() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+
+        enum Shape {
+            Circle(i64,),
+            Rect {
+                w: i64,
+                h: i64,
+            },
+        }
+
+        abi MyAbi {
+            event Moved(x: i64, y: i64,);
+            fn poke(times: i64,);
+        }
+
+        fn add(a: i64, b: i64,) -> i64 {
+            let opt: Option<i64,> = Option::Some(a,);
+            let p = Point { x: a, y: b, };
+            match opt {
+                Option::Some(v,) => { v + p.x },
+                Option::None => { add(a, b,) },
+            }
+        }
+
+        utxo Foo {
+            main fn new() {
+                yield(MyAbi,);
+            }
+
+            impl MyAbi {
+                fn poke(times: i64) {}
+            }
+        }
+        "#
+    );
+}

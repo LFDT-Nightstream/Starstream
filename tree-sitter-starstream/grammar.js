@@ -86,6 +86,7 @@ module.exports = grammar({
         optional(
           seq($.function_parameter, repeat(seq(",", $.function_parameter))),
         ),
+        optional(","),
         ")",
         optional(seq("->", $.type_annotation)),
         $.block,
@@ -171,6 +172,7 @@ module.exports = grammar({
         $.identifier,
         "(",
         optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        optional(","),
         ")",
         ";",
       ),
@@ -181,6 +183,7 @@ module.exports = grammar({
         $.identifier,
         "(",
         optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        optional(","),
         ")",
         optional(seq("->", $.type_annotation)),
         ";",
@@ -192,6 +195,7 @@ module.exports = grammar({
         $.identifier,
         "(",
         optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        optional(","),
         ")",
         optional(seq("->", $.type_annotation)),
         ";",
@@ -203,7 +207,13 @@ module.exports = grammar({
       seq(
         $.identifier,
         optional(
-          seq("<", $.type_annotation, repeat(seq(",", $.type_annotation)), ">"),
+          seq(
+            "<",
+            $.type_annotation,
+            repeat(seq(",", $.type_annotation)),
+            optional(","),
+            ">",
+          ),
         ),
       ),
 
@@ -355,6 +365,7 @@ module.exports = grammar({
         "yield",
         "(",
         optional(seq($.identifier, repeat(seq(",", $.identifier)))),
+        optional(","),
         ")",
       ),
 
