@@ -1,10 +1,4 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Overview
-
-Starstream is a UTXO-based smart contract language using coroutines as its core primitive, optimized to run in a zkVM (Nightstream). This repo contains the language implementation, editor tooling, proof/runtime work under `interleaving/`, and the documentation website.
+# AGENTS.md
 
 ## Where to Find Things
 
@@ -42,9 +36,8 @@ cargo fmt --check
 
 ## Non-Obvious Gotchas
 
-- Generics are internal-only (`Option`/`Result` prelude types); no user-defined generics in the syntax. Prelude types cannot be shadowed.
-- Structural typing is declaration-order-sensitive: never sort fields/variants during unification, and compare field/variant names by text, not `Identifier` equality.
-- Match arms require block syntax: `Pattern => { expr }`, not `Pattern => expr`.
+- Prelude types (`Option`/`Result`) cannot be shadowed by user-defined types.
+- In the type checker, never sort fields/variants during unification — match them by name text, not `Identifier` equality.
 - `get_store_fns` for Variant/Option/Result return types is still `todo!()` in Wasm codegen — don't export enum/option/result return types from script functions.
 - Wasm tests assert `source == formatted_source`, so test `.star` files must be pre-formatted.
 - `Span` is chumsky's `SimpleSpan`; use the `dummy_span()` helper rather than `Span::new()`.
