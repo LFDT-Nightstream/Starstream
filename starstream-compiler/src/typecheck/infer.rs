@@ -109,7 +109,7 @@ pub fn typecheck_program(
 ) -> Result<TypecheckSuccess, TypecheckFailure> {
     let mut inferencer = Inferencer::new(options.capture_traces);
 
-    if let Err(error) = inferencer.register_type_definitions(&program.definitions) {
+    if let Err(error) = inferencer.register_definitions(&program.definitions) {
         return Err(TypecheckFailure {
             errors: vec![error],
             warnings: inferencer.warnings,
@@ -299,7 +299,7 @@ pub fn typecheck_modules(
         };
 
         // Run the existing inference pipeline on this module's definitions.
-        if let Err(error) = inferencer.register_type_definitions(&module.program.definitions) {
+        if let Err(error) = inferencer.register_definitions(&module.program.definitions) {
             all_errors.push((module_id, error));
             continue;
         }
@@ -779,37 +779,15 @@ impl Inferencer {
             warnings: Vec::new(),
             abi_call_trackers: Vec::new(),
         };
-        inferencer.register_prelude_types();
-        inferencer.register_builtin_token_abi();
+        inferencer.register_prelude();
         inferencer
     }
 
-    /// Register the built-in `Token` ABI that every `token` definition's
-    /// `impl Token { ... }` block is checked against. It declares
-    /// `attach(Utxo) -> ()` and `detach(Utxo) -> ()`. User code may not
-    /// redeclare `abi Token` (guarded in `register_abi`).
-    fn register_builtin_token_abi(&mut self) {
-        let method = |name: &str| TypedAbiMethodDecl {
-            name: Identifier::new(name, DUMMY_SPAN),
-            params: vec![TypedFunctionParam {
-                public: false,
-                name: Identifier::new("utxo", DUMMY_SPAN),
-                ty: Type::UtxoAny,
-            }],
-            return_type: Type::Unit,
-            span: DUMMY_SPAN,
-        };
-        self.root.types.insert(
-            "Token".to_owned(),
-            TypeEntry::from(Type::from(AbiType {
-                name: Identifier::new("Token", DUMMY_SPAN),
-                methods: vec![method("attach"), method("detach")],
-            })),
-        );
-    }
+    // ------------------------------------------------------------------------
+    // Prelude builtins
 
-    /// Register builtin prelude types (`Option<T>`, `Result<T, E>`).
-    fn register_prelude_types(&mut self) {
+    /// Register builtin prelude types, including primitives, Option, Result, Utxo, and Token.
+    fn register_prelude(&mut self) {
         // Primitives
         let mut primitive =
             |name: &str, ty| self.root.types.insert(name.to_owned(), TypeEntry::from(ty));
@@ -825,7 +803,7 @@ impl Inferencer {
         primitive("u64", Type::from(IntWidth::U64));
 
         primitive("Utxo", Type::UtxoAny);
-        primitive("Token", Type::TokenAny);
+        primitive("Token", Type::TokenAny); // TODO: currently being overridden, decide what to do with this.
 
         // Option<T>
         let t = self.fresh_var_id();
@@ -867,6 +845,28 @@ impl Inferencer {
                 ("Ok", "Contains a success value."),
                 ("Err", "Contains an error value."),
             ],
+        );
+
+        // Register the built-in `Token` ABI that every `token` definition's
+        // `impl Token { ... }` block is checked against. It declares
+        // `attach(Utxo) -> ()` and `detach(Utxo) -> ()`. User code may not
+        // redeclare `abi Token` (guarded in `register_abi`).
+        let method = |name: &str| TypedAbiMethodDecl {
+            name: Identifier::new(name, DUMMY_SPAN),
+            params: vec![TypedFunctionParam {
+                public: false,
+                name: Identifier::new("utxo", DUMMY_SPAN),
+                ty: Type::UtxoAny,
+            }],
+            return_type: Type::Unit,
+            span: DUMMY_SPAN,
+        };
+        self.root.types.insert(
+            "Token".to_owned(),
+            TypeEntry::from(Type::from(AbiType {
+                name: Identifier::new("Token", DUMMY_SPAN),
+                methods: vec![method("attach"), method("detach")],
+            })),
         );
     }
 
@@ -980,7 +980,10 @@ impl Inferencer {
             .collect()
     }
 
-    fn register_type_definitions(
+    // ------------------------------------------------------------------------
+
+    /// First pass. Registers namespace-level names (those not inside a function).
+    fn register_definitions(
         &mut self,
         definitions: &[Spanned<Definition>],
     ) -> Result<(), TypeError> {
@@ -990,23 +993,12 @@ impl Inferencer {
                 Definition::Import(_) => {}
                 Definition::Struct(def) => self.register_struct(def)?,
                 Definition::Enum(def) => self.register_enum(def)?,
-                Definition::Function(_) => {}
+                Definition::Function(def) => self.register_function(def)?,
                 Definition::Utxo(def) => self.register_utxo(def)?,
                 Definition::Token(def) => self.register_token(def)?,
                 Definition::Abi(def) => self.register_abi(def)?,
             }
         }
-        for definition in definitions {
-            if let Definition::Function(def) = &definition.node {
-                self.register_function(def)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn register_function(&mut self, _def: &FunctionDef) -> Result<(), TypeError> {
-        // TODO: hoist function type discovery back here, out of `infer_function`,
-        // so that code can call functions declared later in the file.
         Ok(())
     }
 
@@ -1513,6 +1505,12 @@ impl Inferencer {
                 variant_docs: HashMap::new(),
             },
         );
+        Ok(())
+    }
+
+    fn register_function(&mut self, _def: &FunctionDef) -> Result<(), TypeError> {
+        // TODO: hoist function type discovery back here, out of `infer_function`,
+        // so that code can call functions declared later in the file.
         Ok(())
     }
 
