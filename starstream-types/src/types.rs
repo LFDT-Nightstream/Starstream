@@ -48,6 +48,9 @@ pub enum Type {
     Abi(Arc<AbiType>),
 }
 
+// Keep Type small (and use Rc instead of Box) to make it cheap to clone.
+const _: [(); 0 - !(std::mem::size_of::<Type>() <= 32) as usize] = [];
+
 /// Identifier for a type variable.
 ///
 /// During inference we generate fresh type variables to represent unknown
