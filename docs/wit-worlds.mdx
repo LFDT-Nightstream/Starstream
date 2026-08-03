@@ -16,8 +16,15 @@ and coordination scripts defined in the contract.
 The shape of those imports and exports are described here and define the
 interface between the Starstream runtime (host) and Starstream contract (guest).
 
+Imports from other contracts use [`@external-id`][external-id] nodes containing
+the digest of the other contract in a form similar to `"sha256:$HEXDIGEST"`,
+followed by `:` and extra data if needed.
+
+{/* TODO: use https://multiformats.io/multihash/ ? */}
+
 [raw-wit]: https://github.com/LFDT-Nightstream/Starstream/tree/main/starstream-to-wasm/wit
 [world]: https://component-model.bytecodealliance.org/design/worlds.html
+[external-id]: https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#import-and-export-definitions
 
 ## Global builtins
 
@@ -66,7 +73,7 @@ the runtime will provide.
 
 For example:
 
-```
+```wit
 world root {
     import my-utxo: interface {
         use starstream:std/builtin.{utxo as builtin-utxo};
@@ -81,13 +88,28 @@ world root {
 }
 ```
 
-Note that a contract which contains both a Utxo and a coordination script that uses it may export and import the same Utxo.
+A contract which defines a Utxo and also uses it in its own coordination script
+will both export and import the Utxo interface.
 
-TODO: Proper expression of the difference between self-imports and by-digest-imports?
+Importing a Utxo from another contract uses `@external-id` on the `interface`
+with that contract's digest.
 
 ## Importing ABIs
 
-TODO
+To call methods on a Utxo without knowing its concrete type, import the methods
+from `starstream:contract/dynamic-utxo`:
+
+```wit
+interface starstream:contract/dynamic-utxo {
+    use starstream:std/builtin.utxo;
+
+    my-method: func(this: utxo, parameter: i32);
+}
+
+world root {
+    import starstream:contract/dynamic-utxo;
+}
+```
 
 ## Exporting coordination scripts
 
@@ -96,6 +118,23 @@ Coordination scripts are top-level function exports:
 ```wit
 world root {
     export my-coordination-script: func();
+}
+```
+
+## Importing coordination scripts
+
+Cross-contract coordination scripts are imported from an interface named
+`starstream:contract/scripts` with all coordination script functions needed.
+Each function has an `@external-id` with the digest of the contract it belongs
+to. For example:
+
+```wit
+interface starstream:contract/scripts {
+    @external-id("0123456789abcdef")
+    foobar: func() -> i32;
+}
+world root {
+    import starstream:contract/scripts;
 }
 ```
 
