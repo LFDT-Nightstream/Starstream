@@ -10,8 +10,8 @@ use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
     FunctionKind, FunctionType, GenericTypeDef, IfCondition, Scheme, ScopedName, Span, Spanned,
     StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId, TypedEffectDef,
-    TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart,
-    UtxoDef, UtxoGlobal, UtxoPart,
+    TypedImportItems, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef,
+    TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportDef, ImportItems, ImportSource, Literal, Pattern, Program, Statement, StructDef,
@@ -20,10 +20,9 @@ use starstream_types::{
     typed_ast::{
         TypedAbiDef, TypedAbiMethodDecl, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
         TypedEnumVariant, TypedEnumVariantPayload, TypedEventDef, TypedExpr, TypedExprKind,
-        TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedImportItems,
-        TypedImportNamedItem, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
-        TypedStatement, TypedStructDef, TypedStructField, TypedStructFieldInitializer,
-        TypedStructPatternField,
+        TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm,
+        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructField,
+        TypedStructFieldInitializer, TypedStructPatternField,
     },
     types::{EnumType, EnumVariantKind, EnumVariantType, RecordFieldType, RecordType},
 };
@@ -91,7 +90,7 @@ pub fn typecheck_program(
 
     // Pass 1: register imports
     env.root
-        .import_all_from(&inferencer.builtins.prelude)
+        .import_all_from(&inferencer.builtins.prelude())
         .unwrap();
     if let Err(error) =
         inferencer.register_imports(&mut env, &program.definitions, &Default::default())
@@ -155,7 +154,7 @@ pub fn typecheck_program(
         Vec::new()
     };
 
-    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude);
+    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude());
     let warnings = inferencer.warnings;
 
     Ok(TypecheckSuccess {
@@ -230,7 +229,7 @@ pub fn typecheck_modules(
 
         // Pass 1: register imports
         env.root
-            .import_all_from(&inferencer.builtins.prelude)
+            .import_all_from(&inferencer.builtins.prelude())
             .unwrap();
         let resolved_imports = resolve_path_imports(graph, module_id, &module_exports);
         if let Err(error) =
@@ -322,7 +321,7 @@ pub fn typecheck_modules(
         inferencer.apply_substitutions_program(typed_program);
     }
 
-    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude);
+    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude());
 
     let mut modules: Vec<TypedModule> = Vec::with_capacity(graph.modules().len());
     for source_module in graph.modules() {
@@ -542,68 +541,9 @@ impl Inferencer {
         source: &str,
     ) -> Result<(), TypeError> {
         // Check if the package exists in our builtin registry
-        let Some(package) = self
+        let namespace = self
             .builtins
-            .get_package(namespace_id.as_str(), package_id.as_str())
-        else {
-            return Err(TypeError::new(
-                TypeErrorKind::UnknownImportPackage {
-                    namespace: namespace_id.to_string(),
-                    package: package_id.to_string(),
-                },
-                namespace_id.span(),
-            ));
-        };
-
-        // Fetch the corresponding namespace.
-        let namespace = match interface_id {
-            Some(interface) => {
-                let Some(interface) = package.get(interface.as_str()) else {
-                    return Err(TypeError::new(
-                        TypeErrorKind::UnknownImportInterface {
-                            namespace: namespace_id.to_string(),
-                            package: package_id.to_string(),
-                            interface: interface.to_string(),
-                        },
-                        interface.span(),
-                    ));
-                };
-
-                // Synthesize namespace.
-                // TODO: represent builtins as a namespace directly.
-                let mut ns = Namespace::default();
-                for (name, builtin) in interface {
-                    ns.constants.insert(
-                        name.clone(),
-                        ConstantInfo::new(
-                            DUMMY_SPAN,
-                            Type::from(FunctionType {
-                                kind: builtin.kind,
-                                name_span: DUMMY_SPAN,
-                                params: builtin.params.clone(),
-                                param_spans: vec![],
-                                result: builtin.return_type.clone(),
-                                callee: Some(StaticFunction::Named(name.clone())),
-                            }),
-                        ),
-                    );
-                }
-                ns
-            }
-            None => {
-                // TODO
-                return Err(TypeError::new(
-                    TypeErrorKind::UnknownImportInterface {
-                        namespace: namespace_id.to_string(),
-                        package: package_id.to_string(),
-                        interface: "".to_string(),
-                    },
-                    package_id.span(),
-                )
-                .with_help("imports require an interface, e.g., `starstream:std/cardano`"));
-            }
-        };
-
+            .get_as_namespace(namespace_id, package_id, interface_id)?;
         self.register_import_items(env, items, &namespace, source)?;
         Ok(())
     }
@@ -1043,104 +983,14 @@ impl Inferencer {
         })
     }
 
-    fn build_typed_import(&self, def: &ImportDef) -> TypedImportDef {
-        use starstream_types::ast::ImportItems;
-
-        match &def.from {
-            ImportSource::Wit {
-                namespace,
-                package,
-                interface,
-            } => {
-                let namespace_name = &namespace.name;
-                let package_name = &package.name;
-                let interface_name = interface.as_ref().map(|i| i.name.as_str());
-
-                let items = match &def.items {
-                    ImportItems::Named(named) => TypedImportItems::Named(
-                        named
-                            .iter()
-                            .map(|item| {
-                                // Look up the function type from the builtins registry
-                                let ty = interface_name
-                                    .and_then(|iface| {
-                                        self.builtins
-                                            .get_interface(namespace_name, package_name, iface)
-                                            .and_then(|funcs| funcs.get(&item.imported.name))
-                                            .map(|f| f.to_function_type())
-                                    })
-                                    .unwrap_or(Type::Unit);
-
-                                TypedImportNamedItem {
-                                    imported: item.imported.clone(),
-                                    local: item.local.clone(),
-                                    ty,
-                                }
-                            })
-                            .collect(),
-                    ),
-                    ImportItems::Namespace(alias) => {
-                        // Build the list of functions available in this namespace
-                        let functions = interface_name
-                            .and_then(|iface| {
-                                self.builtins
-                                    .get_interface(namespace_name, package_name, iface)
-                            })
-                            .map(|funcs| {
-                                funcs
-                                    .iter()
-                                    .map(|(name, builtin)| TypedImportNamedItem {
-                                        imported: Identifier::anon(name),
-                                        local: Identifier::anon(name),
-                                        ty: builtin.to_function_type(),
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-
-                        TypedImportItems::Namespace {
-                            alias: alias.clone(),
-                            functions,
-                        }
-                    }
-                };
-
-                let from = TypedImportSource::Wit {
-                    namespace: namespace.clone(),
-                    package: package.clone(),
-                    interface: interface.clone(),
-                };
-
-                TypedImportDef { items, from }
-            }
-            ImportSource::Path(path) => {
-                // Path-import typed shape is filled in by `typecheck_modules`; here we
-                // produce a placeholder so the typed AST is well-formed when callers
-                // invoke `typecheck_program` directly on a single file.
-                let items = match &def.items {
-                    ImportItems::Named(named) => TypedImportItems::Named(
-                        named
-                            .iter()
-                            .map(|item| TypedImportNamedItem {
-                                imported: item.imported.clone(),
-                                local: item.local.clone(),
-                                ty: Type::Unit,
-                            })
-                            .collect(),
-                    ),
-                    ImportItems::Namespace(alias) => TypedImportItems::Namespace {
-                        alias: alias.clone(),
-                        functions: Vec::new(),
-                    },
-                };
-
-                let from = TypedImportSource::Path {
-                    value: path.value.clone(),
-                    canonical: None,
-                };
-
-                TypedImportDef { items, from }
-            }
+    fn build_typed_import(&self, _def: &ImportDef) -> TypedImportDef {
+        // TODO: fill out placeholder
+        TypedImportDef {
+            items: TypedImportItems::Named(vec![]),
+            from: starstream_types::TypedImportSource::Path {
+                value: String::new(),
+                canonical: None,
+            },
         }
     }
 

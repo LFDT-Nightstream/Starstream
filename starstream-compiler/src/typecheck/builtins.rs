@@ -3,45 +3,24 @@
 //! This module provides type information for the standard library functions
 //! that are resolved at compile time (not downloaded via wit-dep).
 
-use std::collections::HashMap;
-
 use starstream_types::{
     AbiType, DUMMY_SPAN, EnumType, EnumVariantKind, EnumVariantType, FunctionKind, FunctionType,
     Identifier, IntWidth, StaticFunction, Type, TypeParam, TypeVarId, TypedAbiMethodDecl,
     TypedFunctionParam,
 };
 
-use crate::typecheck::env::{ConstantInfo, Namespace, StructConstructor, TypeEntry};
-
-/// Information about a built-in function from the standard library.
-#[derive(Clone, Debug)]
-pub struct BuiltinFunction {
-    pub name: String,
-    pub params: Vec<Type>,
-    pub return_type: Type,
-    pub kind: FunctionKind,
-}
-
-impl BuiltinFunction {
-    pub fn to_function_type(&self) -> Type {
-        Type::from(FunctionType {
-            params: self.params.clone(),
-            param_spans: Vec::new(),
-            result: self.return_type.clone(),
-            kind: self.kind,
-            name_span: DUMMY_SPAN,
-            callee: Some(starstream_types::StaticFunction::Named(self.name.clone())),
-        })
-    }
-}
+use crate::typecheck::{
+    TypeError, TypeErrorKind,
+    env::{ConstantInfo, Namespace, StructConstructor, TypeEntry},
+};
 
 /// Registry of built-in interfaces and their exports.
 #[derive(Default)]
 pub struct BuiltinRegistry {
-    pub prelude: Namespace,
+    prelude: Namespace,
 
-    /// Maps `namespace:package` -> `interface` -> `name` -> `BuiltinFunction`
-    packages: HashMap<String, HashMap<String, HashMap<String, BuiltinFunction>>>,
+    /// Maps `namespace:package/interface` as `namespace::package::interface`.
+    wit_tree: Namespace,
 }
 
 impl BuiltinRegistry {
@@ -49,58 +28,58 @@ impl BuiltinRegistry {
         let mut registry = Self::default();
         let mut next_type_var = TypeVarId(0);
         register_prelude(&mut registry.prelude, &mut next_type_var);
-        registry.register_std();
+        let starstream = registry.wit_tree.add_child("starstream".to_owned());
+        let std = starstream.add_child("std".to_owned());
+        register_std_cardano(std.add_child("cardano".to_owned()));
         (registry, next_type_var)
     }
 
-    /// Look up a function in a specific interface.
-    #[allow(dead_code)]
-    pub fn get_interface_function(
-        &self,
-        namespace: &str,
-        package: &str,
-        interface: &str,
-        name: &str,
-    ) -> Option<&BuiltinFunction> {
-        let pkg_path = format!("{namespace}:{package}");
-        self.packages
-            .get(&pkg_path)
-            .and_then(|pkg| pkg.get(interface))
-            .and_then(|iface| iface.get(name))
+    /// Get the namespace representing the prelude imported into all source files.
+    pub fn prelude(&self) -> &Namespace {
+        &self.prelude
     }
 
-    /// Look up an interface in a package (for namespace imports).
-    /// Returns all functions in the interface.
-    pub fn get_interface(
+    /// Get the namespace representing the WIT tree for a namespace:package, optionally /interface.
+    pub fn get_as_namespace(
         &self,
-        namespace: &str,
-        package: &str,
-        interface: &str,
-    ) -> Option<&HashMap<String, BuiltinFunction>> {
-        let pkg_path = format!("{namespace}:{package}");
-        self.packages
-            .get(&pkg_path)
-            .and_then(|pkg| pkg.get(interface))
-    }
-
-    /// Get a package by name.
-    pub fn get_package(
-        &self,
-        namespace: &str,
-        package: &str,
-    ) -> Option<&HashMap<String, HashMap<String, BuiltinFunction>>> {
-        self.packages.get(&format!("{namespace}:{package}"))
-    }
-
-    /// Get all interfaces in a package.
-    #[allow(dead_code)]
-    pub fn get_package_interfaces(
-        &self,
-        namespace: &str,
-        package: &str,
-    ) -> Option<&HashMap<String, HashMap<String, BuiltinFunction>>> {
-        let path = format!("{namespace}:{package}");
-        self.packages.get(&path)
+        namespace: &Identifier,
+        package: &Identifier,
+        interface: Option<&Identifier>,
+    ) -> Result<&Namespace, TypeError> {
+        let ns = &self.wit_tree;
+        let Some(ns) = ns.namespaces.get(namespace.as_str()) else {
+            return Err(TypeError::new(
+                TypeErrorKind::UnknownImportPackage {
+                    namespace: namespace.to_string(),
+                    package: package.to_string(),
+                },
+                namespace.span,
+            ));
+        };
+        let Some(ns) = ns.namespaces.get(package.as_str()) else {
+            return Err(TypeError::new(
+                TypeErrorKind::UnknownImportPackage {
+                    namespace: namespace.to_string(),
+                    package: package.to_string(),
+                },
+                package.span,
+            ));
+        };
+        if let Some(interface) = interface {
+            let Some(ns) = ns.namespaces.get(interface.as_str()) else {
+                return Err(TypeError::new(
+                    TypeErrorKind::UnknownImportInterface {
+                        namespace: namespace.to_string(),
+                        package: package.to_string(),
+                        interface: interface.to_string(),
+                    },
+                    interface.span,
+                ));
+            };
+            Ok(ns)
+        } else {
+            Ok(ns)
+        }
     }
 }
 
@@ -285,38 +264,38 @@ fn register_prelude_enum(
 // ----------------------------------------------------------------------------
 // Library builtins
 
-impl BuiltinRegistry {
-    fn register_std(&mut self) {
-        // starstream:std/cardano - Cardano blockchain context functions
-        let mut cardano = HashMap::new();
-
-        // blockHeight() -> i64
-        cardano.insert(
-            "blockHeight".to_string(),
-            BuiltinFunction {
-                params: vec![],
-                return_type: Type::int(),
+fn register_std_cardano(cardano: &mut Namespace) {
+    // blockHeight() -> i64
+    cardano.constants.insert(
+        "blockHeight".to_owned(),
+        ConstantInfo::new(
+            DUMMY_SPAN,
+            Type::from(FunctionType {
                 kind: FunctionKind::Runtime,
-                name: "blockHeight".to_string(),
-            },
-        );
-
-        // currentSlot() -> i64
-        cardano.insert(
-            "currentSlot".to_string(),
-            BuiltinFunction {
+                name_span: DUMMY_SPAN,
                 params: vec![],
-                return_type: Type::int(),
-                kind: FunctionKind::Runtime,
-                name: "currentSlot".to_string(),
-            },
-        );
+                param_spans: vec![],
+                result: Type::int(),
+                callee: Some(StaticFunction::Named("blockHeight".to_string())),
+            }),
+        ),
+    );
 
-        let mut std_package = HashMap::new();
-        std_package.insert("cardano".to_string(), cardano);
-        self.packages
-            .insert("starstream:std".to_string(), std_package);
-    }
+    // currentSlot() -> i64
+    cardano.constants.insert(
+        "currentSlot".to_owned(),
+        ConstantInfo::new(
+            DUMMY_SPAN,
+            Type::from(FunctionType {
+                kind: FunctionKind::Runtime,
+                name_span: DUMMY_SPAN,
+                params: vec![],
+                param_spans: vec![],
+                result: Type::int(),
+                callee: Some(StaticFunction::Named("currentSlot".to_string())),
+            }),
+        ),
+    );
 }
 
 // ----------------------------------------------------------------------------
@@ -329,18 +308,39 @@ mod tests {
     fn lookup_block_height() {
         let (registry, _) = BuiltinRegistry::new();
         let func = registry
-            .get_interface_function("starstream", "std", "cardano", "blockHeight")
-            .expect("blockHeight should exist");
-
+            .get_as_namespace(
+                &Identifier::anon("starstream"),
+                &Identifier::anon("std"),
+                Some(&Identifier::anon("cardano")),
+            )
+            .expect("starstream:std/cardano missing")
+            .constants
+            .get("blockHeight")
+            .expect("blockHeight missing");
+        let Type::Function(func) = &func.ty else {
+            panic!();
+        };
         assert_eq!(func.params, vec![]);
-        assert_eq!(func.return_type, Type::int());
+        assert_eq!(func.result, Type::int());
         assert_eq!(func.kind, FunctionKind::Runtime);
     }
 
     #[test]
     fn package_exists() {
         let (registry, _) = BuiltinRegistry::new();
-        assert!(registry.get_package("starstream", "std").is_some());
-        assert!(registry.get_package("starstream", "nonexistent").is_none());
+        registry
+            .get_as_namespace(
+                &Identifier::anon("starstream"),
+                &Identifier::anon("std"),
+                None,
+            )
+            .expect("starstream:std missing");
+        registry
+            .get_as_namespace(
+                &Identifier::anon("starstream"),
+                &Identifier::anon("nonexistent"),
+                None,
+            )
+            .expect_err("starstream:nonexistent present");
     }
 }
