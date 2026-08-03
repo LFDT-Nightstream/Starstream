@@ -275,7 +275,12 @@ logical_or_expression ::= expression "||" expression
 
 identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
 
-integer_literal ::= [0-9]+
+(* Prefixed forms take precedence over the decimal form. *)
+integer_literal ::=
+  | [0-9]+
+  | "0x" [0-9a-fA-F]+
+  | "0o" [0-7]+
+  | "0b" [01]+
 
 boolean_literal ::= "true" | "false"
 
@@ -634,6 +639,7 @@ visibility modifier:
 ## Expressions
 
 - Integer literals are polymorphic: an unadorned numeric literal like `42` adopts the integer type determined by context (e.g. a type annotation or function parameter type). When no context constrains the type, the literal defaults to `i64`. A compile-time error is emitted if the literal value does not fit in the resolved type (e.g. `let x: i8 = 300` is an error).
+- Integer literals may be written in decimal (`42`), hexadecimal (`0xFF`), octal (`0o17`), or binary (`0b1010`) notation. The notation only affects how the literal is written (and how the formatter prints it back); the value and typing rules are identical across notations.
 - Boolean literals work in the obvious way.
 - Struct literals `TypeName { field: expr, ... }` evaluate each field expression once and produce a record value. Field names must be unique; order is irrelevant.
 - Enum constructors use `TypeName::Variant` with a previously declared enum name. Tuple-style payloads evaluate left-to-right and are stored without reordering.

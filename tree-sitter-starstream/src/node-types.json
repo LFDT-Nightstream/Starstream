@@ -739,6 +739,11 @@
     }
   },
   {
+    "type": "integer_literal",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "is_condition",
     "named": true,
     "fields": {},
@@ -1578,10 +1583,6 @@
   {
     "type": "import",
     "named": false
-  },
-  {
-    "type": "integer_literal",
-    "named": true
   },
   {
     "type": "is",

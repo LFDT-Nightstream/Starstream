@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let x: u8 = 0x100;\n}\n"
+---
+E0044 (https://starstream.nightstream.dev/errors/E0044)
+
+  x integer literal `0x100` does not fit in type `u8`
+   ,-[test.star:2:17]
+ 1 | fn test() {
+ 2 |     let x: u8 = 0x100;
+   :                 ^^^^^
+ 3 | }
+   `----

@@ -441,7 +441,8 @@ module.exports = grammar({
 
     // Literals and other terminals
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
-    integer_literal: ($) => /[0-9]+/,
+    integer_literal: ($) =>
+      choice(/0x[0-9a-fA-F]+/, /0o[0-7]+/, /0b[01]+/, /[0-9]+/),
     boolean_literal: ($) => choice("true", "false"),
     unit_literal: ($) => seq("(", ")"),
 

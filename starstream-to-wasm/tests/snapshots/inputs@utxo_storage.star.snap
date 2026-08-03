@@ -80,7 +80,10 @@ Program {
                                                         right: Spanned {
                                                             node: Literal(
                                                                 Integer(
-                                                                    1,
+                                                                    IntegerLiteral {
+                                                                        digits: "1",
+                                                                        radix: Decimal,
+                                                                    },
                                                                 ),
                                                             ),
                                                             span: 151..152,
@@ -133,7 +136,10 @@ Program {
                                                         right: Spanned {
                                                             node: Literal(
                                                                 Integer(
-                                                                    1,
+                                                                    IntegerLiteral {
+                                                                        digits: "1",
+                                                                        radix: Decimal,
+                                                                    },
                                                                 ),
                                                             ),
                                                             span: 225..226,
@@ -257,7 +263,10 @@ TypedProgram {
                                                             ),
                                                             kind: Literal(
                                                                 Integer(
-                                                                    1,
+                                                                    IntegerLiteral {
+                                                                        digits: "1",
+                                                                        radix: Decimal,
+                                                                    },
                                                                 ),
                                                             ),
                                                         },
@@ -322,7 +331,10 @@ TypedProgram {
                                                             ),
                                                             kind: Literal(
                                                                 Integer(
-                                                                    1,
+                                                                    IntegerLiteral {
+                                                                        digits: "1",
+                                                                        radix: Decimal,
+                                                                    },
                                                                 ),
                                                             ),
                                                         },

@@ -20,7 +20,10 @@ Expression(
             right: Spanned {
                 node: Literal(
                     Integer(
-                        1,
+                        IntegerLiteral {
+                            digits: "1",
+                            radix: Decimal,
+                        },
                     ),
                 ),
                 span: 8..9,

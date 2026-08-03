@@ -2411,13 +2411,20 @@ impl Compiler {
             }
             // Literals
             TypedExprKind::Literal(Literal::Integer(i)) => {
+                // The type checker's range check guarantees the value fits the
+                // resolved type, so a missing value here is a compiler bug.
+                let Some(value) = i.value() else {
+                    return Err(
+                        self.push_error(span, format!("integer literal `{i}` out of range"))
+                    );
+                };
                 match &expr.ty {
                     Type::Int(w) if w.is_64bit() => {
-                        func.instructions(bb).i64_const(*i as i64);
+                        func.instructions(bb).i64_const(value as i64);
                         Ok(())
                     }
                     Type::Int(_) | Type::UtxoNamed(_) => {
-                        func.instructions(bb).i32_const(*i as i32);
+                        func.instructions(bb).i32_const(value as i32);
                         Ok(())
                     }
                     ty => Err(self
@@ -3378,8 +3385,10 @@ impl Compiler {
             TypedPattern::Binding(ident) => Pat::Wildcard {
                 binding: Some((arm_idx, ident.name.clone())),
             },
+            // Overflowing digits are rejected by the type checker, so every
+            // literal that reaches codegen has a value.
             TypedPattern::Literal(Literal::Integer(n)) => Pat::Ctor {
-                ctor: Ctor::IntLiteral(*n),
+                ctor: Ctor::IntLiteral(n.value().unwrap_or(0)),
                 args: vec![],
             },
             TypedPattern::Literal(Literal::Boolean(b)) => Pat::Ctor {

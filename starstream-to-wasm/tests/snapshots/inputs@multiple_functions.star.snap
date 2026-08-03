@@ -127,7 +127,10 @@ Program {
                                     value: Spanned {
                                         node: Literal(
                                             Integer(
-                                                41,
+                                                IntegerLiteral {
+                                                    digits: "41",
+                                                    radix: Decimal,
+                                                },
                                             ),
                                         ),
                                         span: 140..142,
@@ -154,7 +157,10 @@ Program {
                                     right: Spanned {
                                         node: Literal(
                                             Integer(
-                                                1,
+                                                IntegerLiteral {
+                                                    digits: "1",
+                                                    radix: Decimal,
+                                                },
                                             ),
                                         ),
                                         span: 155..156,
@@ -319,7 +325,10 @@ TypedProgram {
                                     ),
                                     kind: Literal(
                                         Integer(
-                                            41,
+                                            IntegerLiteral {
+                                                digits: "41",
+                                                radix: Decimal,
+                                            },
                                         ),
                                     ),
                                 },
@@ -359,7 +368,10 @@ TypedProgram {
                                             ),
                                             kind: Literal(
                                                 Integer(
-                                                    1,
+                                                    IntegerLiteral {
+                                                        digits: "1",
+                                                        radix: Decimal,
+                                                    },
                                                 ),
                                             ),
                                         },

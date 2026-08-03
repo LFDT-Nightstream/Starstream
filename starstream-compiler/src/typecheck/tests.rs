@@ -1926,3 +1926,57 @@ fn trailing_commas_everywhere() {
         "#
     );
 }
+
+// ── integer literal radixes and ranges ───────────────────────────────────────
+
+#[test]
+fn integer_literal_radixes_infer() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let hex: u8 = 0xFF;
+            let octal: i64 = 0o17;
+            let binary: u16 = 0b1111000011110000;
+            let inferred = 0x10 + 2;
+        }
+        "#
+    );
+}
+
+#[test]
+fn integer_literal_hex_out_of_range_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: u8 = 0x100;
+        }
+        "#
+    );
+}
+
+#[test]
+fn integer_literal_overflowing_i128_error() {
+    // Used to panic the parser; now flows through as a range error against
+    // the literal's resolved type.
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x = 170141183460469231731687303715884105728;
+        }
+        "#
+    );
+}
+
+#[test]
+fn integer_literal_overflowing_i128_pattern_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(x: i64) -> i64 {
+            match x {
+                170141183460469231731687303715884105728 => { 1 },
+                _ => { 0 },
+            }
+        }
+        "#
+    );
+}

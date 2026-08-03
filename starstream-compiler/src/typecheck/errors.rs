@@ -271,7 +271,8 @@ pub enum TypeErrorKind {
     ReturnTypeNotAllowed,
     /// An integer literal is out of range for its resolved type.
     LiteralOutOfRange {
-        value: i128,
+        /// The literal as written in the source (including any radix prefix).
+        literal: String,
         ty: Type,
     },
     /// `if x is Abi` used on a non-Utxo variable.
@@ -723,10 +724,10 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::ReturnTypeNotAllowed => {
                 write!(f, "return type not allowed on this function")
             }
-            TypeErrorKind::LiteralOutOfRange { value, ty } => {
+            TypeErrorKind::LiteralOutOfRange { literal, ty } => {
                 write!(
                     f,
-                    "integer literal `{value}` does not fit in type `{}`",
+                    "integer literal `{literal}` does not fit in type `{}`",
                     ty.to_compact_string()
                 )
             }

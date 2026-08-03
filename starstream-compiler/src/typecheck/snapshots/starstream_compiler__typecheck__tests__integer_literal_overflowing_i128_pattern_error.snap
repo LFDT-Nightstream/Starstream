@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(x: i64) -> i64 {\n    match x {\n        170141183460469231731687303715884105728 => { 1 },\n        _ => { 0 },\n    }\n}\n"
+---
+E0044 (https://starstream.nightstream.dev/errors/E0044)
+
+  x integer literal `170141183460469231731687303715884105728` does not fit in type `i64`
+   ,-[test.star:3:9]
+ 2 |     match x {
+ 3 |         170141183460469231731687303715884105728 => { 1 },
+   :         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 4 |         _ => { 0 },
+   `----
