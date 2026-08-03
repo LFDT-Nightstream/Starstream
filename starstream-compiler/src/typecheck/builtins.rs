@@ -73,10 +73,13 @@ impl BuiltinRegistry {
             .and_then(|pkg| pkg.get(interface))
     }
 
-    /// Check if a package exists.
-    pub fn has_package(&self, namespace: &str, package: &str) -> bool {
-        let path = format!("{namespace}:{package}");
-        self.packages.contains_key(&path)
+    /// Get a package by name.
+    pub fn get_package(
+        &self,
+        namespace: &str,
+        package: &str,
+    ) -> Option<&HashMap<String, HashMap<String, BuiltinFunction>>> {
+        self.packages.get(&format!("{namespace}:{package}"))
     }
 
     /// Get all interfaces in a package.
@@ -142,7 +145,7 @@ mod tests {
     #[test]
     fn package_exists() {
         let registry = BuiltinRegistry::new();
-        assert!(registry.has_package("starstream", "std"));
-        assert!(!registry.has_package("starstream", "nonexistent"));
+        assert!(registry.get_package("starstream", "std").is_some());
+        assert!(registry.get_package("starstream", "nonexistent").is_none());
     }
 }

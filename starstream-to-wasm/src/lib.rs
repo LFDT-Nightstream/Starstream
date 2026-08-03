@@ -142,29 +142,15 @@ impl CompileOptions {
     ) -> CompileResult {
         let mut compiler = Compiler::new(self);
 
-        // Build a reachable-from-entry set by chasing edges through the typed
-        // graph. We don't have the untyped graph's edges here, so we synthesize
-        // them from each module's `TypedDefinition::Import` entries. Cheaper
-        // than threading the source graph through.
+        // Build a reachable-from-entry set by chasing edges through the graph.
         use std::collections::HashSet;
         let mut reachable: HashSet<starstream_compiler::ModuleId> = HashSet::new();
         reachable.insert(entry);
         let mut stack = vec![entry];
         while let Some(id) = stack.pop() {
             let module = graph.module(id);
-            for def in &module.program.definitions {
-                if let TypedDefinition::Import(import) = def
-                    && let TypedImportSource::Path {
-                        canonical: Some(canonical),
-                        ..
-                    } = &import.from
-                    && let Some(target) = graph
-                        .modules
-                        .iter()
-                        .find(|m| &m.abs_path == canonical)
-                        .map(|m| m.id)
-                    && reachable.insert(target)
-                {
+            for &target in &module.edges {
+                if reachable.insert(target) {
                     stack.push(target);
                 }
             }

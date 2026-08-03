@@ -30,12 +30,12 @@ use starstream_types::{
 
 use super::{
     builtins::BuiltinRegistry,
-    env::{Binding, BindingClass, BindingVisibility, TypeEnv},
+    env::*,
     errors::{ConditionContext, EnumPayloadKind, TypeError, TypeErrorKind},
     tree::InferenceTree,
     warnings::{TypeWarning, TypeWarningKind},
 };
-use crate::formatter;
+use crate::{ModuleId, formatter};
 
 /// Optional settings that control type-checker behavior.
 #[derive(Clone, Debug, Default)]
@@ -80,27 +80,6 @@ pub struct TypecheckFailure {
     pub warnings: Vec<TypeWarning>,
 }
 
-#[derive(Clone)]
-struct TypeEntry {
-    ty: Type,
-    span: Span,
-    type_params: Vec<TypeParam>,
-    doc: Option<String>,
-    variant_docs: HashMap<String, String>,
-}
-
-impl From<Type> for TypeEntry {
-    fn from(value: Type) -> Self {
-        TypeEntry {
-            ty: value,
-            span: DUMMY_SPAN,
-            type_params: vec![],
-            doc: None,
-            variant_docs: Default::default(),
-        }
-    }
-}
-
 /// Run Hindley–Milner style inference over the parsed program and return the
 /// typed AST along with optional tracing information.
 pub fn typecheck_program(
@@ -108,19 +87,32 @@ pub fn typecheck_program(
     options: TypecheckOptions,
 ) -> Result<TypecheckSuccess, TypecheckFailure> {
     let mut inferencer = Inferencer::new(options.capture_traces);
+    let mut env = TypeEnv::new();
 
-    if let Err(error) = inferencer.register_definitions(&program.definitions) {
+    // Pass 1: register imports
+    env.root.import_all_from(&inferencer.prelude).unwrap();
+    if let Err(error) =
+        inferencer.register_imports(&mut env, &program.definitions, &Default::default())
+    {
         return Err(TypecheckFailure {
             errors: vec![error],
             warnings: inferencer.warnings,
         });
     }
 
+    // Pass 2: register definition names
+    if let Err(error) = inferencer.register_definitions(&mut env, &program.definitions) {
+        return Err(TypecheckFailure {
+            errors: vec![error],
+            warnings: inferencer.warnings,
+        });
+    }
+
+    // Pass 3: infer definitions
     let mut typed_definitions = Vec::with_capacity(program.definitions.len());
     let mut definition_traces = Vec::with_capacity(program.definitions.len());
-    let mut errors = Vec::new();
 
-    let mut env = TypeEnv::new();
+    let mut errors = Vec::new();
     for definition in &program.definitions {
         match inferencer.infer_definition(&mut env, &definition.node) {
             Ok((typed_definition, trace)) => {
@@ -132,7 +124,6 @@ pub fn typecheck_program(
             }
         }
     }
-
     if !errors.is_empty() {
         return Err(TypecheckFailure {
             errors,
@@ -162,7 +153,7 @@ pub fn typecheck_program(
         Vec::new()
     };
 
-    let generic_types = inferencer.build_generic_type_defs();
+    let generic_types = Inferencer::build_generic_type_defs(&inferencer.prelude);
     let warnings = inferencer.warnings;
 
     Ok(TypecheckSuccess {
@@ -176,10 +167,11 @@ pub fn typecheck_program(
 /// One typechecked module within a `TypedModuleGraph`.
 #[derive(Clone, Debug)]
 pub struct TypedModule {
-    pub id: crate::ModuleId,
+    pub id: ModuleId,
     pub abs_path: std::path::PathBuf,
     pub source: std::sync::Arc<str>,
     pub program: TypedProgram,
+    pub edges: Vec<ModuleId>,
 }
 
 /// Typechecked counterpart to `ModuleGraph`. Modules are listed in `id`
@@ -188,18 +180,18 @@ pub struct TypedModule {
 #[derive(Clone, Debug)]
 pub struct TypedModuleGraph {
     pub modules: Vec<TypedModule>,
-    pub topo_order: Vec<crate::ModuleId>,
+    pub topo_order: Vec<ModuleId>,
     /// Module ids that declare `contract;` — i.e. codegen entries.
-    pub contract_entries: Vec<crate::ModuleId>,
+    pub contract_entries: Vec<ModuleId>,
     pub generic_types: HashMap<String, GenericTypeDef>,
     /// Warnings collected from every module (e.g. unnecessary disclose,
     /// path-import-in-single-file). Carried even on success so callers can
     /// decide whether to render them.
-    pub warnings: Vec<(crate::ModuleId, TypeWarning)>,
+    pub warnings: Vec<(ModuleId, TypeWarning)>,
 }
 
 impl TypedModuleGraph {
-    pub fn module(&self, id: crate::ModuleId) -> &TypedModule {
+    pub fn module(&self, id: ModuleId) -> &TypedModule {
         &self.modules[id.index()]
     }
 }
@@ -209,54 +201,14 @@ impl TypedModuleGraph {
 /// right source.
 #[derive(Debug)]
 pub struct TypecheckModulesFailure {
-    pub errors: Vec<(crate::ModuleId, TypeError)>,
-    pub warnings: Vec<(crate::ModuleId, TypeWarning)>,
-}
-
-/// Per-module captured exports. Used when later modules import names from this
-/// one.
-#[derive(Default)]
-struct ModuleExports {
-    /// `local name -> (signature, decl span, effect)`.
-    functions: HashMap<String, ExportedFunction>,
-    /// Names of struct/enum/abi/utxo definitions owned by this module.
-    /// They live in the shared `TypeRegistry`/`AbiRegistry`, so importing
-    /// modules find them by name without further work — we just track them
-    /// here so we can validate that an `import { Foo } from "..."` actually
-    /// references something this module declares.
-    types: HashSet<String>,
-}
-
-#[derive(Clone)]
-struct ExportedFunction {
-    param_types: Vec<Type>,
-    param_spans: Vec<Span>,
-    return_type: Type,
-    kind: FunctionKind,
-    name: Identifier,
-}
-
-impl ExportedFunction {
-    fn to_function_type(&self) -> Type {
-        Type::from(FunctionType {
-            params: self.param_types.clone(),
-            param_spans: self.param_spans.clone(),
-            result: self.return_type.clone(),
-            kind: self.kind,
-            name_span: self.name.span,
-            callee: Some(StaticFunction::Named(self.name.to_string())),
-        })
-    }
+    pub errors: Vec<(ModuleId, TypeError)>,
+    pub warnings: Vec<(ModuleId, TypeWarning)>,
 }
 
 /// Run inference across an entire module graph in topological order.
 ///
 /// Path imports are resolved here: their names get inserted into the importing
-/// module's `TypeEnv` (for functions) or the shared `NamespaceRegistry` (for
-/// `import x from "./x.star"`). Types/structs/enums declared in any module
-/// share a single registry — strict per-module visibility is enforced for
-/// **functions**, while types are globally visible (acceptable for v1; see
-/// `docs/language-spec.md`).
+/// module's environment.
 pub fn typecheck_modules(
     graph: &crate::ModuleGraph,
     options: TypecheckOptions,
@@ -264,60 +216,36 @@ pub fn typecheck_modules(
     let mut inferencer = Inferencer::new(options.capture_traces);
 
     // `module_exports[id]` is populated as we finish typechecking each module.
-    let mut module_exports: HashMap<u32, ModuleExports> = HashMap::new();
-    let mut typed_modules: HashMap<u32, TypedProgram> = HashMap::new();
+    let mut module_exports: HashMap<ModuleId, Namespace> = HashMap::new();
+    let mut typed_modules: HashMap<ModuleId, TypedProgram> = HashMap::new();
 
-    let mut all_errors: Vec<(crate::ModuleId, TypeError)> = Vec::new();
-    let mut all_warnings: Vec<(crate::ModuleId, TypeWarning)> = Vec::new();
-
-    let mut bailed = false;
+    let mut all_errors: Vec<(ModuleId, TypeError)> = Vec::new();
+    let mut warnings: Vec<(ModuleId, TypeWarning)> = Vec::new();
 
     for &module_id in graph.topo_order() {
-        if bailed {
-            break;
-        }
-
         let module = graph.module(module_id);
         let mut env = TypeEnv::new();
 
-        // Resolve path imports for this module first. Any error here is fatal
-        // for this module — we still continue to subsequent modules so the
-        // user gets as many diagnostics as possible.
-        let import_resolution = match resolve_path_imports(
-            &mut inferencer,
-            &mut env,
-            &module.program,
-            graph,
-            module_id,
-            &module_exports,
-        ) {
-            Ok(resolution) => resolution,
-            Err(errors) => {
-                all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
-                continue;
-            }
-        };
-
-        // Run the existing inference pipeline on this module's definitions.
-        if let Err(error) = inferencer.register_definitions(&module.program.definitions) {
+        // Pass 1: register imports
+        env.root.import_all_from(&inferencer.prelude).unwrap();
+        let resolved_imports = resolve_path_imports(graph, module_id, &module_exports);
+        if let Err(error) =
+            inferencer.register_imports(&mut env, &module.program.definitions, &resolved_imports)
+        {
             all_errors.push((module_id, error));
             continue;
         }
 
+        // Pass 2: register definition names
+        if let Err(error) = inferencer.register_definitions(&mut env, &module.program.definitions) {
+            all_errors.push((module_id, error));
+            continue;
+        }
+
+        // Pass 3: infer definitions
         let mut typed_definitions = Vec::with_capacity(module.program.definitions.len());
         let mut module_failed = false;
-        for (idx, definition) in module.program.definitions.iter().enumerate() {
-            // Path imports are short-circuited: build the typed AST from the
-            // pre-resolved info instead of going through `register_import`.
-            if let Definition::Import(import) = &definition.node
-                && let ImportSource::Path(_) = &import.from
-            {
-                if let Some(typed) = import_resolution.typed_imports.get(&idx) {
-                    typed_definitions.push(TypedDefinition::Import(typed.clone()));
-                }
-                continue;
-            }
-
+        for definition in module.program.definitions.iter() {
             match inferencer.infer_definition(&mut env, &definition.node) {
                 Ok((typed_def, _trace)) => typed_definitions.push(typed_def),
                 Err(error) => {
@@ -331,42 +259,35 @@ pub fn typecheck_modules(
             // Capture a (possibly partial) export table so other modules can
             // continue — they may still produce useful diagnostics. But we
             // flag the run as failed.
-            module_exports.insert(module_id.0, ModuleExports::default());
+            module_exports.insert(module_id, Namespace::default());
             continue;
         }
 
         // Capture this module's exports for downstream modules.
-        let exports = collect_exports(&typed_definitions);
-        module_exports.insert(module_id.0, exports);
+        // TODO: exclude private items.
+        let exports = env.root;
+        module_exports.insert(module_id, exports);
 
         let typed_program = TypedProgram {
             definitions: typed_definitions,
         };
-        typed_modules.insert(module_id.0, typed_program);
+        typed_modules.insert(module_id, typed_program);
 
         // Drain warnings emitted during this module's pass.
-        while let Some(warning) = inferencer.warnings.pop() {
-            all_warnings.push((module_id, warning));
+        for warning in inferencer.warnings.drain(..) {
+            warnings.push((module_id, warning));
         }
-        // Re-reverse: pop reverses order; emit in original order.
-        let module_warnings_count = all_warnings
-            .iter()
-            .rev()
-            .take_while(|(id, _)| *id == module_id)
-            .count();
-        let split = all_warnings.len() - module_warnings_count;
-        all_warnings[split..].reverse();
 
         // Stop once any module has failed catastrophically.
         if !all_errors.is_empty() {
-            bailed = true;
+            break;
         }
     }
 
     if !all_errors.is_empty() {
         return Err(TypecheckModulesFailure {
             errors: all_errors,
-            warnings: all_warnings,
+            warnings,
         });
     }
 
@@ -388,7 +309,7 @@ pub fn typecheck_modules(
             });
         return Err(TypecheckModulesFailure {
             errors: errors.into_iter().map(|e| (fallback, e)).collect(),
-            warnings: all_warnings,
+            warnings,
         });
     }
 
@@ -397,18 +318,21 @@ pub fn typecheck_modules(
         inferencer.apply_substitutions_program(typed_program);
     }
 
-    let generic_types = inferencer.build_generic_type_defs();
+    let generic_types = Inferencer::build_generic_type_defs(&inferencer.prelude);
 
     let mut modules: Vec<TypedModule> = Vec::with_capacity(graph.modules().len());
     for source_module in graph.modules() {
-        let typed_program = typed_modules
-            .remove(&source_module.id.0)
-            .unwrap_or_default();
+        let typed_program = typed_modules.remove(&source_module.id).unwrap_or_default();
         modules.push(TypedModule {
             id: source_module.id,
             abs_path: source_module.abs_path.clone(),
             source: source_module.source.clone(),
             program: typed_program,
+            edges: graph
+                .edges_of(source_module.id)
+                .iter()
+                .map(|e| e.target)
+                .collect(),
         });
     }
 
@@ -417,7 +341,7 @@ pub fn typecheck_modules(
         topo_order: graph.topo_order().to_vec(),
         contract_entries: graph.contract_entries().to_vec(),
         generic_types,
-        warnings: all_warnings,
+        warnings,
     })
 }
 
@@ -425,190 +349,23 @@ pub fn typecheck_modules(
 /// single module: produces the typed import nodes (indexed by their position
 /// in the module's `definitions`) and inserts the imported names into the
 /// importer's `env` / `namespaces` so subsequent inference can resolve them.
-struct PathImportResolution {
-    typed_imports: HashMap<usize, TypedImportDef>,
-}
-
-fn resolve_path_imports(
-    inferencer: &mut Inferencer,
-    env: &mut TypeEnv,
-    program: &Program,
+fn resolve_path_imports<'g>(
     graph: &crate::ModuleGraph,
-    importer: crate::ModuleId,
-    module_exports: &HashMap<u32, ModuleExports>,
-) -> Result<PathImportResolution, Vec<TypeError>> {
-    let mut typed_imports: HashMap<usize, TypedImportDef> = HashMap::new();
-    let mut errors: Vec<TypeError> = Vec::new();
+    importer: ModuleId,
+    module_exports: &'g HashMap<ModuleId, Namespace>,
+) -> HashMap<usize, &'g Namespace> {
+    let mut result: HashMap<usize, &'g Namespace> = HashMap::new();
 
-    let edges = graph.edges_of(importer);
-    let edge_by_def: HashMap<usize, &crate::PathImport> =
-        edges.iter().map(|e| (e.def_index, e)).collect();
-
-    for (def_index, definition) in program.definitions.iter().enumerate() {
-        let import = match &definition.node {
-            Definition::Import(import) => import,
-            _ => continue,
-        };
-        let path_value = match &import.from {
-            ImportSource::Path(path) => path.value.clone(),
-            _ => continue,
-        };
-
-        let edge = match edge_by_def.get(&def_index) {
-            Some(edge) => *edge,
-            None => continue, // Should not happen; module graph builds edges from these defs.
-        };
-
+    for edge in graph.edges_of(importer) {
         let target_id = edge.target;
-        let target_module = graph.module(target_id);
-        let target_exports = match module_exports.get(&target_id.0) {
-            Some(exports) => exports,
-            None => {
-                // Topological order should ensure deps are processed first.
-                // If we get here, there's likely a bug; skip gracefully.
-                continue;
-            }
+        let Some(target_exports) = module_exports.get(&target_id) else {
+            // Topological order should ensure deps are processed first.
+            unreachable!();
         };
-
-        let canonical = target_module.abs_path.clone();
-
-        match &import.items {
-            ImportItems::Named(items) => {
-                let mut typed_items = Vec::with_capacity(items.len());
-                for item in items {
-                    let imported = item.imported.name.as_str();
-                    if let Some(func) = target_exports.functions.get(imported) {
-                        let ty = func.to_function_type();
-                        env.insert(
-                            item.local.name.clone(),
-                            Binding {
-                                decl_span: item.local.span(),
-                                mutable: false,
-                                scheme: Scheme::monomorphic(ty.clone()),
-                                class: BindingClass::Local,
-                                visibility: BindingVisibility::Private,
-                            },
-                        );
-                        typed_items.push(TypedImportNamedItem {
-                            imported: item.imported.clone(),
-                            local: item.local.clone(),
-                            ty,
-                        });
-                    } else if target_exports.types.contains(imported) {
-                        // Types live in the shared `TypeRegistry` keyed by their
-                        // original name. If the local name differs, register an
-                        // alias so look-ups under the local name succeed.
-                        if item.local.name != item.imported.name
-                            && let Some(entry) = inferencer.root.types.get(imported).cloned()
-                        {
-                            inferencer.root.types.insert(item.local.name.clone(), entry);
-                        }
-                        typed_items.push(TypedImportNamedItem {
-                            imported: item.imported.clone(),
-                            local: item.local.clone(),
-                            ty: Type::Unit,
-                        });
-                    } else {
-                        errors.push(TypeError::new(
-                            TypeErrorKind::UnknownPathExport {
-                                path: path_value.clone(),
-                                name: imported.to_string(),
-                            },
-                            item.imported.span(),
-                        ));
-                    }
-                }
-                typed_imports.insert(
-                    def_index,
-                    TypedImportDef {
-                        items: TypedImportItems::Named(typed_items),
-                        from: TypedImportSource::Path {
-                            value: path_value,
-                            canonical: Some(canonical),
-                        },
-                    },
-                );
-            }
-            ImportItems::Namespace(alias) => {
-                // TODO: currently only covers functions, should probably import the other namespace wholesale.
-                let mut namespace = Namespace::default();
-                let mut typed_items = Vec::with_capacity(target_exports.functions.len());
-                for (name, func) in &target_exports.functions {
-                    namespace
-                        .constants
-                        .insert(name.clone(), ConstantInfo::from(func.to_function_type()));
-                    typed_items.push(TypedImportNamedItem {
-                        imported: Identifier::anon(name),
-                        local: Identifier::anon(name),
-                        ty: func.to_function_type(),
-                    });
-                }
-                inferencer
-                    .root
-                    .namespaces
-                    .insert(alias.name.clone(), namespace);
-                typed_imports.insert(
-                    def_index,
-                    TypedImportDef {
-                        items: TypedImportItems::Namespace {
-                            alias: alias.clone(),
-                            functions: typed_items,
-                        },
-                        from: TypedImportSource::Path {
-                            value: path_value,
-                            canonical: Some(canonical),
-                        },
-                    },
-                );
-            }
-        }
+        result.insert(edge.def_index, target_exports);
     }
 
-    if errors.is_empty() {
-        Ok(PathImportResolution { typed_imports })
-    } else {
-        Err(errors)
-    }
-}
-
-fn collect_exports(typed_definitions: &[TypedDefinition]) -> ModuleExports {
-    let mut exports = ModuleExports::default();
-    for def in typed_definitions {
-        match def {
-            TypedDefinition::Function(func) => {
-                let param_types = func.params.iter().map(|p| p.ty.clone()).collect();
-                let param_spans = func.params.iter().map(|p| p.name.span()).collect();
-                exports.functions.insert(
-                    func.name.name.clone(),
-                    ExportedFunction {
-                        param_types,
-                        param_spans,
-                        return_type: func.return_type.clone(),
-                        kind: FunctionKind::Normal,
-                        name: func.name.clone(),
-                    },
-                );
-            }
-            TypedDefinition::Struct(s) => {
-                exports.types.insert(s.name.name.clone());
-            }
-            TypedDefinition::Enum(e) => {
-                exports.types.insert(e.name.name.clone());
-            }
-            TypedDefinition::Abi(a) => {
-                exports.types.insert(a.name.name.clone());
-            }
-            TypedDefinition::Utxo(u) => {
-                exports.types.insert(u.name.name.clone());
-            }
-            TypedDefinition::Token(t) => {
-                exports.types.insert(t.name.name.clone());
-            }
-            TypedDefinition::Import(_) => {}
-            TypedDefinition::Contract => {}
-        }
-    }
-    exports
+    result
 }
 
 /// Internal stateful helper that owns the substitution map and generates fresh
@@ -628,125 +385,14 @@ struct Inferencer {
     /// Tracks the literal value associated with each integer type variable for range checking.
     int_literal_values: HashMap<TypeVarId, (i128, Span)>,
 
-    /// Root namespace, and registries for things that can't be namespaced (yet).
-    root: Namespace,
+    /// Prelude namespace which gets pre-imported into new environments.
+    prelude: Namespace,
 
     /// Registry of builtins that are available to be `import`ed.
     builtins: BuiltinRegistry,
 
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
     abi_call_trackers: Vec<AbiCallTracker>,
-}
-
-/// Namespace
-#[derive(Clone, Default)]
-struct Namespace {
-    /// Child namespaces.
-    namespaces: HashMap<String, Namespace>,
-    /// Constants in the value zone, namely functions and unit enum variants.
-    constants: HashMap<String, ConstantInfo>,
-    /// Struct constructor zone, including those for struct enum variants.
-    struct_constructors: HashMap<String, StructConstructor>,
-    /// Type zone.
-    types: HashMap<String, TypeEntry>,
-}
-
-impl Namespace {
-    fn add_child(&mut self, name: String) -> &mut Namespace {
-        self.namespaces.entry(name).or_default()
-    }
-
-    fn merge(&mut self, other: Namespace) -> Result<(), TypeError> {
-        for (k, v) in other.namespaces {
-            self.add_child(k).merge(v)?;
-        }
-        for (k, v) in other.constants {
-            if let Some(_old) = self.constants.insert(k, v) {
-                // TODO: TypeError on name collision
-            }
-        }
-        for (k, v) in other.struct_constructors {
-            if let Some(_old) = self.struct_constructors.insert(k, v) {
-                // TODO: TypeError on name collision
-            }
-        }
-        for (k, v) in other.types {
-            if let Some(_old) = self.types.insert(k, v) {
-                // TODO: TypeError on name collision
-            }
-        }
-        Ok(())
-    }
-
-    fn get_child(&self, path: &[Identifier]) -> Result<&Namespace, TypeError> {
-        let mut ns = self;
-        for each in path {
-            match ns.namespaces.get(each.as_str()) {
-                Some(next) => ns = next,
-                None => {
-                    return Err(TypeError::new(
-                        TypeErrorKind::UnknownNamespace {
-                            name: each.to_string(),
-                        },
-                        each.span,
-                    ));
-                }
-            }
-        }
-        Ok(ns)
-    }
-
-    fn get_abi(&self, name: &Identifier) -> Result<&Arc<AbiType>, TypeError> {
-        if let Some(type_entry) = self.types.get(name.as_str()) {
-            if let Type::Abi(abi) = &type_entry.ty {
-                return Ok(abi);
-            }
-        }
-        Err(TypeError::new(
-            TypeErrorKind::UnknownAbi {
-                name: name.to_string(),
-            },
-            name.span(),
-        ))
-    }
-}
-
-#[derive(Clone)]
-struct ConstantInfo {
-    ty: Type,
-    type_params: Vec<TypeParam>,
-    /// If this is a constant of an enum type, which unit variant it is.
-    variant: usize,
-}
-
-impl From<Type> for ConstantInfo {
-    fn from(value: Type) -> Self {
-        ConstantInfo {
-            ty: value,
-            type_params: vec![],
-            variant: 0,
-        }
-    }
-}
-
-#[derive(Clone)]
-struct StructConstructor {
-    ty: Type,
-    type_params: Vec<TypeParam>,
-    enum_variant: usize,
-}
-
-impl StructConstructor {
-    fn fields(&self) -> &[RecordFieldType] {
-        match &self.ty {
-            Type::Record(r) => &r.fields,
-            Type::Enum(enum_) => match &enum_.variants[self.enum_variant].kind {
-                EnumVariantKind::Struct(r) => r,
-                _ => unreachable!(),
-            },
-            _ => unreachable!(),
-        }
-    }
 }
 
 /// Tracks linearity of method calls on a narrowed ABI variable.
@@ -774,7 +420,7 @@ impl Inferencer {
             subst: HashMap::new(),
             int_vars: HashSet::new(),
             int_literal_values: HashMap::new(),
-            root: Namespace::default(),
+            prelude: Namespace::default(),
             builtins: BuiltinRegistry::new(),
             warnings: Vec::new(),
             abi_call_trackers: Vec::new(),
@@ -789,8 +435,11 @@ impl Inferencer {
     /// Register builtin prelude types, including primitives, Option, Result, Utxo, and Token.
     fn register_prelude(&mut self) {
         // Primitives
-        let mut primitive =
-            |name: &str, ty| self.root.types.insert(name.to_owned(), TypeEntry::from(ty));
+        let mut primitive = |name: &str, ty| {
+            self.prelude
+                .types
+                .insert(name.to_owned(), TypeEntry::from(ty))
+        };
         primitive("()", Type::Unit);
         primitive("bool", Type::Bool);
         primitive("i8", Type::from(IntWidth::I8));
@@ -861,7 +510,7 @@ impl Inferencer {
             return_type: Type::Unit,
             span: DUMMY_SPAN,
         };
-        self.root.types.insert(
+        self.prelude.types.insert(
             "Token".to_owned(),
             TypeEntry::from(Type::from(AbiType {
                 name: Identifier::new("Token", DUMMY_SPAN),
@@ -893,7 +542,7 @@ impl Inferencer {
             variants: type_variants,
             type_args: vec![],
         });
-        self.root.types.insert(
+        self.prelude.types.insert(
             name.to_string(),
             TypeEntry {
                 ty: ty.clone(),
@@ -908,7 +557,7 @@ impl Inferencer {
         );
 
         // TODO: we need to create fresh variables for type parameters on use
-        let namespace = self.root.add_child(name.to_string());
+        let namespace = self.prelude.add_child(name.to_string());
         for (i, (name, kind)) in variants.iter().enumerate() {
             match kind {
                 EnumVariantKind::Unit => {
@@ -916,6 +565,7 @@ impl Inferencer {
                     namespace.constants.insert(
                         name.to_string(),
                         ConstantInfo {
+                            span: DUMMY_SPAN,
                             ty: ty.clone(),
                             type_params: type_params.clone(),
                             variant: i,
@@ -927,6 +577,7 @@ impl Inferencer {
                     namespace.constants.insert(
                         name.to_string(),
                         ConstantInfo {
+                            span: DUMMY_SPAN,
                             ty: Type::from(FunctionType {
                                 kind: FunctionKind::Normal,
                                 name_span: DUMMY_SPAN,
@@ -945,6 +596,7 @@ impl Inferencer {
                     namespace.struct_constructors.insert(
                         name.to_string(),
                         StructConstructor {
+                            span: DUMMY_SPAN,
                             ty: ty.clone(),
                             type_params: type_params.clone(),
                             enum_variant: i,
@@ -955,9 +607,8 @@ impl Inferencer {
         }
     }
 
-    fn build_generic_type_defs(&self) -> HashMap<String, GenericTypeDef> {
-        self.root
-            .types
+    fn build_generic_type_defs(ns: &Namespace) -> HashMap<String, GenericTypeDef> {
+        ns.types
             .iter()
             .filter(|(_, entry)| !entry.type_params.is_empty() || entry.doc.is_some())
             .map(|(name, entry)| {
@@ -981,50 +632,83 @@ impl Inferencer {
     }
 
     // ------------------------------------------------------------------------
+    // First pass: register imports
 
-    /// First pass. Registers namespace-level names (those not inside a function).
-    fn register_definitions(
+    fn register_imports(
         &mut self,
+        env: &mut TypeEnv,
         definitions: &[Spanned<Definition>],
+        resolved: &HashMap<usize, &Namespace>,
     ) -> Result<(), TypeError> {
-        for definition in definitions {
-            match &definition.node {
-                Definition::Contract => {}
-                Definition::Import(_) => {}
-                Definition::Struct(def) => self.register_struct(def)?,
-                Definition::Enum(def) => self.register_enum(def)?,
-                Definition::Function(def) => self.register_function(def)?,
-                Definition::Utxo(def) => self.register_utxo(def)?,
-                Definition::Token(def) => self.register_token(def)?,
-                Definition::Abi(def) => self.register_abi(def)?,
+        for (i, def) in definitions.iter().enumerate() {
+            if let Definition::Import(import) = &def.node {
+                // Preresolved import. Common case for path imports which come
+                // from the module graph.
+                if let Some(resolved) = resolved.get(&i) {
+                    self.register_import_items(
+                        env,
+                        &import.items,
+                        resolved,
+                        &import.from.to_string(),
+                    )?;
+                }
+
+                match &import.from {
+                    ImportSource::Wit {
+                        namespace,
+                        package,
+                        interface,
+                    } => {
+                        // Non-preresolved WIT import gets looked up in the builtins.
+                        self.register_wit_import(
+                            env,
+                            &import.items,
+                            namespace,
+                            package,
+                            interface.as_ref(),
+                            &import.from.to_string(),
+                        )?;
+                    }
+                    ImportSource::Path(path) => {
+                        // Non-preresolved path import, usually leftover from
+                        // the single-file so emit a warning explaining why
+                        // the names aren't available.
+                        self.warnings.push(TypeWarning::new(
+                            TypeWarningKind::PathImportIgnoredInSingleFile {
+                                path: path.value.clone(),
+                            },
+                            path.span,
+                        ));
+                    }
+                }
             }
         }
         Ok(())
     }
 
-    fn register_import(&mut self, env: &mut TypeEnv, import: &ImportDef) -> Result<(), TypeError> {
-        match &import.from {
-            ImportSource::Wit {
-                namespace,
-                package,
-                interface,
-            } => {
-                self.register_wit_import(env, &import.items, namespace, package, interface.as_ref())
+    fn register_import_items(
+        &self,
+        env: &mut TypeEnv,
+        items: &ImportItems,
+        resolved: &Namespace,
+        source: &str,
+    ) -> Result<(), TypeError> {
+        match items {
+            ImportItems::Named(items) => {
+                for item in items {
+                    env.root.import_name_from(
+                        &item.local,
+                        resolved,
+                        item.imported.as_str(),
+                        source,
+                    )?;
+                }
             }
-            ImportSource::Path(path) => {
-                // Path imports are resolved by `typecheck_modules`. In the
-                // single-file flow (playground, LSP per-file checks,
-                // `starstream check`) we emit a warning so users understand
-                // why references to the imported names won't resolve.
-                self.warnings.push(TypeWarning::new(
-                    TypeWarningKind::PathImportIgnoredInSingleFile {
-                        path: path.value.clone(),
-                    },
-                    path.span,
-                ));
-                Ok(())
+            ImportItems::Namespace(name) => {
+                env.root.import_as_namespace(name, resolved)?;
             }
         }
+        Ok(())
     }
 
     fn register_wit_import(
@@ -1034,128 +718,99 @@ impl Inferencer {
         namespace_id: &Identifier,
         package_id: &Identifier,
         interface_id: Option<&Identifier>,
+        source: &str,
     ) -> Result<(), TypeError> {
-        let namespace = &namespace_id.name;
-        let package = &package_id.name;
-
         // Check if the package exists in our builtin registry
-        if !self.builtins.has_package(namespace, package) {
+        let Some(package) = self
+            .builtins
+            .get_package(namespace_id.as_str(), package_id.as_str())
+        else {
             return Err(TypeError::new(
                 TypeErrorKind::UnknownImportPackage {
-                    namespace: namespace.clone(),
-                    package: package.clone(),
+                    namespace: namespace_id.to_string(),
+                    package: package_id.to_string(),
                 },
                 namespace_id.span(),
             ));
-        }
+        };
 
-        match items {
-            ImportItems::Named(items) => {
-                // Named import: `import { blockHeight } from starstream:std/cardano;`
-                let interface = interface_id.ok_or_else(|| {
-                    TypeError::new(
+        // Fetch the corresponding namespace.
+        let namespace = match interface_id {
+            Some(interface) => {
+                let Some(interface) = package.get(interface.as_str()) else {
+                    return Err(TypeError::new(
                         TypeErrorKind::UnknownImportInterface {
-                            namespace: namespace.clone(),
-                            package: package.clone(),
-                            interface: "".to_string(),
+                            namespace: namespace_id.to_string(),
+                            package: package_id.to_string(),
+                            interface: interface.to_string(),
                         },
-                        package_id.span(),
-                    )
-                    .with_help("named imports require an interface, e.g., `starstream:std/cardano`")
-                })?;
+                        interface.span(),
+                    ));
+                };
 
-                let interface_funcs = self
-                    .builtins
-                    .get_interface(namespace, package, &interface.name)
-                    .ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::UnknownImportInterface {
-                                namespace: namespace.clone(),
-                                package: package.clone(),
-                                interface: interface.name.clone(),
-                            },
-                            interface.span(),
-                        )
-                    })?;
-
-                for item in items {
-                    let builtin = interface_funcs.get(&item.imported.name).ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::UnknownImportFunction {
-                                path: format!("{namespace}:{package}/{}", interface.name),
-                                name: item.imported.name.clone(),
-                            },
-                            item.imported.span(),
-                        )
-                    })?;
-
-                    // Add function to the type environment so it can be looked up
-                    env.insert(
-                        item.local.name.clone(),
-                        Binding {
-                            decl_span: item.local.span(),
-                            mutable: false,
-                            scheme: Scheme::monomorphic(builtin.to_function_type()),
-                            class: BindingClass::Local,
-                            visibility: BindingVisibility::Private,
-                        },
-                    );
-                }
-            }
-            ImportItems::Namespace(alias) => {
-                // Namespace import: `import cardano from starstream:std/cardano;`
-                let interface = interface_id.ok_or_else(|| {
-                    TypeError::new(
-                        TypeErrorKind::UnknownImportInterface {
-                            namespace: namespace.clone(),
-                            package: package.clone(),
-                            interface: "".to_string(),
-                        },
-                        package_id.span(),
-                    )
-                    .with_help("namespace imports require an interface, e.g., `import cardano from starstream:std/cardano;`")
-                })?;
-
-                let interface_funcs = self
-                    .builtins
-                    .get_interface(namespace, package, &interface.name)
-                    .ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::UnknownImportInterface {
-                                namespace: namespace.clone(),
-                                package: package.clone(),
-                                interface: interface.name.clone(),
-                            },
-                            interface.span(),
-                        )
-                    })?;
-
-                // Build a map of all functions in this interface
-                let mut namespace = Namespace::default();
-                for (name, builtin) in interface_funcs {
-                    namespace.constants.insert(
+                // Synthesize namespace.
+                // TODO: represent builtins as a namespace directly.
+                let mut ns = Namespace::default();
+                for (name, builtin) in interface {
+                    ns.constants.insert(
                         name.clone(),
-                        ConstantInfo::from(Type::from(FunctionType {
-                            kind: builtin.kind,
-                            name_span: alias.span(),
-                            params: builtin.params.clone(),
-                            param_spans: vec![],
-                            result: builtin.return_type.clone(),
-                            callee: Some(StaticFunction::Named(name.clone())),
-                        })),
+                        ConstantInfo::new(
+                            DUMMY_SPAN,
+                            Type::from(FunctionType {
+                                kind: builtin.kind,
+                                name_span: DUMMY_SPAN,
+                                params: builtin.params.clone(),
+                                param_spans: vec![],
+                                result: builtin.return_type.clone(),
+                                callee: Some(StaticFunction::Named(name.clone())),
+                            }),
+                        ),
                     );
                 }
-
-                self.root
-                    .add_child(alias.name.to_string())
-                    .merge(namespace)?;
+                ns
             }
-        }
+            None => {
+                // TODO
+                return Err(TypeError::new(
+                    TypeErrorKind::UnknownImportInterface {
+                        namespace: namespace_id.to_string(),
+                        package: package_id.to_string(),
+                        interface: "".to_string(),
+                    },
+                    package_id.span(),
+                )
+                .with_help("imports require an interface, e.g., `starstream:std/cardano`"));
+            }
+        };
 
+        self.register_import_items(env, items, &namespace, source)?;
         Ok(())
     }
 
-    fn register_abi(&mut self, def: &AbiDef) -> Result<(), TypeError> {
+    // ------------------------------------------------------------------------
+    // Second pass: register definitions
+
+    fn register_definitions(
+        &mut self,
+        env: &mut TypeEnv,
+        definitions: &[Spanned<Definition>],
+    ) -> Result<(), TypeError> {
+        for definition in definitions {
+            match &definition.node {
+                Definition::Contract => {}
+                Definition::Import(_) => {}
+                Definition::Struct(def) => self.register_struct(env, def)?,
+                Definition::Enum(def) => self.register_enum(env, def)?,
+                Definition::Function(def) => self.register_function(env, def)?,
+                Definition::Utxo(def) => self.register_utxo(env, def)?,
+                Definition::Token(def) => self.register_token(env, def)?,
+                Definition::Abi(def) => self.register_abi(env, def)?,
+            }
+        }
+        Ok(())
+    }
+
+    fn register_abi(&mut self, env: &mut TypeEnv, def: &AbiDef) -> Result<(), TypeError> {
         if def.name.name == "Token" {
             return Err(TypeError::new(
                 TypeErrorKind::ReservedAbiName {
@@ -1168,12 +823,12 @@ impl Inferencer {
         let mut methods = Vec::new();
         for part in &def.parts {
             match part {
-                AbiPart::Event(event) => self.register_event(event)?,
-                AbiPart::Effect(effect) => self.register_effect(effect)?,
+                AbiPart::Event(event) => self.register_event(env, event)?,
+                AbiPart::Effect(effect) => self.register_effect(env, effect)?,
                 AbiPart::FnDecl(method) => {
                     let mut params = Vec::with_capacity(method.params.len());
                     for param in &method.params {
-                        let ty = self.type_from_annotation(&param.ty)?;
+                        let ty = self.type_from_annotation(env, &param.ty)?;
                         params.push(TypedFunctionParam {
                             public: param.public,
                             name: param.name.clone(),
@@ -1181,7 +836,7 @@ impl Inferencer {
                         });
                     }
                     let return_type = match &method.return_type {
-                        Some(ann) => self.type_from_annotation(ann)?,
+                        Some(ann) => self.type_from_annotation(env, ann)?,
                         None => Type::Unit,
                     };
                     methods.push(TypedAbiMethodDecl {
@@ -1193,80 +848,71 @@ impl Inferencer {
                 }
             }
         }
-        self.root.types.insert(
-            def.name.name.clone(),
+        env.root.insert_type(
+            &def.name,
             TypeEntry::from(Type::from(AbiType {
                 name: def.name.clone(),
                 methods,
             })),
-        );
+        )?;
         Ok(())
     }
 
-    fn register_event(&mut self, event: &EventDef) -> Result<(), TypeError> {
-        let name = event.name.name.clone();
-        let name_span = event.name.span();
-
+    fn register_event(&mut self, env: &mut TypeEnv, event: &EventDef) -> Result<(), TypeError> {
         let mut param_types = Vec::with_capacity(event.params.len());
         let mut param_spans = Vec::with_capacity(event.params.len());
         for param in &event.params {
-            let ty = self.type_from_annotation(&param.ty)?;
+            let ty = self.type_from_annotation(env, &param.ty)?;
             param_types.push(ty);
             param_spans.push(param.ty.name_span());
         }
-        self.root.constants.insert(
-            name.clone(),
-            ConstantInfo::from(Type::from(FunctionType {
-                kind: FunctionKind::Emit,
-                name_span,
-                params: param_types,
-                param_spans,
-                result: Type::Unit,
-                callee: Some(StaticFunction::Named(name)),
-            })),
-        );
+        env.root.insert_constant(
+            &event.name,
+            ConstantInfo::new(
+                event.name.span,
+                Type::from(FunctionType {
+                    kind: FunctionKind::Emit,
+                    name_span: event.name.span,
+                    params: param_types,
+                    param_spans,
+                    result: Type::Unit,
+                    callee: Some(StaticFunction::Named(event.name.to_string())),
+                }),
+            ),
+        )?;
         Ok(())
     }
 
-    fn register_effect(&mut self, effect: &EffectDef) -> Result<(), TypeError> {
-        let name = effect.name.name.clone();
-        let name_span = effect.name.span();
-
+    fn register_effect(&mut self, env: &mut TypeEnv, effect: &EffectDef) -> Result<(), TypeError> {
         let mut param_types = Vec::with_capacity(effect.params.len());
         let mut param_spans = Vec::with_capacity(effect.params.len());
         for param in &effect.params {
-            let ty = self.type_from_annotation(&param.ty)?;
+            let ty = self.type_from_annotation(env, &param.ty)?;
             param_types.push(ty);
             param_spans.push(param.ty.name_span());
         }
         let return_type = match &effect.return_type {
-            Some(ann) => self.type_from_annotation(ann)?,
+            Some(ann) => self.type_from_annotation(env, ann)?,
             None => Type::Unit,
         };
-        self.root.constants.insert(
-            name.clone(),
-            ConstantInfo::from(Type::from(FunctionType {
-                kind: FunctionKind::Raise,
-                name_span,
-                params: param_types,
-                param_spans,
-                result: return_type,
-                callee: Some(StaticFunction::Named(name)),
-            })),
-        );
+        env.root.insert_constant(
+            &effect.name,
+            ConstantInfo::new(
+                effect.name.span,
+                Type::from(FunctionType {
+                    kind: FunctionKind::Raise,
+                    name_span: effect.name.span,
+                    params: param_types,
+                    param_spans,
+                    result: return_type,
+                    callee: Some(StaticFunction::Named(effect.name.to_string())),
+                }),
+            ),
+        )?;
         Ok(())
     }
 
-    fn register_struct(&mut self, def: &StructDef) -> Result<(), TypeError> {
-        let name = def.name.name.clone();
-        if let Some(existing) = self.root.types.get(&name) {
-            return Err(TypeError::new(
-                TypeErrorKind::TypeAlreadyDefined { name },
-                def.name.span(),
-            )
-            .with_secondary(existing.span, "previously defined here"));
-        }
-
+    fn register_struct(&mut self, env: &mut TypeEnv, def: &StructDef) -> Result<(), TypeError> {
         let mut seen = HashMap::new();
         let mut fields = Vec::with_capacity(def.fields.len());
         for field in &def.fields {
@@ -1282,7 +928,7 @@ impl Inferencer {
                 .with_secondary(*previous_span, "first defined here"));
             }
             seen.insert(field.name.name.clone(), field.name.span());
-            let ty = self.type_from_annotation(&field.ty)?;
+            let ty = self.type_from_annotation(env, &field.ty)?;
             fields.push(TypedStructField {
                 name: field.name.clone(),
                 ty,
@@ -1297,8 +943,8 @@ impl Inferencer {
             name: def.name.to_string(),
             fields: type_fields,
         });
-        self.root.types.insert(
-            def.name.name.clone(),
+        env.root.insert_type(
+            &def.name,
             TypeEntry {
                 ty: ty.clone(),
                 span: def.name.span(),
@@ -1306,28 +952,20 @@ impl Inferencer {
                 doc: None,
                 variant_docs: HashMap::new(),
             },
-        );
-        self.root.struct_constructors.insert(
-            def.name.name.clone(),
+        )?;
+        env.root.insert_struct_constructor(
+            &def.name,
             StructConstructor {
+                span: def.name.span,
                 ty,
                 type_params: vec![],
                 enum_variant: 0,
             },
-        );
+        )?;
         Ok(())
     }
 
-    fn register_enum(&mut self, def: &EnumDef) -> Result<(), TypeError> {
-        let name = def.name.name.clone();
-        if let Some(existing) = self.root.types.get(&name) {
-            return Err(TypeError::new(
-                TypeErrorKind::TypeAlreadyDefined { name },
-                def.name.span(),
-            )
-            .with_secondary(existing.span, "previously defined here"));
-        }
-
+    fn register_enum(&mut self, env: &mut TypeEnv, def: &EnumDef) -> Result<(), TypeError> {
         let mut seen = HashMap::new();
         let mut variants = Vec::with_capacity(def.variants.len());
         for variant in &def.variants {
@@ -1348,7 +986,7 @@ impl Inferencer {
                 EnumVariantPayload::Tuple(items) => {
                     let mut payload = Vec::with_capacity(items.len());
                     for ty in items {
-                        payload.push(self.type_from_annotation(ty)?);
+                        payload.push(self.type_from_annotation(env, ty)?);
                     }
                     EnumVariantKind::Tuple(payload)
                 }
@@ -1371,7 +1009,7 @@ impl Inferencer {
                             .with_secondary(*previous_span, "first defined here"));
                         }
                         seen_fields.insert(field.name.name.clone(), field.name.span());
-                        let ty = self.type_from_annotation(&field.ty)?;
+                        let ty = self.type_from_annotation(env, &field.ty)?;
                         payload.push(RecordFieldType {
                             name: field.name.clone(),
                             ty,
@@ -1393,8 +1031,8 @@ impl Inferencer {
             type_args: vec![],
         });
         let ty = Type::from(enum_type.clone());
-        self.root.types.insert(
-            def.name.name.clone(),
+        env.root.insert_type(
+            &def.name,
             TypeEntry {
                 ty: ty.clone(),
                 span: def.name.span(),
@@ -1402,50 +1040,51 @@ impl Inferencer {
                 doc: None,
                 variant_docs: HashMap::new(),
             },
-        );
+        )?;
 
-        let namespace = self
-            .root
-            .namespaces
-            .entry(def.name.name.clone())
-            .or_default();
-        for (i, variant) in enum_type.variants.iter().enumerate() {
+        let namespace = env.root.add_child(def.name.to_string());
+        for (i, (variant, base)) in enum_type.variants.iter().zip(&def.variants).enumerate() {
             match &variant.kind {
                 EnumVariantKind::Unit => {
                     // Unit variants are constants
-                    namespace.constants.insert(
-                        variant.name.to_string(),
+                    namespace.insert_constant(
+                        &base.name,
                         ConstantInfo {
+                            span: base.span,
                             ty: ty.clone(),
                             type_params: vec![],
                             variant: i,
                         },
-                    );
+                    )?;
                 }
                 EnumVariantKind::Tuple(params) => {
                     // Tuple variants are functions
-                    namespace.constants.insert(
-                        variant.name.to_string(),
-                        ConstantInfo::from(Type::from(FunctionType {
-                            kind: FunctionKind::Normal,
-                            name_span: DUMMY_SPAN,
-                            params: params.clone(),
-                            param_spans: vec![],
-                            result: ty.clone(),
-                            callee: Some(StaticFunction::Constructor { variant: i }),
-                        })),
-                    );
+                    namespace.insert_constant(
+                        &base.name,
+                        ConstantInfo::new(
+                            base.span,
+                            Type::from(FunctionType {
+                                kind: FunctionKind::Normal,
+                                name_span: DUMMY_SPAN,
+                                params: params.clone(),
+                                param_spans: vec![],
+                                result: ty.clone(),
+                                callee: Some(StaticFunction::Constructor { variant: i }),
+                            }),
+                        ),
+                    )?;
                 }
                 EnumVariantKind::Struct(_fields) => {
                     // Struct variants are constructors
-                    namespace.struct_constructors.insert(
-                        variant.name.to_string(),
+                    namespace.insert_struct_constructor(
+                        &base.name,
                         StructConstructor {
+                            span: base.span,
                             ty: ty.clone(),
                             type_params: vec![],
                             enum_variant: i,
                         },
-                    );
+                    )?;
                 }
             }
         }
@@ -1453,10 +1092,10 @@ impl Inferencer {
         Ok(())
     }
 
-    fn register_utxo(&mut self, def: &UtxoDef) -> Result<(), TypeError> {
+    fn register_utxo(&mut self, env: &mut TypeEnv, def: &UtxoDef) -> Result<(), TypeError> {
         let ty = Type::UtxoNamed(def.name.to_string());
-        self.root.types.insert(
-            def.name.to_string(),
+        env.root.insert_type(
+            &def.name,
             TypeEntry {
                 ty: ty.clone(),
                 span: def.name.span(),
@@ -1464,7 +1103,7 @@ impl Inferencer {
                 doc: None,
                 variant_docs: HashMap::new(),
             },
-        );
+        )?;
 
         let mut ns = Namespace::default();
 
@@ -1472,12 +1111,12 @@ impl Inferencer {
             match part {
                 UtxoPart::Function(function_def) => {
                     if let Some(FunctionExport::UtxoMain) = function_def.export {
-                        let mut func_ty = self.function_def_to_type(function_def)?;
+                        let mut func_ty = self.function_def_to_type(env, function_def)?;
                         func_ty.result = ty.clone();
-                        ns.constants.insert(
-                            function_def.name.to_string(),
-                            ConstantInfo::from(Type::from(func_ty)),
-                        );
+                        ns.insert_constant(
+                            &function_def.name,
+                            ConstantInfo::new(function_def.name.span, Type::from(func_ty)),
+                        )?;
                     }
                 }
                 UtxoPart::Storage(_) => {}
@@ -1488,15 +1127,18 @@ impl Inferencer {
             }
         }
 
-        self.root.add_child(def.name.to_string()).merge(ns)?;
+        // TODO: extraneous clone
+        env.root
+            .add_child(def.name.to_string())
+            .import_all_from(&ns)?;
 
         Ok(())
     }
 
-    fn register_token(&mut self, def: &TokenDef) -> Result<(), TypeError> {
+    fn register_token(&mut self, env: &mut TypeEnv, def: &TokenDef) -> Result<(), TypeError> {
         let ty = Type::TokenNamed(def.name.to_string());
-        self.root.types.insert(
-            def.name.to_string(),
+        env.root.insert_type(
+            &def.name,
             TypeEntry {
                 ty,
                 span: def.name.span(),
@@ -1504,18 +1146,28 @@ impl Inferencer {
                 doc: None,
                 variant_docs: HashMap::new(),
             },
-        );
+        )?;
         Ok(())
     }
 
-    fn register_function(&mut self, _def: &FunctionDef) -> Result<(), TypeError> {
+    fn register_function(
+        &mut self,
+        _env: &mut TypeEnv,
+        _def: &FunctionDef,
+    ) -> Result<(), TypeError> {
         // TODO: hoist function type discovery back here, out of `infer_function`,
         // so that code can call functions declared later in the file.
         Ok(())
     }
 
-    fn build_typed_struct(&self, def: &StructDef) -> Result<TypedStructDef, TypeError> {
-        let info = self.lookup_struct_info(std::slice::from_ref(&def.name))?;
+    // ------------------------------------------------------------------------
+
+    fn build_typed_struct(
+        &self,
+        env: &TypeEnv,
+        def: &StructDef,
+    ) -> Result<TypedStructDef, TypeError> {
+        let info = self.lookup_struct_info(env, std::slice::from_ref(&def.name))?;
 
         let fields = info
             .fields()
@@ -1533,8 +1185,8 @@ impl Inferencer {
         })
     }
 
-    fn build_typed_enum(&self, def: &EnumDef) -> Result<TypedEnumDef, TypeError> {
-        let info = self.root.types.get(&def.name.name).unwrap();
+    fn build_typed_enum(&self, env: &TypeEnv, def: &EnumDef) -> Result<TypedEnumDef, TypeError> {
+        let info = env.root.types.get(&def.name.name).unwrap();
         let Type::Enum(enum_ty) = &info.ty else {
             unreachable!()
         };
@@ -1671,21 +1323,20 @@ impl Inferencer {
         }
     }
 
-    fn build_typed_abi(&self, def: &AbiDef) -> Result<TypedAbiDef, TypeError> {
+    fn build_typed_abi(&self, env: &TypeEnv, def: &AbiDef) -> Result<TypedAbiDef, TypeError> {
         let mut typed_parts = Vec::with_capacity(def.parts.len());
 
         for part in &def.parts {
             match part {
                 AbiPart::Event(event) => {
-                    let event_info =
-                        self.root.constants.get(&event.name.name).ok_or_else(|| {
-                            TypeError::new(
-                                TypeErrorKind::UnknownEvent {
-                                    name: event.name.name.clone(),
-                                },
-                                event.name.span(),
-                            )
-                        })?;
+                    let event_info = env.root.constants.get(&event.name.name).ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownEvent {
+                                name: event.name.name.clone(),
+                            },
+                            event.name.span(),
+                        )
+                    })?;
 
                     let Type::Function(func_ty) = &event_info.ty else {
                         unreachable!()
@@ -1708,7 +1359,7 @@ impl Inferencer {
                     }));
                 }
                 AbiPart::Effect(effect) => {
-                    let info = self.root.constants.get(&effect.name.name).ok_or_else(|| {
+                    let info = env.root.constants.get(&effect.name.name).ok_or_else(|| {
                         TypeError::new(
                             TypeErrorKind::UnknownEvent {
                                 name: effect.name.name.clone(),
@@ -1739,7 +1390,7 @@ impl Inferencer {
                     }));
                 }
                 AbiPart::FnDecl(method) => {
-                    let Type::Abi(abi_info) = &self
+                    let Type::Abi(abi_info) = &env
                         .root
                         .types
                         .get(&def.name.name)
@@ -1791,7 +1442,7 @@ impl Inferencer {
                             function.name.span(),
                         ));
                     }
-                    let (func, trace) = self.infer_function(env, function)?;
+                    let (func, _, trace) = self.infer_function(env, function)?;
                     traces.push(trace);
                     TypedUtxoPart::Function(func.into())
                 }
@@ -1801,14 +1452,14 @@ impl Inferencer {
                     let parts = parts
                         .iter()
                         .map(|function| {
-                            let (func, trace) = self.infer_function(env, function)?;
+                            let (func, _, trace) = self.infer_function(env, function)?;
                             traces.push(trace);
                             Ok(func)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
 
                     // Assert that the signature sets match
-                    let abi_info = self.root.get_abi(&abi)?;
+                    let abi_info = env.root.get_abi(&abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
                     let abi = Type::Abi(abi_info.clone());
@@ -1909,7 +1560,7 @@ impl Inferencer {
                             function.name.span(),
                         ));
                     }
-                    let (func, trace) = self.infer_function(env, function)?;
+                    let (func, _, trace) = self.infer_function(env, function)?;
                     traces.push(trace);
                     TypedTokenPart::Function(func.into())
                 }
@@ -1919,7 +1570,7 @@ impl Inferencer {
                     let parts = parts
                         .iter()
                         .map(|function| {
-                            let (func, trace) = self.infer_function(env, function)?;
+                            let (func, _, trace) = self.infer_function(env, function)?;
                             traces.push(trace);
                             Ok(func)
                         })
@@ -1927,7 +1578,7 @@ impl Inferencer {
 
                     // Assert that the signature sets match. `Token` resolves to
                     // the built-in ABI; other names must be user-declared ABIs.
-                    let abi_info = self.root.get_abi(&abi)?;
+                    let abi_info = env.root.get_abi(&abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
                     let abi = Type::Abi(abi_info.clone());
@@ -1953,7 +1604,7 @@ impl Inferencer {
         env: &mut TypeEnv,
         var: &TokenGlobal,
     ) -> Result<TypedTokenGlobal, TypeError> {
-        let ty = self.type_from_annotation(&var.ty)?;
+        let ty = self.type_from_annotation(env, &var.ty)?;
         env.insert(
             var.name.name.clone(),
             Binding {
@@ -2077,7 +1728,7 @@ impl Inferencer {
         env: &mut TypeEnv,
         var: &UtxoGlobal,
     ) -> Result<TypedUtxoGlobal, TypeError> {
-        let ty = self.type_from_annotation(&var.ty)?;
+        let ty = self.type_from_annotation(env, &var.ty)?;
         env.insert(
             var.name.name.clone(),
             Binding {
@@ -2094,9 +1745,13 @@ impl Inferencer {
         })
     }
 
-    fn lookup_struct_info(&self, name: &[Identifier]) -> Result<&StructConstructor, TypeError> {
+    fn lookup_struct_info<'a>(
+        &self,
+        env: &'a TypeEnv,
+        name: &[Identifier],
+    ) -> Result<&'a StructConstructor, TypeError> {
         let (last, path) = name.split_last().unwrap();
-        let ns = self.root.get_child(path)?;
+        let ns = env.root.get_child(path)?;
         ns.struct_constructors.get(last.as_str()).ok_or_else(|| {
             TypeError::new(
                 TypeErrorKind::UnknownStruct {
@@ -2177,7 +1832,7 @@ impl Inferencer {
         match pattern {
             Pattern::Name(name) => {
                 let (last, rest) = name.split_last().unwrap();
-                let ns = self.root.get_child(rest)?;
+                let ns = env.root.get_child(rest)?;
                 if let Some(constant) = ns.constants.get(last.as_str()).cloned() {
                     // Identifier matching a constant is a test against that constant.
                     let (.., unify_trace) = self.unify(
@@ -2235,7 +1890,7 @@ impl Inferencer {
                 Ok((TypedPattern::Literal(value.clone()), vec![unify_trace]))
             }
             Pattern::Struct { name, fields } => {
-                let info = self.lookup_struct_info(name)?.clone();
+                let info = self.lookup_struct_info(env, name)?.clone();
                 let (.., unify_trace) = self.unify(
                     expected_ty.clone(),
                     info.ty.clone(),
@@ -2310,7 +1965,7 @@ impl Inferencer {
             Pattern::Tuple { name, fields } => {
                 let (last, rest) = name.split_last().unwrap();
                 let enum_name = rest.last().map(|n| n.as_str()).unwrap_or("<anonymous>>");
-                let ns = self.root.get_child(rest)?;
+                let ns = env.root.get_child(rest)?;
                 let Some(callee) = ns.constants.get(last.as_str()) else {
                     return Err(TypeError::new(
                         TypeErrorKind::UnknownName {
@@ -2386,22 +2041,26 @@ impl Inferencer {
         match definition {
             Definition::Contract => Ok((TypedDefinition::Contract, InferenceTree::default())),
             Definition::Import(import) => {
-                self.register_import(env, import)?;
                 let typed = self.build_typed_import(import);
                 Ok((TypedDefinition::Import(typed), InferenceTree::default()))
             }
             Definition::Function(function) => {
-                let (typed_function, trace) = self.infer_function(env, function)?;
+                let (typed_function, ty, trace) = self.infer_function(env, function)?;
+
+                env.root.insert_constant(
+                    &function.name,
+                    ConstantInfo::new(function.name.span, Type::from(ty)),
+                )?;
 
                 Ok((TypedDefinition::Function(typed_function), trace))
             }
             Definition::Struct(def) => {
-                let typed = self.build_typed_struct(def)?;
+                let typed = self.build_typed_struct(env, def)?;
 
                 Ok((TypedDefinition::Struct(typed), InferenceTree::default()))
             }
             Definition::Enum(def) => {
-                let typed = self.build_typed_enum(def)?;
+                let typed = self.build_typed_enum(env, def)?;
 
                 Ok((TypedDefinition::Enum(typed), InferenceTree::default()))
             }
@@ -2416,22 +2075,26 @@ impl Inferencer {
                 Ok((TypedDefinition::Token(token), trace))
             }
             Definition::Abi(def) => {
-                let typed = self.build_typed_abi(def)?;
+                let typed = self.build_typed_abi(env, def)?;
 
                 Ok((TypedDefinition::Abi(typed), InferenceTree::default()))
             }
         }
     }
 
-    fn function_def_to_type(&mut self, function: &FunctionDef) -> Result<FunctionType, TypeError> {
+    fn function_def_to_type(
+        &mut self,
+        env: &TypeEnv,
+        function: &FunctionDef,
+    ) -> Result<FunctionType, TypeError> {
         // Visit param & return types.
         let param_types = function
             .params
             .iter()
-            .map(|param| self.type_from_annotation(&param.ty))
+            .map(|param| self.type_from_annotation(env, &param.ty))
             .collect::<Result<Vec<_>, _>>()?;
         let expected_return = match &function.return_type {
-            Some(annotation) => self.type_from_annotation(annotation)?,
+            Some(annotation) => self.type_from_annotation(env, annotation)?,
             None => Type::unit(),
         };
         let param_spans = function
@@ -2453,8 +2116,8 @@ impl Inferencer {
         &mut self,
         env: &mut TypeEnv,
         function: &FunctionDef,
-    ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
-        let func_ty = Arc::new(self.function_def_to_type(function)?);
+    ) -> Result<(TypedFunctionDef, Arc<FunctionType>, InferenceTree), TypeError> {
+        let func_ty = Arc::new(self.function_def_to_type(env, function)?);
         let return_span = function.return_span();
 
         // Insert function into environment. Happens before code so that recursion is allowed.
@@ -2542,6 +2205,7 @@ impl Inferencer {
                 return_type: ctx.expected_return,
                 body: typed_body,
             },
+            func_ty,
             trace,
         ))
     }
@@ -2579,7 +2243,7 @@ impl Inferencer {
 
                 if let Some(ty) = ty {
                     // Binding has a type annotation, so unify it with the initial value.
-                    let expected_type = self.type_from_annotation(ty)?;
+                    let expected_type = self.type_from_annotation(env, ty)?;
                     let (new_value_type, unify_trace) = self.unify(
                         expected_type.clone(),
                         value_type.clone(),
@@ -2978,7 +2642,7 @@ impl Inferencer {
             return Ok((self.instantiate(&local.scheme), None));
         }
 
-        let ns = self.root.get_child(path)?;
+        let ns = env.root.get_child(path)?;
         if let Some(constant) = ns.constants.get(last.as_str()) {
             Ok((
                 Self::refresh_type_params(
@@ -3336,7 +3000,7 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::StructConstructor { name, fields } => {
-                let info = self.lookup_struct_info(name)?.clone();
+                let info = self.lookup_struct_info(env, name)?.clone();
                 let mut expected = info
                     .fields()
                     .iter()
@@ -3564,7 +3228,7 @@ impl Inferencer {
                                 }
                             }
 
-                            let abi = self.root.get_abi(&abi_name)?;
+                            let abi = env.root.get_abi(&abi_name)?.clone();
                             let var_name_str = name.name.clone();
                             let abi_name_str = abi_name.name.clone();
 
@@ -3809,7 +3473,7 @@ impl Inferencer {
                 // TODO: assert that this utxo impls each abi named
                 let abis = abis
                     .iter()
-                    .map(|abi| Ok(self.root.get_abi(&abi)?.clone()))
+                    .map(|abi| Ok(env.root.get_abi(&abi)?.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok((
                     Spanned::new(
@@ -4065,17 +3729,21 @@ impl Inferencer {
         }
     }
 
-    fn type_from_annotation(&mut self, annotation: &TypeAnnotation) -> Result<Type, TypeError> {
+    fn type_from_annotation(
+        &mut self,
+        env: &TypeEnv,
+        annotation: &TypeAnnotation,
+    ) -> Result<Type, TypeError> {
         // Resolve each generic arg (done first for lifetime reasons).
         let type_args: Vec<Type> = annotation
             .generics
             .iter()
-            .map(|g| self.type_from_annotation(g))
+            .map(|g| self.type_from_annotation(env, g))
             .collect::<Result<_, _>>()?;
 
         // Look up type information.
         let (last, path) = annotation.name.split_last().unwrap();
-        let ns = self.root.get_child(path)?;
+        let ns = env.root.get_child(path)?;
         let Some(entry) = ns.types.get(last.as_str()) else {
             return Err(TypeError::new(
                 TypeErrorKind::UnknownTypeAnnotation {

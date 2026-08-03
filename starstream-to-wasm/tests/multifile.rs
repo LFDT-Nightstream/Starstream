@@ -73,7 +73,7 @@ fn helper_script_is_exported() {
     let wit = print_wit(&wasm);
     assert!(wit.contains("run"));
     assert!(
-        wit.contains("helper-script") || wit.contains("helper_script"),
+        wit.contains("helper-script"),
         "helper's `script fn` should be exported, WIT:\n{wit}"
     );
 }
