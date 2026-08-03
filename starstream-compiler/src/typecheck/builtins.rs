@@ -5,7 +5,13 @@
 
 use std::collections::HashMap;
 
-use starstream_types::{DUMMY_SPAN, FunctionKind, FunctionType, Type};
+use starstream_types::{
+    AbiType, DUMMY_SPAN, EnumType, EnumVariantKind, EnumVariantType, FunctionKind, FunctionType,
+    Identifier, IntWidth, StaticFunction, Type, TypeParam, TypeVarId, TypedAbiMethodDecl,
+    TypedFunctionParam,
+};
+
+use crate::typecheck::env::{ConstantInfo, Namespace, StructConstructor, TypeEntry};
 
 /// Information about a built-in function from the standard library.
 #[derive(Clone, Debug)]
@@ -32,15 +38,19 @@ impl BuiltinFunction {
 /// Registry of built-in interfaces and their exports.
 #[derive(Default)]
 pub struct BuiltinRegistry {
+    pub prelude: Namespace,
+
     /// Maps `namespace:package` -> `interface` -> `name` -> `BuiltinFunction`
     packages: HashMap<String, HashMap<String, HashMap<String, BuiltinFunction>>>,
 }
 
 impl BuiltinRegistry {
-    pub fn new() -> Self {
+    pub fn new() -> (Self, TypeVarId) {
         let mut registry = Self::default();
+        let mut next_type_var = TypeVarId(0);
+        register_prelude(&mut registry.prelude, &mut next_type_var);
         registry.register_std();
-        registry
+        (registry, next_type_var)
     }
 
     /// Look up a function in a specific interface.
@@ -92,7 +102,190 @@ impl BuiltinRegistry {
         let path = format!("{namespace}:{package}");
         self.packages.get(&path)
     }
+}
 
+// ----------------------------------------------------------------------------
+// Prelude builtins
+
+/// Register builtin prelude types, including primitives, Option, Result, Utxo, and Token.
+fn register_prelude(prelude: &mut Namespace, next_type_var: &mut TypeVarId) {
+    // Primitives
+    let mut primitive = |name: &str, ty| prelude.types.insert(name.to_owned(), TypeEntry::from(ty));
+    primitive("()", Type::Unit);
+    primitive("bool", Type::Bool);
+    primitive("i8", Type::from(IntWidth::I8));
+    primitive("i16", Type::from(IntWidth::I16));
+    primitive("i32", Type::from(IntWidth::I32));
+    primitive("i64", Type::from(IntWidth::I64));
+    primitive("u8", Type::from(IntWidth::U8));
+    primitive("u16", Type::from(IntWidth::U16));
+    primitive("u32", Type::from(IntWidth::U32));
+    primitive("u64", Type::from(IntWidth::U64));
+
+    primitive("Utxo", Type::UtxoAny);
+    primitive("Token", Type::TokenAny); // TODO: currently being overridden, decide what to do with this.
+
+    // Option and Result helper
+
+    // Option<T>
+    let t = next_type_var.fresh();
+    register_prelude_enum(
+        prelude,
+        "Option",
+        &[
+            ("None", EnumVariantKind::Unit),
+            ("Some", EnumVariantKind::Tuple(vec![Type::Var(t)])),
+        ],
+        vec![TypeParam {
+            id: t,
+            name: "T".into(),
+        }],
+        "A value that may or may not be present.",
+        &[("Some", "Contains a value."), ("None", "No value present.")],
+    );
+
+    // Result<T, E>
+    let t2 = next_type_var.fresh();
+    let e = next_type_var.fresh();
+    register_prelude_enum(
+        prelude,
+        "Result",
+        &[
+            ("Ok", EnumVariantKind::Tuple(vec![Type::Var(t2)])),
+            ("Err", EnumVariantKind::Tuple(vec![Type::Var(e)])),
+        ],
+        vec![
+            TypeParam {
+                id: t2,
+                name: "T".into(),
+            },
+            TypeParam {
+                id: e,
+                name: "E".into(),
+            },
+        ],
+        "A value representing either success or failure.",
+        &[
+            ("Ok", "Contains a success value."),
+            ("Err", "Contains an error value."),
+        ],
+    );
+
+    // Register the built-in `Token` ABI that every `token` definition's
+    // `impl Token { ... }` block is checked against. It declares
+    // `attach(Utxo) -> ()` and `detach(Utxo) -> ()`. User code may not
+    // redeclare `abi Token` (guarded in `register_abi`).
+    let method = |name: &str| TypedAbiMethodDecl {
+        name: Identifier::new(name, DUMMY_SPAN),
+        params: vec![TypedFunctionParam {
+            public: false,
+            name: Identifier::new("utxo", DUMMY_SPAN),
+            ty: Type::UtxoAny,
+        }],
+        return_type: Type::Unit,
+        span: DUMMY_SPAN,
+    };
+    prelude.types.insert(
+        "Token".to_owned(),
+        TypeEntry::from(Type::from(AbiType {
+            name: Identifier::new("Token", DUMMY_SPAN),
+            methods: vec![method("attach"), method("detach")],
+        })),
+    );
+}
+
+/// Helper to register a prelude enum type, building both the `Type::Enum`
+/// and the internal `EnumVariantInfo` from a single variant description.
+fn register_prelude_enum(
+    prelude: &mut Namespace,
+    name: &str,
+    variants: &[(&str, EnumVariantKind)],
+    type_params: Vec<TypeParam>,
+    doc: &str,
+    variant_docs: &[(&str, &str)],
+) {
+    let type_variants: Vec<EnumVariantType> = variants
+        .iter()
+        .map(|(vname, kind)| EnumVariantType {
+            name: vname.to_string(),
+            kind: kind.clone(),
+        })
+        .collect();
+
+    let ty = Type::from(EnumType {
+        name: name.to_owned(),
+        variants: type_variants,
+        type_args: vec![],
+    });
+    prelude.types.insert(
+        name.to_string(),
+        TypeEntry {
+            ty: ty.clone(),
+            span: DUMMY_SPAN,
+            type_params: type_params.clone(),
+            doc: Some(doc.into()),
+            variant_docs: variant_docs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        },
+    );
+
+    // TODO: we need to create fresh variables for type parameters on use
+    let namespace = prelude.add_child(name.to_string());
+    for (i, (name, kind)) in variants.iter().enumerate() {
+        match kind {
+            EnumVariantKind::Unit => {
+                // Unit variants are constants
+                namespace.constants.insert(
+                    name.to_string(),
+                    ConstantInfo {
+                        span: DUMMY_SPAN,
+                        ty: ty.clone(),
+                        type_params: type_params.clone(),
+                        variant: i,
+                    },
+                );
+            }
+            EnumVariantKind::Tuple(params) => {
+                // Tuple variants are functions
+                namespace.constants.insert(
+                    name.to_string(),
+                    ConstantInfo {
+                        span: DUMMY_SPAN,
+                        ty: Type::from(FunctionType {
+                            kind: FunctionKind::Normal,
+                            name_span: DUMMY_SPAN,
+                            params: params.clone(),
+                            param_spans: vec![],
+                            result: ty.clone(),
+                            callee: Some(StaticFunction::Constructor { variant: i }),
+                        }),
+                        type_params: type_params.clone(),
+                        variant: 0,
+                    },
+                );
+            }
+            EnumVariantKind::Struct(_fields) => {
+                // Struct variants are constructors
+                namespace.struct_constructors.insert(
+                    name.to_string(),
+                    StructConstructor {
+                        span: DUMMY_SPAN,
+                        ty: ty.clone(),
+                        type_params: type_params.clone(),
+                        enum_variant: i,
+                    },
+                );
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Library builtins
+
+impl BuiltinRegistry {
     fn register_std(&mut self) {
         // starstream:std/cardano - Cardano blockchain context functions
         let mut cardano = HashMap::new();
@@ -126,13 +319,15 @@ impl BuiltinRegistry {
     }
 }
 
+// ----------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn lookup_block_height() {
-        let registry = BuiltinRegistry::new();
+        let (registry, _) = BuiltinRegistry::new();
         let func = registry
             .get_interface_function("starstream", "std", "cardano", "blockHeight")
             .expect("blockHeight should exist");
@@ -144,7 +339,7 @@ mod tests {
 
     #[test]
     fn package_exists() {
-        let registry = BuiltinRegistry::new();
+        let (registry, _) = BuiltinRegistry::new();
         assert!(registry.get_package("starstream", "std").is_some());
         assert!(registry.get_package("starstream", "nonexistent").is_none());
     }

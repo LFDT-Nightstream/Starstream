@@ -8,10 +8,10 @@ use std::{
 
 use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
-    FunctionKind, FunctionType, GenericTypeDef, IfCondition, IntWidth, Scheme, ScopedName, Span,
-    Spanned, StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId,
-    TypedEffectDef, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal,
-    TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    FunctionKind, FunctionType, GenericTypeDef, IfCondition, Scheme, ScopedName, Span, Spanned,
+    StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId, TypedEffectDef,
+    TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart,
+    UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportDef, ImportItems, ImportSource, Literal, Pattern, Program, Statement, StructDef,
@@ -90,7 +90,9 @@ pub fn typecheck_program(
     let mut env = TypeEnv::new();
 
     // Pass 1: register imports
-    env.root.import_all_from(&inferencer.prelude).unwrap();
+    env.root
+        .import_all_from(&inferencer.builtins.prelude)
+        .unwrap();
     if let Err(error) =
         inferencer.register_imports(&mut env, &program.definitions, &Default::default())
     {
@@ -153,7 +155,7 @@ pub fn typecheck_program(
         Vec::new()
     };
 
-    let generic_types = Inferencer::build_generic_type_defs(&inferencer.prelude);
+    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude);
     let warnings = inferencer.warnings;
 
     Ok(TypecheckSuccess {
@@ -227,7 +229,9 @@ pub fn typecheck_modules(
         let mut env = TypeEnv::new();
 
         // Pass 1: register imports
-        env.root.import_all_from(&inferencer.prelude).unwrap();
+        env.root
+            .import_all_from(&inferencer.builtins.prelude)
+            .unwrap();
         let resolved_imports = resolve_path_imports(graph, module_id, &module_exports);
         if let Err(error) =
             inferencer.register_imports(&mut env, &module.program.definitions, &resolved_imports)
@@ -318,7 +322,7 @@ pub fn typecheck_modules(
         inferencer.apply_substitutions_program(typed_program);
     }
 
-    let generic_types = Inferencer::build_generic_type_defs(&inferencer.prelude);
+    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude);
 
     let mut modules: Vec<TypedModule> = Vec::with_capacity(graph.modules().len());
     for source_module in graph.modules() {
@@ -378,17 +382,14 @@ struct Inferencer {
     warnings: Vec<TypeWarning>,
 
     // Type var tracking
-    next_type_var: u32,
+    next_type_var: TypeVarId,
     subst: HashMap<TypeVarId, Type>,
     /// Type variables constrained to integer types (from polymorphic integer literals).
     int_vars: HashSet<TypeVarId>,
     /// Tracks the literal value associated with each integer type variable for range checking.
     int_literal_values: HashMap<TypeVarId, (i128, Span)>,
 
-    /// Prelude namespace which gets pre-imported into new environments.
-    prelude: Namespace,
-
-    /// Registry of builtins that are available to be `import`ed.
+    /// Builtin package registry for `import`s, and the prelude.
     builtins: BuiltinRegistry,
 
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
@@ -414,196 +415,16 @@ struct FunctionCtx {
 impl Inferencer {
     /// Construct a fresh inferencer with an empty substitution environment.
     fn new(capture_traces: bool) -> Self {
-        let mut inferencer = Self {
+        let (builtins, next_type_var) = BuiltinRegistry::new();
+        Inferencer {
             capture_traces,
-            next_type_var: 0,
+            next_type_var,
             subst: HashMap::new(),
             int_vars: HashSet::new(),
             int_literal_values: HashMap::new(),
-            prelude: Namespace::default(),
-            builtins: BuiltinRegistry::new(),
+            builtins,
             warnings: Vec::new(),
             abi_call_trackers: Vec::new(),
-        };
-        inferencer.register_prelude();
-        inferencer
-    }
-
-    // ------------------------------------------------------------------------
-    // Prelude builtins
-
-    /// Register builtin prelude types, including primitives, Option, Result, Utxo, and Token.
-    fn register_prelude(&mut self) {
-        // Primitives
-        let mut primitive = |name: &str, ty| {
-            self.prelude
-                .types
-                .insert(name.to_owned(), TypeEntry::from(ty))
-        };
-        primitive("()", Type::Unit);
-        primitive("bool", Type::Bool);
-        primitive("i8", Type::from(IntWidth::I8));
-        primitive("i16", Type::from(IntWidth::I16));
-        primitive("i32", Type::from(IntWidth::I32));
-        primitive("i64", Type::from(IntWidth::I64));
-        primitive("u8", Type::from(IntWidth::U8));
-        primitive("u16", Type::from(IntWidth::U16));
-        primitive("u32", Type::from(IntWidth::U32));
-        primitive("u64", Type::from(IntWidth::U64));
-
-        primitive("Utxo", Type::UtxoAny);
-        primitive("Token", Type::TokenAny); // TODO: currently being overridden, decide what to do with this.
-
-        // Option<T>
-        let t = self.fresh_var_id();
-        self.register_prelude_enum(
-            "Option",
-            &[
-                ("None", EnumVariantKind::Unit),
-                ("Some", EnumVariantKind::Tuple(vec![Type::Var(t)])),
-            ],
-            vec![TypeParam {
-                id: t,
-                name: "T".into(),
-            }],
-            "A value that may or may not be present.",
-            &[("Some", "Contains a value."), ("None", "No value present.")],
-        );
-
-        // Result<T, E>
-        let t2 = self.fresh_var_id();
-        let e = self.fresh_var_id();
-        self.register_prelude_enum(
-            "Result",
-            &[
-                ("Ok", EnumVariantKind::Tuple(vec![Type::Var(t2)])),
-                ("Err", EnumVariantKind::Tuple(vec![Type::Var(e)])),
-            ],
-            vec![
-                TypeParam {
-                    id: t2,
-                    name: "T".into(),
-                },
-                TypeParam {
-                    id: e,
-                    name: "E".into(),
-                },
-            ],
-            "A value representing either success or failure.",
-            &[
-                ("Ok", "Contains a success value."),
-                ("Err", "Contains an error value."),
-            ],
-        );
-
-        // Register the built-in `Token` ABI that every `token` definition's
-        // `impl Token { ... }` block is checked against. It declares
-        // `attach(Utxo) -> ()` and `detach(Utxo) -> ()`. User code may not
-        // redeclare `abi Token` (guarded in `register_abi`).
-        let method = |name: &str| TypedAbiMethodDecl {
-            name: Identifier::new(name, DUMMY_SPAN),
-            params: vec![TypedFunctionParam {
-                public: false,
-                name: Identifier::new("utxo", DUMMY_SPAN),
-                ty: Type::UtxoAny,
-            }],
-            return_type: Type::Unit,
-            span: DUMMY_SPAN,
-        };
-        self.prelude.types.insert(
-            "Token".to_owned(),
-            TypeEntry::from(Type::from(AbiType {
-                name: Identifier::new("Token", DUMMY_SPAN),
-                methods: vec![method("attach"), method("detach")],
-            })),
-        );
-    }
-
-    /// Helper to register a prelude enum type, building both the `Type::Enum`
-    /// and the internal `EnumVariantInfo` from a single variant description.
-    fn register_prelude_enum(
-        &mut self,
-        name: &str,
-        variants: &[(&str, EnumVariantKind)],
-        type_params: Vec<TypeParam>,
-        doc: &str,
-        variant_docs: &[(&str, &str)],
-    ) {
-        let type_variants: Vec<EnumVariantType> = variants
-            .iter()
-            .map(|(vname, kind)| EnumVariantType {
-                name: vname.to_string(),
-                kind: kind.clone(),
-            })
-            .collect();
-
-        let ty = Type::from(EnumType {
-            name: name.to_owned(),
-            variants: type_variants,
-            type_args: vec![],
-        });
-        self.prelude.types.insert(
-            name.to_string(),
-            TypeEntry {
-                ty: ty.clone(),
-                span: DUMMY_SPAN,
-                type_params: type_params.clone(),
-                doc: Some(doc.into()),
-                variant_docs: variant_docs
-                    .iter()
-                    .map(|(k, v)| (k.to_string(), v.to_string()))
-                    .collect(),
-            },
-        );
-
-        // TODO: we need to create fresh variables for type parameters on use
-        let namespace = self.prelude.add_child(name.to_string());
-        for (i, (name, kind)) in variants.iter().enumerate() {
-            match kind {
-                EnumVariantKind::Unit => {
-                    // Unit variants are constants
-                    namespace.constants.insert(
-                        name.to_string(),
-                        ConstantInfo {
-                            span: DUMMY_SPAN,
-                            ty: ty.clone(),
-                            type_params: type_params.clone(),
-                            variant: i,
-                        },
-                    );
-                }
-                EnumVariantKind::Tuple(params) => {
-                    // Tuple variants are functions
-                    namespace.constants.insert(
-                        name.to_string(),
-                        ConstantInfo {
-                            span: DUMMY_SPAN,
-                            ty: Type::from(FunctionType {
-                                kind: FunctionKind::Normal,
-                                name_span: DUMMY_SPAN,
-                                params: params.clone(),
-                                param_spans: vec![],
-                                result: ty.clone(),
-                                callee: Some(StaticFunction::Constructor { variant: i }),
-                            }),
-                            type_params: type_params.clone(),
-                            variant: 0,
-                        },
-                    );
-                }
-                EnumVariantKind::Struct(_fields) => {
-                    // Struct variants are constructors
-                    namespace.struct_constructors.insert(
-                        name.to_string(),
-                        StructConstructor {
-                            span: DUMMY_SPAN,
-                            ty: ty.clone(),
-                            type_params: type_params.clone(),
-                            enum_variant: i,
-                        },
-                    );
-                }
-            }
         }
     }
 
@@ -1762,18 +1583,17 @@ impl Inferencer {
         })
     }
 
-    fn refresh_type_params(next_type_var: &mut u32, ty: &Type, type_params: &[TypeParam]) -> Type {
+    fn refresh_type_params(
+        next_type_var: &mut TypeVarId,
+        ty: &Type,
+        type_params: &[TypeParam],
+    ) -> Type {
         if type_params.is_empty() {
             return ty.clone();
         }
         let fresh_args: Vec<Type> = type_params
             .iter()
-            .map(|_| {
-                // Inline fresh_var to avoid borrowing issues
-                let var = TypeVarId(*next_type_var);
-                *next_type_var += 1;
-                Type::Var(var)
-            })
+            .map(|_| Type::Var(next_type_var.fresh()))
             .collect();
         Self::apply_type_args(ty, type_params, &fresh_args)
     }
@@ -4172,9 +3992,7 @@ impl Inferencer {
 
     /// Allocate a new inference variable unique to this inferencer.
     fn fresh_var_id(&mut self) -> TypeVarId {
-        let var = TypeVarId(self.next_type_var);
-        self.next_type_var += 1;
-        var
+        self.next_type_var.fresh()
     }
 
     fn fresh_var(&mut self) -> Type {

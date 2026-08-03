@@ -224,6 +224,14 @@ impl From<Arc<AbiType>> for Type {
     }
 }
 
+impl TypeVarId {
+    pub fn fresh(&mut self) -> TypeVarId {
+        let id = *self;
+        self.0 += 1;
+        id
+    }
+}
+
 impl IntWidth {
     #[must_use]
     pub fn is_signed(self) -> bool {
