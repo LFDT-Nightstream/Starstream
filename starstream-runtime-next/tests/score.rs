@@ -84,7 +84,7 @@ impl UtxoHandler for Ctx {
     }
 
     async fn construct_utxo(
-        store: wasmtime::StoreContextMut<'_, Self>,
+        mut store: wasmtime::StoreContextMut<'_, Self>,
         instance: &Arc<str>,
         name: &Arc<str>,
         params: &[Val],
@@ -97,7 +97,8 @@ impl UtxoHandler for Ctx {
                 let Ctx { contract, ty, .. } = store.data();
                 let contract = contract.clone();
                 let ty = ty.clone();
-                contract.create_utxo(store, &ty.new, params).await
+                let instance = contract.instantiate(&mut store).await?;
+                instance.create_utxo(store, &ty.new, params).await
             }
             _ => panic!("unexpected UTXO constructor call `{instance}#{name}`"),
         }
@@ -269,7 +270,8 @@ async fn score() -> wasmtime::Result<()> {
                 events: Vec::default(),
             },
         );
-        contract
+        let instance = contract.instantiate(&mut store).await?;
+        instance
             .create_utxo(&mut store, &ty.new, [])
             .await
             .map(|utxo| (store, utxo))
@@ -366,7 +368,11 @@ async fn score() -> wasmtime::Result<()> {
             events: Vec::default(),
         },
     );
-    contract
+    let instance = contract
+        .instantiate(&mut store)
+        .await
+        .context("failed to instantiate contract")?;
+    instance
         .call_coordination_script(&mut store, &ty.example, [], [])
         .await
         .context("failed to call `example` coordination script")?;
