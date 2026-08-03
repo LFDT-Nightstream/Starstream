@@ -267,6 +267,10 @@ module starstream_execution {
   val turn_owners =
     state.phases.keys().filter(cid => state.phases.get(cid).owns_turn())
 
+  val next_utxo_id_is_nonnegative = state.next_utxo_id >= 0
+
+  val current_coroutine_is_known = state.phases.keys().contains(state.curr)
+
   // Before the coordination script returns, exactly `curr` owns the turn.
   // Afterwards no coroutine owns it.
   val current_coroutine_uniquely_owns_turn = {
@@ -340,8 +344,8 @@ module starstream_execution {
     }
 
   val control_is_well_formed = and {
-    state.next_utxo_id >= 0,
-    state.phases.keys().contains(state.curr),
+    next_utxo_id_is_nonnegative,
+    current_coroutine_is_known,
     current_coroutine_uniquely_owns_turn,
     waiting_coordinators_are_callers,
     pending_constructor_is_well_formed,
