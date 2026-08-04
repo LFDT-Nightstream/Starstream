@@ -55,29 +55,34 @@ utxo Foo {
     (struct_field
       (identifier)
       (type_annotation
-        (identifier)))
+        (scoped_name
+          (identifier))))
     (struct_field
       (identifier)
       (type_annotation
-        (identifier))))
+        (scoped_name
+          (identifier)))))
   (enum_definition
     (identifier)
     (enum_variant
       (identifier)
       (enum_variant_tuple_payload
         (type_annotation
-          (identifier))))
+          (scoped_name
+            (identifier)))))
     (enum_variant
       (identifier)
       (enum_variant_struct_payload
         (struct_field
           (identifier)
           (type_annotation
-            (identifier)))
+            (scoped_name
+              (identifier))))
         (struct_field
           (identifier)
           (type_annotation
-            (identifier))))))
+            (scoped_name
+              (identifier)))))))
   (abi_definition
     (identifier)
     (event_definition
@@ -85,44 +90,54 @@ utxo Foo {
       (parameter
         (identifier)
         (type_annotation
-          (identifier)))
+          (scoped_name
+            (identifier))))
       (parameter
         (identifier)
         (type_annotation
-          (identifier))))
+          (scoped_name
+            (identifier)))))
     (effect_definition
       (identifier)
       (parameter
         (identifier)
         (type_annotation
-          (identifier)))
+          (scoped_name
+            (identifier))))
       (type_annotation
-        (identifier)))
+        (scoped_name
+          (identifier))))
     (abi_fn_declaration
       (identifier)
       (parameter
         (identifier)
         (type_annotation
-          (identifier)))))
+          (scoped_name
+            (identifier))))))
   (function_definition
     (identifier)
     (function_parameter
       (identifier)
       (type_annotation
-        (identifier)))
+        (scoped_name
+          (identifier))))
     (function_parameter
       (identifier)
       (type_annotation
-        (identifier)))
+        (scoped_name
+          (identifier))))
     (type_annotation
-      (identifier))
+      (scoped_name
+        (identifier)))
     (block
       (variable_declaration
         (identifier)
         (type_annotation
-          (identifier)
+          (scoped_name
+            (identifier))
           (type_annotation
-            (identifier)))
+            (scoped_name
+              (identifier))))
         (expression
           (scoped_name
             (identifier)
