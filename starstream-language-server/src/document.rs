@@ -74,8 +74,6 @@ pub struct DocumentState {
     enum_types: HashMap<String, Type>,
     /// Maps imported local names to their definition spans (in import statement).
     import_definitions: HashMap<String, Span>,
-    /// Maps namespace alias -> function name -> (alias span, function type).
-    namespace_functions: HashMap<String, HashMap<String, (Span, Type)>>,
     /// Maps function name -> (signature, doc comment) for call-site hover.
     function_docs: HashMap<String, (String, String)>,
     /// Maps struct name -> doc comment for type annotation hover.
@@ -125,7 +123,6 @@ impl DocumentState {
             struct_types: HashMap::new(),
             enum_types: HashMap::new(),
             import_definitions: HashMap::new(),
-            namespace_functions: HashMap::new(),
             function_docs: HashMap::new(),
             struct_docs: HashMap::new(),
             enum_docs: HashMap::new(),
@@ -210,7 +207,6 @@ impl DocumentState {
         self.struct_types.clear();
         self.enum_types.clear();
         self.import_definitions.clear();
-        self.namespace_functions.clear();
         self.function_docs.clear();
         self.struct_docs.clear();
         self.enum_docs.clear();
@@ -644,41 +640,17 @@ impl DocumentState {
     }
 
     fn collect_import(&mut self, import: &TypedImportDef) {
-        match &import.items {
-            TypedImportItems::Named(items) => {
-                for item in items {
-                    if let Some(span) = item.local.opt_span() {
-                        self.definition_entries.push(DefinitionEntry {
-                            usage: span,
-                            target: span,
-                        });
+        for item in &import.items {
+            if let Some(span) = item.local.opt_span() {
+                self.definition_entries.push(DefinitionEntry {
+                    usage: span,
+                    target: span,
+                });
 
-                        self.import_definitions
-                            .insert(item.local.name.clone(), span);
+                self.import_definitions
+                    .insert(item.local.name.clone(), span);
 
-                        self.add_hover_span(span, &item.ty);
-                    }
-                }
-            }
-            TypedImportItems::Namespace { alias, functions } => {
-                if let Some(alias_span) = alias.opt_span() {
-                    self.definition_entries.push(DefinitionEntry {
-                        usage: alias_span,
-                        target: alias_span,
-                    });
-
-                    let func_names: Vec<_> =
-                        functions.iter().map(|f| f.local.name.clone()).collect();
-                    let label = format!("namespace {} ({})", alias.name, func_names.join(", "));
-                    self.add_hover_label(alias_span, label);
-
-                    let mut ns_funcs = HashMap::new();
-                    for func in functions {
-                        ns_funcs.insert(func.local.name.clone(), (alias_span, func.ty.clone()));
-                    }
-                    self.namespace_functions
-                        .insert(alias.name.clone(), ns_funcs);
-                }
+                self.add_hover_span(span, &item.ty);
             }
         }
     }
