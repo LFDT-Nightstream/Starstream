@@ -623,29 +623,45 @@ impl<T: Host> Contract<T> {
 
     /// Instantiate the contract
     #[instrument(level = "trace", skip_all)]
-    async fn instantiate(&self, store: impl AsContextMut<Data = T>) -> wasmtime::Result<Instance>
+    pub async fn instantiate(
+        &self,
+        store: impl AsContextMut<Data = T>,
+    ) -> wasmtime::Result<ContractInstance>
     where
         T: Send,
     {
         debug!("instantiating component");
-        self.pre
+        let instance = self
+            .pre
             .instantiate_async(store)
             .await
-            .context("failed to instantiate component")
+            .context("failed to instantiate component")?;
+        Ok(ContractInstance(instance))
+    }
+}
+
+/// Single instantiation of a [Contract]
+#[derive(Debug, Copy, Clone)]
+pub struct ContractInstance(Instance);
+
+impl ContractInstance {
+    #[must_use]
+    pub fn instance(&self) -> Instance {
+        self.0
     }
 
     #[instrument(level = "trace", skip_all)]
-    async fn construct_utxo(
+    async fn construct_utxo<T>(
         &self,
         mut store: impl AsContextMut<Data = T>,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo>
     where
-        T: Send,
+        T: Send + 'static,
     {
-        let instance = self.instantiate(store.as_context_mut()).await?;
-        let f = instance
+        let f = self
+            .0
             .get_func(store.as_context_mut(), name)
             .context("failed to lookup constructor function export")?;
         debug!("calling constructor function");
@@ -656,38 +672,41 @@ impl<T: Host> Contract<T> {
         let [Val::Resource(resource)] = results else {
             bail!("invalid return value")
         };
-        Ok(Utxo { instance, resource })
+        Ok(Utxo {
+            instance: self.0,
+            resource,
+        })
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn create_utxo(
+    pub async fn create_utxo<T>(
         &self,
         store: impl AsContextMut<Data = T>,
         ConstructorExport { idx, .. }: &ConstructorExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo>
     where
-        T: Send,
+        T: Send + 'static,
     {
         self.construct_utxo(store, idx, params).await
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn load_utxo(
+    pub async fn load_utxo<T>(
         &self,
         store: impl AsContextMut<Data = T>,
         UtxoStorageExport { set, .. }: &UtxoStorageExport,
         fields: impl Into<Vec<(String, Val)>>,
     ) -> wasmtime::Result<Utxo>
     where
-        T: Send,
+        T: Send + 'static,
     {
         self.construct_utxo(store, set, [Val::Record(fields.into())])
             .await
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn call_coordination_script(
+    pub async fn call_coordination_script<T>(
         &self,
         mut store: impl AsContextMut<Data = T>,
         CoordinationScriptExport { idx, .. }: &CoordinationScriptExport,
@@ -695,10 +714,10 @@ impl<T: Host> Contract<T> {
         mut results: impl AsMut<[Val]>,
     ) -> wasmtime::Result<()>
     where
-        T: Send,
+        T: Send + 'static,
     {
-        let instance = self.instantiate(store.as_context_mut()).await?;
-        let f = instance
+        let f = self
+            .0
             .get_func(store.as_context_mut(), idx)
             .context("failed to lookup coordination script export")?;
         debug!("calling coordination script");
