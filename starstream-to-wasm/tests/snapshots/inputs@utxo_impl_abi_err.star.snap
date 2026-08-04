@@ -175,7 +175,10 @@ Program {
                                             Spanned {
                                                 node: Literal(
                                                     Integer(
-                                                        17,
+                                                        IntegerLiteral {
+                                                            digits: "17",
+                                                            radix: Decimal,
+                                                        },
                                                     ),
                                                 ),
                                                 span: 275..277,

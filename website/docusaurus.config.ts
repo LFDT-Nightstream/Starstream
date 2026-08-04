@@ -36,6 +36,11 @@ const config: Config = {
     locales: ["en"],
   },
 
+  markdown: {
+    // Treat `.md` as CommonMark. Only use MDX parser on `.mdx` files.
+    format: "detect",
+  },
+
   presets: [
     [
       "classic",

@@ -1204,7 +1204,7 @@ fn arguments_to_doc<'a>(args: &Arguments, source: &'a str, comments: &CommentMap
 
 fn literal_to_doc<'a>(literal: &Literal, _source: &'a str) -> RcDoc<'a, ()> {
     match literal {
-        Literal::Integer(value) => RcDoc::as_string(*value),
+        Literal::Integer(value) => RcDoc::as_string(value),
         Literal::Boolean(value) => RcDoc::text(if *value { "true" } else { "false" }),
         Literal::Unit => RcDoc::text("()"),
     }
@@ -1342,6 +1342,21 @@ mod tests {
                 value = (1 + 2) * (3 - 4) / 5;
                 value = value + (10 / (3 + 2));
                 result = (1 + 2 == 3) && !(false || true);
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn integer_literal_radixes() {
+        // Literals keep the notation they were written in.
+        assert_format_snapshot!(
+            r#"
+            fn main() {
+                let hex = 0xFf;
+                let octal = 0o17;
+                let binary =    0b1010;
+                let decimal = 042;
             }
             "#,
         );

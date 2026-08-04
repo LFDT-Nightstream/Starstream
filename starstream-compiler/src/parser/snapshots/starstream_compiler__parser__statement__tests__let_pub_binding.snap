@@ -13,7 +13,10 @@ VariableDeclaration {
     value: Spanned {
         node: Literal(
             Integer(
-                42,
+                IntegerLiteral {
+                    digits: "42",
+                    radix: Decimal,
+                },
             ),
         ),
         span: 17..19,

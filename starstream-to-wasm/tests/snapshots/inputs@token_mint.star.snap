@@ -56,7 +56,10 @@ Program {
                                                 value: Spanned {
                                                     node: Literal(
                                                         Integer(
-                                                            1,
+                                                            IntegerLiteral {
+                                                                digits: "1",
+                                                                radix: Decimal,
+                                                            },
                                                         ),
                                                     ),
                                                     span: 111..112,
@@ -207,7 +210,10 @@ TypedProgram {
                                                 ),
                                                 kind: Literal(
                                                     Integer(
-                                                        1,
+                                                        IntegerLiteral {
+                                                            digits: "1",
+                                                            radix: Decimal,
+                                                        },
                                                     ),
                                                 ),
                                             },

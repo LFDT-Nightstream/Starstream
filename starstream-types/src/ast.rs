@@ -672,9 +672,82 @@ impl From<Identifier> for Spanned<Expr> {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Literal {
-    Integer(i128),
+    Integer(IntegerLiteral),
     Boolean(bool),
     Unit,
+}
+
+/// The radix an integer literal was written in, used to format it back in its
+/// original notation.
+#[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]
+pub enum IntegerRadix {
+    Binary,
+    Octal,
+    Decimal,
+    Hexadecimal,
+}
+
+impl IntegerRadix {
+    /// The literal prefix that introduces this radix in source code.
+    #[must_use]
+    pub fn prefix(self) -> &'static str {
+        match self {
+            IntegerRadix::Binary => "0b",
+            IntegerRadix::Octal => "0o",
+            IntegerRadix::Decimal => "",
+            IntegerRadix::Hexadecimal => "0x",
+        }
+    }
+
+    /// The numeric base for digit parsing.
+    #[must_use]
+    pub fn base(self) -> u32 {
+        match self {
+            IntegerRadix::Binary => 2,
+            IntegerRadix::Octal => 8,
+            IntegerRadix::Decimal => 10,
+            IntegerRadix::Hexadecimal => 16,
+        }
+    }
+}
+
+/// An integer literal kept as the digits written in the source plus their
+/// radix, so the formatter can reproduce the original notation. The numeric
+/// value is computed on demand where a phase needs it (type checking, codegen).
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct IntegerLiteral {
+    /// The digits exactly as written, without the radix prefix.
+    pub digits: String,
+    pub radix: IntegerRadix,
+}
+
+impl IntegerLiteral {
+    pub fn new(digits: impl Into<String>, radix: IntegerRadix) -> Self {
+        Self {
+            digits: digits.into(),
+            radix,
+        }
+    }
+
+    /// The numeric value, or `None` if the digits overflow `i128`. Every
+    /// supported integer type fits comfortably in `i128`, so `None` always
+    /// means the literal is out of range.
+    #[must_use]
+    pub fn value(&self) -> Option<i128> {
+        i128::from_str_radix(&self.digits, self.radix.base()).ok()
+    }
+}
+
+impl From<i128> for IntegerLiteral {
+    fn from(value: i128) -> Self {
+        Self::new(value.to_string(), IntegerRadix::Decimal)
+    }
+}
+
+impl std::fmt::Display for IntegerLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}{}", self.radix.prefix(), self.digits)
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]

@@ -1,0 +1,10 @@
+---
+source: starstream-compiler/src/parser/expression/primary/yield_.rs
+description: "Code:\n\nyield()"
+---
+Spanned {
+    node: Yield {
+        abis: [],
+    },
+    span: 0..7,
+}

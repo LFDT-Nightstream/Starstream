@@ -121,6 +121,11 @@ mod tests {
     }
 
     #[test]
+    fn import_named_trailing_comma() {
+        assert_import_snapshot!("import { add, sub, } from \"./helpers/math.star\";");
+    }
+
+    #[test]
     fn import_path_namespace() {
         assert_import_snapshot!("import math from \"./helpers/math.star\";");
     }

@@ -1,7 +1,7 @@
-import tree_sitter_starstream_wasm from "file-loader!../../tree-sitter-starstream/tree-sitter-starstream.wasm";
-import starstream_language_server_web_wasm from "file-loader!../build/starstream_language_server_web_bg.wasm";
-import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/web-tree-sitter.wasm";
-import highlights_scm from "raw-loader!../../tree-sitter-starstream/queries/highlights.scm";
+import tree_sitter_starstream_wasm from "../../tree-sitter-starstream/tree-sitter-starstream.wasm?url";
+import starstream_language_server_web_wasm from "../build/starstream_language_server_web_bg.wasm?url";
+import tree_sitter_wasm from "../node_modules/web-tree-sitter/web-tree-sitter.wasm?url";
+import highlights_scm from "../../tree-sitter-starstream/queries/highlights.scm?raw";
 import * as vscode from "vscode";
 import { LanguageClient } from "vscode-languageclient/browser";
 import { Parser } from "web-tree-sitter";
@@ -41,10 +41,10 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
   const lc = new LanguageClient(
     "starstream",
     "Starstream Language Server",
+    worker,
     {
       documentSelector: [{ language: "starstream" }],
     },
-    worker,
   );
   context.subscriptions.push(lc);
 

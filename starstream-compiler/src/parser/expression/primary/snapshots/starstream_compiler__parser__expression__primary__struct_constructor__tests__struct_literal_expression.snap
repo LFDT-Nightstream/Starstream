@@ -19,7 +19,10 @@ Spanned {
                 value: Spanned {
                     node: Literal(
                         Integer(
-                            10,
+                            IntegerLiteral {
+                                digits: "10",
+                                radix: Decimal,
+                            },
                         ),
                     ),
                     span: 15..17,
@@ -47,7 +50,10 @@ Spanned {
                         right: Spanned {
                             node: Literal(
                                 Integer(
-                                    1,
+                                    IntegerLiteral {
+                                        digits: "1",
+                                        radix: Decimal,
+                                    },
                                 ),
                             ),
                             span: 34..35,
