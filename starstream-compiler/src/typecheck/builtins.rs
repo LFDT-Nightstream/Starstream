@@ -3,10 +3,11 @@
 //! This module provides type information for the standard library functions
 //! that are resolved at compile time (not downloaded via wit-dep).
 
+use std::sync::Arc;
+
 use starstream_types::{
     AbiType, DUMMY_SPAN, EnumType, EnumVariantKind, EnumVariantType, FunctionKind, FunctionType,
-    Identifier, IntWidth, StaticFunction, Type, TypeParam, TypeVarId, TypedAbiMethodDecl,
-    TypedFunctionParam,
+    Identifier, IntWidth, NameId, StaticFunction, Type, TypeParam, TypeVarId, TypedAbiMethodDecl,
 };
 
 use crate::typecheck::{
@@ -24,14 +25,15 @@ pub struct BuiltinRegistry {
 }
 
 impl BuiltinRegistry {
-    pub fn new() -> (Self, TypeVarId) {
+    pub fn new() -> (Self, TypeVarId, NameId) {
         let mut registry = Self::default();
         let mut next_type_var = TypeVarId(0);
-        register_prelude(&mut registry.prelude, &mut next_type_var);
+        let mut next_name_id = NameId(0);
+        register_prelude(&mut registry.prelude, &mut next_type_var, &mut next_name_id);
         let starstream = registry.wit_tree.add_child("starstream".to_owned());
         let std = starstream.add_child("std".to_owned());
-        register_std_cardano(std.add_child("cardano".to_owned()));
-        (registry, next_type_var)
+        register_std_cardano(std.add_child("cardano".to_owned()), &mut next_name_id);
+        (registry, next_type_var, next_name_id)
     }
 
     /// Get the namespace representing the prelude imported into all source files.
@@ -87,7 +89,11 @@ impl BuiltinRegistry {
 // Prelude builtins
 
 /// Register builtin prelude types, including primitives, Option, Result, Utxo, and Token.
-fn register_prelude(prelude: &mut Namespace, next_type_var: &mut TypeVarId) {
+fn register_prelude(
+    prelude: &mut Namespace,
+    next_type_var: &mut TypeVarId,
+    next_name_id: &mut NameId,
+) {
     // Primitives
     let mut primitive = |name: &str, ty| prelude.types.insert(name.to_owned(), TypeEntry::from(ty));
     primitive("()", Type::Unit);
@@ -154,14 +160,16 @@ fn register_prelude(prelude: &mut Namespace, next_type_var: &mut TypeVarId) {
     // `impl Token { ... }` block is checked against. It declares
     // `attach(Utxo) -> ()` and `detach(Utxo) -> ()`. User code may not
     // redeclare `abi Token` (guarded in `register_abi`).
-    let method = |name: &str| TypedAbiMethodDecl {
+    let mut method = |name: &str| TypedAbiMethodDecl {
         name: Identifier::new(name, DUMMY_SPAN),
-        params: vec![TypedFunctionParam {
-            public: false,
-            name: Identifier::new("utxo", DUMMY_SPAN),
-            ty: Type::UtxoAny,
-        }],
-        return_type: Type::Unit,
+        ty: Arc::new(FunctionType {
+            kind: FunctionKind::Normal,
+            name_span: DUMMY_SPAN,
+            params: vec![Type::UtxoAny],
+            param_spans: vec![DUMMY_SPAN],
+            result: Type::Unit,
+            callee: Some(StaticFunction::Named(next_name_id.fresh())),
+        }),
         span: DUMMY_SPAN,
     };
     prelude.types.insert(
@@ -264,7 +272,7 @@ fn register_prelude_enum(
 // ----------------------------------------------------------------------------
 // Library builtins
 
-fn register_std_cardano(cardano: &mut Namespace) {
+fn register_std_cardano(cardano: &mut Namespace, next_name_id: &mut NameId) {
     // blockHeight() -> i64
     cardano.constants.insert(
         "blockHeight".to_owned(),
@@ -276,7 +284,7 @@ fn register_std_cardano(cardano: &mut Namespace) {
                 params: vec![],
                 param_spans: vec![],
                 result: Type::int(),
-                callee: Some(StaticFunction::Named("blockHeight".to_string())),
+                callee: Some(StaticFunction::Named(next_name_id.clone())),
             }),
         ),
     );
@@ -292,7 +300,7 @@ fn register_std_cardano(cardano: &mut Namespace) {
                 params: vec![],
                 param_spans: vec![],
                 result: Type::int(),
-                callee: Some(StaticFunction::Named("currentSlot".to_string())),
+                callee: Some(StaticFunction::Named(next_name_id.clone())),
             }),
         ),
     );
@@ -306,7 +314,7 @@ mod tests {
 
     #[test]
     fn lookup_block_height() {
-        let (registry, _) = BuiltinRegistry::new();
+        let (registry, _, _) = BuiltinRegistry::new();
         let func = registry
             .get_as_namespace(
                 &Identifier::anon("starstream"),
@@ -327,7 +335,7 @@ mod tests {
 
     #[test]
     fn package_exists() {
-        let (registry, _) = BuiltinRegistry::new();
+        let (registry, _, _) = BuiltinRegistry::new();
         registry
             .get_as_namespace(
                 &Identifier::anon("starstream"),

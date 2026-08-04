@@ -25,9 +25,8 @@ use starstream_types::{
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
-        TypedExprKind, TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedImportItems,
-        TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
-        TypedStructFieldInitializer,
+        TypedExprKind, TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedMatchArm,
+        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
     },
     types::{EnumType, EnumVariantKind, Type},
 };
@@ -972,22 +971,11 @@ impl DocumentState {
                 TypedAbiPart::FnDecl(decl) => {
                     let method_doc = self.comment_map.doc_comments(decl.span, source);
 
-                    let params = decl
-                        .params
-                        .iter()
-                        .map(|p| format!("{}: {}", p.name.name, p.ty.compact_display()))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let label = if decl.return_type == Type::Unit {
-                        format!("fn {}({})", decl.name.name, params)
-                    } else {
-                        format!(
-                            "fn {}({}) -> {}",
-                            decl.name.name,
-                            params,
-                            decl.return_type.compact_display()
-                        )
-                    };
+                    let label = format!(
+                        "fn {}{}",
+                        decl.name,
+                        Type::Function(decl.ty.clone()).compact_display()
+                    );
 
                     // Store for field access hover on narrowed ABI variables
                     self.abi_method_info
@@ -2361,18 +2349,11 @@ impl DocumentState {
                 }
                 TypedAbiPart::FnDecl(decl) => {
                     if let Some(span) = decl.name.opt_span() {
-                        let params = decl
-                            .params
-                            .iter()
-                            .map(|p| format!("{}: {}", p.name.name, p.ty))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-
-                        let detail = Some(format!(
-                            "({}) -> {}",
-                            params,
-                            decl.return_type.compact_display()
-                        ));
+                        let detail = Some(
+                            Type::Function(decl.ty.clone())
+                                .compact_display()
+                                .to_string(),
+                        );
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {

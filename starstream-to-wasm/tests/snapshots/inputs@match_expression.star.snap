@@ -937,7 +937,7 @@ T-Fn: match_foo => i64
         2
     },
 } => i64
-    T-Match: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ match foo {
+    T-Match: {foo: Foo, match_foo: fn(Foo) -> i64} ⊢ match foo {
     Foo::Thing(Thing::Wow(ctx)) => {
         ctx.x
     },
@@ -951,7 +951,7 @@ T-Fn: match_foo => i64
         2
     },
 } ⇒ i64
-      T-Var: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ foo ⇒ Foo
+      T-Var: {foo: Foo, match_foo: fn(Foo) -> i64} ⊢ foo ⇒ Foo
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -962,8 +962,8 @@ T-Fn: match_foo => i64
         Unify-Record: Ctx ~ Ctx => {}
           Unify-Const: i64 ~ i64 => {}
       T-Tail: ctx.x => i64
-        T-FieldAccess: {ctx: Ctx, foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ ctx.x ⇒ i64
-          T-Var: {ctx: Ctx, foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ ctx ⇒ Ctx
+        T-FieldAccess: {ctx: Ctx, foo: Foo, match_foo: fn(Foo) -> i64} ⊢ ctx.x ⇒ i64
+          T-Var: {ctx: Ctx, foo: Foo, match_foo: fn(Foo) -> i64} ⊢ ctx ⇒ Ctx
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -971,7 +971,7 @@ T-Fn: match_foo => i64
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
       T-Tail: 0 => i64
-        T-Int: {b: bool, foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ 0 ⇒ i64
+        T-Int: {b: bool, foo: Foo, match_foo: fn(Foo) -> i64} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
@@ -980,10 +980,10 @@ T-Fn: match_foo => i64
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
       T-Tail: n => i64
-        T-Var: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], n: i64} ⊢ n ⇒ i64
+        T-Var: {foo: Foo, match_foo: fn(Foo) -> i64, n: i64} ⊢ n ⇒ i64
       Unify-Const: i64 ~ i64 => i64
       T-Tail: 2 => i64
-        T-Int: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo]} ⊢ 2 ⇒ i64
+        T-Int: {foo: Foo, match_foo: fn(Foo) -> i64} ⊢ 2 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
@@ -996,7 +996,7 @@ T-Fn: match_with_wildcard => i64
         0
     },
 } => i64
-    T-Match: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ match foo {
+    T-Match: {foo: Foo, match_foo: fn(Foo) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ match foo {
     Foo::Bar(b) => {
         1
     },
@@ -1004,7 +1004,7 @@ T-Fn: match_with_wildcard => i64
         0
     },
 } ⇒ i64
-      T-Var: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ foo ⇒ Foo
+      T-Var: {foo: Foo, match_foo: fn(Foo) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ foo ⇒ Foo
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -1012,9 +1012,9 @@ T-Fn: match_with_wildcard => i64
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
       T-Tail: 1 => i64
-        T-Int: {b: bool, foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ 1 ⇒ i64
+        T-Int: {b: bool, foo: Foo, match_foo: fn(Foo) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ 1 ⇒ i64
       T-Tail: 0 => i64
-        T-Int: {foo: Foo, match_foo: fn(Foo) -> i64 [match_foo], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ 0 ⇒ i64
+        T-Int: {foo: Foo, match_foo: fn(Foo) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Var: i64 ~ i64 => {i64/t5}
 
@@ -1027,7 +1027,7 @@ T-Fn: match_literal => i64
         0
     },
 } => i64
-    T-Match: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], x: i64} ⊢ match x {
+    T-Match: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_with_wildcard: fn(Foo) -> i64, x: i64} ⊢ match x {
     42 => {
         1
     },
@@ -1035,12 +1035,12 @@ T-Fn: match_literal => i64
         0
     },
 } ⇒ i64
-      T-Var: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], x: i64} ⊢ x ⇒ i64
+      T-Var: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_with_wildcard: fn(Foo) -> i64, x: i64} ⊢ x ⇒ i64
       Unify-Const: i64 ~ i64 => {}
       T-Tail: 1 => i64
-        T-Int: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], x: i64} ⊢ 1 ⇒ i64
+        T-Int: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_with_wildcard: fn(Foo) -> i64, x: i64} ⊢ 1 ⇒ i64
       T-Tail: 0 => i64
-        T-Int: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], x: i64} ⊢ 0 ⇒ i64
+        T-Int: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_with_wildcard: fn(Foo) -> i64, x: i64} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Var: i64 ~ i64 => {i64/t7}
 
@@ -1054,7 +1054,7 @@ T-Fn: match_point => i64
         0
     },
 } => i64
-    T-Match: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message} ⊢ match msg {
+    T-Match: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message} ⊢ match msg {
     Message::Point { x, y } => {
         x + y
     },
@@ -1062,27 +1062,27 @@ T-Fn: match_point => i64
         0
     },
 } ⇒ i64
-      T-Var: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message} ⊢ msg ⇒ Message
+      T-Var: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message} ⊢ msg ⇒ Message
       Unify-Enum: Message ~ Message => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: x + y => i64
-        T-Bin-Add: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message, x: i64, y: i64} ⊢ x + y ⇒ i64
-          T-Var: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message, x: i64, y: i64} ⊢ x ⇒ i64
-          T-Var: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message, x: i64, y: i64} ⊢ y ⇒ i64
+        T-Bin-Add: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message, x: i64, y: i64} ⊢ x + y ⇒ i64
+          T-Var: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message, x: i64, y: i64} ⊢ x ⇒ i64
+          T-Var: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message, x: i64, y: i64} ⊢ y ⇒ i64
           Unify-Const: i64 ~ i64 => {}
       T-Tail: 0 => i64
-        T-Int: {match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard], msg: Message} ⊢ 0 ⇒ i64
+        T-Int: {match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64, msg: Message} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: get_bar => ()
-  T-Expr: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ match_foo(Foo::Bar(true)); ⇒ ()
-    T-Call: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ match_foo(Foo::Bar(true)) ⇒ i64
-      T-Var: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ match_foo ⇒ fn(Foo) -> i64 [match_foo]
-      T-Call: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ Foo::Bar(true) ⇒ Foo
-        T-Var: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ Foo::Bar ⇒ fn(bool) -> Foo [0]
-        T-Bool: {get_bar: fn() -> () [get_bar], match_foo: fn(Foo) -> i64 [match_foo], match_literal: fn(i64) -> i64 [match_literal], match_point: fn(Message) -> i64 [match_point], match_with_wildcard: fn(Foo) -> i64 [match_with_wildcard]} ⊢ true ⇒ bool
+  T-Expr: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ match_foo(Foo::Bar(true)); ⇒ ()
+    T-Call: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ match_foo(Foo::Bar(true)) ⇒ i64
+      T-Var: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ match_foo ⇒ fn(Foo) -> i64
+      T-Call: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ Foo::Bar(true) ⇒ Foo
+        T-Var: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ Foo::Bar ⇒ fn(bool) -> Foo
+        T-Bool: {get_bar: fn() -> (), match_foo: fn(Foo) -> i64, match_literal: fn(i64) -> i64, match_point: fn(Message) -> i64, match_with_wildcard: fn(Foo) -> i64} ⊢ true ⇒ bool
         Unify-Const: bool ~ bool => {}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
@@ -1361,6 +1361,7 @@ TypedProgram {
                     name: "match_foo",
                     span: 131..140,
                 },
+                id: NameId(2),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -1739,6 +1740,7 @@ TypedProgram {
                     name: "match_with_wildcard",
                     span: 398..417,
                 },
+                id: NameId(3),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -1988,6 +1990,7 @@ TypedProgram {
                     name: "match_literal",
                     span: 555..568,
                 },
+                id: NameId(4),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2174,6 +2177,7 @@ TypedProgram {
                     name: "match_point",
                     span: 751..762,
                 },
+                id: NameId(5),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2413,6 +2417,7 @@ TypedProgram {
                     name: "get_bar",
                     span: 927..934,
                 },
+                id: NameId(6),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -2508,7 +2513,7 @@ TypedProgram {
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                "match_foo",
+                                                                NameId(2),
                                                             ),
                                                         ),
                                                     },

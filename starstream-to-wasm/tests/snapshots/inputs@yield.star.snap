@@ -129,9 +129,9 @@ Program {
 
 T-Utxo: MyUtxo => 
   T-Fn: hello_utxo => ()
-    T-Expr: {hello_utxo: fn(i32) -> () [hello_utxo], x: i32} ⊢ yield(Foo); ⇒ ()
+    T-Expr: {hello_utxo: fn(i32) -> (), x: i32} ⊢ yield(Foo); ⇒ ()
   T-Fn: foo => ()
-    T-Resume: {foo: fn() -> () [foo], hello_utxo: fn(i32) -> () [hello_utxo]} ⊢ resume; ⇒ ()
+    T-Resume: {foo: fn() -> (), hello_utxo: fn(i32) -> ()} ⊢ resume; ⇒ ()
       Unify-Const: () ~ () => {}
 
 ==== Typed AST ====
@@ -150,9 +150,19 @@ TypedProgram {
                                 name: "foo",
                                 span: 17..20,
                             },
-                            params: [],
-                            return_type: Unit,
                             span: 17..20,
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 17..20,
+                                params: [],
+                                param_spans: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(2),
+                                    ),
+                                ),
+                            },
                         },
                     ),
                 ],
@@ -174,6 +184,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 53..63,
                             },
+                            id: NameId(3),
                             params: [
                                 TypedFunctionParam {
                                     public: false,
@@ -206,9 +217,19 @@ TypedProgram {
                                                                         name: "foo",
                                                                         span: 17..20,
                                                                     },
-                                                                    params: [],
-                                                                    return_type: Unit,
                                                                     span: 17..20,
+                                                                    ty: FunctionType {
+                                                                        kind: Normal,
+                                                                        name_span: 17..20,
+                                                                        params: [],
+                                                                        param_spans: [],
+                                                                        result: Unit,
+                                                                        callee: Some(
+                                                                            Named(
+                                                                                NameId(2),
+                                                                            ),
+                                                                        ),
+                                                                    },
                                                                 },
                                                             ],
                                                         },
@@ -237,9 +258,19 @@ TypedProgram {
                                             name: "foo",
                                             span: 17..20,
                                         },
-                                        params: [],
-                                        return_type: Unit,
                                         span: 17..20,
+                                        ty: FunctionType {
+                                            kind: Normal,
+                                            name_span: 17..20,
+                                            params: [],
+                                            param_spans: [],
+                                            result: Unit,
+                                            callee: Some(
+                                                Named(
+                                                    NameId(2),
+                                                ),
+                                            ),
+                                        },
                                     },
                                 ],
                             },
@@ -251,6 +282,7 @@ TypedProgram {
                                     name: "foo",
                                     span: 126..129,
                                 },
+                                id: NameId(4),
                                 params: [],
                                 return_type: Unit,
                                 body: TypedBlock {

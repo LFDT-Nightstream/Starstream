@@ -584,47 +584,47 @@ Program {
 
 T-Utxo: ScoreProgress => 
   T-Fn: new => ()
-    T-Expr: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ yield(Score); ⇒ ()
-    T-Expr: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ emit Finish(chips * mult); ⇒ ()
-      T-Call: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ emit Finish(chips * mult) ⇒ ()
-        T-Var: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ Finish ⇒ event(u64) -> () [Finish]
-        T-Bin-Mul: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ chips * mult ⇒ u64
-          T-Var: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ chips ⇒ u64
-          T-Var: {chips: u64, mult: u64, new: fn() -> () [new]} ⊢ mult ⇒ u64
+    T-Expr: {chips: u64, mult: u64, new: fn() -> ()} ⊢ yield(Score); ⇒ ()
+    T-Expr: {chips: u64, mult: u64, new: fn() -> ()} ⊢ emit Finish(chips * mult); ⇒ ()
+      T-Call: {chips: u64, mult: u64, new: fn() -> ()} ⊢ emit Finish(chips * mult) ⇒ ()
+        T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ Finish ⇒ event(u64) -> ()
+        T-Bin-Mul: {chips: u64, mult: u64, new: fn() -> ()} ⊢ chips * mult ⇒ u64
+          T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ chips ⇒ u64
+          T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ mult ⇒ u64
           Unify-Const: u64 ~ u64 => {}
         Unify-Const: u64 ~ u64 => {}
   T-Fn: plus_chips => ()
-    T-Assign: {chips: u64, chips2: u64, mult: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips]} ⊢ chips = chips + chips2; ⇒ u64
-      T-Bin-Add: {chips: u64, chips2: u64, mult: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips]} ⊢ chips + chips2 ⇒ u64
-        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips]} ⊢ chips ⇒ u64
-        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips]} ⊢ chips2 ⇒ u64
+    T-Assign: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips = chips + chips2; ⇒ u64
+      T-Bin-Add: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips + chips2 ⇒ u64
+        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips ⇒ u64
+        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips2 ⇒ u64
         Unify-Const: u64 ~ u64 => {}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: plus_mult => ()
-    T-Assign: {chips: u64, mult: u64, mult2: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult = mult + mult2; ⇒ u64
-      T-Bin-Add: {chips: u64, mult: u64, mult2: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult + mult2 ⇒ u64
-        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult ⇒ u64
-        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult2 ⇒ u64
+    T-Assign: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult = mult + mult2; ⇒ u64
+      T-Bin-Add: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult + mult2 ⇒ u64
+        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult ⇒ u64
+        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult2 ⇒ u64
         Unify-Const: u64 ~ u64 => {}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: mult_mult => ()
-    T-Assign: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult = mult * mult_pct / 100; ⇒ u64
-      T-Bin-Div: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult * mult_pct / 100 ⇒ u64
-        T-Bin-Mul: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult * mult_pct ⇒ u64
-          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult ⇒ u64
-          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ mult_pct ⇒ u64
+    T-Assign: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult = mult * mult_pct / 100; ⇒ u64
+      T-Bin-Div: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult * mult_pct / 100 ⇒ u64
+        T-Bin-Mul: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult * mult_pct ⇒ u64
+          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult ⇒ u64
+          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult_pct ⇒ u64
           Unify-Const: u64 ~ u64 => {}
-        T-Int: {chips: u64, mult: u64, mult_mult: fn(u64) -> () [mult_mult], mult_pct: u64, new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ 100 ⇒ i64
+        T-Int: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ 100 ⇒ i64
         Unify-Var: u64 ~ i64 => {u64/t3}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: finish => ()
-    T-Resume: {chips: u64, finish: fn() -> () [finish], mult: u64, mult_mult: fn(u64) -> () [mult_mult], new: fn() -> () [new], plus_chips: fn(u64) -> () [plus_chips], plus_mult: fn(u64) -> () [plus_mult]} ⊢ resume; ⇒ ()
+    T-Resume: {chips: u64, finish: fn() -> (), mult: u64, mult_mult: fn(u64) -> (), new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ resume; ⇒ ()
       Unify-Const: () ~ () => {}
 
 T-Fn: example => ()
-  T-Let: {example: fn() -> () [example]} ⊢ let prog = ScoreProgress::new(); ⇒ ScoreProgress
-    T-Call: {example: fn() -> () [example]} ⊢ ScoreProgress::new() ⇒ ScoreProgress
-      T-Var: {example: fn() -> () [example]} ⊢ ScoreProgress::new ⇒ fn() -> ScoreProgress [new]
+  T-Let: {example: fn() -> ()} ⊢ let prog = ScoreProgress::new(); ⇒ ScoreProgress
+    T-Call: {example: fn() -> ()} ⊢ ScoreProgress::new() ⇒ ScoreProgress
+      T-Var: {example: fn() -> ()} ⊢ ScoreProgress::new ⇒ fn() -> ScoreProgress
 
 ==== Typed AST ====
 TypedProgram {
@@ -642,20 +642,25 @@ TypedProgram {
                                 name: "plus_chips",
                                 span: 19..29,
                             },
-                            params: [
-                                TypedFunctionParam {
-                                    public: false,
-                                    name: Identifier {
-                                        name: "chips",
-                                        span: 30..35,
-                                    },
-                                    ty: Int(
+                            span: 19..29,
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 19..29,
+                                params: [
+                                    Int(
                                         U64,
                                     ),
-                                },
-                            ],
-                            return_type: Unit,
-                            span: 19..29,
+                                ],
+                                param_spans: [
+                                    30..35,
+                                ],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(2),
+                                    ),
+                                ),
+                            },
                         },
                     ),
                     FnDecl(
@@ -664,20 +669,25 @@ TypedProgram {
                                 name: "plus_mult",
                                 span: 50..59,
                             },
-                            params: [
-                                TypedFunctionParam {
-                                    public: false,
-                                    name: Identifier {
-                                        name: "mult",
-                                        span: 60..64,
-                                    },
-                                    ty: Int(
+                            span: 50..59,
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 50..59,
+                                params: [
+                                    Int(
                                         U64,
                                     ),
-                                },
-                            ],
-                            return_type: Unit,
-                            span: 50..59,
+                                ],
+                                param_spans: [
+                                    60..64,
+                                ],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(3),
+                                    ),
+                                ),
+                            },
                         },
                     ),
                     FnDecl(
@@ -686,20 +696,25 @@ TypedProgram {
                                 name: "mult_mult",
                                 span: 79..88,
                             },
-                            params: [
-                                TypedFunctionParam {
-                                    public: false,
-                                    name: Identifier {
-                                        name: "mult_pct",
-                                        span: 89..97,
-                                    },
-                                    ty: Int(
+                            span: 79..88,
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 79..88,
+                                params: [
+                                    Int(
                                         U64,
                                     ),
-                                },
-                            ],
-                            return_type: Unit,
-                            span: 79..88,
+                                ],
+                                param_spans: [
+                                    89..97,
+                                ],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(4),
+                                    ),
+                                ),
+                            },
                         },
                     ),
                     FnDecl(
@@ -708,9 +723,19 @@ TypedProgram {
                                 name: "finish",
                                 span: 112..118,
                             },
-                            params: [],
-                            return_type: Unit,
                             span: 112..118,
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 112..118,
+                                params: [],
+                                param_spans: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(5),
+                                    ),
+                                ),
+                            },
                         },
                     ),
                     Event(
@@ -719,6 +744,7 @@ TypedProgram {
                                 name: "Finish",
                                 span: 132..138,
                             },
+                            id: NameId(6),
                             params: [
                                 TypedFunctionParam {
                                     public: false,
@@ -774,6 +800,7 @@ TypedProgram {
                                 name: "new",
                                 span: 263..266,
                             },
+                            id: NameId(7),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -795,69 +822,94 @@ TypedProgram {
                                                                         name: "plus_chips",
                                                                         span: 19..29,
                                                                     },
-                                                                    params: [
-                                                                        TypedFunctionParam {
-                                                                            public: false,
-                                                                            name: Identifier {
-                                                                                name: "chips",
-                                                                                span: 30..35,
-                                                                            },
-                                                                            ty: Int(
+                                                                    span: 19..29,
+                                                                    ty: FunctionType {
+                                                                        kind: Normal,
+                                                                        name_span: 19..29,
+                                                                        params: [
+                                                                            Int(
                                                                                 U64,
                                                                             ),
-                                                                        },
-                                                                    ],
-                                                                    return_type: Unit,
-                                                                    span: 19..29,
+                                                                        ],
+                                                                        param_spans: [
+                                                                            30..35,
+                                                                        ],
+                                                                        result: Unit,
+                                                                        callee: Some(
+                                                                            Named(
+                                                                                NameId(2),
+                                                                            ),
+                                                                        ),
+                                                                    },
                                                                 },
                                                                 TypedAbiMethodDecl {
                                                                     name: Identifier {
                                                                         name: "plus_mult",
                                                                         span: 50..59,
                                                                     },
-                                                                    params: [
-                                                                        TypedFunctionParam {
-                                                                            public: false,
-                                                                            name: Identifier {
-                                                                                name: "mult",
-                                                                                span: 60..64,
-                                                                            },
-                                                                            ty: Int(
+                                                                    span: 50..59,
+                                                                    ty: FunctionType {
+                                                                        kind: Normal,
+                                                                        name_span: 50..59,
+                                                                        params: [
+                                                                            Int(
                                                                                 U64,
                                                                             ),
-                                                                        },
-                                                                    ],
-                                                                    return_type: Unit,
-                                                                    span: 50..59,
+                                                                        ],
+                                                                        param_spans: [
+                                                                            60..64,
+                                                                        ],
+                                                                        result: Unit,
+                                                                        callee: Some(
+                                                                            Named(
+                                                                                NameId(3),
+                                                                            ),
+                                                                        ),
+                                                                    },
                                                                 },
                                                                 TypedAbiMethodDecl {
                                                                     name: Identifier {
                                                                         name: "mult_mult",
                                                                         span: 79..88,
                                                                     },
-                                                                    params: [
-                                                                        TypedFunctionParam {
-                                                                            public: false,
-                                                                            name: Identifier {
-                                                                                name: "mult_pct",
-                                                                                span: 89..97,
-                                                                            },
-                                                                            ty: Int(
+                                                                    span: 79..88,
+                                                                    ty: FunctionType {
+                                                                        kind: Normal,
+                                                                        name_span: 79..88,
+                                                                        params: [
+                                                                            Int(
                                                                                 U64,
                                                                             ),
-                                                                        },
-                                                                    ],
-                                                                    return_type: Unit,
-                                                                    span: 79..88,
+                                                                        ],
+                                                                        param_spans: [
+                                                                            89..97,
+                                                                        ],
+                                                                        result: Unit,
+                                                                        callee: Some(
+                                                                            Named(
+                                                                                NameId(4),
+                                                                            ),
+                                                                        ),
+                                                                    },
                                                                 },
                                                                 TypedAbiMethodDecl {
                                                                     name: Identifier {
                                                                         name: "finish",
                                                                         span: 112..118,
                                                                     },
-                                                                    params: [],
-                                                                    return_type: Unit,
                                                                     span: 112..118,
+                                                                    ty: FunctionType {
+                                                                        kind: Normal,
+                                                                        name_span: 112..118,
+                                                                        params: [],
+                                                                        param_spans: [],
+                                                                        result: Unit,
+                                                                        callee: Some(
+                                                                            Named(
+                                                                                NameId(5),
+                                                                            ),
+                                                                        ),
+                                                                    },
                                                                 },
                                                             ],
                                                         },
@@ -889,7 +941,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            "Finish",
+                                                                            NameId(6),
                                                                         ),
                                                                     ),
                                                                 },
@@ -979,69 +1031,94 @@ TypedProgram {
                                             name: "plus_chips",
                                             span: 19..29,
                                         },
-                                        params: [
-                                            TypedFunctionParam {
-                                                public: false,
-                                                name: Identifier {
-                                                    name: "chips",
-                                                    span: 30..35,
-                                                },
-                                                ty: Int(
+                                        span: 19..29,
+                                        ty: FunctionType {
+                                            kind: Normal,
+                                            name_span: 19..29,
+                                            params: [
+                                                Int(
                                                     U64,
                                                 ),
-                                            },
-                                        ],
-                                        return_type: Unit,
-                                        span: 19..29,
+                                            ],
+                                            param_spans: [
+                                                30..35,
+                                            ],
+                                            result: Unit,
+                                            callee: Some(
+                                                Named(
+                                                    NameId(2),
+                                                ),
+                                            ),
+                                        },
                                     },
                                     TypedAbiMethodDecl {
                                         name: Identifier {
                                             name: "plus_mult",
                                             span: 50..59,
                                         },
-                                        params: [
-                                            TypedFunctionParam {
-                                                public: false,
-                                                name: Identifier {
-                                                    name: "mult",
-                                                    span: 60..64,
-                                                },
-                                                ty: Int(
+                                        span: 50..59,
+                                        ty: FunctionType {
+                                            kind: Normal,
+                                            name_span: 50..59,
+                                            params: [
+                                                Int(
                                                     U64,
                                                 ),
-                                            },
-                                        ],
-                                        return_type: Unit,
-                                        span: 50..59,
+                                            ],
+                                            param_spans: [
+                                                60..64,
+                                            ],
+                                            result: Unit,
+                                            callee: Some(
+                                                Named(
+                                                    NameId(3),
+                                                ),
+                                            ),
+                                        },
                                     },
                                     TypedAbiMethodDecl {
                                         name: Identifier {
                                             name: "mult_mult",
                                             span: 79..88,
                                         },
-                                        params: [
-                                            TypedFunctionParam {
-                                                public: false,
-                                                name: Identifier {
-                                                    name: "mult_pct",
-                                                    span: 89..97,
-                                                },
-                                                ty: Int(
+                                        span: 79..88,
+                                        ty: FunctionType {
+                                            kind: Normal,
+                                            name_span: 79..88,
+                                            params: [
+                                                Int(
                                                     U64,
                                                 ),
-                                            },
-                                        ],
-                                        return_type: Unit,
-                                        span: 79..88,
+                                            ],
+                                            param_spans: [
+                                                89..97,
+                                            ],
+                                            result: Unit,
+                                            callee: Some(
+                                                Named(
+                                                    NameId(4),
+                                                ),
+                                            ),
+                                        },
                                     },
                                     TypedAbiMethodDecl {
                                         name: Identifier {
                                             name: "finish",
                                             span: 112..118,
                                         },
-                                        params: [],
-                                        return_type: Unit,
                                         span: 112..118,
+                                        ty: FunctionType {
+                                            kind: Normal,
+                                            name_span: 112..118,
+                                            params: [],
+                                            param_spans: [],
+                                            result: Unit,
+                                            callee: Some(
+                                                Named(
+                                                    NameId(5),
+                                                ),
+                                            ),
+                                        },
                                     },
                                 ],
                             },
@@ -1053,6 +1130,7 @@ TypedProgram {
                                     name: "plus_chips",
                                     span: 362..372,
                                 },
+                                id: NameId(8),
                                 params: [
                                     TypedFunctionParam {
                                         public: true,
@@ -1129,6 +1207,7 @@ TypedProgram {
                                     name: "plus_mult",
                                     span: 449..458,
                                 },
+                                id: NameId(9),
                                 params: [
                                     TypedFunctionParam {
                                         public: true,
@@ -1205,6 +1284,7 @@ TypedProgram {
                                     name: "mult_mult",
                                     span: 531..540,
                                 },
+                                id: NameId(10),
                                 params: [
                                     TypedFunctionParam {
                                         public: true,
@@ -1305,6 +1385,7 @@ TypedProgram {
                                     name: "finish",
                                     span: 625..631,
                                 },
+                                id: NameId(11),
                                 params: [],
                                 return_type: Unit,
                                 body: TypedBlock {
@@ -1331,6 +1412,7 @@ TypedProgram {
                     name: "example",
                     span: 685..692,
                 },
+                id: NameId(12),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -1361,7 +1443,7 @@ TypedProgram {
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                "new",
+                                                                NameId(7),
                                                             ),
                                                         ),
                                                     },

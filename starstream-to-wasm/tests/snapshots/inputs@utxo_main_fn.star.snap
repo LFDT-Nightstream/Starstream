@@ -90,9 +90,9 @@ Program {
 
 T-Utxo: MyUtxo => 
   T-Fn: hello_utxo => ()
-    T-Expr: {hello_utxo: fn() -> () [hello_utxo]} ⊢ emit HelloEvent(); ⇒ ()
-      T-Call: {hello_utxo: fn() -> () [hello_utxo]} ⊢ emit HelloEvent() ⇒ ()
-        T-Var: {hello_utxo: fn() -> () [hello_utxo]} ⊢ HelloEvent ⇒ event() -> () [HelloEvent]
+    T-Expr: {hello_utxo: fn() -> ()} ⊢ emit HelloEvent(); ⇒ ()
+      T-Call: {hello_utxo: fn() -> ()} ⊢ emit HelloEvent() ⇒ ()
+        T-Var: {hello_utxo: fn() -> ()} ⊢ HelloEvent ⇒ event() -> ()
 
 ==== Typed AST ====
 TypedProgram {
@@ -110,6 +110,7 @@ TypedProgram {
                                 name: "HelloEvent",
                                 span: 23..33,
                             },
+                            id: NameId(2),
                             params: [],
                         },
                     ),
@@ -132,6 +133,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 66..76,
                             },
+                            id: NameId(3),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -152,7 +154,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            "HelloEvent",
+                                                                            NameId(2),
                                                                         ),
                                                                     ),
                                                                 },

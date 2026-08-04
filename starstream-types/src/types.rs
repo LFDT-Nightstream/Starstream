@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::sync::Arc;
 
-use crate::{Identifier, Span, TypedAbiMethodDecl};
+use crate::{Identifier, NameId, Span, TypedAbiMethodDecl};
 
 // ----------------------------------------------------------------------------
 // Core `Type` data structure and its parts.
@@ -57,7 +57,7 @@ const _: [(); 0 - !(std::mem::size_of::<Type>() <= 32) as usize] = [];
 /// types. They are later unified with concrete types or quantified into
 /// [`Scheme`]s. Using a small newtype keeps the representation compact while
 /// still allowing us to attach formatting logic.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeVarId(pub u32);
 
 /// Integer width and signedness.
@@ -102,7 +102,7 @@ pub enum FunctionKind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StaticFunction {
     /// A specific function declared in the global namespace.
-    Named(String),
+    Named(NameId),
     /// Tuple variant constructor for the given variant of the function's return type.
     Constructor { variant: usize },
 }
@@ -411,6 +411,12 @@ impl GenericTypeDef {
 
 const TYPE_FORMAT_WIDTH: usize = 80;
 
+impl fmt::Debug for TypeVarId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TypeVarId({})", self.0)
+    }
+}
+
 impl Display for TypeVarId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "t{}", self.0)
@@ -472,7 +478,7 @@ impl Type {
                     result,
                     kind,
                     name_span: _,
-                    callee,
+                    callee: _,
                 } = &**func;
                 let params_doc = if fn_params.is_empty() {
                     RcDoc::text("()")
@@ -491,16 +497,6 @@ impl Type {
                     .append(params_doc)
                     .append(RcDoc::text(" -> "))
                     .append(result.to_doc(TypeDocMode::Compact, params))
-                    .append(match callee {
-                        Some(StaticFunction::Named(name)) => {
-                            RcDoc::text(" [").append(name.to_owned()).append("]")
-                        }
-                        Some(StaticFunction::Constructor { variant }) => {
-                            // TODO: use variant name here by inspecting `result`
-                            RcDoc::text(" [").append(variant.to_string()).append("]")
-                        }
-                        None => RcDoc::nil(),
-                    })
             }
             Type::Tuple(items) => RcDoc::text("(")
                 .append(RcDoc::intersperse(

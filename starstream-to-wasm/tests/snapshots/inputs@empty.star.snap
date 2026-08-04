@@ -49,6 +49,7 @@ TypedProgram {
                     name: "main",
                     span: 22..26,
                 },
+                id: NameId(2),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {

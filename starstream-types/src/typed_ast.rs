@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use crate::{
-    AbiType, DUMMY_SPAN, FunctionExport, ScopedName, Span, Spanned,
+    AbiType, DUMMY_SPAN, FunctionExport, FunctionType, ImportSource, ScopedName, Span, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -36,22 +36,13 @@ pub enum TypedDefinition {
 
 #[derive(Clone, Debug)]
 pub struct TypedImportDef {
-    pub items: TypedImportItems,
-    pub from: TypedImportSource,
+    /// All items imported, whether as a namespace or one-by-one.
+    pub items: Vec<TypedImportItem>,
+    pub from: ImportSource,
 }
 
 #[derive(Clone, Debug)]
-pub enum TypedImportItems {
-    Named(Vec<TypedImportNamedItem>),
-    /// Namespace import with alias and the functions available in that namespace.
-    Namespace {
-        alias: Identifier,
-        functions: Vec<TypedImportNamedItem>,
-    },
-}
-
-#[derive(Clone, Debug)]
-pub struct TypedImportNamedItem {
+pub struct TypedImportItem {
     pub imported: Identifier,
     pub local: Identifier,
     /// The type of the imported item (typically a function type).
@@ -59,43 +50,10 @@ pub struct TypedImportNamedItem {
 }
 
 #[derive(Clone, Debug)]
-pub enum TypedImportSource {
-    Wit {
-        namespace: Identifier,
-        package: Identifier,
-        interface: Option<Identifier>,
-    },
-    Path {
-        /// Raw path text as written in the source.
-        value: String,
-        /// Canonical absolute path of the resolved module, if known.
-        canonical: Option<std::path::PathBuf>,
-    },
-}
-
-impl std::fmt::Display for TypedImportSource {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            TypedImportSource::Wit {
-                namespace,
-                package,
-                interface,
-            } => {
-                write!(f, "{namespace}:{package}")?;
-                if let Some(interface) = interface {
-                    write!(f, "/{interface}")?;
-                }
-                Ok(())
-            }
-            TypedImportSource::Path { value, .. } => write!(f, "\"{value}\""),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
 pub struct TypedFunctionDef {
     pub export: Option<FunctionExport>,
     pub name: Identifier,
+    pub id: NameId,
     pub params: Vec<TypedFunctionParam>,
     pub return_type: Type,
     pub body: TypedBlock,
@@ -200,9 +158,8 @@ pub enum TypedAbiPart {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypedAbiMethodDecl {
     pub name: Identifier,
-    pub params: Vec<TypedFunctionParam>,
-    pub return_type: Type,
     pub span: Span,
+    pub ty: Arc<FunctionType>,
 }
 
 impl TypedAbiMethodDecl {
@@ -217,12 +174,14 @@ impl TypedAbiMethodDecl {
 #[derive(Clone, Debug)]
 pub struct TypedEventDef {
     pub name: Identifier,
+    pub id: NameId,
     pub params: Vec<TypedFunctionParam>,
 }
 
 #[derive(Clone, Debug)]
 pub struct TypedEffectDef {
     pub name: Identifier,
+    pub id: NameId,
     pub params: Vec<TypedFunctionParam>,
     pub return_type: Type,
 }
@@ -467,5 +426,29 @@ impl TypedBlock {
             statements,
             tail_expression,
         }
+    }
+}
+
+/// Numeric identifier for a resolved string identifier.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NameId(pub u32);
+
+impl NameId {
+    pub fn fresh(&mut self) -> NameId {
+        let id = NameId(self.0);
+        self.0 += 1;
+        id
+    }
+}
+
+impl std::fmt::Debug for NameId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NameId({})", self.0)
+    }
+}
+
+impl std::fmt::Display for NameId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

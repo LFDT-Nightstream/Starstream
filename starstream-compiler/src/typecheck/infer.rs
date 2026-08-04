@@ -8,9 +8,9 @@ use std::{
 
 use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
-    FunctionKind, FunctionType, GenericTypeDef, IfCondition, Scheme, ScopedName, Span, Spanned,
-    StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId, TypedEffectDef,
-    TypedImportItems, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef,
+    FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
+    Spanned, StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId,
+    TypedEffectDef, TypedImportItem, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef,
     TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
@@ -391,6 +391,11 @@ struct Inferencer {
     /// Builtin package registry for `import`s, and the prelude.
     builtins: BuiltinRegistry,
 
+    /// Name ID assignment.
+    next_name_id: NameId,
+    function_names: HashMap<usize, NameId>,
+    import_lists: HashMap<usize, Vec<TypedImportItem>>,
+
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
     abi_call_trackers: Vec<AbiCallTracker>,
 }
@@ -414,16 +419,19 @@ struct FunctionCtx {
 impl Inferencer {
     /// Construct a fresh inferencer with an empty substitution environment.
     fn new(capture_traces: bool) -> Self {
-        let (builtins, next_type_var) = BuiltinRegistry::new();
+        let (builtins, next_type_var, next_name_id) = BuiltinRegistry::new();
         Inferencer {
             capture_traces,
             next_type_var,
-            subst: HashMap::new(),
-            int_vars: HashSet::new(),
-            int_literal_values: HashMap::new(),
+            subst: Default::default(),
+            int_vars: Default::default(),
+            int_literal_values: Default::default(),
             builtins,
-            warnings: Vec::new(),
-            abi_call_trackers: Vec::new(),
+            next_name_id,
+            function_names: Default::default(),
+            import_lists: Default::default(),
+            warnings: Default::default(),
+            abi_call_trackers: Default::default(),
         }
     }
 
@@ -462,34 +470,27 @@ impl Inferencer {
     ) -> Result<(), TypeError> {
         for (i, def) in definitions.iter().enumerate() {
             if let Definition::Import(import) = &def.node {
-                // Preresolved import. Common case for path imports which come
-                // from the module graph.
-                if let Some(resolved) = resolved.get(&i) {
-                    self.register_import_items(
-                        env,
-                        &import.items,
-                        resolved,
-                        &import.from.to_string(),
-                    )?;
-                }
-
-                match &import.from {
-                    ImportSource::Wit {
-                        namespace,
-                        package,
-                        interface,
-                    } => {
-                        // Non-preresolved WIT import gets looked up in the builtins.
-                        self.register_wit_import(
-                            env,
-                            &import.items,
+                // Resolve the namespace we're importing from.
+                let source = &import.from.to_string();
+                let namespace = match (resolved.get(&i), &import.from) {
+                    (Some(&ns), _) => {
+                        // Preresolved import. Common case for path imports which come
+                        // from the module graph.
+                        ns
+                    }
+                    (
+                        None,
+                        ImportSource::Wit {
                             namespace,
                             package,
-                            interface.as_ref(),
-                            &import.from.to_string(),
-                        )?;
+                            interface,
+                        },
+                    ) => {
+                        // WIT import.
+                        self.builtins
+                            .get_as_namespace(namespace, package, interface.as_ref())?
                     }
-                    ImportSource::Path(path) => {
+                    (None, ImportSource::Path(path)) => {
                         // Non-preresolved path import, usually leftover from
                         // the single-file so emit a warning explaining why
                         // the names aren't available.
@@ -499,52 +500,52 @@ impl Inferencer {
                             },
                             path.span,
                         ));
+                        continue;
+                    }
+                };
+
+                // Actually import the items.
+                let mut typed_items: Vec<TypedImportItem>;
+                match &import.items {
+                    ImportItems::Named(items) => {
+                        typed_items = Vec::with_capacity(items.len());
+                        for item in items {
+                            env.root.import_name_from(
+                                &item.local,
+                                namespace,
+                                item.imported.as_str(),
+                                source,
+                            )?;
+
+                            if let Some(ci) = namespace.constants.get(item.imported.as_str()) {
+                                typed_items.push(TypedImportItem {
+                                    imported: item.imported.clone(),
+                                    local: item.local.clone(),
+                                    ty: ci.ty.clone(),
+                                });
+                            }
+                        }
+                    }
+                    ImportItems::Namespace(name) => {
+                        env.root.import_as_namespace(name, namespace)?;
+
+                        typed_items = namespace
+                            .constants
+                            .iter()
+                            .map(|(k, ci)| TypedImportItem {
+                                imported: Identifier::new(k.clone(), name.span),
+                                local: Identifier::new(k.clone(), name.span),
+                                ty: ci.ty.clone(),
+                            })
+                            .collect();
                     }
                 }
+
+                // Memorize the [TypedImportItem]s for later.
+                self.import_lists
+                    .insert(import as *const _ as usize, typed_items);
             }
         }
-        Ok(())
-    }
-
-    fn register_import_items(
-        &self,
-        env: &mut TypeEnv,
-        items: &ImportItems,
-        resolved: &Namespace,
-        source: &str,
-    ) -> Result<(), TypeError> {
-        match items {
-            ImportItems::Named(items) => {
-                for item in items {
-                    env.root.import_name_from(
-                        &item.local,
-                        resolved,
-                        item.imported.as_str(),
-                        source,
-                    )?;
-                }
-            }
-            ImportItems::Namespace(name) => {
-                env.root.import_as_namespace(name, resolved)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn register_wit_import(
-        &mut self,
-        env: &mut TypeEnv,
-        items: &ImportItems,
-        namespace_id: &Identifier,
-        package_id: &Identifier,
-        interface_id: Option<&Identifier>,
-        source: &str,
-    ) -> Result<(), TypeError> {
-        // Check if the package exists in our builtin registry
-        let namespace = self
-            .builtins
-            .get_as_namespace(namespace_id, package_id, interface_id)?;
-        self.register_import_items(env, items, &namespace, source)?;
         Ok(())
     }
 
@@ -587,24 +588,29 @@ impl Inferencer {
                 AbiPart::Event(event) => self.register_event(env, event)?,
                 AbiPart::Effect(effect) => self.register_effect(env, effect)?,
                 AbiPart::FnDecl(method) => {
-                    let mut params = Vec::with_capacity(method.params.len());
-                    for param in &method.params {
-                        let ty = self.type_from_annotation(env, &param.ty)?;
-                        params.push(TypedFunctionParam {
-                            public: param.public,
-                            name: param.name.clone(),
-                            ty,
-                        });
-                    }
                     let return_type = match &method.return_type {
                         Some(ann) => self.type_from_annotation(env, ann)?,
                         None => Type::Unit,
                     };
+                    let id = self.next_name_id.fresh();
+                    self.function_names.insert(method as *const _ as usize, id);
+                    let ty = Arc::new(FunctionType {
+                        kind: FunctionKind::Normal,
+                        name_span: method.name.span,
+                        // TODO: recapture `pub` keyword here
+                        params: method
+                            .params
+                            .iter()
+                            .map(|p| self.type_from_annotation(env, &p.ty))
+                            .collect::<Result<Vec<_>, _>>()?,
+                        param_spans: method.params.iter().map(|p| p.name.span).collect(),
+                        result: return_type,
+                        callee: Some(StaticFunction::Named(id)),
+                    });
                     methods.push(TypedAbiMethodDecl {
                         name: method.name.clone(),
-                        params,
-                        return_type,
                         span: method.name.span(),
+                        ty,
                     });
                 }
             }
@@ -627,6 +633,8 @@ impl Inferencer {
             param_types.push(ty);
             param_spans.push(param.ty.name_span());
         }
+        let id = self.next_name_id.fresh();
+        self.function_names.insert(event as *const _ as usize, id);
         env.root.insert_constant(
             &event.name,
             ConstantInfo::new(
@@ -637,7 +645,7 @@ impl Inferencer {
                     params: param_types,
                     param_spans,
                     result: Type::Unit,
-                    callee: Some(StaticFunction::Named(event.name.to_string())),
+                    callee: Some(StaticFunction::Named(id)),
                 }),
             ),
         )?;
@@ -656,6 +664,8 @@ impl Inferencer {
             Some(ann) => self.type_from_annotation(env, ann)?,
             None => Type::Unit,
         };
+        let id = self.next_name_id.fresh();
+        self.function_names.insert(effect as *const _ as usize, id);
         env.root.insert_constant(
             &effect.name,
             ConstantInfo::new(
@@ -666,7 +676,7 @@ impl Inferencer {
                     params: param_types,
                     param_spans,
                     result: return_type,
-                    callee: Some(StaticFunction::Named(effect.name.to_string())),
+                    callee: Some(StaticFunction::Named(id)),
                 }),
             ),
         )?;
@@ -983,14 +993,13 @@ impl Inferencer {
         })
     }
 
-    fn build_typed_import(&self, _def: &ImportDef) -> TypedImportDef {
-        // TODO: fill out placeholder
+    fn build_typed_import(&mut self, def: &ImportDef) -> TypedImportDef {
         TypedImportDef {
-            items: TypedImportItems::Named(vec![]),
-            from: starstream_types::TypedImportSource::Path {
-                value: String::new(),
-                canonical: None,
-            },
+            items: self
+                .import_lists
+                .remove(&(def as *const _ as usize))
+                .unwrap(),
+            from: def.from.clone(),
         }
     }
 
@@ -1026,6 +1035,10 @@ impl Inferencer {
 
                     typed_parts.push(TypedAbiPart::Event(TypedEventDef {
                         name: event.name.clone(),
+                        id: *self
+                            .function_names
+                            .get(&(event as *const _ as usize))
+                            .unwrap(),
                         params,
                     }));
                 }
@@ -1056,6 +1069,10 @@ impl Inferencer {
 
                     typed_parts.push(TypedAbiPart::Effect(TypedEffectDef {
                         name: effect.name.clone(),
+                        id: *self
+                            .function_names
+                            .get(&(effect as *const _ as usize))
+                            .unwrap(),
                         params,
                         return_type: func.result.clone(),
                     }));
@@ -1141,11 +1158,15 @@ impl Inferencer {
 
         env.pop_scope();
 
+        let Some(ty) = env.root.types.get(def.name.as_str()) else {
+            unreachable!()
+        };
+        assert!(matches!(ty.ty, Type::UtxoNamed(_)));
         Ok((
             TypedUtxoDef {
                 name: def.name.clone(),
                 parts,
-                ty: Type::UtxoNamed(def.name.to_string()),
+                ty: ty.ty.clone(),
             },
             self.make_trace("T-Utxo", None, Some(def.name.to_string()), None, || traces),
         ))
@@ -1260,11 +1281,15 @@ impl Inferencer {
 
         env.pop_scope();
 
+        let Some(ty) = env.root.types.get(def.name.as_str()) else {
+            unreachable!()
+        };
+        assert!(matches!(ty.ty, Type::TokenNamed(_)));
         Ok((
             TypedTokenDef {
                 name: def.name.clone(),
                 parts,
-                ty: Type::TokenNamed(def.name.to_string()),
+                ty: ty.ty.clone(),
             },
             self.make_trace("T-Token", None, Some(def.name.to_string()), None, || traces),
         ))
@@ -1309,10 +1334,10 @@ impl Inferencer {
         for impl_method in methods {
             if let Some(abi_method) = abi_methods.remove(impl_method.name.as_str()) {
                 // Method found, make sure the parameter counts match
-                if abi_method.params.len() != impl_method.params.len() {
+                if abi_method.ty.params.len() != impl_method.params.len() {
                     return Err(TypeError::new(
                         TypeErrorKind::ArityMismatch {
-                            expected: abi_method.params.len(),
+                            expected: abi_method.ty.params.len(),
                             found: impl_method.params.len(),
                         },
                         impl_method.name.span(),
@@ -1330,8 +1355,8 @@ impl Inferencer {
                         abi_method.name.span,
                         format!(
                             "declared with {} parameter{} here",
-                            abi_method.params.len(),
-                            if abi_method.params.len() == 1 {
+                            abi_method.ty.params.len(),
+                            if abi_method.ty.params.len() == 1 {
                                 ""
                             } else {
                                 "s"
@@ -1340,29 +1365,31 @@ impl Inferencer {
                     ));
                 }
                 // And that the parameter types match
-                for (i, (abi_param, impl_param)) in abi_method
+                for (i, ((abi_param, &abi_param_span), impl_param)) in abi_method
+                    .ty
                     .params
                     .iter()
+                    .zip(abi_method.ty.param_spans.iter())
                     .zip(impl_method.params.iter())
                     .enumerate()
                 {
-                    if abi_param.ty != impl_param.ty {
+                    if *abi_param != impl_param.ty {
                         return Err(TypeError::new(
                             TypeErrorKind::ArgumentTypeMismatch {
-                                expected: abi_param.ty.clone(),
+                                expected: abi_param.clone(),
                                 found: impl_param.ty.clone(),
                                 position: i,
-                                param_span: Some(abi_method.params[i].name.span),
+                                param_span: Some(abi_param_span),
                             },
                             impl_param.name.span(),
                         ));
                     }
                 }
                 // And return type must match
-                if abi_method.return_type != impl_method.return_type {
+                if abi_method.ty.result != impl_method.return_type {
                     return Err(TypeError::new(
                         TypeErrorKind::ReturnMismatch {
-                            expected: abi_method.return_type.clone(),
+                            expected: abi_method.ty.result.clone(),
                             found: impl_method.return_type.clone(),
                         },
                         abi_method.name.span,
@@ -1772,13 +1799,17 @@ impl Inferencer {
             .iter()
             .map(|param| param.ty.name_span())
             .collect::<Vec<_>>();
+        let id = *self
+            .function_names
+            .entry(function as *const _ as usize)
+            .or_insert_with(|| self.next_name_id.fresh());
         Ok(FunctionType {
             params: param_types.clone(),
             param_spans,
             result: expected_return.clone(),
             kind: FunctionKind::Normal,
             name_span: function.name.span,
-            callee: Some(StaticFunction::Named(function.name.to_string())),
+            callee: Some(StaticFunction::Named(id)),
         })
     }
 
@@ -1871,6 +1902,10 @@ impl Inferencer {
             TypedFunctionDef {
                 export: function.export.clone(),
                 name: function.name.clone(),
+                id: *self
+                    .function_names
+                    .get(&(function as *const _ as usize))
+                    .unwrap(),
                 params: typed_params,
                 return_type: ctx.expected_return,
                 body: typed_body,
@@ -2791,14 +2826,7 @@ impl Inferencer {
                                     field.span(),
                                 )
                             })?;
-                        Type::from(FunctionType {
-                            params: method.params.iter().map(|p| p.ty.clone()).collect(),
-                            param_spans: method.params.iter().map(|p| p.name.span).collect(),
-                            result: method.return_type.clone(),
-                            kind: FunctionKind::Normal,
-                            name_span: method.name.span,
-                            callee: Some(StaticFunction::Named(method.name.to_string())),
-                        })
+                        Type::Function(method.ty.clone())
                     }
                     _ => {
                         return Err(TypeError::new(
