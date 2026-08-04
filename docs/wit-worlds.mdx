@@ -82,8 +82,8 @@ world root {
             my-main-fn: static func() -> utxo;
         }
 
-        downcast: func(self: builtin-utxo) -> option<utxo>;
-        upcast: func(self: utxo) -> builtin-utxo;
+        downcast: func(self: borrow<builtin-utxo>) -> option<utxo>;
+        upcast: func(self: borrow<utxo>) -> builtin-utxo;
     }
 }
 ```
@@ -103,7 +103,7 @@ from `starstream:contract/dynamic-utxo`:
 interface starstream:contract/dynamic-utxo {
     use starstream:std/builtin.utxo;
 
-    my-method: func(this: utxo, parameter: i32);
+    my-method: func(this: borrow<utxo>, parameter: i32);
 }
 
 world root {
