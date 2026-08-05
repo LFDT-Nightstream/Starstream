@@ -23,6 +23,10 @@ The Quint model currently covers:
 - calling an advertised UTXO method;
 - carrying constructor and method argument tuples as canonical 32-bit-limb
   lists;
+- retaining the arguments observed by an imported method call and matching
+  them against the method export's receiver-side `EnterMethod` boundary;
+- retaining the result observed atomically by an imported method call and
+  matching it against the result published by the callee's export return;
 - a UTXO export returning control, with `abis-clear` distinguishing a fresh
   yield from a normal method return;
 - requiring every constructor path to reach an initial yield before returning
@@ -44,7 +48,7 @@ quint test ... --main=replay_trace --match=execution_satisfies_spec
 ```
 
 Every event must be enabled in sequence, and the entrypoint coordination script
-must have returned with an empty call stack and no pending constructor. Quint
+must have returned with an empty call stack and no pending call frame. Quint
 returns the first failed action as a rejected test trace.
 
 Before running the replay, the verifier passes the same generated module
@@ -124,9 +128,12 @@ Constructors are required to reach that initial yield: `CoroutineReturn` is
 only valid on a later method/main-continuation turn. The merger also adds the
 transaction-level `Init` event.
 
-Complete method re-entry is not wired through the runtime E2E test yet:
-multi-turn UTXO normalization still needs input-bootstrap claims before all
-turns of one core-instance trace can be decoded and merged.
+The runtime E2E test normalizes a constructor turn followed by a method turn
+on one UTXO core instance. The scheduler takes the user arguments decoded from
+`CallMethod`, supplies them as the method export's entry-bootstrap claims, and
+then decodes the matching `EnterMethod`. The callee-local resource receiver is
+a separate bootstrap claim: it is constrained against the executed Wasm local
+but is not equated with the caller-local resource-table handle.
 
 The control trace deliberately does not contain stable transaction process IDs
 or program hashes. A scheduler allocates model-local process IDs while merging
@@ -153,10 +160,13 @@ At a `ReturnControl` export exit:
   ABI; and
 - a preceding coroutine `return`/`burn` call leaves the coroutine terminated.
 
-`Completed` is the interleaving model's logical retirement boundary. Physical
-destruction of the guest resource happens in the runtime after the export has
-returned and any Component Model borrow has ended; it does not require a
-separate interleaving event.
+`Dead` in the persistent UTXO lifecycle is the interleaving model's logical
+retirement boundary. Physical destruction of the guest resource happens in
+the runtime after the export has returned and any Component Model borrow has
+ended; it does not require a separate interleaving event. Transient states such
+as ABI publication and a pending coroutine return live in the single
+`active_turn` field: only `curr` can execute, so they are not duplicated in the
+state of every UTXO.
 
 No internal function reference, yield-global, or yield-site PC needs to enter
 the semantic transcript.
@@ -188,13 +198,37 @@ IVC state or permutation schedule.
 The encoding is not self-describing. The injected grammar template and static
 component function type determine the block count and the meaning of every
 slot. In the initial `CallMethod` assignment the resource handle is a named
-slot, the method identity comes from the statically selected import, and only
-the encoded Starstream value occupies a variable number of slots:
+slot, the method identity comes from the statically selected import, and the
+argument and result widths come from its core function type:
 
 ```text
 first block: [CallMethod, resource, value_0, ..., value_5]
 continuation: [value_6, ..., value_13]
+result block: [result_lo, result_hi, padding...]
 ```
+
+A method export publishes the same flat result at its control-return boundary:
+
+```text
+[ReturnControl, result_lo, result_hi, padding...]
+```
+
+Before the method's first instruction, its export-entry template absorbs the
+flattened user arguments and writes all entry locals through Neo-Wasm's
+`ClaimLocal` bootstrap mechanism:
+
+```text
+[EnterMethod, value_0, ..., value_n, internal_receiver, local_0, ...]
+```
+
+The static template separates the user-argument prefix from internal
+bootstrap words. `EnterMethod` exposes only that prefix to Quint. The internal
+receiver and zero-initialized declared locals remain committed execution
+claims, but they do not acquire caller-visible resource semantics.
+
+The current prototype supports no result or one flat core `i32`/`i64` result.
+Other result shapes are rejected until Neo-Wasm templates can commit an opaque
+value digest.
 
 Neo-Wasm observes a constructor import's arguments and result atomically.
 `NewUtxo` therefore places the statically sized argument value followed by the
@@ -221,13 +255,15 @@ prevents a continuation word that happens to equal an opcode from being
 mistaken for a new event. Every continuation block must retain the first
 block's `attributed_fref` and `turn_export_fref`.
 
-The registry currently supports atomic `NewUtxo`, static `CallMethod`, and
-zero-argument control templates. It is populated explicitly; deriving these
-entries from compiler component metadata is the next integration boundary.
+The registry currently supports atomic `NewUtxo`, static result-bearing
+`CallMethod`, method-entry `EnterMethod`, `ReturnControl`, and fixed control
+templates. It is populated explicitly; deriving these entries from compiler
+component metadata is the next integration boundary.
 The metadata fields are circuit-constrained in a valid Nightstream trace but
 are not part of the event-chain commitment, so the projector must only consume
 them after the Wasm trace has been validated.
 
-`ClearAbi`, UTXO `ReturnControl`, and coordination-script `CoordReturn` have
-Nightstream grammar templates. Method re-entry still needs input-bootstrap
-templates before complete multi-turn UTXO traces can be normalized.
+`ClearAbi`, UTXO `EnterMethod`/`ReturnControl`, and coordination-script
+`CoordReturn` have Nightstream grammar templates. The current flat method
+entry template supports `i32`/`i64` parameters and bootstraps every declared
+local required by Neo-Wasm's multi-turn relation.

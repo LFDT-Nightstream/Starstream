@@ -81,15 +81,31 @@ pub enum ExecutionEvent {
     /// The current UTXO export returned control to its caller.
     ///
     /// `ClearAbi` determines whether this closes a fresh yield point or a
-    /// method handler returned while preserving the previous one.
-    ReturnControl,
+    /// method handler returned while preserving the previous one. Method
+    /// calls bind this value to the result observed atomically by the caller;
+    /// constructor returns use an empty semantic result because the callee's
+    /// internal resource representation is not the caller-local handle.
+    ReturnControl { result: StarstreamValue },
 
     /// A running coordinator called a method advertised by a yielded UTXO.
     CallMethod {
         resource: ResourceHandle,
         method: MethodHash,
+        /// User arguments observed at the atomic import boundary. The next
+        /// event in the selected UTXO turn must be an [`Self::EnterMethod`]
+        /// carrying the same value.
         arguments: StarstreamValue,
+        /// Result observed atomically at the imported call site. The
+        /// interleaving model retains it while the callee executes and checks
+        /// it against the callee's `ReturnControl` value.
+        result: StarstreamValue,
     },
+
+    /// The selected UTXO method export began executing with these user
+    /// arguments. The callee's internal resource receiver is deliberately
+    /// absent: it is bootstrap advice local to that component instance, not
+    /// the caller-local resource handle carried by [`Self::CallMethod`].
+    EnterMethod { arguments: StarstreamValue },
 
     /// The running coroutine called the provisional terminal `return`/`burn`
     /// host operation instead of yielding again.

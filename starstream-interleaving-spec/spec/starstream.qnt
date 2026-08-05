@@ -1,6 +1,4 @@
 module starstream_execution {
-  type Option[a] = Some(a) | None
-
   type CoroutineId = Coord(int) | Utxo(int)
 
   type ResourceKey = {
@@ -8,29 +6,45 @@ module starstream_execution {
     handle: int,
   }
 
-  type PendingNewUtxo = {
+  type ConstructorCallFrame = {
+    caller: CoroutineId,
     target: CoroutineId,
     key: ResourceKey,
   }
 
-  type Phase =
-      CoordRunning
-    | CoordWaiting
-    | Constructing
-    | Yielded
-    | HandlerRunning
-    | PreparingYield
-    | Returning
-    | Completed
+  type MethodCallFrame = {
+    caller: CoroutineId,
+    target: CoroutineId,
+    expected_arguments: List[int],
+    expected_result: List[int],
+  }
+
+  type CallFrame =
+      ConstructorFrame(ConstructorCallFrame)
+    | MethodFrame(MethodCallFrame)
+
+  // Only a UTXO's lifecycle is persistent. The finer-grained execution state
+  // belongs to the one coroutine identified by `curr`, so it is represented
+  // once in `active_turn` instead of once per coroutine.
+  type UtxoLifecycle = Live | Dead
+
+  type ActiveTurn =
+      CoordinatorTurn
+    | ConstructorTurn
+    | AwaitingMethodEntry
+    | MethodTurn
+    | PublishingAbi
+    | ReturningTurn
+    | ExecutionFinished
 
   var state: {
     curr: CoroutineId,
-    call_stack: List[CoroutineId],
-    phases: CoroutineId -> Phase,
+    call_stack: List[CallFrame],
+    active_turn: ActiveTurn,
+    utxo_lifecycle: CoroutineId -> UtxoLifecycle,
     next_utxo_id: int,
     enabled_methods: CoroutineId -> Set[str],
     resource_targets: ResourceKey -> CoroutineId,
-    pending_new_utxo: Option[PendingNewUtxo],
   }
 
   pure def is_coord(cid: CoroutineId): bool =
@@ -43,6 +57,18 @@ module starstream_execution {
     value.foldl(true, (valid, limb) =>
       valid and 0 <= limb and limb < 4294967296
     )
+
+  pure def caller(frame: CallFrame): CoroutineId =
+    match frame {
+      | ConstructorFrame(call) => call.caller
+      | MethodFrame(call) => call.caller
+    }
+
+  pure def target(frame: CallFrame): CoroutineId =
+    match frame {
+      | ConstructorFrame(call) => call.target
+      | MethodFrame(call) => call.target
+    }
 
   pure def last(items: List[a]): a = items[items.length() - 1]
 
@@ -57,11 +83,11 @@ module starstream_execution {
     state' = {
       curr: cid,
       call_stack: List(),
-      phases: Map(cid -> CoordRunning),
+      active_turn: CoordinatorTurn,
+      utxo_lifecycle: Map(),
       next_utxo_id: 0,
       enabled_methods: Map(),
       resource_targets: Map(),
-      pending_new_utxo: None,
     }
   }
 
@@ -76,21 +102,21 @@ module starstream_execution {
 
     all {
       caller.is_coord(),
-      state.phases.get(caller) == CoordRunning,
+      state.active_turn == CoordinatorTurn,
       arguments.is_starstream_value(),
       0 <= resource,
       resource < 4294967296,
-      state.pending_new_utxo == None,
       not(state.resource_targets.keys().contains(key)),
       state' = {
         curr: target,
-        call_stack: state.call_stack.append(caller),
-        phases: state.phases
-          .set(caller, CoordWaiting)
-          .put(target, Constructing),
+        call_stack: state.call_stack.append(ConstructorFrame({
+          caller: caller,
+          target: target,
+          key: key,
+        })),
+        active_turn: ConstructorTurn,
         next_utxo_id: state.next_utxo_id + 1,
         enabled_methods: state.enabled_methods.put(target, Set()),
-        pending_new_utxo: Some({ target: target, key: key }),
         ...state,
       },
     }
@@ -103,11 +129,11 @@ module starstream_execution {
   action abis_clear: bool = all {
     not(state.curr.is_coord()),
     or {
-      state.phases.get(state.curr) == Constructing,
-      state.phases.get(state.curr) == HandlerRunning,
+      state.active_turn == ConstructorTurn,
+      state.active_turn == MethodTurn,
     },
     state' = {
-      phases: state.phases.set(state.curr, PreparingYield),
+      active_turn: PublishingAbi,
       enabled_methods: state.enabled_methods.set(state.curr, Set()),
       ...state,
     },
@@ -117,7 +143,7 @@ module starstream_execution {
   // set for the new yield point.
   action advertise_method(method: str): bool = all {
     not(state.curr.is_coord()),
-    state.phases.get(state.curr) == PreparingYield,
+    state.active_turn == PublishingAbi,
     not(state.enabled_methods.get(state.curr).contains(method)),
     state' = {
       enabled_methods: state.enabled_methods.set(
@@ -135,45 +161,58 @@ module starstream_execution {
   // exit does not repeat the caller-local constructor handle: an atomic
   // NewUtxo already committed it, so an initial-yield return installs the
   // pending binding here.
-  action return_control: bool = {
-    val caller =
-      if (state.call_stack.length() > 0) state.call_stack.last()
-      else state.curr
+  action return_control(result: List[int]): bool = {
+    val frame =
+      if (state.call_stack.length() > 0)
+        state.call_stack.last()
+      else
+        MethodFrame({
+          caller: state.curr,
+          target: state.curr,
+          expected_arguments: List(),
+          expected_result: List(),
+        })
     val resource_targets =
-      match state.pending_new_utxo {
-        | Some(pending) =>
-            state.resource_targets.put(pending.key, pending.target)
-        | None => state.resource_targets
+      match frame {
+        | ConstructorFrame(call) =>
+            state.resource_targets.put(call.key, call.target)
+        | MethodFrame(_) => state.resource_targets
       }
+    val utxo_lifecycle =
+      if (state.active_turn == ReturningTurn)
+        state.utxo_lifecycle.set(state.curr, Dead)
+      else
+        match frame {
+          | ConstructorFrame(_) => state.utxo_lifecycle.put(state.curr, Live)
+          | MethodFrame(_) => state.utxo_lifecycle
+        }
 
     all {
       not(state.curr.is_coord()),
-      or {
-        state.phases.get(state.curr) == PreparingYield,
-        state.phases.get(state.curr) == HandlerRunning,
-        state.phases.get(state.curr) == Returning,
-      },
+      result.is_starstream_value(),
       state.call_stack.length() > 0,
-      state.phases.get(caller) == CoordWaiting,
-      match state.pending_new_utxo {
-        | Some(pending) => pending.target == state.curr
-        | None => true
+      frame.target() == state.curr,
+      frame.caller().is_coord(),
+      match frame {
+        | ConstructorFrame(_) => and {
+            state.active_turn == PublishingAbi,
+            result == List(),
+          }
+        | MethodFrame(call) => and {
+            or {
+              state.active_turn == PublishingAbi,
+              state.active_turn == MethodTurn,
+              state.active_turn == ReturningTurn,
+            },
+            result == call.expected_result,
+          }
       },
       state' = {
-        curr: caller,
+        curr: frame.caller(),
         call_stack: state.call_stack.pop_last(),
-        phases: state.phases
-          .set(
-            state.curr,
-            // Completed is the model's logical retirement boundary. The
-            // runtime may physically drop the Component Model resource after
-            // this export has returned and its borrow scope has ended.
-            if (state.phases.get(state.curr) == Returning) Completed
-            else Yielded
-          )
-          .set(caller, CoordRunning),
+        active_turn: CoordinatorTurn,
+        utxo_lifecycle: utxo_lifecycle,
         resource_targets: resource_targets,
-        pending_new_utxo: None,
         ...state,
       },
     }
@@ -185,6 +224,7 @@ module starstream_execution {
     resource: int,
     method: str,
     arguments: List[int],
+    result: List[int],
   ): bool = {
     val caller = state.curr
     val key = { holder: caller, handle: resource }
@@ -196,19 +236,55 @@ module starstream_execution {
 
     all {
       caller.is_coord(),
-      state.phases.get(caller) == CoordRunning,
+      state.active_turn == CoordinatorTurn,
       arguments.is_starstream_value(),
-      state.pending_new_utxo == None,
+      result.is_starstream_value(),
       state.resource_targets.keys().contains(key),
-      state.phases.keys().contains(target),
-      state.phases.get(target) == Yielded,
+      state.utxo_lifecycle.keys().contains(target),
+      state.utxo_lifecycle.get(target) == Live,
       state.enabled_methods.get(target).contains(method),
       state' = {
         curr: target,
-        call_stack: state.call_stack.append(caller),
-        phases: state.phases
-          .set(caller, CoordWaiting)
-          .set(target, HandlerRunning),
+        call_stack: state.call_stack.append(MethodFrame({
+          caller: caller,
+          target: target,
+          expected_arguments: arguments,
+          expected_result: result,
+        })),
+        active_turn: AwaitingMethodEntry,
+        ...state,
+      },
+    }
+  }
+
+  // The receiver-side export boundary publishes the flattened user
+  // arguments before the first method instruction. The callee's internal
+  // resource representation is bootstrap advice and is intentionally absent.
+  action enter_method(arguments: List[int]): bool = {
+    val frame =
+      if (state.call_stack.length() > 0)
+        state.call_stack.last()
+      else
+        ConstructorFrame({
+          caller: state.curr,
+          target: state.curr,
+          key: { holder: state.curr, handle: 0 },
+        })
+
+    all {
+      not(state.curr.is_coord()),
+      state.active_turn == AwaitingMethodEntry,
+      arguments.is_starstream_value(),
+      state.call_stack.length() > 0,
+      match frame {
+        | ConstructorFrame(_) => false
+        | MethodFrame(call) => and {
+            call.target == state.curr,
+            arguments == call.expected_arguments,
+          }
+      },
+      state' = {
+        active_turn: MethodTurn,
         ...state,
       },
     }
@@ -222,10 +298,10 @@ module starstream_execution {
   action coroutine_return: bool = {
     all {
       not(state.curr.is_coord()),
-      state.phases.get(state.curr) == HandlerRunning,
+      state.active_turn == MethodTurn,
       state.call_stack.length() > 0,
       state' = {
-        phases: state.phases.set(state.curr, Returning),
+        active_turn: ReturningTurn,
         ...state,
       },
     }
@@ -233,11 +309,10 @@ module starstream_execution {
 
   action coord_return: bool = all {
     state.curr.is_coord(),
-    state.phases.get(state.curr) == CoordRunning,
+    state.active_turn == CoordinatorTurn,
     state.call_stack.length() == 0,
-    state.pending_new_utxo == None,
     state' = {
-      phases: state.phases.set(state.curr, Completed),
+      active_turn: ExecutionFinished,
       ...state,
     },
   }
@@ -246,112 +321,154 @@ module starstream_execution {
   // has no unfinished constructor or caller waiting for control.
   action execution_complete: bool = all {
     state.curr.is_coord(),
-    state.phases.get(state.curr) == Completed,
+    state.active_turn == ExecutionFinished,
     state.call_stack.length() == 0,
-    state.pending_new_utxo == None,
     state' = state,
   }
 
-  pure def owns_turn(phase: Phase): bool =
-    match phase {
-      | CoordRunning => true
-      | Constructing => true
-      | HandlerRunning => true
-      | PreparingYield => true
-      | Returning => true
-      | CoordWaiting => false
-      | Yielded => false
-      | Completed => false
-    }
-
-  val turn_owners =
-    state.phases.keys().filter(cid => state.phases.get(cid).owns_turn())
-
   val next_utxo_id_is_nonnegative = state.next_utxo_id >= 0
 
-  val current_coroutine_is_known = state.phases.keys().contains(state.curr)
-
-  // Before the coordination script returns, exactly `curr` owns the turn.
-  // Afterwards no coroutine owns it.
-  val current_coroutine_uniquely_owns_turn = {
-    if (
-      state.phases.keys().contains(state.curr)
-        and state.phases.get(state.curr) == Completed
-    )
-      state.curr.is_coord() and turn_owners == Set()
-    else
-      turn_owners == Set(state.curr)
+  val current_coroutine_is_known = or {
+    state.curr.is_coord(),
+    state.utxo_lifecycle.keys().contains(state.curr),
+    state.call_stack.length() > 0
+      and state.call_stack.last().target() == state.curr,
   }
 
-  val waiting_coordinators_are_callers = {
-    val waiting_coords = state.phases.keys().filter(cid =>
-      cid.is_coord() and state.phases.get(cid) == CoordWaiting
+  // The stack is the canonical representation of waiting coordinators. There
+  // is no duplicate per-coordinator waiting state to keep synchronized.
+  val call_stack_is_well_formed = {
+    val callers = state.call_stack.foldl(Set(), (result, frame) =>
+      result.union(Set(frame.caller()))
     )
-    val callers = state.call_stack.to_set()
 
     and {
       state.call_stack.length() == callers.size(),
-      callers.forall(caller =>
-        state.phases.keys().contains(caller) and caller.is_coord()
-      ),
-      waiting_coords == callers,
+      callers.forall(caller => caller.is_coord()),
+      not(callers.contains(state.curr)),
+      state.call_stack.to_set().forall(frame => and {
+        frame.caller().is_coord(),
+        not(frame.target().is_coord()),
+      }),
     }
   }
 
-  val pending_constructor_is_well_formed =
-    match state.pending_new_utxo {
-      | Some(pending) => and {
-          not(pending.target.is_coord()),
-          state.phases.keys().contains(pending.target),
-          or {
-            state.phases.get(pending.target) == Constructing,
-            state.phases.get(pending.target) == PreparingYield,
-          },
-          pending.key.holder.is_coord(),
-          state.phases.keys().contains(pending.key.holder),
-          state.phases.get(pending.key.holder) == CoordWaiting,
-          state.call_stack.length() > 0,
-          state.call_stack.last() == pending.key.holder,
-          not(state.resource_targets.keys().contains(pending.key)),
+  val call_frames_are_well_formed =
+    state.call_stack.to_set().forall(frame =>
+      match frame {
+        | ConstructorFrame(call) => and {
+            call.key.holder == call.caller,
+            not(state.utxo_lifecycle.keys().contains(call.target)),
+            not(state.resource_targets.keys().contains(call.key)),
+          }
+        | MethodFrame(call) => and {
+            call.expected_arguments.is_starstream_value(),
+            call.expected_result.is_starstream_value(),
+            state.utxo_lifecycle.keys().contains(call.target),
+            state.utxo_lifecycle.get(call.target) == Live,
+          }
       }
-      | None => true
-    }
+    )
+
+  val utxo_lifecycle_is_well_scoped =
+    state.utxo_lifecycle.keys().forall(cid =>
+      match cid {
+        | Coord(_) => false
+        | Utxo(id) => 0 <= id and id < state.next_utxo_id
+      }
+    )
 
   val enabled_methods_are_well_scoped =
     state.enabled_methods.keys().forall(cid =>
-      not(cid.is_coord()) and state.phases.keys().contains(cid)
+      not(cid.is_coord()) and or {
+        state.utxo_lifecycle.keys().contains(cid),
+        state.call_stack.to_set().exists(frame =>
+          match frame {
+            | ConstructorFrame(call) => call.target == cid
+            | MethodFrame(_) => false
+          }
+        ),
+      }
     )
 
   val resource_bindings_are_well_scoped =
     state.resource_targets.keys().forall(key =>
       key.holder.is_coord()
-        and state.phases.keys().contains(key.holder)
         and not(state.resource_targets.get(key).is_coord())
-        and state.phases.keys().contains(state.resource_targets.get(key))
+        and state.utxo_lifecycle.keys().contains(state.resource_targets.get(key))
     )
 
-  val current_phase_is_well_formed =
-    match state.phases.get(state.curr) {
-      | CoordRunning => state.curr.is_coord()
-      | Constructing => not(state.curr.is_coord())
-      | HandlerRunning => not(state.curr.is_coord())
-      | PreparingYield => not(state.curr.is_coord())
-      | Returning =>
-          not(state.curr.is_coord()) and state.call_stack.length() > 0
-      | Completed => state.curr.is_coord() and state.call_stack.length() == 0
-      | CoordWaiting => false
-      | Yielded => false
+  val active_turn_is_well_formed =
+    match state.active_turn {
+      | CoordinatorTurn => and {
+          state.curr.is_coord(),
+        }
+      | ConstructorTurn => and {
+          not(state.curr.is_coord()),
+          state.call_stack.length() > 0,
+          match state.call_stack.last() {
+            | ConstructorFrame(call) => call.target == state.curr
+            | MethodFrame(_) => false
+          },
+        }
+      | MethodTurn => and {
+          not(state.curr.is_coord()),
+          state.call_stack.length() > 0,
+          match state.call_stack.last() {
+            | ConstructorFrame(_) => false
+            | MethodFrame(call) => call.target == state.curr
+          },
+          state.utxo_lifecycle.keys().contains(state.curr),
+          state.utxo_lifecycle.get(state.curr) == Live,
+        }
+      | AwaitingMethodEntry => and {
+          not(state.curr.is_coord()),
+          state.call_stack.length() > 0,
+          match state.call_stack.last() {
+            | ConstructorFrame(_) => false
+            | MethodFrame(call) => call.target == state.curr
+          },
+          state.utxo_lifecycle.keys().contains(state.curr),
+          state.utxo_lifecycle.get(state.curr) == Live,
+        }
+      | PublishingAbi => and {
+          not(state.curr.is_coord()),
+          state.call_stack.length() > 0,
+          state.call_stack.last().target() == state.curr,
+          match state.call_stack.last() {
+            | ConstructorFrame(call) =>
+                not(state.utxo_lifecycle.keys().contains(call.target))
+            | MethodFrame(call) => and {
+                state.utxo_lifecycle.keys().contains(call.target),
+                state.utxo_lifecycle.get(call.target) == Live,
+              }
+          },
+        }
+      | ReturningTurn => and {
+          not(state.curr.is_coord()),
+          state.call_stack.length() > 0,
+          match state.call_stack.last() {
+            | ConstructorFrame(_) => false
+            | MethodFrame(call) => call.target == state.curr
+          },
+          state.utxo_lifecycle.keys().contains(state.curr),
+          state.utxo_lifecycle.get(state.curr) == Live,
+        }
+      | ExecutionFinished => and {
+          state.curr.is_coord(),
+          state.call_stack.length() == 0,
+        }
     }
 
   val control_is_well_formed = and {
     next_utxo_id_is_nonnegative,
     current_coroutine_is_known,
-    current_coroutine_uniquely_owns_turn,
-    waiting_coordinators_are_callers,
-    pending_constructor_is_well_formed,
+    call_stack_is_well_formed,
+    call_frames_are_well_formed,
+    utxo_lifecycle_is_well_scoped,
     enabled_methods_are_well_scoped,
     resource_bindings_are_well_scoped,
-    current_phase_is_well_formed,
+    active_turn_is_well_formed,
   }
 }
 
@@ -382,13 +499,40 @@ module starstream_sim {
   action simulate_call_method: bool = {
     val callable_resources = state.resource_targets.keys().filter(key =>
       key.holder == state.curr
-        and state.phases.get(state.resource_targets.get(key)) == Yielded
+        and state.utxo_lifecycle.get(state.resource_targets.get(key)) == Live
     )
     nondet key = callable_resources.oneOf()
     val target = state.resource_targets.get(key)
     nondet method = state.enabled_methods.get(target).oneOf()
     nondet arguments = SIM_VALUES.oneOf()
-    call_method(key.handle, method, arguments)
+    nondet result = SIM_VALUES.oneOf()
+    call_method(key.handle, method, arguments, result)
+  }
+
+  action simulate_return_control: bool = {
+    val expected_result =
+      if (state.call_stack.length() == 0)
+        List()
+      else
+        match state.call_stack.last() {
+          | ConstructorFrame(_) => List()
+          | MethodFrame(call) => call.expected_result
+        }
+    nondet result = Set(expected_result).oneOf()
+    return_control(result)
+  }
+
+  action simulate_enter_method: bool = {
+    val expected_arguments =
+      if (state.call_stack.length() == 0)
+        List()
+      else
+        match state.call_stack.last() {
+          | ConstructorFrame(_) => List()
+          | MethodFrame(call) => call.expected_arguments
+        }
+    nondet arguments = Set(expected_arguments).oneOf()
+    enter_method(arguments)
   }
 
   // Choose one enabled semantic event at each simulated transition.
@@ -396,8 +540,9 @@ module starstream_sim {
     simulate_new_utxo,
     abis_clear,
     simulate_advertise_method,
-    return_control,
+    simulate_return_control,
     simulate_call_method,
+    simulate_enter_method,
     coroutine_return,
     coord_return,
   }
@@ -405,13 +550,11 @@ module starstream_sim {
   // Reachability witnesses make it visible when random exploration stops
   // exercising an important part of the protocol.
   val has_bound_resource = state.resource_targets.keys().size() > 0
-  val has_entered_method = state.phases.keys().exists(cid =>
-    state.phases.get(cid) == HandlerRunning
+  val has_entered_method = state.active_turn == MethodTurn
+  val has_yielded_utxo = state.utxo_lifecycle.keys().exists(cid =>
+    state.utxo_lifecycle.get(cid) == Live
   )
-  val has_yielded_utxo = state.phases.keys().exists(cid =>
-    not(cid.is_coord()) and state.phases.get(cid) == Yielded
-  )
-  val has_returned_coroutine = state.phases.keys().exists(cid =>
-    not(cid.is_coord()) and state.phases.get(cid) == Completed
+  val has_returned_coroutine = state.utxo_lifecycle.keys().exists(cid =>
+    state.utxo_lifecycle.get(cid) == Dead
   )
 }

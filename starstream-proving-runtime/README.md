@@ -31,11 +31,21 @@ The current supported semantic events are:
 - `ClearAbi`, derived from the fixed `abis-clear: func()` interface;
 - `AdvertiseMethod`, derived from the four-`u64` `implements-method`
   interface; and
-- `CallMethod`, whose payload width and continuation-block count are derived
-  from the flattened imported method function type;
+- `CallMethod`, whose argument and result widths and continuation-block count
+  are derived from the flattened imported method function type;
+- `EnterMethod`, emitted before the first instruction of a UTXO method export.
+  Its user-argument prefix is compared with `CallMethod`, while its internal
+  receiver and declared-local words only bootstrap the executed entry frame;
 - `ReturnControl`, emitted by the exit template of every UTXO constructor and
-  method export; and
+  method export. Method exits publish the same flat result committed by their
+  caller's atomic import, while constructor exits have no semantic result; and
 - `CoordReturn`, emitted by coordination-script exit templates.
+
+For now, method parameters must flatten to `i32`/`i64`, and a result must be
+absent or be one flat core `i32` or `i64`. Other shapes fail template
+construction explicitly. This keeps the caller/callee equality rules in place
+without prematurely choosing the encoding for a future opaque
+Starstream-value digest.
 
 Other unsupported imports receive advice-only host-event templates. Empty export
 templates allow their turns to normalize without claiming semantic entry/exit
@@ -48,8 +58,9 @@ The runtime E2E tests cover:
    and normalization, commitment sanity checking, and per-instance semantic
    decoding.
 2. A coordination component calling a runtime-linked UTXO method, including
-   guest-resource resolution, interface-derived `CallMethod` blocks, and
-   semantic decoding.
+   guest-resource resolution, interface-derived `CallMethod` blocks,
+   scheduler-derived entry claims, two-turn UTXO normalization, and matching
+   `EnterMethod`/`ReturnControl` semantic decoding.
 
 The second component is written directly in component WAT because
 `if resource is Abi` currently typechecks but is not implemented by
@@ -62,7 +73,8 @@ lowering tables are module-local. The adapter preserves deterministic order
 inside each instance. A control scheduler can flatten those lists without a
 store-global instruction timestamp: it starts at the coordination script,
 switches to the next allocated process on `NewUtxo`, resolves and switches on
-`CallMethod`, and pops its call stack on `ReturnControl`. A `NewUtxo` handle
+`CallMethod`, checks its user arguments at `EnterMethod`, and pops its call
+stack on `ReturnControl`. A `NewUtxo` handle
 stays pending until that constructor return, when it becomes bound to the new
 process. The atomic constructor import decodes in the coordinator trace, while
 ABI publication decodes in the constructed UTXO trace.

@@ -25,8 +25,9 @@ use neo_wasm::event_grammar::{
 };
 use sha2::{Digest as _, Sha256};
 use starstream_interleaving_spec::nightstream::{
-    AdvertiseMethodTemplate, AttributedBlock, BlockCodecError, CallMethodTemplate, EventTemplate,
-    FixedEvent, FixedEventTemplate, NewUtxoTemplate, OpcodeDiscriminant, TemplateRegistry,
+    AdvertiseMethodTemplate, AttributedBlock, BlockCodecError, CallMethodTemplate,
+    EnterMethodTemplate, EventTemplate, FixedEvent, FixedEventTemplate, NewUtxoTemplate,
+    OpcodeDiscriminant, ReturnControlTemplate, TemplateRegistry,
 };
 use starstream_interleaving_spec::{ExecutionTrace, MethodHash};
 use wasmparser::{CompositeInnerType, Parser, Payload, TypeRef, ValType};
@@ -80,6 +81,53 @@ pub enum TemplateBuildError {
         index: usize,
         ty: ValType,
     },
+
+    #[error(
+        "method import `{module}`.`{field}` has unsupported flat result types {results:?}; \
+         only no result or one i32/i64 result is supported until opaque values are available"
+    )]
+    UnsupportedMethodResult {
+        module: String,
+        field: String,
+        results: Box<[ValType]>,
+    },
+
+    #[error(
+        "UTXO method export `{name}` has unsupported flat result types {results:?}; \
+         only no result or one i32/i64 result is supported until opaque values are available"
+    )]
+    UnsupportedMethodExportResult {
+        name: String,
+        results: Box<[ValType]>,
+    },
+
+    #[error("UTXO method export `{name}` does not start with an i32 resource receiver")]
+    InvalidMethodExportReceiver { name: String },
+
+    #[error(
+        "UTXO method export `{name}` has unsupported flattened {kind} type {ty:?} at local {index}"
+    )]
+    UnsupportedMethodExportLocal {
+        name: String,
+        kind: &'static str,
+        index: usize,
+        ty: ValType,
+    },
+
+    #[error("function export `{name}` has too many locals or flattened input limbs")]
+    ExportArityOverflow { name: String },
+
+    #[error("defined function export `{name}` has no matching code body")]
+    MissingExportBody { name: String },
+
+    #[error("function export `{name}` references missing function index {index}")]
+    MissingExportFunction { name: String, index: u32 },
+
+    #[error("function export `{name}` references missing type {type_index}")]
+    MissingExportFunctionType { name: String, type_index: u32 },
+
+    #[error("invalid host-event export template for `{name}`: {message}")]
+    InvalidExportGrammar { name: String, message: String },
 
     #[error("method import name `{0}` has no method segment")]
     InvalidMethodName(String),
@@ -162,12 +210,30 @@ pub fn build_component_templates(
     for export in &exports {
         let fref = export.index.saturating_add(1);
         let (template, semantic) = build_export_template(export, &coordination_exports)?;
+        let local_bound =
+            u8::try_from(export.params.len() + export.locals.len()).map_err(|_| {
+                TemplateBuildError::ExportArityOverflow {
+                    name: export.name.clone(),
+                }
+            })?;
+        template.validate(local_bound).map_err(|error| {
+            TemplateBuildError::InvalidExportGrammar {
+                name: export.name.clone(),
+                message: error.to_string(),
+            }
+        })?;
         grammar.exports.insert(fref, template);
-        if let Some(event) = semantic {
-            if event == FixedEvent::CoordReturn {
+        for event in semantic {
+            if matches!(
+                &event,
+                EventTemplate::Fixed(FixedEventTemplate {
+                    event: FixedEvent::CoordReturn,
+                    ..
+                })
+            ) {
                 matched_coordination_exports.insert(export.name.as_str());
             }
-            decoder.register(fref, EventTemplate::Fixed(FixedEventTemplate::new(event)))?;
+            decoder.register(fref, event)?;
         }
     }
     if let Some(&name) = coordination_exports
@@ -241,16 +307,29 @@ struct FunctionImport {
 struct FunctionExport {
     index: u32,
     name: String,
+    params: Box<[ValType]>,
+    results: Box<[ValType]>,
+    locals: Box<[ValType]>,
 }
 
 fn build_export_template(
     export: &FunctionExport,
     coordination_exports: &BTreeSet<&str>,
-) -> Result<(ExportTemplate, Option<FixedEvent>), TemplateBuildError> {
-    let event = if is_utxo_control_export(&export.name) {
-        Some(FixedEvent::ReturnControl)
+) -> Result<(ExportTemplate, Vec<EventTemplate>), TemplateBuildError> {
+    if is_utxo_method_export(&export.name) {
+        let (entry, entry_semantic, entry_claim_count) = build_method_entry_template(export)?;
+        let result_word_count = flat_export_result_word_count(export)?;
+        let exit = EventTemplate::ReturnControl(ReturnControlTemplate::new(result_word_count));
+        let export_template = build_export_boundary_template(entry, entry_claim_count, Some(&exit));
+        return Ok((export_template, vec![entry_semantic, exit]));
+    }
+
+    let exit_semantic = if is_utxo_constructor_export(&export.name) {
+        Some(EventTemplate::ReturnControl(ReturnControlTemplate::new(0)))
     } else if coordination_exports.contains(export.name.as_str()) {
-        Some(FixedEvent::CoordReturn)
+        Some(EventTemplate::Fixed(FixedEventTemplate::new(
+            FixedEvent::CoordReturn,
+        )))
     } else if export.name.contains('#') {
         None
     } else {
@@ -258,28 +337,150 @@ fn build_export_template(
             name: export.name.clone(),
         });
     };
-    let exit = event
-        .map(|event| {
-            vec![GrammarEvent::op(
-                event.default_discriminant(),
-                [SlotSource::Const(0); 7],
-            )]
-        })
-        .unwrap_or_default();
-    Ok((
-        ExportTemplate {
-            exit,
-            ..ExportTemplate::default()
-        },
-        event,
-    ))
+    let template = build_export_boundary_template(Vec::new(), 0, exit_semantic.as_ref());
+    Ok((template, exit_semantic.into_iter().collect()))
 }
 
-fn is_utxo_control_export(name: &str) -> bool {
+fn build_export_boundary_template(
+    entry: Vec<GrammarEvent>,
+    entry_claim_count: u8,
+    exit_semantic: Option<&EventTemplate>,
+) -> ExportTemplate {
+    let exit = match exit_semantic {
+        Some(EventTemplate::ReturnControl(template)) => {
+            let mut slots = [SlotSource::Const(0); 7];
+            if template.result_word_count > 0 {
+                slots[0] = SlotSource::OutputElem { limb: Limb::Lo };
+            }
+            if template.result_word_count > 1 {
+                slots[1] = SlotSource::OutputElem { limb: Limb::Hi };
+            }
+            vec![GrammarEvent::op(template.discriminant, slots)]
+        }
+        Some(EventTemplate::Fixed(template)) => vec![GrammarEvent::op(
+            template.discriminant,
+            [SlotSource::Const(0); 7],
+        )],
+        None => Vec::new(),
+        Some(_) => unreachable!("export classification only emits return templates"),
+    };
+    ExportTemplate {
+        entry,
+        exit,
+        entry_claim_count,
+        exit_claim_count: 0,
+    }
+}
+
+fn build_method_entry_template(
+    export: &FunctionExport,
+) -> Result<(Vec<GrammarEvent>, EventTemplate, u8), TemplateBuildError> {
+    if !matches!(export.params.first(), Some(ValType::I32)) {
+        return Err(TemplateBuildError::InvalidMethodExportReceiver {
+            name: export.name.clone(),
+        });
+    }
+
+    // User arguments lead the claim sequence so the semantic decoder can
+    // compare a contiguous prefix with CallMethod. The callee-local resource
+    // receiver and declared locals follow as execution-bootstrap advice.
+    let mut words = Vec::new();
+    for (local, ty) in export.params.iter().copied().enumerate().skip(1) {
+        append_entry_local_words(export, &mut words, local, ty, "parameter")?;
+    }
+    let argument_word_count = words.len();
+    append_entry_local_words(export, &mut words, 0, export.params[0], "receiver")?;
+    for (offset, ty) in export.locals.iter().copied().enumerate() {
+        append_entry_local_words(
+            export,
+            &mut words,
+            export.params.len() + offset,
+            ty,
+            "declared local",
+        )?;
+    }
+
+    let entry_claim_count =
+        u8::try_from(words.len()).map_err(|_| TemplateBuildError::ExportArityOverflow {
+            name: export.name.clone(),
+        })?;
+    let semantic =
+        EventTemplate::EnterMethod(EnterMethodTemplate::new(argument_word_count, words.len()));
+    let mut slots = Vec::with_capacity(words.len() + 1);
+    slots.push(SlotSource::Const(semantic.discriminant()));
+    slots.extend(words);
+    let entry = slots
+        .chunks(COMM_CHAIN_BLOCK_WORDS)
+        .map(|chunk| {
+            let mut block = [SlotSource::Const(0); COMM_CHAIN_BLOCK_WORDS];
+            block[..chunk.len()].copy_from_slice(chunk);
+            GrammarEvent {
+                block,
+                absorb: true,
+            }
+        })
+        .collect();
+
+    Ok((entry, semantic, entry_claim_count))
+}
+
+fn append_entry_local_words(
+    export: &FunctionExport,
+    words: &mut Vec<SlotSource>,
+    local: usize,
+    ty: ValType,
+    kind: &'static str,
+) -> Result<(), TemplateBuildError> {
+    let local = u8::try_from(local).map_err(|_| TemplateBuildError::ExportArityOverflow {
+        name: export.name.clone(),
+    })?;
+    let next_claim = |words: &[SlotSource]| {
+        u8::try_from(words.len()).map_err(|_| TemplateBuildError::ExportArityOverflow {
+            name: export.name.clone(),
+        })
+    };
+    match ty {
+        ValType::I32 => words.push(SlotSource::ClaimLocal {
+            idx: next_claim(words)?,
+            local,
+            limb: Limb::Lo,
+        }),
+        ValType::I64 => {
+            words.push(SlotSource::ClaimLocal {
+                idx: next_claim(words)?,
+                local,
+                limb: Limb::Lo,
+            });
+            words.push(SlotSource::ClaimLocal {
+                idx: next_claim(words)?,
+                local,
+                limb: Limb::Hi,
+            });
+        }
+        ty => {
+            return Err(TemplateBuildError::UnsupportedMethodExportLocal {
+                name: export.name.clone(),
+                kind,
+                index: usize::from(local),
+                ty,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn is_utxo_constructor_export(name: &str) -> bool {
     let Some((instance, item)) = name.split_once('#') else {
         return false;
     };
-    !instance.is_empty() && (item.starts_with("[static]utxo.") || item.starts_with("[method]utxo."))
+    !instance.is_empty() && item.starts_with("[static]utxo.")
+}
+
+fn is_utxo_method_export(name: &str) -> bool {
+    let Some((instance, item)) = name.split_once('#') else {
+        return false;
+    };
+    !instance.is_empty() && item.starts_with("[method]utxo.")
 }
 
 fn build_import_template(
@@ -500,10 +701,27 @@ fn build_call_method_template(
             absorb: true,
         });
     }
-    events.extend(result_advice_events(import)?);
+    let result_word_count = flat_import_result_word_count(import)?;
+    if result_word_count > 0 {
+        let mut result = [SlotSource::Const(0); COMM_CHAIN_BLOCK_WORDS];
+        // Neo-Wasm requires both lanes for every single-result import. The Lo
+        // slot pushes a fresh stack cell and clears its high lane; the Hi slot
+        // then completes an i64 result. For i32 it stages zero, which the
+        // semantic decoder deliberately validates as committed padding.
+        result[0] = SlotSource::ResultElem { limb: Limb::Lo };
+        result[1] = SlotSource::ResultElem { limb: Limb::Hi };
+        events.push(GrammarEvent {
+            block: result,
+            absorb: true,
+        });
+    }
 
     let method = method_hash_from_import(&import.field)?;
-    let semantic = EventTemplate::CallMethod(CallMethodTemplate::new(method, payload.len()));
+    let semantic = EventTemplate::CallMethod(CallMethodTemplate::new(
+        method,
+        payload.len(),
+        result_word_count,
+    ));
     Ok((
         ImportTemplate {
             events,
@@ -511,6 +729,31 @@ fn build_call_method_template(
         },
         vec![semantic],
     ))
+}
+
+fn flat_import_result_word_count(import: &FunctionImport) -> Result<usize, TemplateBuildError> {
+    match import.results.as_ref() {
+        [] => Ok(0),
+        [ValType::I32] => Ok(1),
+        [ValType::I64] => Ok(2),
+        _ => Err(TemplateBuildError::UnsupportedMethodResult {
+            module: import.module.clone(),
+            field: import.field.clone(),
+            results: import.results.clone(),
+        }),
+    }
+}
+
+fn flat_export_result_word_count(export: &FunctionExport) -> Result<usize, TemplateBuildError> {
+    match export.results.as_ref() {
+        [] => Ok(0),
+        [ValType::I32] => Ok(1),
+        [ValType::I64] => Ok(2),
+        _ => Err(TemplateBuildError::UnsupportedMethodExportResult {
+            name: export.name.clone(),
+            results: export.results.clone(),
+        }),
+    }
 }
 
 fn advice_template(import: &FunctionImport) -> Result<ImportTemplate, TemplateBuildError> {
@@ -639,27 +882,107 @@ fn parse_function_imports(module: &[u8]) -> Result<Vec<FunctionImport>, Template
 }
 
 fn parse_function_exports(module: &[u8]) -> Result<Vec<FunctionExport>, TemplateBuildError> {
-    let mut exports = Vec::new();
+    let mut types = Vec::<(Box<[ValType]>, Box<[ValType]>)>::new();
+    let mut function_types = Vec::<u32>::new();
+    let mut imported_function_count = 0_usize;
+    let mut raw_exports = Vec::<(u32, String)>::new();
+    let mut code_locals = Vec::<Vec<(u32, ValType)>>::new();
     for payload in Parser::new(0).parse_all(module) {
-        if let Payload::ExportSection(reader) = payload? {
-            for export in reader {
-                let export = export?;
-                if export.kind == wasmparser::ExternalKind::Func {
-                    exports.push(FunctionExport {
-                        index: export.index,
-                        name: export.name.to_owned(),
-                    });
+        match payload? {
+            Payload::TypeSection(reader) => {
+                for rec_group in reader {
+                    for subtype in rec_group?.into_types() {
+                        let type_index = types.len();
+                        let CompositeInnerType::Func(function) = &subtype.composite_type.inner
+                        else {
+                            return Err(TemplateBuildError::UnsupportedCoreType(type_index));
+                        };
+                        types.push((function.params().into(), function.results().into()));
+                    }
                 }
             }
+            Payload::ImportSection(reader) => {
+                for import in reader {
+                    let import = import?;
+                    if let TypeRef::Func(type_index) = import.ty {
+                        function_types.push(type_index);
+                        imported_function_count += 1;
+                    }
+                }
+            }
+            Payload::FunctionSection(reader) => {
+                for type_index in reader {
+                    function_types.push(type_index?);
+                }
+            }
+            Payload::ExportSection(reader) => {
+                for export in reader {
+                    let export = export?;
+                    if export.kind != wasmparser::ExternalKind::Func {
+                        continue;
+                    }
+                    raw_exports.push((export.index, export.name.to_owned()));
+                }
+            }
+            Payload::CodeSectionEntry(body) => {
+                let declarations = body
+                    .get_locals_reader()?
+                    .into_iter()
+                    .collect::<Result<Vec<_>, _>>()?;
+                code_locals.push(declarations);
+            }
+            _ => {}
         }
     }
-    Ok(exports)
+
+    raw_exports
+        .into_iter()
+        .map(|(index, name)| {
+            let Some(&type_index) = function_types.get(index as usize) else {
+                return Err(TemplateBuildError::MissingExportFunction { name, index });
+            };
+            let Some((params, results)) = types.get(type_index as usize) else {
+                return Err(TemplateBuildError::MissingExportFunctionType { name, type_index });
+            };
+            let mut locals = Vec::new();
+            if let Some(defined_index) = (index as usize).checked_sub(imported_function_count) {
+                let declarations = code_locals
+                    .get(defined_index)
+                    .ok_or_else(|| TemplateBuildError::MissingExportBody { name: name.clone() })?;
+                for &(count, ty) in declarations {
+                    let count = usize::try_from(count).map_err(|_| {
+                        TemplateBuildError::ExportArityOverflow { name: name.clone() }
+                    })?;
+                    let total = params
+                        .len()
+                        .checked_add(locals.len())
+                        .and_then(|total| total.checked_add(count))
+                        .ok_or_else(|| TemplateBuildError::ExportArityOverflow {
+                            name: name.clone(),
+                        })?;
+                    if total > usize::from(u8::MAX) {
+                        return Err(TemplateBuildError::ExportArityOverflow { name });
+                    }
+                    locals.extend(std::iter::repeat_n(ty, count));
+                }
+            }
+            Ok(FunctionExport {
+                index,
+                name,
+                params: params.clone(),
+                results: results.clone(),
+                locals: locals.into_boxed_slice(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use neo_wasm::event_grammar::{absorbed_blocks, expand_export_exit, expand_import_events};
+    use neo_wasm::event_grammar::{
+        absorbed_blocks, expand_export_entry, expand_export_exit, expand_import_events,
+    };
     use starstream_interleaving_spec::{ExecutionEvent, ResourceHandle, StarstreamValue};
 
     #[test]
@@ -727,7 +1050,120 @@ mod tests {
                 resource: ResourceHandle(7),
                 method: method_hash_from_import("[method]utxo.add").unwrap(),
                 arguments: StarstreamValue(vec![11, 12, 13]),
+                result: StarstreamValue::default(),
             }])
+        );
+    }
+
+    #[test]
+    fn flat_method_inputs_and_result_are_absorbed_at_both_boundaries() {
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "score" "[method]utxo.read"
+                    (func (param i32 i64) (result i64)))
+                  (func (export "score#[method]utxo.read")
+                    (param i32 i64) (result i64) (local i32)
+                    i64.const 0)
+                )
+            "#,
+        )
+        .expect("test module compiles");
+        let templates = build_component_templates(&wasm, &[]).expect("templates build");
+
+        let import = &templates.grammar.imports[&1];
+        let imported = expand_import_events(import, &[(7, 0), (11, 12)], Some((41, 9)), &[])
+            .expect("import template expands");
+        let import_blocks = absorbed_blocks(import, &imported).expect("import blocks absorb");
+        assert_eq!(
+            import_blocks,
+            [[7, 7, 11, 12, 0, 0, 0, 0], [41, 9, 0, 0, 0, 0, 0, 0]]
+        );
+
+        let export = &templates.grammar.exports[&2];
+        let entered =
+            expand_export_entry(export, &[11, 12, 7, 0]).expect("export entry template expands");
+        assert_eq!(entered, [[11, 11, 12, 7, 0, 0, 0, 0]]);
+
+        let exported =
+            expand_export_exit(export, Some((41, 9)), &[]).expect("export template expands");
+        assert_eq!(exported, [[6, 41, 9, 0, 0, 0, 0, 0]]);
+
+        let blocks = [
+            AttributedBlock::new(import_blocks[0], 1, 8),
+            AttributedBlock::new(import_blocks[1], 1, 8),
+            AttributedBlock::new(entered[0], 2, 2),
+            AttributedBlock::new(exported[0], 2, 2),
+        ];
+        assert_eq!(
+            templates
+                .decoder
+                .decode_blocks(&blocks)
+                .expect("method results decode"),
+            ExecutionTrace::new([
+                ExecutionEvent::CallMethod {
+                    resource: ResourceHandle(7),
+                    method: method_hash_from_import("[method]utxo.read").unwrap(),
+                    arguments: StarstreamValue(vec![11, 12]),
+                    result: StarstreamValue(vec![41, 9]),
+                },
+                ExecutionEvent::EnterMethod {
+                    arguments: StarstreamValue(vec![11, 12]),
+                },
+                ExecutionEvent::ReturnControl {
+                    result: StarstreamValue(vec![41, 9]),
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn i32_method_result_absorbs_a_zero_high_lane_as_padding() {
+        let wasm = wat::parse_str(
+            r#"
+                (module
+                  (import "score" "[method]utxo.read32"
+                    (func (param i32) (result i32))))
+            "#,
+        )
+        .expect("test module compiles");
+        let templates = build_component_templates(&wasm, &[]).expect("templates build");
+        let import = &templates.grammar.imports[&1];
+        let expanded = expand_import_events(import, &[(7, 0)], Some((41, 0)), &[])
+            .expect("i32 result template expands");
+        let blocks = absorbed_blocks(import, &expanded).expect("result blocks absorb");
+
+        assert_eq!(
+            blocks,
+            [[7, 7, 0, 0, 0, 0, 0, 0], [41, 0, 0, 0, 0, 0, 0, 0]]
+        );
+        let attributed = blocks
+            .iter()
+            .copied()
+            .map(|words| AttributedBlock::new(words, 1, 8))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            templates
+                .decoder
+                .decode_blocks(&attributed)
+                .expect("i32 result decodes"),
+            ExecutionTrace::new([ExecutionEvent::CallMethod {
+                resource: ResourceHandle(7),
+                method: method_hash_from_import("[method]utxo.read32").unwrap(),
+                arguments: StarstreamValue::default(),
+                result: StarstreamValue(vec![41]),
+            }])
+        );
+
+        let mut invalid = attributed;
+        invalid[1].words[1] = 9;
+        assert_eq!(
+            templates.decoder.decode_blocks(&invalid),
+            Err(BlockCodecError::NonZeroPadding {
+                block: 1,
+                word: 1,
+                value: 9,
+            })
         );
     }
 
@@ -767,7 +1203,7 @@ mod tests {
                 (module
                   (func (export "counter#[static]utxo.new") (result i32)
                     i32.const 7)
-                  (func (export "counter#[method]utxo.add"))
+                  (func (export "counter#[method]utxo.add") (param i32))
                   (func (export "example"))
                 )
             "#,
@@ -796,8 +1232,12 @@ mod tests {
                 .decode_blocks(&blocks)
                 .expect("exit blocks decode"),
             ExecutionTrace::new([
-                ExecutionEvent::ReturnControl,
-                ExecutionEvent::ReturnControl,
+                ExecutionEvent::ReturnControl {
+                    result: StarstreamValue::default(),
+                },
+                ExecutionEvent::ReturnControl {
+                    result: StarstreamValue::default(),
+                },
                 ExecutionEvent::CoordReturn,
             ])
         );

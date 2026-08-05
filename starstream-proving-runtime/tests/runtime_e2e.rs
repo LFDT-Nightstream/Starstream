@@ -230,12 +230,13 @@ async fn compiled_coordination_script_traces_utxo_creation_and_abi_publication()
     let [
         ExecutionEvent::ClearAbi,
         ExecutionEvent::AdvertiseMethod { method },
-        ExecutionEvent::ReturnControl,
+        ExecutionEvent::ReturnControl { result },
     ] = utxo_events.0.as_slice()
     else {
         bail!("unexpected UTXO events: {utxo_events:?}");
     };
     assert_eq!(*method, method_hash("add"));
+    assert!(result.0.is_empty());
 
     let merged = interleave_traces(&instance_events)
         .map_err(|error| wasmtime::format_err!("failed to interleave traces: {error}"))?;
@@ -302,8 +303,10 @@ fn method_calling_coord_component() -> Vec<u8> {
 async fn coordination_script_trace_decodes_method_call() -> wasmtime::Result<()> {
     let utxo_wasm = compile_contract(SOURCE);
     let coord_wasm = method_calling_coord_component();
-    let templates = build_component_templates(&coord_wasm, &["example"])
+    let coord_templates = build_component_templates(&coord_wasm, &["example"])
         .map_err(|error| wasmtime::format_err!("failed to build templates: {error}"))?;
+    let utxo_templates = build_component_templates(&utxo_wasm, &["example"])
+        .map_err(|error| wasmtime::format_err!("failed to build UTXO templates: {error}"))?;
     let engine = Engine::new(&new_wasmtime_config())?;
     let utxo_contract = TracedContract::new(&engine, &utxo_wasm)?;
     let coord_contract = TracedContract::new(&engine, &coord_wasm)?;
@@ -332,7 +335,7 @@ async fn coordination_script_trace_decodes_method_call() -> wasmtime::Result<()>
     let coord_steps = store.data().traces[&coord_index].steps();
     let trace = neo_wasm::traces_from_wasmtime_steps_with_grammar(
         coord_steps,
-        &templates.grammar,
+        &coord_templates.grammar,
         &[TurnClaims::default()],
         neo_wasm::CommChainState::default(),
     )
@@ -340,7 +343,7 @@ async fn coordination_script_trace_decodes_method_call() -> wasmtime::Result<()>
     neo_wasm::comm_chain::sanity_check_comm_chain(&trace)
         .map_err(|error| wasmtime::format_err!("invalid commitment chain: {error}"))?;
     let events = decode_absorbed_blocks(
-        &templates.decoder,
+        &coord_templates.decoder,
         &neo_wasm::comm_chain::absorbed_event_blocks(&trace),
     )
     .map_err(|error| wasmtime::format_err!("failed to decode blocks: {error}"))?;
@@ -354,6 +357,7 @@ async fn coordination_script_trace_decodes_method_call() -> wasmtime::Result<()>
             resource,
             method,
             arguments,
+            result,
         },
         ExecutionEvent::CoordReturn,
     ] = events.0.as_slice()
@@ -363,9 +367,87 @@ async fn coordination_script_trace_decodes_method_call() -> wasmtime::Result<()>
     assert!(constructor_arguments.0.is_empty());
     assert_eq!(resource, returned_resource);
     assert_eq!(*method, method_hash("add"));
+    assert!(result.0.is_empty());
     assert_eq!(
         *arguments,
         starstream_interleaving_spec::StarstreamValue(vec![13, 0])
     );
+
+    let Some(method_entry_template) = utxo_templates
+        .grammar
+        .exports
+        .values()
+        .find(|template| !template.entry.is_empty())
+    else {
+        bail!("compiled UTXO has no method entry template");
+    };
+    assert_eq!(
+        method_entry_template.entry_claim_count, 3,
+        "the add entry claims are value_lo, value_hi, then the internal receiver"
+    );
+    let mut entry_claims = arguments
+        .0
+        .iter()
+        .copied()
+        .map(u64::from)
+        .collect::<Vec<_>>();
+    // CounterUtxo::new creates its guest resource with representation zero.
+    // This internal receiver initializes the callee's `self` local, but it is
+    // intentionally absent from EnterMethod and is never equated with the
+    // caller-local resource-table handle above.
+    entry_claims.push(0);
+
+    let utxo_index = store.data().trace_order[1];
+    let utxo_steps = store.data().traces[&utxo_index].steps();
+    let utxo_trace = neo_wasm::traces_from_wasmtime_steps_with_grammar(
+        utxo_steps,
+        &utxo_templates.grammar,
+        &[
+            TurnClaims::default(),
+            TurnClaims {
+                entry: entry_claims,
+                exit: Vec::new(),
+            },
+        ],
+        neo_wasm::CommChainState::default(),
+    )
+    .map_err(|error| wasmtime::format_err!("failed to normalize UTXO trace: {error}"))?;
+    neo_wasm::comm_chain::sanity_check_comm_chain(&utxo_trace)
+        .map_err(|error| wasmtime::format_err!("invalid UTXO commitment chain: {error}"))?;
+    let utxo_events = decode_absorbed_blocks(
+        &utxo_templates.decoder,
+        &neo_wasm::comm_chain::absorbed_event_blocks(&utxo_trace),
+    )
+    .map_err(|error| wasmtime::format_err!("failed to decode UTXO blocks: {error}"))?;
+    let [
+        ExecutionEvent::ClearAbi,
+        ExecutionEvent::AdvertiseMethod { .. },
+        ExecutionEvent::ReturnControl { .. },
+        ExecutionEvent::EnterMethod {
+            arguments: entered_arguments,
+        },
+        ExecutionEvent::ReturnControl { .. },
+    ] = utxo_events.0.as_slice()
+    else {
+        bail!("unexpected UTXO semantic events: {:?}", utxo_events.0);
+    };
+    assert_eq!(entered_arguments, arguments);
+
+    let merged = interleave_traces(&[events, utxo_events])
+        .map_err(|error| wasmtime::format_err!("failed to interleave method trace: {error}"))?;
+    assert!(matches!(
+        merged.0.as_slice(),
+        [
+            ExecutionEvent::Init,
+            ExecutionEvent::NewUtxo { .. },
+            ExecutionEvent::ClearAbi,
+            ExecutionEvent::AdvertiseMethod { .. },
+            ExecutionEvent::ReturnControl { .. },
+            ExecutionEvent::CallMethod { .. },
+            ExecutionEvent::EnterMethod { .. },
+            ExecutionEvent::ReturnControl { .. },
+            ExecutionEvent::CoordReturn,
+        ]
+    ));
     Ok(())
 }

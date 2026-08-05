@@ -41,19 +41,22 @@ pub enum OpcodeDiscriminant {
     // captured prototype traces cannot silently acquire a different meaning.
     CoroutineReturn = 9,
     CoordReturn = 10,
+    EnterMethod = 11,
 }
 
 /// Static decoding information for one imported Starstream method.
 ///
 /// The import/function identity supplies `method`; it is not redundantly
 /// encoded in the absorbed blocks. The method's statically known parameter
-/// type supplies `value_word_count`. Blocks use the provisional compact
+/// type supplies `value_word_count`, while the flat core result supplies
+/// `result_word_count`. Blocks use the provisional compact
 /// assignment:
 ///
 /// ```text
 /// first block: [CallMethod, resource, value_0, ..., value_5]
 /// continuation: [value_6, ..., value_13]
 ///                [value_14, ...]
+/// result block: [result_0, result_1, 0, ..., 0]
 /// ```
 ///
 /// Continuation blocks are untagged because their number is derived from the
@@ -63,21 +66,81 @@ pub struct CallMethodTemplate {
     pub discriminant: u64,
     pub method: MethodHash,
     pub value_word_count: usize,
+    pub result_word_count: usize,
 }
 
 impl CallMethodTemplate {
     #[must_use]
-    pub const fn new(method: MethodHash, value_word_count: usize) -> Self {
+    pub const fn new(
+        method: MethodHash,
+        value_word_count: usize,
+        result_word_count: usize,
+    ) -> Self {
         Self {
             discriminant: OpcodeDiscriminant::CallMethod as u64,
             method,
             value_word_count,
+            result_word_count,
         }
     }
 
     #[must_use]
     pub fn block_count(self) -> usize {
-        payload_block_count(self.value_word_count)
+        payload_block_count(self.value_word_count) + result_block_count(self.result_word_count)
+    }
+}
+
+/// Static decoding information for the result published when a UTXO export
+/// returns control. Constructors use zero semantic result words because their
+/// internal resource representation is not the caller-local handle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReturnControlTemplate {
+    pub discriminant: u64,
+    pub result_word_count: usize,
+}
+
+/// Static decoding information for a method export's entry boundary.
+///
+/// The entry claim words are ordered with the user arguments first, followed
+/// by internal bootstrap words such as the callee-local resource receiver and
+/// zero-initialized declared locals. All words are committed and constrained
+/// as entry-local writes, but only the user argument prefix enters the
+/// interleaving semantics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnterMethodTemplate {
+    pub discriminant: u64,
+    pub argument_word_count: usize,
+    pub bootstrap_word_count: usize,
+}
+
+impl EnterMethodTemplate {
+    #[must_use]
+    pub const fn new(argument_word_count: usize, bootstrap_word_count: usize) -> Self {
+        Self {
+            discriminant: OpcodeDiscriminant::EnterMethod as u64,
+            argument_word_count,
+            bootstrap_word_count,
+        }
+    }
+
+    #[must_use]
+    pub fn block_count(self) -> usize {
+        op_payload_block_count(self.bootstrap_word_count)
+    }
+}
+
+impl ReturnControlTemplate {
+    #[must_use]
+    pub const fn new(result_word_count: usize) -> Self {
+        Self {
+            discriminant: OpcodeDiscriminant::ReturnControl as u64,
+            result_word_count,
+        }
+    }
+
+    #[must_use]
+    pub fn block_count(self) -> usize {
+        op_payload_block_count(self.result_word_count)
     }
 }
 
@@ -183,7 +246,6 @@ impl AttributedBlock {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FixedEvent {
     ClearAbi,
-    ReturnControl,
     CoroutineReturn,
     CoordReturn,
 }
@@ -192,7 +254,6 @@ impl FixedEvent {
     pub const fn default_discriminant(self) -> u64 {
         match self {
             Self::ClearAbi => OpcodeDiscriminant::ClearAbi as u64,
-            Self::ReturnControl => OpcodeDiscriminant::ReturnControl as u64,
             Self::CoroutineReturn => OpcodeDiscriminant::CoroutineReturn as u64,
             Self::CoordReturn => OpcodeDiscriminant::CoordReturn as u64,
         }
@@ -201,7 +262,6 @@ impl FixedEvent {
     pub fn into_execution_event(self) -> ExecutionEvent {
         match self {
             Self::ClearAbi => ExecutionEvent::ClearAbi,
-            Self::ReturnControl => ExecutionEvent::ReturnControl,
             Self::CoroutineReturn => ExecutionEvent::CoroutineReturn,
             Self::CoordReturn => ExecutionEvent::CoordReturn,
         }
@@ -234,6 +294,8 @@ pub enum EventTemplate {
     Fixed(FixedEventTemplate),
     AdvertiseMethod(AdvertiseMethodTemplate),
     CallMethod(CallMethodTemplate),
+    EnterMethod(EnterMethodTemplate),
+    ReturnControl(ReturnControlTemplate),
 }
 
 impl EventTemplate {
@@ -243,6 +305,8 @@ impl EventTemplate {
             Self::Fixed(template) => template.discriminant,
             Self::AdvertiseMethod(template) => template.discriminant,
             Self::CallMethod(template) => template.discriminant,
+            Self::EnterMethod(template) => template.discriminant,
+            Self::ReturnControl(template) => template.discriminant,
         }
     }
 
@@ -252,6 +316,8 @@ impl EventTemplate {
             Self::Fixed(_) => 1,
             Self::AdvertiseMethod(template) => template.block_count(),
             Self::CallMethod(template) => template.block_count(),
+            Self::EnterMethod(template) => template.block_count(),
+            Self::ReturnControl(template) => template.block_count(),
         }
     }
 
@@ -265,6 +331,8 @@ impl EventTemplate {
             Self::Fixed(template) => decode_fixed_blocks(blocks, *template),
             Self::AdvertiseMethod(template) => decode_advertise_method_blocks(blocks, *template),
             Self::CallMethod(template) => decode_call_method_blocks(blocks, *template),
+            Self::EnterMethod(template) => decode_enter_method_blocks(blocks, *template),
+            Self::ReturnControl(template) => decode_return_control_blocks(blocks, *template),
         }
     }
 }
@@ -414,6 +482,16 @@ pub enum BlockCodecError {
         "template expects {expected} value words, but the supplied StarstreamValue contains {actual}"
     )]
     WrongValueWordCount { expected: usize, actual: usize },
+
+    #[error(
+        "template expects {expected} result words, but the supplied StarstreamValue contains {actual}"
+    )]
+    WrongResultWordCount { expected: usize, actual: usize },
+
+    #[error(
+        "template expects {expected} internal bootstrap words, but the supplied value contains {actual}"
+    )]
+    WrongBootstrapWordCount { expected: usize, actual: usize },
 
     #[error(
         "template already registered for function {attributed_fref} and discriminant {discriminant}"
@@ -582,12 +660,27 @@ pub fn decode_call_method_blocks(
             })?,
         );
     }
-    validate_padding(blocks, template.value_word_count)?;
+    let result_locations =
+        call_result_locations(template.value_word_count, template.result_word_count);
+    let mut result = Vec::with_capacity(result_locations.len());
+    for (block, word) in result_locations {
+        let raw = blocks[block][word];
+        result.push(
+            u32::try_from(raw).map_err(|_| BlockCodecError::NamedArgumentOutOfRange {
+                block,
+                word,
+                name: "result",
+                value: raw,
+            })?,
+        );
+    }
+    validate_call_method_padding(blocks, template)?;
 
     Ok(ExecutionEvent::CallMethod {
         resource: ResourceHandle(resource),
         method: template.method,
         arguments: StarstreamValue(value),
+        result: StarstreamValue(result),
     })
 }
 
@@ -598,6 +691,7 @@ pub fn decode_call_method_blocks(
 pub fn encode_call_method_blocks(
     resource: ResourceHandle,
     value: &StarstreamValue,
+    result: &StarstreamValue,
     template: CallMethodTemplate,
 ) -> Result<Vec<AbsorbedBlock>, BlockCodecError> {
     validate_template(template)?;
@@ -607,6 +701,12 @@ pub fn encode_call_method_blocks(
             actual: value.0.len(),
         });
     }
+    if result.0.len() != template.result_word_count {
+        return Err(BlockCodecError::WrongResultWordCount {
+            expected: template.result_word_count,
+            actual: result.0.len(),
+        });
+    }
 
     let mut blocks = vec![[0; ABSORBED_BLOCK_WORDS]; template.block_count()];
     blocks[0][0] = template.discriminant;
@@ -614,6 +714,163 @@ pub fn encode_call_method_blocks(
     for ((block, word), &limb) in value_locations(template.value_word_count)
         .into_iter()
         .zip(&value.0)
+    {
+        blocks[block][word] = u64::from(limb);
+    }
+    for ((block, word), &limb) in
+        call_result_locations(template.value_word_count, template.result_word_count)
+            .into_iter()
+            .zip(&result.0)
+    {
+        blocks[block][word] = u64::from(limb);
+    }
+    Ok(blocks)
+}
+
+/// Decode the committed user-argument prefix of a method export entry.
+pub fn decode_enter_method_blocks(
+    blocks: &[AbsorbedBlock],
+    template: EnterMethodTemplate,
+) -> Result<ExecutionEvent, BlockCodecError> {
+    validate_discriminant(template.discriminant)?;
+    if template.argument_word_count > template.bootstrap_word_count {
+        return Err(BlockCodecError::WrongBootstrapWordCount {
+            expected: template.argument_word_count,
+            actual: template.bootstrap_word_count,
+        });
+    }
+    if blocks.len() != template.block_count() {
+        return Err(BlockCodecError::WrongBlockCount {
+            expected: template.block_count(),
+            actual: blocks.len(),
+        });
+    }
+    validate_fields(blocks)?;
+    if blocks[0][0] != template.discriminant {
+        return Err(BlockCodecError::WrongDiscriminant {
+            expected: template.discriminant,
+            actual: blocks[0][0],
+        });
+    }
+
+    let locations = op_value_locations(template.bootstrap_word_count);
+    let mut arguments = Vec::with_capacity(template.argument_word_count);
+    for (index, (block, word)) in locations.into_iter().enumerate() {
+        let raw = blocks[block][word];
+        let limb = u32::try_from(raw).map_err(|_| BlockCodecError::NamedArgumentOutOfRange {
+            block,
+            word,
+            name: "method entry bootstrap",
+            value: raw,
+        })?;
+        if index < template.argument_word_count {
+            arguments.push(limb);
+        }
+    }
+    validate_op_padding(blocks, template.bootstrap_word_count)?;
+
+    Ok(ExecutionEvent::EnterMethod {
+        arguments: StarstreamValue(arguments),
+    })
+}
+
+/// Encode a method entry for pinned vectors and template conformance tests.
+pub fn encode_enter_method_blocks(
+    arguments: &StarstreamValue,
+    internal_bootstrap: &StarstreamValue,
+    template: EnterMethodTemplate,
+) -> Result<Vec<AbsorbedBlock>, BlockCodecError> {
+    validate_discriminant(template.discriminant)?;
+    if arguments.0.len() != template.argument_word_count {
+        return Err(BlockCodecError::WrongValueWordCount {
+            expected: template.argument_word_count,
+            actual: arguments.0.len(),
+        });
+    }
+    let expected_internal = template
+        .bootstrap_word_count
+        .checked_sub(template.argument_word_count)
+        .ok_or(BlockCodecError::WrongBootstrapWordCount {
+            expected: template.argument_word_count,
+            actual: template.bootstrap_word_count,
+        })?;
+    if internal_bootstrap.0.len() != expected_internal {
+        return Err(BlockCodecError::WrongBootstrapWordCount {
+            expected: expected_internal,
+            actual: internal_bootstrap.0.len(),
+        });
+    }
+
+    let mut blocks = vec![[0; ABSORBED_BLOCK_WORDS]; template.block_count()];
+    blocks[0][0] = template.discriminant;
+    let values = arguments.0.iter().chain(&internal_bootstrap.0);
+    for ((block, word), &limb) in op_value_locations(template.bootstrap_word_count)
+        .into_iter()
+        .zip(values)
+    {
+        blocks[block][word] = u64::from(limb);
+    }
+    Ok(blocks)
+}
+
+/// Decode the value published at a UTXO export boundary.
+pub fn decode_return_control_blocks(
+    blocks: &[AbsorbedBlock],
+    template: ReturnControlTemplate,
+) -> Result<ExecutionEvent, BlockCodecError> {
+    validate_discriminant(template.discriminant)?;
+    if blocks.len() != template.block_count() {
+        return Err(BlockCodecError::WrongBlockCount {
+            expected: template.block_count(),
+            actual: blocks.len(),
+        });
+    }
+    validate_fields(blocks)?;
+    if blocks[0][0] != template.discriminant {
+        return Err(BlockCodecError::WrongDiscriminant {
+            expected: template.discriminant,
+            actual: blocks[0][0],
+        });
+    }
+
+    let locations = op_value_locations(template.result_word_count);
+    let mut result = Vec::with_capacity(locations.len());
+    for (block, word) in locations {
+        let raw = blocks[block][word];
+        result.push(
+            u32::try_from(raw).map_err(|_| BlockCodecError::NamedArgumentOutOfRange {
+                block,
+                word,
+                name: "result",
+                value: raw,
+            })?,
+        );
+    }
+    validate_op_padding(blocks, template.result_word_count)?;
+
+    Ok(ExecutionEvent::ReturnControl {
+        result: StarstreamValue(result),
+    })
+}
+
+/// Encode a UTXO export result for pinned vectors and template tests.
+pub fn encode_return_control_blocks(
+    result: &StarstreamValue,
+    template: ReturnControlTemplate,
+) -> Result<Vec<AbsorbedBlock>, BlockCodecError> {
+    validate_discriminant(template.discriminant)?;
+    if result.0.len() != template.result_word_count {
+        return Err(BlockCodecError::WrongResultWordCount {
+            expected: template.result_word_count,
+            actual: result.0.len(),
+        });
+    }
+
+    let mut blocks = vec![[0; ABSORBED_BLOCK_WORDS]; template.block_count()];
+    blocks[0][0] = template.discriminant;
+    for ((block, word), &limb) in op_value_locations(template.result_word_count)
+        .into_iter()
+        .zip(&result.0)
     {
         blocks[block][word] = u64::from(limb);
     }
@@ -742,6 +999,16 @@ fn payload_block_count(value_word_count: usize) -> usize {
         .div_ceil(ABSORBED_BLOCK_WORDS)
 }
 
+fn result_block_count(result_word_count: usize) -> usize {
+    result_word_count.div_ceil(ABSORBED_BLOCK_WORDS)
+}
+
+fn op_payload_block_count(value_word_count: usize) -> usize {
+    1 + value_word_count
+        .saturating_sub(OPCODE_ARG_WORDS)
+        .div_ceil(ABSORBED_BLOCK_WORDS)
+}
+
 fn new_utxo_block_count(value_word_count: usize) -> usize {
     value_word_count
         .saturating_add(3)
@@ -756,6 +1023,34 @@ fn value_locations(count: usize) -> Vec<(usize, usize)> {
                 (0, index + 2)
             } else {
                 let continuation_index = index - first_capacity;
+                (
+                    1 + continuation_index / ABSORBED_BLOCK_WORDS,
+                    continuation_index % ABSORBED_BLOCK_WORDS,
+                )
+            }
+        })
+        .collect()
+}
+
+fn call_result_locations(value_word_count: usize, result_word_count: usize) -> Vec<(usize, usize)> {
+    let first_block = payload_block_count(value_word_count);
+    (0..result_word_count)
+        .map(|index| {
+            (
+                first_block + index / ABSORBED_BLOCK_WORDS,
+                index % ABSORBED_BLOCK_WORDS,
+            )
+        })
+        .collect()
+}
+
+fn op_value_locations(count: usize) -> Vec<(usize, usize)> {
+    (0..count)
+        .map(|index| {
+            if index < OPCODE_ARG_WORDS {
+                (0, index + 1)
+            } else {
+                let continuation_index = index - OPCODE_ARG_WORDS;
                 (
                     1 + continuation_index / ABSORBED_BLOCK_WORDS,
                     continuation_index % ABSORBED_BLOCK_WORDS,
@@ -794,17 +1089,34 @@ fn validate_new_utxo_padding(
     validate_unused_slots(blocks, &used)
 }
 
-fn validate_padding(
+fn validate_call_method_padding(
+    blocks: &[AbsorbedBlock],
+    template: CallMethodTemplate,
+) -> Result<(), BlockCodecError> {
+    let mut used = vec![[false; ABSORBED_BLOCK_WORDS]; blocks.len()];
+    used[0][0] = true;
+    used[0][1] = true;
+    for (block, word) in value_locations(template.value_word_count) {
+        used[block][word] = true;
+    }
+    for (block, word) in
+        call_result_locations(template.value_word_count, template.result_word_count)
+    {
+        used[block][word] = true;
+    }
+
+    validate_unused_slots(blocks, &used)
+}
+
+fn validate_op_padding(
     blocks: &[AbsorbedBlock],
     value_word_count: usize,
 ) -> Result<(), BlockCodecError> {
     let mut used = vec![[false; ABSORBED_BLOCK_WORDS]; blocks.len()];
     used[0][0] = true;
-    used[0][1] = true;
-    for (block, word) in value_locations(value_word_count) {
+    for (block, word) in op_value_locations(value_word_count) {
         used[block][word] = true;
     }
-
     validate_unused_slots(blocks, &used)
 }
 
@@ -881,10 +1193,15 @@ mod tests {
 
     #[test]
     fn one_block_call_has_named_resource_and_no_length_tag() {
-        let template = CallMethodTemplate::new(method(), 3);
+        let template = CallMethodTemplate::new(method(), 3, 0);
         let value = StarstreamValue(vec![10, 11, 12]);
-        let blocks =
-            encode_call_method_blocks(ResourceHandle(7), &value, template).expect("call encodes");
+        let blocks = encode_call_method_blocks(
+            ResourceHandle(7),
+            &value,
+            &StarstreamValue::default(),
+            template,
+        )
+        .expect("call encodes");
 
         assert_eq!(blocks, vec![[7, 7, 10, 11, 12, 0, 0, 0]]);
         assert_eq!(
@@ -893,16 +1210,73 @@ mod tests {
                 resource: ResourceHandle(7),
                 method: method(),
                 arguments: value,
+                result: StarstreamValue::default(),
             }
         );
     }
 
     #[test]
+    fn flat_method_result_is_a_static_continuation() {
+        let template = CallMethodTemplate::new(method(), 1, 2);
+        let arguments = StarstreamValue(vec![10]);
+        let result = StarstreamValue(vec![41, 9]);
+        let blocks = encode_call_method_blocks(ResourceHandle(7), &arguments, &result, template)
+            .expect("call encodes");
+
+        assert_eq!(
+            blocks,
+            vec![[7, 7, 10, 0, 0, 0, 0, 0], [41, 9, 0, 0, 0, 0, 0, 0]]
+        );
+        assert_eq!(
+            decode_call_method_blocks(&blocks, template).expect("call decodes"),
+            ExecutionEvent::CallMethod {
+                resource: ResourceHandle(7),
+                method: method(),
+                arguments,
+                result,
+            }
+        );
+    }
+
+    #[test]
+    fn return_control_publishes_the_flat_method_result() {
+        let template = ReturnControlTemplate::new(2);
+        let result = StarstreamValue(vec![41, 9]);
+        let blocks = encode_return_control_blocks(&result, template).expect("return encodes");
+
+        assert_eq!(blocks, vec![[6, 41, 9, 0, 0, 0, 0, 0]]);
+        assert_eq!(
+            decode_return_control_blocks(&blocks, template).expect("return decodes"),
+            ExecutionEvent::ReturnControl { result }
+        );
+    }
+
+    #[test]
+    fn method_entry_exposes_arguments_but_not_internal_bootstrap_words() {
+        let template = EnterMethodTemplate::new(2, 4);
+        let arguments = StarstreamValue(vec![11, 12]);
+        let internal = StarstreamValue(vec![7, 0]);
+        let blocks = encode_enter_method_blocks(&arguments, &internal, template)
+            .expect("method entry encodes");
+
+        assert_eq!(blocks, [[11, 11, 12, 7, 0, 0, 0, 0]]);
+        assert_eq!(
+            decode_enter_method_blocks(&blocks, template).expect("method entry decodes"),
+            ExecutionEvent::EnterMethod { arguments }
+        );
+    }
+
+    #[test]
     fn static_value_width_determines_untagged_continuations() {
-        let template = CallMethodTemplate::new(method(), 16);
+        let template = CallMethodTemplate::new(method(), 16, 0);
         let value = StarstreamValue((0..16).collect());
-        let blocks =
-            encode_call_method_blocks(ResourceHandle(9), &value, template).expect("call encodes");
+        let blocks = encode_call_method_blocks(
+            ResourceHandle(9),
+            &value,
+            &StarstreamValue::default(),
+            template,
+        )
+        .expect("call encodes");
 
         assert_eq!(blocks.len(), 3);
         assert_eq!(blocks[0], [7, 9, 0, 1, 2, 3, 4, 5]);
@@ -914,16 +1288,22 @@ mod tests {
                 resource: ResourceHandle(9),
                 method: method(),
                 arguments: value,
+                result: StarstreamValue::default(),
             }
         );
     }
 
     #[test]
     fn rejects_the_wrong_number_of_blocks_for_the_static_type() {
-        let template = CallMethodTemplate::new(method(), 16);
+        let template = CallMethodTemplate::new(method(), 16, 0);
         let value = StarstreamValue((0..16).collect());
-        let mut blocks =
-            encode_call_method_blocks(ResourceHandle(9), &value, template).expect("call encodes");
+        let mut blocks = encode_call_method_blocks(
+            ResourceHandle(9),
+            &value,
+            &StarstreamValue::default(),
+            template,
+        )
+        .expect("call encodes");
         blocks.pop();
 
         assert!(matches!(
@@ -937,10 +1317,15 @@ mod tests {
 
     #[test]
     fn rejects_nonzero_unused_slots() {
-        let template = CallMethodTemplate::new(method(), 1);
+        let template = CallMethodTemplate::new(method(), 1, 0);
         let value = StarstreamValue(vec![10]);
-        let mut blocks =
-            encode_call_method_blocks(ResourceHandle(7), &value, template).expect("call encodes");
+        let mut blocks = encode_call_method_blocks(
+            ResourceHandle(7),
+            &value,
+            &StarstreamValue::default(),
+            template,
+        )
+        .expect("call encodes");
         blocks[0][7] = 99;
 
         assert!(matches!(
@@ -955,7 +1340,7 @@ mod tests {
 
     #[test]
     fn rejects_named_arguments_that_do_not_fit_the_wasm_encoding() {
-        let template = CallMethodTemplate::new(method(), 1);
+        let template = CallMethodTemplate::new(method(), 1, 0);
         let mut blocks = vec![[7, 7, u64::from(u32::MAX) + 1, 0, 0, 0, 0, 0]];
 
         assert!(matches!(
@@ -994,7 +1379,7 @@ mod tests {
 
     #[test]
     fn registry_uses_static_width_before_dispatching_the_next_event() {
-        let call_template = CallMethodTemplate::new(method(), 10);
+        let call_template = CallMethodTemplate::new(method(), 10, 0);
         let mut registry = TemplateRegistry::new();
         registry
             .register(12, EventTemplate::CallMethod(call_template))
@@ -1002,16 +1387,21 @@ mod tests {
         registry
             .register(
                 12,
-                EventTemplate::Fixed(FixedEventTemplate::new(FixedEvent::ReturnControl)),
+                EventTemplate::ReturnControl(ReturnControlTemplate::new(0)),
             )
             .expect("return-control template registers");
 
         let value = StarstreamValue((0..10).collect());
-        let mut blocks = encode_call_method_blocks(ResourceHandle(3), &value, call_template)
-            .expect("call encodes")
-            .into_iter()
-            .map(|words| AttributedBlock::new(words, 12, 40))
-            .collect::<Vec<_>>();
+        let mut blocks = encode_call_method_blocks(
+            ResourceHandle(3),
+            &value,
+            &StarstreamValue::default(),
+            call_template,
+        )
+        .expect("call encodes")
+        .into_iter()
+        .map(|words| AttributedBlock::new(words, 12, 40))
+        .collect::<Vec<_>>();
         // The continuation begins with 6, the ReturnControl discriminant. The
         // selected CallMethod template still consumes it as value data.
         assert_eq!(blocks[1].words[0], OpcodeDiscriminant::ReturnControl as u64);
@@ -1037,8 +1427,11 @@ mod tests {
                     resource: ResourceHandle(3),
                     method: method(),
                     arguments: value,
+                    result: StarstreamValue::default(),
                 },
-                ExecutionEvent::ReturnControl,
+                ExecutionEvent::ReturnControl {
+                    result: StarstreamValue::default(),
+                },
             ])
         );
     }
@@ -1049,7 +1442,7 @@ mod tests {
         registry
             .register(
                 21,
-                EventTemplate::Fixed(FixedEventTemplate::new(FixedEvent::ReturnControl)),
+                EventTemplate::ReturnControl(ReturnControlTemplate::new(0)),
             )
             .expect("return-control template registers");
         registry
@@ -1061,7 +1454,7 @@ mod tests {
         registry
             .register(
                 22,
-                EventTemplate::Fixed(FixedEventTemplate::new(FixedEvent::ReturnControl)),
+                EventTemplate::ReturnControl(ReturnControlTemplate::new(0)),
             )
             .expect("same opcode registers for another function");
 
@@ -1073,16 +1466,20 @@ mod tests {
         assert_eq!(
             registry.decode_blocks(&blocks).expect("stream decodes"),
             ExecutionTrace::new([
-                ExecutionEvent::ReturnControl,
+                ExecutionEvent::ReturnControl {
+                    result: StarstreamValue::default(),
+                },
                 ExecutionEvent::CoroutineReturn,
-                ExecutionEvent::ReturnControl,
+                ExecutionEvent::ReturnControl {
+                    result: StarstreamValue::default(),
+                },
             ])
         );
     }
 
     #[test]
     fn registry_rejects_duplicate_and_unknown_templates() {
-        let template = EventTemplate::Fixed(FixedEventTemplate::new(FixedEvent::ReturnControl));
+        let template = EventTemplate::ReturnControl(ReturnControlTemplate::new(0));
         let mut registry = TemplateRegistry::new();
         registry
             .register(4, template.clone())
@@ -1107,18 +1504,23 @@ mod tests {
 
     #[test]
     fn registry_rejects_truncated_static_events() {
-        let template = CallMethodTemplate::new(method(), 16);
+        let template = CallMethodTemplate::new(method(), 16, 0);
         let mut registry = TemplateRegistry::new();
         registry
             .register(4, EventTemplate::CallMethod(template))
             .expect("template registers");
         let value = StarstreamValue((0..16).collect());
-        let blocks = encode_call_method_blocks(ResourceHandle(2), &value, template)
-            .expect("call encodes")
-            .into_iter()
-            .take(2)
-            .map(|words| AttributedBlock::new(words, 4, 9))
-            .collect::<Vec<_>>();
+        let blocks = encode_call_method_blocks(
+            ResourceHandle(2),
+            &value,
+            &StarstreamValue::default(),
+            template,
+        )
+        .expect("call encodes")
+        .into_iter()
+        .take(2)
+        .map(|words| AttributedBlock::new(words, 4, 9))
+        .collect::<Vec<_>>();
 
         assert!(matches!(
             registry.decode_blocks(&blocks),
@@ -1133,14 +1535,19 @@ mod tests {
 
     #[test]
     fn registry_rejects_metadata_changes_inside_an_event() {
-        let template = CallMethodTemplate::new(method(), 10);
+        let template = CallMethodTemplate::new(method(), 10, 0);
         let mut registry = TemplateRegistry::new();
         registry
             .register(4, EventTemplate::CallMethod(template))
             .expect("template registers");
         let value = StarstreamValue((0..10).collect());
-        let encoded =
-            encode_call_method_blocks(ResourceHandle(2), &value, template).expect("call encodes");
+        let encoded = encode_call_method_blocks(
+            ResourceHandle(2),
+            &value,
+            &StarstreamValue::default(),
+            template,
+        )
+        .expect("call encodes");
 
         let wrong_attribution = [
             AttributedBlock::new(encoded[0], 4, 9),

@@ -84,7 +84,7 @@ pub fn interleave_traces(traces: &[ExecutionTrace]) -> Result<ExecutionTrace, In
                 call_stack.push(current);
                 current = target;
             }
-            ExecutionEvent::ReturnControl => {
+            ExecutionEvent::ReturnControl { .. } => {
                 let returning = current;
                 let Some(caller) = call_stack.pop() else {
                     return Err(InterleavingError::ReturnWithoutCaller {
@@ -114,6 +114,7 @@ pub fn interleave_traces(traces: &[ExecutionTrace]) -> Result<ExecutionTrace, In
             }
             ExecutionEvent::ClearAbi
             | ExecutionEvent::AdvertiseMethod { .. }
+            | ExecutionEvent::EnterMethod { .. }
             | ExecutionEvent::CoroutineReturn => {}
         }
     }

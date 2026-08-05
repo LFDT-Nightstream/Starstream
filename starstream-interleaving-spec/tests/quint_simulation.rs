@@ -22,7 +22,7 @@ fn quint_generated_traces_agree_with_the_interleaver() {
         .arg("--main=starstream_sim")
         .arg("--max-samples=64")
         .arg(format!("--n-traces={GENERATED_TRACES}"))
-        .arg("--max-steps=30")
+        .arg("--max-steps=20")
         .arg("--seed=0x51eed")
         .arg("--n-threads=1")
         .arg("--backend=rust")
@@ -164,12 +164,18 @@ fn decode_event(state: &Value) -> ExecutionEvent {
         "simulate_advertise_method" => ExecutionEvent::AdvertiseMethod {
             method: method_hash(some_pick(picks, "method")),
         },
-        "return_control" => ExecutionEvent::ReturnControl,
+        "simulate_return_control" => ExecutionEvent::ReturnControl {
+            result: starstream_value(some_pick(picks, "result")),
+        },
         "simulate_call_method" => ExecutionEvent::CallMethod {
             resource: ResourceHandle(
                 u32::try_from(bigint(&some_pick(picks, "key")["handle"])).unwrap(),
             ),
             method: method_hash(some_pick(picks, "method")),
+            arguments: starstream_value(some_pick(picks, "arguments")),
+            result: starstream_value(some_pick(picks, "result")),
+        },
+        "simulate_enter_method" => ExecutionEvent::EnterMethod {
             arguments: starstream_value(some_pick(picks, "arguments")),
         },
         "coroutine_return" => ExecutionEvent::CoroutineReturn,

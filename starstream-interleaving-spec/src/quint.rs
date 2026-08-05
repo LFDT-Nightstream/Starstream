@@ -198,18 +198,25 @@ fn render_event(event: &ExecutionEvent) -> String {
         ExecutionEvent::AdvertiseMethod { method } => {
             format!("advertise_method({})", qnt_string(&method.to_hex()))
         }
-        ExecutionEvent::ReturnControl => "return_control".to_owned(),
+        ExecutionEvent::ReturnControl { result } => {
+            format!("return_control({})", qnt_value(&result.0))
+        }
         ExecutionEvent::CallMethod {
             resource,
             method,
             arguments,
+            result,
         } => {
             format!(
-                "call_method({}, {}, {})",
+                "call_method({}, {}, {}, {})",
                 resource.0,
                 qnt_string(&method.to_hex()),
-                qnt_value(&arguments.0)
+                qnt_value(&arguments.0),
+                qnt_value(&result.0)
             )
+        }
+        ExecutionEvent::EnterMethod { arguments } => {
+            format!("enter_method({})", qnt_value(&arguments.0))
         }
         ExecutionEvent::CoroutineReturn => "coroutine_return".to_owned(),
         ExecutionEvent::CoordReturn => "coord_return".to_owned(),
