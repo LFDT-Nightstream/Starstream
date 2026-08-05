@@ -25,9 +25,8 @@ use starstream_types::{
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
-        TypedExprKind, TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedImportItems,
-        TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
-        TypedStructFieldInitializer,
+        TypedExprKind, TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedMatchArm,
+        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
     },
     types::{EnumType, EnumVariantKind, Type},
 };
@@ -75,8 +74,6 @@ pub struct DocumentState {
     enum_types: HashMap<String, Type>,
     /// Maps imported local names to their definition spans (in import statement).
     import_definitions: HashMap<String, Span>,
-    /// Maps namespace alias -> function name -> (alias span, function type).
-    namespace_functions: HashMap<String, HashMap<String, (Span, Type)>>,
     /// Maps function name -> (signature, doc comment) for call-site hover.
     function_docs: HashMap<String, (String, String)>,
     /// Maps struct name -> doc comment for type annotation hover.
@@ -126,7 +123,6 @@ impl DocumentState {
             struct_types: HashMap::new(),
             enum_types: HashMap::new(),
             import_definitions: HashMap::new(),
-            namespace_functions: HashMap::new(),
             function_docs: HashMap::new(),
             struct_docs: HashMap::new(),
             enum_docs: HashMap::new(),
@@ -211,7 +207,6 @@ impl DocumentState {
         self.struct_types.clear();
         self.enum_types.clear();
         self.import_definitions.clear();
-        self.namespace_functions.clear();
         self.function_docs.clear();
         self.struct_docs.clear();
         self.enum_docs.clear();
@@ -645,41 +640,17 @@ impl DocumentState {
     }
 
     fn collect_import(&mut self, import: &TypedImportDef) {
-        match &import.items {
-            TypedImportItems::Named(items) => {
-                for item in items {
-                    if let Some(span) = item.local.opt_span() {
-                        self.definition_entries.push(DefinitionEntry {
-                            usage: span,
-                            target: span,
-                        });
+        for item in &import.items {
+            if let Some(span) = item.local.opt_span() {
+                self.definition_entries.push(DefinitionEntry {
+                    usage: span,
+                    target: span,
+                });
 
-                        self.import_definitions
-                            .insert(item.local.name.clone(), span);
+                self.import_definitions
+                    .insert(item.local.name.clone(), span);
 
-                        self.add_hover_span(span, &item.ty);
-                    }
-                }
-            }
-            TypedImportItems::Namespace { alias, functions } => {
-                if let Some(alias_span) = alias.opt_span() {
-                    self.definition_entries.push(DefinitionEntry {
-                        usage: alias_span,
-                        target: alias_span,
-                    });
-
-                    let func_names: Vec<_> =
-                        functions.iter().map(|f| f.local.name.clone()).collect();
-                    let label = format!("namespace {} ({})", alias.name, func_names.join(", "));
-                    self.add_hover_label(alias_span, label);
-
-                    let mut ns_funcs = HashMap::new();
-                    for func in functions {
-                        ns_funcs.insert(func.local.name.clone(), (alias_span, func.ty.clone()));
-                    }
-                    self.namespace_functions
-                        .insert(alias.name.clone(), ns_funcs);
-                }
+                self.add_hover_span(span, &item.ty);
             }
         }
     }
@@ -972,22 +943,11 @@ impl DocumentState {
                 TypedAbiPart::FnDecl(decl) => {
                     let method_doc = self.comment_map.doc_comments(decl.span, source);
 
-                    let params = decl
-                        .params
-                        .iter()
-                        .map(|p| format!("{}: {}", p.name.name, p.ty.to_compact_string()))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let label = if decl.return_type == Type::Unit {
-                        format!("fn {}({})", decl.name.name, params)
-                    } else {
-                        format!(
-                            "fn {}({}) -> {}",
-                            decl.name.name,
-                            params,
-                            decl.return_type.to_compact_string()
-                        )
-                    };
+                    let label = format!(
+                        "fn {}{}",
+                        decl.name,
+                        Type::Function(decl.ty.clone()).compact_display()
+                    );
 
                     // Store for field access hover on narrowed ABI variables
                     self.abi_method_info
@@ -1029,14 +989,10 @@ impl DocumentState {
             let params = function
                 .params
                 .iter()
-                .map(|p| format!("{}: {}", p.name.name, p.ty.to_compact_string()))
+                .map(|p| format!("{}: {}", p.name.name, p.ty.compact_display()))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let signature = format!(
-                "({}) -> {}",
-                params,
-                function.return_type.to_compact_string()
-            );
+            let signature = format!("({}) -> {}", params, function.return_type.compact_display());
 
             self.add_hover_label_with_doc(span, signature.clone(), doc.clone());
 
@@ -1141,7 +1097,7 @@ impl DocumentState {
 
     fn collect_expr(&mut self, expr: &Spanned<TypedExpr>, scopes: &mut Vec<HashMap<String, Span>>) {
         let doc = self.doc_for_type(&expr.node.ty);
-        self.add_hover_label_with_doc(expr.span, expr.node.ty.to_compact_string(), doc);
+        self.add_hover_label_with_doc(expr.span, expr.node.ty.compact_display().to_string(), doc);
 
         match &expr.node.kind {
             TypedExprKind::ScopedName { name, .. } => {
@@ -1185,7 +1141,7 @@ impl DocumentState {
 
                 // Add hover with doc comment for field access
                 if let Some(field_span) = field.opt_span() {
-                    if let Type::AbiNarrow(ref abi) = target.node.ty {
+                    if let Type::Abi(ref abi) = target.node.ty {
                         // ABI method access — show method signature with doc comment
                         if let Some((label, doc)) = self
                             .abi_method_info
@@ -1824,16 +1780,17 @@ impl DocumentState {
     }
 
     fn collect_type_annotation_node(&mut self, annotation: &TypeAnnotation) {
-        self.add_type_usage(annotation.name.opt_span(), &annotation.name.name);
+        let last = annotation.name.last().unwrap();
+        self.add_type_usage(last.opt_span(), &last.name);
 
-        if let Some(span) = annotation.name.opt_span()
-            && let Some(label) = self.type_label_for_name(&annotation.name.name)
+        if let Some(span) = last.opt_span()
+            && let Some(label) = self.type_label_for_name(&last.name)
         {
             // Look up doc comment for struct or enum types
             let doc = self
                 .struct_docs
-                .get(&annotation.name.name)
-                .or_else(|| self.enum_docs.get(&annotation.name.name))
+                .get(&last.name)
+                .or_else(|| self.enum_docs.get(&last.name))
                 .cloned();
             self.add_hover_label_with_doc(span, label, doc);
         }
@@ -1846,7 +1803,11 @@ impl DocumentState {
     fn type_label_for_name(&self, name: &str) -> Option<String> {
         // Generic types: show generic definition with named params (e.g. `enum Option<T> { ... }`)
         if let Some(def) = self.generic_types.get(name) {
-            return Some(def.ty.display_with_params(&def.param_name_map()));
+            return Some(
+                def.ty
+                    .display_with_params(&def.param_name_map())
+                    .to_string(),
+            );
         }
         match name {
             "i64" => Some(Type::int().to_string()),
@@ -1895,7 +1856,10 @@ impl DocumentState {
         doc: Option<String>,
     ) {
         if let Some(def) = self.generic_types.get(name) {
-            let label = def.ty.display_with_params(&def.param_name_map());
+            let label = def
+                .ty
+                .display_with_params(&def.param_name_map())
+                .to_string();
             self.add_hover_label_with_doc(span, label, doc);
         } else {
             let ty = self.enum_types.get(name).or(fallback_ty).cloned();
@@ -2194,7 +2158,7 @@ impl DocumentState {
                         .filter_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
-                        name: abi.to_compact_string(),
+                        name: abi.compact_display().to_string(),
                         detail: Some(abi.to_string()),
                         kind: SymbolKind::INTERFACE,
                         tags: None,
@@ -2259,7 +2223,7 @@ impl DocumentState {
                         .flat_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
-                        name: abi.to_compact_string(),
+                        name: abi.compact_display().to_string(),
                         detail: Some(abi.to_string()),
                         kind: SymbolKind::INTERFACE,
                         tags: None,
@@ -2357,18 +2321,11 @@ impl DocumentState {
                 }
                 TypedAbiPart::FnDecl(decl) => {
                     if let Some(span) = decl.name.opt_span() {
-                        let params = decl
-                            .params
-                            .iter()
-                            .map(|p| format!("{}: {}", p.name.name, p.ty))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-
-                        let detail = Some(format!(
-                            "({}) -> {}",
-                            params,
-                            decl.return_type.to_compact_string()
-                        ));
+                        let detail = Some(
+                            Type::Function(decl.ty.clone())
+                                .compact_display()
+                                .to_string(),
+                        );
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
@@ -2468,7 +2425,7 @@ fn format_enum_variant_hover_from_info(
             } else {
                 let payload = types
                     .iter()
-                    .map(starstream_types::Type::to_compact_string)
+                    .map(|ty| ty.compact_display().to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{enum_name}::{variant_name}({payload})")
@@ -2477,7 +2434,7 @@ fn format_enum_variant_hover_from_info(
         EnumVariantPayloadInfo::Struct(fields) => {
             let rendered_fields = fields
                 .iter()
-                .map(|(name, ty)| (name.clone(), ty.to_compact_string()))
+                .map(|(name, ty)| (name.clone(), ty.compact_display().to_string()))
                 .collect::<Vec<_>>();
             format_struct_variant_hover(enum_name, variant_name, &rendered_fields)
         }
@@ -2531,7 +2488,7 @@ fn format_variant_with_params(
             } else {
                 let payload = types
                     .iter()
-                    .map(|ty| ty.compact_display_with_params(params))
+                    .map(|ty| ty.compact_display_with_params(params).to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{enum_name}::{variant_name}({payload})")
@@ -2540,7 +2497,12 @@ fn format_variant_with_params(
         EnumVariantKind::Struct(fields) => {
             let rendered: Vec<(String, String)> = fields
                 .iter()
-                .map(|f| (f.name.to_string(), f.ty.compact_display_with_params(params)))
+                .map(|f| {
+                    (
+                        f.name.to_string(),
+                        f.ty.compact_display_with_params(params).to_string(),
+                    )
+                })
                 .collect();
             format_struct_variant_hover(enum_name, variant_name, &rendered)
         }

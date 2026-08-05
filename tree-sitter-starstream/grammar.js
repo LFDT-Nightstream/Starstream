@@ -205,7 +205,7 @@ module.exports = grammar({
 
     type_annotation: ($) =>
       seq(
-        $.identifier,
+        $.scoped_name,
         optional(
           seq(
             "<",

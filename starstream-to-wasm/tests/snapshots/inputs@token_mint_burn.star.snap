@@ -23,10 +23,12 @@ Program {
                                         span: 46..51,
                                     },
                                     ty: TypeAnnotation {
-                                        name: Identifier {
-                                            name: "u64",
-                                            span: 53..56,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "u64",
+                                                span: 53..56,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 },
@@ -164,10 +166,12 @@ Program {
                                                 span: 207..209,
                                             },
                                             ty: TypeAnnotation {
-                                                name: Identifier {
-                                                    name: "Utxo",
-                                                    span: 211..215,
-                                                },
+                                                name: [
+                                                    Identifier {
+                                                        name: "Utxo",
+                                                        span: 211..215,
+                                                    },
+                                                ],
                                                 generics: [],
                                             },
                                         },
@@ -193,10 +197,12 @@ Program {
                                                 span: 239..245,
                                             },
                                             ty: TypeAnnotation {
-                                                name: Identifier {
-                                                    name: "Utxo",
-                                                    span: 247..251,
-                                                },
+                                                name: [
+                                                    Identifier {
+                                                        name: "Utxo",
+                                                        span: 247..251,
+                                                    },
+                                                ],
                                                 generics: [],
                                             },
                                         },
@@ -221,17 +227,17 @@ Program {
 ==== Inference trace ====
 T-Token: MyToken => 
   T-Fn: mint => ()
-    T-Assign: {mint: fn() -> () [mint], total: u64} ⊢ total = total + 1; ⇒ u64
-      T-Bin-Add: {mint: fn() -> () [mint], total: u64} ⊢ total + 1 ⇒ u64
-        T-Var: {mint: fn() -> () [mint], total: u64} ⊢ total ⇒ u64
-        T-Int: {mint: fn() -> () [mint], total: u64} ⊢ 1 ⇒ i64
+    T-Assign: {mint: fn() -> (), total: u64} ⊢ total = total + 1; ⇒ u64
+      T-Bin-Add: {mint: fn() -> (), total: u64} ⊢ total + 1 ⇒ u64
+        T-Var: {mint: fn() -> (), total: u64} ⊢ total ⇒ u64
+        T-Int: {mint: fn() -> (), total: u64} ⊢ 1 ⇒ i64
         Unify-Var: u64 ~ i64 => {u64/t3}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: burn => ()
-    T-Assign: {burn: fn() -> () [burn], mint: fn() -> () [mint], total: u64} ⊢ total = total - 1; ⇒ u64
-      T-Bin-Sub: {burn: fn() -> () [burn], mint: fn() -> () [mint], total: u64} ⊢ total - 1 ⇒ u64
-        T-Var: {burn: fn() -> () [burn], mint: fn() -> () [mint], total: u64} ⊢ total ⇒ u64
-        T-Int: {burn: fn() -> () [burn], mint: fn() -> () [mint], total: u64} ⊢ 1 ⇒ i64
+    T-Assign: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ total = total - 1; ⇒ u64
+      T-Bin-Sub: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ total - 1 ⇒ u64
+        T-Var: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ total ⇒ u64
+        T-Int: {burn: fn() -> (), mint: fn() -> (), total: u64} ⊢ 1 ⇒ i64
         Unify-Var: u64 ~ i64 => {u64/t4}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: attach => ()
@@ -239,7 +245,6 @@ T-Token: MyToken =>
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Token(
             TypedTokenDef {
@@ -271,6 +276,7 @@ TypedProgram {
                                 name: "mint",
                                 span: 76..80,
                             },
+                            id: NameId(2),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -339,6 +345,7 @@ TypedProgram {
                                 name: "burn",
                                 span: 130..134,
                             },
+                            id: NameId(3),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -400,8 +407,8 @@ TypedProgram {
                     ),
                     AbiImpl {
                         span: 181..186,
-                        abi: AbiNarrow(
-                            Abi {
+                        abi: Abi(
+                            AbiType {
                                 name: Identifier {
                                     name: "Token",
                                     span: 0..0,
@@ -412,36 +419,46 @@ TypedProgram {
                                             name: "attach",
                                             span: 0..0,
                                         },
-                                        params: [
-                                            TypedFunctionParam {
-                                                public: false,
-                                                name: Identifier {
-                                                    name: "utxo",
-                                                    span: 0..0,
-                                                },
-                                                ty: UtxoAny,
-                                            },
-                                        ],
-                                        return_type: Unit,
                                         span: 0..0,
+                                        ty: FunctionType {
+                                            kind: Normal,
+                                            name_span: 0..0,
+                                            params: [
+                                                UtxoAny,
+                                            ],
+                                            param_spans: [
+                                                0..0,
+                                            ],
+                                            result: Unit,
+                                            callee: Some(
+                                                Named(
+                                                    NameId(0),
+                                                ),
+                                            ),
+                                        },
                                     },
                                     TypedAbiMethodDecl {
                                         name: Identifier {
                                             name: "detach",
                                             span: 0..0,
                                         },
-                                        params: [
-                                            TypedFunctionParam {
-                                                public: false,
-                                                name: Identifier {
-                                                    name: "utxo",
-                                                    span: 0..0,
-                                                },
-                                                ty: UtxoAny,
-                                            },
-                                        ],
-                                        return_type: Unit,
                                         span: 0..0,
+                                        ty: FunctionType {
+                                            kind: Normal,
+                                            name_span: 0..0,
+                                            params: [
+                                                UtxoAny,
+                                            ],
+                                            param_spans: [
+                                                0..0,
+                                            ],
+                                            result: Unit,
+                                            callee: Some(
+                                                Named(
+                                                    NameId(1),
+                                                ),
+                                            ),
+                                        },
                                     },
                                 ],
                             },
@@ -453,6 +470,7 @@ TypedProgram {
                                     name: "attach",
                                     span: 200..206,
                                 },
+                                id: NameId(4),
                                 params: [
                                     TypedFunctionParam {
                                         public: false,
@@ -475,6 +493,7 @@ TypedProgram {
                                     name: "detach",
                                     span: 232..238,
                                 },
+                                id: NameId(5),
                                 params: [
                                     TypedFunctionParam {
                                         public: false,

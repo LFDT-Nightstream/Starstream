@@ -53,7 +53,7 @@ pub fn primary<'a>(
 }
 
 fn scoped_name_expr<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    scoped_name().map(|x| Expr::ScopedName(x)).spanned()
+    scoped_name().map(Expr::ScopedName).spanned()
 }
 
 #[cfg(test)]

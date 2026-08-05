@@ -22,10 +22,12 @@ Program {
                             payload: Tuple(
                                 [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "bool",
-                                            span: 19..23,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "bool",
+                                                span: 19..23,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -40,10 +42,12 @@ Program {
                             payload: Tuple(
                                 [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 34..37,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 34..37,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -71,10 +75,12 @@ Program {
                                 span: 58..61,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Foo",
-                                    span: 63..66,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Foo",
+                                        span: 63..66,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -250,24 +256,24 @@ Program {
 T-Fn: accepts_foo => ()
 
 T-Fn: get_bar => ()
-  T-Expr: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ accepts_foo(Foo::Bar(true)); ⇒ ()
-    T-Call: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ accepts_foo(Foo::Bar(true)) ⇒ ()
-      T-Var: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ accepts_foo ⇒ fn(Foo) -> () [accepts_foo]
-      T-Call: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ Foo::Bar(true) ⇒ Foo
-        T-Var: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ Foo::Bar ⇒ fn(bool) -> Foo [0]
-        T-Bool: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar]} ⊢ true ⇒ bool
+  T-Expr: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo(Foo::Bar(true)); ⇒ ()
+    T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo(Foo::Bar(true)) ⇒ ()
+      T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo ⇒ fn(Foo) -> ()
+      T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ Foo::Bar(true) ⇒ Foo
+        T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ Foo::Bar ⇒ fn(bool) -> Foo
+        T-Bool: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ true ⇒ bool
         Unify-Const: bool ~ bool => {}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
 
 T-Fn: get_baz => ()
-  T-Expr: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ accepts_foo(Foo::Baz(2)); ⇒ ()
-    T-Call: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ accepts_foo(Foo::Baz(2)) ⇒ ()
-      T-Var: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ accepts_foo ⇒ fn(Foo) -> () [accepts_foo]
-      T-Call: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ Foo::Baz(2) ⇒ Foo
-        T-Var: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ Foo::Baz ⇒ fn(i64) -> Foo [1]
-        T-Int: {accepts_foo: fn(Foo) -> () [accepts_foo], get_bar: fn() -> () [get_bar], get_baz: fn() -> () [get_baz]} ⊢ 2 ⇒ i64
+  T-Expr: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo(Foo::Baz(2)); ⇒ ()
+    T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo(Foo::Baz(2)) ⇒ ()
+      T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo ⇒ fn(Foo) -> ()
+      T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ Foo::Baz(2) ⇒ Foo
+        T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ Foo::Baz ⇒ fn(i64) -> Foo
+        T-Int: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ 2 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t3}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
@@ -275,7 +281,6 @@ T-Fn: get_baz => ()
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Enum(
             TypedEnumDef {
@@ -344,6 +349,7 @@ TypedProgram {
                     name: "accepts_foo",
                     span: 46..57,
                 },
+                id: NameId(2),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -395,6 +401,7 @@ TypedProgram {
                     name: "get_bar",
                     span: 83..90,
                 },
+                id: NameId(3),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -444,7 +451,7 @@ TypedProgram {
                                                         result: Unit,
                                                         callee: Some(
                                                             Named(
-                                                                "accepts_foo",
+                                                                NameId(2),
                                                             ),
                                                         ),
                                                     },
@@ -589,6 +596,7 @@ TypedProgram {
                     name: "get_baz",
                     span: 141..148,
                 },
+                id: NameId(4),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -638,7 +646,7 @@ TypedProgram {
                                                         result: Unit,
                                                         callee: Some(
                                                             Named(
-                                                                "accepts_foo",
+                                                                NameId(2),
                                                             ),
                                                         ),
                                                     },

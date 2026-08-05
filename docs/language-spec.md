@@ -148,7 +148,7 @@ abi_fn_declaration ::=
 
 (* Type syntax *)
 
-type_annotation ::= identifier ( "<" type_annotation ( "," type_annotation )* ","? ">" )?
+type_annotation ::= scoped_name ( "<" type_annotation ( "," type_annotation )* ","? ">" )?
 
 (* Blocks and statements *)
 

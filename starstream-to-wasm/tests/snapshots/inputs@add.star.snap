@@ -24,10 +24,12 @@ Program {
                                 span: 14..15,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "i64",
-                                    span: 17..20,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "i64",
+                                        span: 17..20,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -38,20 +40,24 @@ Program {
                                 span: 22..23,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "i64",
-                                    span: 25..28,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "i64",
+                                        span: 25..28,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
                     ],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 33..36,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 33..36,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -99,15 +105,14 @@ Program {
 ==== Inference trace ====
 T-Fn: add => i64
   T-ReturnTail: x + y => i64
-    T-Bin-Add: {add: fn(i64, i64) -> i64 [add], x: i64, y: i64} ⊢ x + y ⇒ i64
-      T-Var: {add: fn(i64, i64) -> i64 [add], x: i64, y: i64} ⊢ x ⇒ i64
-      T-Var: {add: fn(i64, i64) -> i64 [add], x: i64, y: i64} ⊢ y ⇒ i64
+    T-Bin-Add: {add: fn(i64, i64) -> i64, x: i64, y: i64} ⊢ x + y ⇒ i64
+      T-Var: {add: fn(i64, i64) -> i64, x: i64, y: i64} ⊢ x ⇒ i64
+      T-Var: {add: fn(i64, i64) -> i64, x: i64, y: i64} ⊢ y ⇒ i64
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Function(
             TypedFunctionDef {
@@ -118,6 +123,7 @@ TypedProgram {
                     name: "add",
                     span: 10..13,
                 },
+                id: NameId(2),
                 params: [
                     TypedFunctionParam {
                         public: false,

@@ -7,12 +7,58 @@
 
 use pretty::RcDoc;
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Display};
 use std::sync::Arc;
 
-use crate::{Identifier, Span, TypedAbiMethodDecl};
+use crate::{Identifier, NameId, Span, TypedAbiMethodDecl};
 
-const TYPE_FORMAT_WIDTH: usize = 80;
+// ----------------------------------------------------------------------------
+// Core `Type` data structure and its parts.
+
+/// Starstream type.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Type {
+    /// An unknown type represented by a type variable.
+    Var(TypeVarId),
+    /// Integer type with width and signedness.
+    Int(IntWidth),
+    /// Boolean.
+    Bool,
+    /// Unit `()` value used for statement expressions and other places that
+    /// conceptually return nothing.
+    Unit,
+    /// Function type `(params) -> result` with an optional kind.
+    Function(Arc<FunctionType>),
+    /// Tuple type `(T0, T1, …)`.
+    Tuple(Arc<Vec<Type>>),
+    /// Struct/record type with named fields.
+    Record(Arc<RecordType>),
+    /// Enum/sum type with named variants.
+    Enum(Arc<EnumType>),
+    /// The built-in `Utxo` type.
+    UtxoAny,
+    /// The type created by a `utxo` definition.
+    UtxoNamed(String),
+    /// The built-in `Token` type.
+    TokenAny,
+    /// The type created by a `token` definition.
+    TokenNamed(String),
+    /// The type created by an `abi` definition. Also the type of a Utxo
+    /// narrowed via `if x is AbiName`.
+    Abi(Arc<AbiType>),
+}
+
+// Keep Type small (and use Rc instead of Box) to make it cheap to clone.
+const _: [(); 0 - !(std::mem::size_of::<Type>() <= 32) as usize] = [];
+
+/// Identifier for a type variable.
+///
+/// During inference we generate fresh type variables to represent unknown
+/// types. They are later unified with concrete types or quantified into
+/// [`Scheme`]s. Using a small newtype keeps the representation compact while
+/// still allowing us to attach formatting logic.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TypeVarId(pub u32);
 
 /// Integer width and signedness.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -25,6 +71,165 @@ pub enum IntWidth {
     U16,
     U32,
     U64,
+}
+
+/// Type of a `fn` item.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FunctionType {
+    pub kind: FunctionKind,
+    pub name_span: Span,
+    pub params: Vec<Type>,
+    pub param_spans: Vec<Span>,
+    pub result: Type,
+    /// Optional statically-known callee. Otherwise it's a pointer.
+    pub callee: Option<StaticFunction>,
+}
+
+/// Function kind: whether it can be called normally or requires a keyword prefix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum FunctionKind {
+    /// Functions requiring no prefix keyword to call.
+    #[default]
+    Normal,
+    /// Functions requiring `emit` keyword to call, generally declared using `event`.
+    Emit,
+    /// Functions requiring `raise` keyword to call, generally declared using `effect`.
+    Raise,
+    /// Functions requruing `runtime` keyword to call, generally imported host functions.
+    Runtime,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum StaticFunction {
+    /// A specific function declared in the global namespace.
+    Named(NameId),
+    /// Tuple variant constructor for the given variant of the function's return type.
+    Constructor { variant: usize },
+}
+
+/// Type of a `struct`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RecordType {
+    pub name: String,
+    pub fields: Vec<RecordFieldType>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RecordFieldType {
+    pub name: Identifier,
+    pub ty: Type,
+}
+
+/// Type of an `enum`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EnumType {
+    pub name: String,
+    pub variants: Vec<EnumVariantType>,
+    /// Instantiated type arguments for generic enums (e.g., `[i64]` for `Option<i64>`).
+    /// Empty for non-generic enums.
+    pub type_args: Vec<Type>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EnumVariantType {
+    pub name: String,
+    pub kind: EnumVariantKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum EnumVariantKind {
+    Unit,
+    Tuple(Vec<Type>),
+    Struct(Vec<RecordFieldType>),
+}
+
+/// Type of an `abi`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AbiType {
+    pub name: Identifier,
+    pub methods: Vec<TypedAbiMethodDecl>,
+}
+
+// ----------------------------------------------------------------------------
+// Impls for the above.
+
+impl Type {
+    #[must_use]
+    pub fn unit() -> Self {
+        Type::Unit
+    }
+
+    #[must_use]
+    pub fn bool() -> Self {
+        Type::Bool
+    }
+
+    #[must_use]
+    pub fn int() -> Self {
+        Type::Int(IntWidth::I64)
+    }
+}
+
+impl From<IntWidth> for Type {
+    fn from(value: IntWidth) -> Self {
+        Type::Int(value)
+    }
+}
+
+impl From<FunctionType> for Type {
+    fn from(value: FunctionType) -> Self {
+        Type::Function(Arc::new(value))
+    }
+}
+
+impl From<Arc<FunctionType>> for Type {
+    fn from(value: Arc<FunctionType>) -> Self {
+        Type::Function(value)
+    }
+}
+
+impl From<RecordType> for Type {
+    fn from(value: RecordType) -> Self {
+        Type::Record(Arc::new(value))
+    }
+}
+
+impl From<Arc<RecordType>> for Type {
+    fn from(value: Arc<RecordType>) -> Self {
+        Type::Record(value)
+    }
+}
+
+impl From<EnumType> for Type {
+    fn from(value: EnumType) -> Self {
+        Type::Enum(Arc::new(value))
+    }
+}
+
+impl From<Arc<EnumType>> for Type {
+    fn from(value: Arc<EnumType>) -> Self {
+        Type::Enum(value)
+    }
+}
+
+impl From<AbiType> for Type {
+    fn from(value: AbiType) -> Self {
+        Type::Abi(Arc::new(value))
+    }
+}
+
+impl From<Arc<AbiType>> for Type {
+    fn from(value: Arc<AbiType>) -> Self {
+        Type::Abi(value)
+    }
+}
+
+impl TypeVarId {
+    pub fn fresh(&mut self) -> TypeVarId {
+        let id = *self;
+        self.0 += 1;
+        id
+    }
 }
 
 impl IntWidth {
@@ -104,20 +309,6 @@ impl IntWidth {
     }
 }
 
-/// Function kind: whether it can be called normally or requires a keyword prefix.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub enum FunctionKind {
-    /// Functions requiring no prefix keyword to call.
-    #[default]
-    Normal,
-    /// Functions requiring `emit` keyword to call, generally declared using `event`.
-    Emit,
-    /// Functions requiring `raise` keyword to call, generally declared using `effect`.
-    Raise,
-    /// Functions requruing `runtime` keyword to call, generally imported host functions.
-    Runtime,
-}
-
 impl FunctionKind {
     pub fn declaration_keyword(&self) -> &'static str {
         match self {
@@ -138,26 +329,53 @@ impl FunctionKind {
     }
 }
 
-/// Identifier for a type variable.
-///
-/// During inference we generate fresh type variables to represent unknown
-/// types. They are later unified with concrete types or quantified into
-/// [`Scheme`]s. Using a small newtype keeps the representation compact while
-/// still allowing us to attach formatting logic.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TypeVarId(pub u32);
-
-impl std::fmt::Display for TypeVarId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "t{}", self.0)
+impl RecordFieldType {
+    pub fn new(name: Identifier, ty: Type) -> Self {
+        Self { name, ty }
     }
 }
 
-/// A named type parameter in a generic type definition.
+impl EnumVariantType {
+    pub fn unit(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            kind: EnumVariantKind::Unit,
+        }
+    }
+
+    pub fn tuple(name: impl Into<String>, payload: Vec<Type>) -> Self {
+        Self {
+            name: name.into(),
+            kind: EnumVariantKind::Tuple(payload),
+        }
+    }
+
+    pub fn struct_variant(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
+        Self {
+            name: name.into(),
+            kind: EnumVariantKind::Struct(fields),
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Helper types not required by `Type` itself.
+
+/// A polymorphic type scheme `∀vars. ty`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TypeParam {
-    pub id: TypeVarId,
-    pub name: String,
+pub struct Scheme {
+    pub vars: Vec<TypeVarId>,
+    pub ty: Type,
+}
+
+impl Scheme {
+    #[must_use]
+    pub fn monomorphic(ty: Type) -> Self {
+        Scheme {
+            vars: Vec::new(),
+            ty,
+        }
+    }
 }
 
 /// A generic type definition with its template type and named parameters.
@@ -171,6 +389,13 @@ pub struct GenericTypeDef {
     pub variant_docs: HashMap<String, String>,
 }
 
+/// A named type parameter in a generic type definition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeParam {
+    pub id: TypeVarId,
+    pub name: String,
+}
+
 impl GenericTypeDef {
     #[must_use]
     pub fn param_name_map(&self) -> HashMap<TypeVarId, String> {
@@ -181,155 +406,89 @@ impl GenericTypeDef {
     }
 }
 
-/// Type-level contents of an `abi` block.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Abi {
-    pub name: Identifier,
-    pub methods: Vec<TypedAbiMethodDecl>,
-}
+// ----------------------------------------------------------------------------
+// Formatting.
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum StaticFunction {
-    /// A specific function declared in the global namespace.
-    Named(String),
-    /// Tuple variant constructor for the given variant of the function's return type.
-    Constructor { variant: usize },
-}
+const TYPE_FORMAT_WIDTH: usize = 80;
 
-/// Starstream type.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Type {
-    /// An unknown type represented by a type variable.
-    Var(TypeVarId),
-    /// Integer type with width and signedness.
-    Int(IntWidth),
-    /// Boolean.
-    Bool,
-    /// Unit `()` value used for statement expressions and other places that
-    /// conceptually return nothing.
-    Unit,
-    /// Function type `(params) -> result` with an optional effect.
-    Function(FunctionType),
-    /// Tuple type `(T0, T1, …)`.
-    Tuple(Vec<Type>),
-    /// Struct/record type with named fields.
-    Record(RecordType),
-    /// Enum/sum type with named variants.
-    Enum(EnumType),
-    /// The built-in `Utxo` type.
-    UtxoAny,
-    /// The type created by a `utxo` definition.
-    UtxoNamed(String),
-    /// The built-in `Token` type.
-    TokenAny,
-    /// The type created by a `token` definition.
-    TokenNamed(String),
-    /// The type created by an `abi` definition. Also the type of a Utxo
-    /// narrowed via `if x is AbiName`.
-    AbiNarrow(Arc<Abi>),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct FunctionType {
-    pub kind: FunctionKind,
-    pub name_span: Span,
-    pub params: Vec<Type>,
-    pub param_spans: Vec<Span>,
-    pub result: Box<Type>,
-    /// Optional statically-known callee. Otherwise it's a pointer.
-    pub callee: Option<StaticFunction>,
-}
-
-impl Type {
-    #[must_use]
-    pub fn unit() -> Self {
-        Type::Unit
-    }
-
-    #[must_use]
-    pub fn bool() -> Self {
-        Type::Bool
-    }
-
-    #[must_use]
-    pub fn int() -> Self {
-        Type::Int(IntWidth::I64)
-    }
-
-    #[must_use]
-    pub fn int_of(w: IntWidth) -> Self {
-        Type::Int(w)
-    }
-
-    /// Canonical record type helper.
-    pub fn record(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
-        Type::Record(RecordType {
-            name: name.into(),
-            fields,
-        })
-    }
-
-    /// Canonical enum type helper.
-    pub fn enum_type(name: impl Into<String>, variants: Vec<EnumVariantType>) -> Self {
-        Type::Enum(EnumType {
-            name: name.into(),
-            variants,
-            type_args: vec![],
-        })
-    }
-}
-
-impl fmt::Display for Type {
+impl fmt::Debug for TypeVarId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.to_doc_mode(TypeDocMode::Expanded)
+        write!(f, "TypeVarId({})", self.0)
+    }
+}
+
+impl Display for TypeVarId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "t{}", self.0)
+    }
+}
+
+impl Display for Scheme {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.vars.is_empty() {
+            write!(f, "{}", self.ty)
+        } else {
+            write!(f, "forall")?;
+            for v in &self.vars {
+                write!(f, " {v}")?;
+            }
+            write!(f, ". {}", self.ty)
+        }
+    }
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_doc(TypeDocMode::Expanded, &HashMap::new())
             .render_fmt(TYPE_FORMAT_WIDTH, f)
     }
 }
 
 impl Type {
     #[must_use]
-    pub fn to_compact_string(&self) -> String {
-        render_doc(self.to_doc_mode(TypeDocMode::Compact))
+    pub fn compact_display(&self) -> impl Display {
+        RenderDoc(self.to_doc(TypeDocMode::Compact, &HashMap::new()))
     }
 
     /// Render expanded display using named type parameters for `Type::Var`.
     #[must_use]
-    pub fn display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
-        render_doc(self.to_doc(TypeDocMode::Expanded, params))
+    pub fn display_with_params(&self, params: &HashMap<TypeVarId, String>) -> impl Display {
+        RenderDoc(self.to_doc(TypeDocMode::Expanded, params))
     }
 
     /// Render compact display using named type parameters for `Type::Var`.
     #[must_use]
-    pub fn compact_display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
-        render_doc(self.to_doc(TypeDocMode::Compact, params))
-    }
-
-    fn to_doc_mode(&self, mode: TypeDocMode) -> RcDoc<'static, ()> {
-        self.to_doc(mode, &HashMap::new())
+    pub fn compact_display_with_params(&self, params: &HashMap<TypeVarId, String>) -> impl Display {
+        RenderDoc(self.to_doc(TypeDocMode::Compact, params))
     }
 
     fn to_doc(&self, mode: TypeDocMode, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
         match self {
-            Type::Var(id) => RcDoc::text(params.get(id).cloned().unwrap_or_else(|| id.to_string())),
+            Type::Var(id) => match params.get(id) {
+                Some(ty) => RcDoc::text(ty.clone()),
+                None => RcDoc::as_string(id),
+            },
             Type::Int(w) => RcDoc::text(w.display_name()),
             Type::Bool => RcDoc::text("bool"),
             Type::Unit => RcDoc::text("()"),
-            Type::Function(FunctionType {
-                params: fn_params,
-                param_spans: _,
-                result,
-                kind,
-                name_span: _,
-                callee,
-            }) => {
+            Type::Function(func) => {
+                let FunctionType {
+                    params: fn_params,
+                    param_spans: _,
+                    result,
+                    kind,
+                    name_span: _,
+                    callee: _,
+                } = &**func;
                 let params_doc = if fn_params.is_empty() {
                     RcDoc::text("()")
                 } else {
                     RcDoc::text("(")
-                        .append(comma_separated_docs(
+                        .append(RcDoc::intersperse(
                             fn_params
                                 .iter()
                                 .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
+                            ", ",
                         ))
                         .append(RcDoc::text(")"))
                 };
@@ -338,41 +497,32 @@ impl Type {
                     .append(params_doc)
                     .append(RcDoc::text(" -> "))
                     .append(result.to_doc(TypeDocMode::Compact, params))
-                    .append(match callee {
-                        Some(StaticFunction::Named(name)) => {
-                            RcDoc::text(" [").append(name.to_owned()).append("]")
-                        }
-                        Some(StaticFunction::Constructor { variant }) => {
-                            // TODO: use variant name here by inspecting `result`
-                            RcDoc::text(" [").append(variant.to_string()).append("]")
-                        }
-                        None => RcDoc::nil(),
-                    })
             }
             Type::Tuple(items) => RcDoc::text("(")
-                .append(comma_separated_docs(
+                .append(RcDoc::intersperse(
                     items
                         .iter()
                         .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
+                    ", ",
                 ))
-                .append(RcDoc::text(")")),
+                .append(")"),
             Type::Record(record) => match mode {
-                TypeDocMode::Compact => RcDoc::text(record.name.clone()),
+                TypeDocMode::Compact => RcDoc::as_string(&record.name),
                 TypeDocMode::Expanded => record_doc(record, params),
             },
             Type::Enum(enum_type) => match mode {
                 TypeDocMode::Compact => {
                     if enum_type.type_args.is_empty() {
-                        RcDoc::text(enum_type.name.clone())
+                        RcDoc::as_string(&enum_type.name)
                     } else {
                         let args = enum_type
                             .type_args
                             .iter()
                             .map(|ty| ty.to_doc(TypeDocMode::Compact, params));
-                        RcDoc::text(enum_type.name.clone())
-                            .append(RcDoc::text("<"))
-                            .append(comma_separated_docs(args))
-                            .append(RcDoc::text(">"))
+                        RcDoc::as_string(&enum_type.name)
+                            .append("<")
+                            .append(RcDoc::intersperse(args, ", "))
+                            .append(">")
                     }
                 }
                 TypeDocMode::Expanded => enum_doc(enum_type, params),
@@ -381,29 +531,24 @@ impl Type {
             Type::UtxoNamed(id) => RcDoc::text(id.to_owned()),
             Type::TokenAny => RcDoc::text("Token"),
             Type::TokenNamed(id) => RcDoc::text(id.to_owned()),
-            Type::AbiNarrow(abi) => RcDoc::text(abi.name.to_string()),
+            Type::Abi(abi) => RcDoc::text(abi.name.to_string()),
         }
     }
 }
 
-fn render_doc(doc: RcDoc<'static, ()>) -> String {
-    let mut out = String::new();
-    doc.render_fmt(TYPE_FORMAT_WIDTH, &mut out)
-        .expect("render type doc");
-    out
+/// Like [pretty::PrettyFmt], but owns the doc, so we can `-> impl Display`.
+struct RenderDoc<'a>(RcDoc<'a, ()>);
+
+impl<'a> Display for RenderDoc<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.render_fmt(TYPE_FORMAT_WIDTH, f)
+    }
 }
 
 #[derive(Clone, Copy)]
 enum TypeDocMode {
     Expanded,
     Compact,
-}
-
-fn comma_separated_docs<I>(docs: I) -> RcDoc<'static, ()>
-where
-    I: IntoIterator<Item = RcDoc<'static, ()>>,
-{
-    RcDoc::intersperse(docs, RcDoc::text(", "))
 }
 
 fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
@@ -413,9 +558,9 @@ fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc
         let fields = RcDoc::intersperse(
             record.fields.iter().map(|field| {
                 RcDoc::text(field.name.to_string())
-                    .append(RcDoc::text(": "))
+                    .append(": ")
                     .append(field.ty.to_doc(TypeDocMode::Compact, params))
-                    .append(RcDoc::text(","))
+                    .append(",")
             }),
             RcDoc::hardline(),
         );
@@ -423,10 +568,10 @@ fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc
         RcDoc::text("struct ")
             .append(RcDoc::text(record.name.clone()))
             .append(RcDoc::space())
-            .append(RcDoc::text("{"))
+            .append("{")
             .append(RcDoc::hardline().append(fields).nest(4))
             .append(RcDoc::hardline())
-            .append(RcDoc::text("}"))
+            .append("}")
     }
 }
 
@@ -439,9 +584,9 @@ fn enum_name_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> R
             .type_args
             .iter()
             .map(|ty| ty.to_doc(TypeDocMode::Compact, params));
-        name.append(RcDoc::text("<"))
-            .append(comma_separated_docs(args))
-            .append(RcDoc::text(">"))
+        name.append("<")
+            .append(RcDoc::intersperse(args, ", "))
+            .append(">")
     }
 }
 
@@ -450,24 +595,23 @@ fn enum_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<
         RcDoc::text("enum ")
             .append(enum_name_doc(enum_type, params))
             .append(RcDoc::space())
-            .append(RcDoc::text("{}"))
+            .append("{}")
     } else {
         let variants = RcDoc::intersperse(
             enum_type
                 .variants
                 .iter()
                 .map(|variant| match &variant.kind {
-                    EnumVariantKind::Unit => {
-                        RcDoc::text(variant.name.clone()).append(RcDoc::text(","))
-                    }
+                    EnumVariantKind::Unit => RcDoc::text(variant.name.clone()).append(","),
                     EnumVariantKind::Tuple(payload) => RcDoc::text(variant.name.clone())
-                        .append(RcDoc::text("("))
-                        .append(comma_separated_docs(
+                        .append("(")
+                        .append(RcDoc::intersperse(
                             payload
                                 .iter()
                                 .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
+                            ", ",
                         ))
-                        .append(RcDoc::text("),")),
+                        .append("),"),
                     EnumVariantKind::Struct(fields) => {
                         enum_variant_struct_doc(&variant.name, fields, params)
                     }
@@ -478,10 +622,10 @@ fn enum_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<
         RcDoc::text("enum ")
             .append(enum_name_doc(enum_type, params))
             .append(RcDoc::space())
-            .append(RcDoc::text("{"))
+            .append("{")
             .append(RcDoc::hardline().append(variants).nest(4))
             .append(RcDoc::hardline())
-            .append(RcDoc::text("}"))
+            .append("}")
     }
 }
 
@@ -542,99 +686,5 @@ fn inline_struct_variant(
         Some(inline)
     } else {
         None
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RecordType {
-    pub name: String,
-    pub fields: Vec<RecordFieldType>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RecordFieldType {
-    pub name: Identifier,
-    pub ty: Type,
-}
-
-impl RecordFieldType {
-    pub fn new(name: Identifier, ty: Type) -> Self {
-        Self { name, ty }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct EnumType {
-    pub name: String,
-    pub variants: Vec<EnumVariantType>,
-    /// Instantiated type arguments for generic enums (e.g., `[i64]` for `Option<i64>`).
-    /// Empty for non-generic enums.
-    pub type_args: Vec<Type>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct EnumVariantType {
-    pub name: String,
-    pub kind: EnumVariantKind,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum EnumVariantKind {
-    Unit,
-    Tuple(Vec<Type>),
-    Struct(Vec<RecordFieldType>),
-}
-
-impl EnumVariantType {
-    pub fn unit(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            kind: EnumVariantKind::Unit,
-        }
-    }
-
-    pub fn tuple(name: impl Into<String>, payload: Vec<Type>) -> Self {
-        Self {
-            name: name.into(),
-            kind: EnumVariantKind::Tuple(payload),
-        }
-    }
-
-    pub fn struct_variant(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
-        Self {
-            name: name.into(),
-            kind: EnumVariantKind::Struct(fields),
-        }
-    }
-}
-
-/// A polymorphic type scheme `∀vars. ty`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Scheme {
-    pub vars: Vec<TypeVarId>,
-    pub ty: Type,
-}
-
-impl Scheme {
-    #[must_use]
-    pub fn monomorphic(ty: Type) -> Self {
-        Scheme {
-            vars: Vec::new(),
-            ty,
-        }
-    }
-}
-
-impl fmt::Display for Scheme {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.vars.is_empty() {
-            write!(f, "{}", self.ty)
-        } else {
-            write!(f, "forall")?;
-            for v in &self.vars {
-                write!(f, " {v}")?;
-            }
-            write!(f, ". {}", self.ty)
-        }
     }
 }

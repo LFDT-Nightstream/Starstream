@@ -140,23 +140,22 @@ Program {
 ==== Inference trace ====
 
 T-Fn: main => ()
-  T-TryWith: {main: fn() -> () [main]} ⊢ try {
+  T-TryWith: {main: fn() -> ()} ⊢ try {
     raise Hello();
 } with Hello() {
     emit Goodbye();
 } ⇒ 
-    T-Expr: {main: fn() -> () [main]} ⊢ raise Hello(); ⇒ ()
-      T-Call: {main: fn() -> () [main]} ⊢ raise Hello() ⇒ ()
-        T-Var: {main: fn() -> () [main]} ⊢ Hello ⇒ effect() -> () [Hello]
+    T-Expr: {main: fn() -> ()} ⊢ raise Hello(); ⇒ ()
+      T-Call: {main: fn() -> ()} ⊢ raise Hello() ⇒ ()
+        T-Var: {main: fn() -> ()} ⊢ Hello ⇒ effect() -> ()
     Unify-Const: () ~ () => {}
-    T-Expr: {main: fn() -> () [main]} ⊢ emit Goodbye(); ⇒ ()
-      T-Call: {main: fn() -> () [main]} ⊢ emit Goodbye() ⇒ ()
-        T-Var: {main: fn() -> () [main]} ⊢ Goodbye ⇒ event() -> () [Goodbye]
+    T-Expr: {main: fn() -> ()} ⊢ emit Goodbye(); ⇒ ()
+      T-Call: {main: fn() -> ()} ⊢ emit Goodbye() ⇒ ()
+        T-Var: {main: fn() -> ()} ⊢ Goodbye ⇒ event() -> ()
     Unify-Const: () ~ () => {}
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Abi(
             TypedAbiDef {
@@ -171,6 +170,7 @@ TypedProgram {
                                 name: "Hello",
                                 span: 21..26,
                             },
+                            id: NameId(2),
                             params: [],
                             return_type: Unit,
                         },
@@ -181,6 +181,7 @@ TypedProgram {
                                 name: "Goodbye",
                                 span: 40..47,
                             },
+                            id: NameId(3),
                             params: [],
                         },
                     ),
@@ -196,6 +197,7 @@ TypedProgram {
                     name: "main",
                     span: 64..68,
                 },
+                id: NameId(4),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -219,7 +221,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            "Hello",
+                                                                            NameId(2),
                                                                         ),
                                                                     ),
                                                                 },
@@ -274,7 +276,7 @@ TypedProgram {
                                                                             result: Unit,
                                                                             callee: Some(
                                                                                 Named(
-                                                                                    "Goodbye",
+                                                                                    NameId(3),
                                                                                 ),
                                                                             ),
                                                                         },

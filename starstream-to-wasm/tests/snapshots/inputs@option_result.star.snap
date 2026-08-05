@@ -17,16 +17,20 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "Option",
-                                span: 18..24,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "Option",
+                                    span: 18..24,
+                                },
+                            ],
                             generics: [
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "i64",
-                                        span: 25..28,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "i64",
+                                            span: 25..28,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                             ],
@@ -86,16 +90,20 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "Option",
-                                span: 74..80,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "Option",
+                                    span: 74..80,
+                                },
+                            ],
                             generics: [
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "i64",
-                                        span: 81..84,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "i64",
+                                            span: 81..84,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                             ],
@@ -142,16 +150,20 @@ Program {
                                 span: 125..128,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Option",
-                                    span: 130..136,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Option",
+                                        span: 130..136,
+                                    },
+                                ],
                                 generics: [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 137..140,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 137..140,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -160,10 +172,12 @@ Program {
                     ],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 146..149,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 146..149,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -280,23 +294,29 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "Result",
-                                span: 298..304,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "Result",
+                                    span: 298..304,
+                                },
+                            ],
                             generics: [
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "i64",
-                                        span: 305..308,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "i64",
+                                            span: 305..308,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "bool",
-                                        span: 310..314,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "bool",
+                                            span: 310..314,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                             ],
@@ -356,23 +376,29 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "Result",
-                                span: 357..363,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "Result",
+                                    span: 357..363,
+                                },
+                            ],
                             generics: [
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "i64",
-                                        span: 364..367,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "i64",
+                                            span: 364..367,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                                 TypeAnnotation {
-                                    name: Identifier {
-                                        name: "bool",
-                                        span: 369..373,
-                                    },
+                                    name: [
+                                        Identifier {
+                                            name: "bool",
+                                            span: 369..373,
+                                        },
+                                    ],
                                     generics: [],
                                 },
                             ],
@@ -434,23 +460,29 @@ Program {
                                 span: 420..423,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Result",
-                                    span: 425..431,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Result",
+                                        span: 425..431,
+                                    },
+                                ],
                                 generics: [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 432..435,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 432..435,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "bool",
-                                            span: 437..441,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "bool",
+                                                span: 437..441,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -459,10 +491,12 @@ Program {
                     ],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 447..450,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 447..450,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -592,16 +626,20 @@ Program {
                                 span: 602..603,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Option",
-                                    span: 605..611,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Option",
+                                        span: 605..611,
+                                    },
+                                ],
                                 generics: [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 612..615,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 612..615,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -631,10 +669,12 @@ Program {
                                 span: 635..636,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Thing",
-                                    span: 638..643,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Thing",
+                                        span: 638..643,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -645,23 +685,29 @@ Program {
                                 span: 645..646,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Result",
-                                    span: 648..654,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Result",
+                                        span: 648..654,
+                                    },
+                                ],
                                 generics: [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 655..658,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 655..658,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "bool",
-                                            span: 660..664,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "bool",
+                                                span: 660..664,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -765,16 +811,16 @@ Program {
 ==== Inference trace ====
 T-Fn: make_some => Option<i64>
   T-ReturnTail: Option::Some(42) => Option
-    T-Call: {make_some: fn() -> Option<i64> [make_some]} ⊢ Option::Some(42) ⇒ Option
-      T-Var: {make_some: fn() -> Option<i64> [make_some]} ⊢ Option::Some ⇒ fn(t3) -> Option [1]
-      T-Int: {make_some: fn() -> Option<i64> [make_some]} ⊢ 42 ⇒ i64
+    T-Call: {make_some: fn() -> Option<i64>} ⊢ Option::Some(42) ⇒ Option
+      T-Var: {make_some: fn() -> Option<i64>} ⊢ Option::Some ⇒ fn(t3) -> Option
+      T-Int: {make_some: fn() -> Option<i64>} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t3 => {i64/t4}
     Unify-Enum: Option ~ Option<i64> => {i64/t3}
       Unify-Var: i64 ~ i64 => {i64/t3}
 
 T-Fn: make_none => Option<i64>
   T-ReturnTail: Option::None => Option<i64>
-    T-Var: {make_none: fn() -> Option<i64> [make_none], make_some: fn() -> Option<i64> [make_some]} ⊢ Option::None ⇒ Option<t5>
+    T-Var: {make_none: fn() -> Option<i64>, make_some: fn() -> Option<i64>} ⊢ Option::None ⇒ Option<t5>
     Unify-Enum: Option<t5> ~ Option<i64> => {i64/t5}
       Unify-Var: t5 ~ i64 => {i64/t5}
 
@@ -787,7 +833,7 @@ T-Fn: unwrap_option => i64
         0
     },
 } => i64
-    T-Match: {make_none: fn() -> Option<i64> [make_none], make_some: fn() -> Option<i64> [make_some], opt: Option<i64>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ match opt {
+    T-Match: {make_none: fn() -> Option<i64>, make_some: fn() -> Option<i64>, opt: Option<i64>, unwrap_option: fn(Option<i64>) -> i64} ⊢ match opt {
     Option::Some(v) => {
         v
     },
@@ -795,23 +841,23 @@ T-Fn: unwrap_option => i64
         0
     },
 } ⇒ i64
-      T-Var: {make_none: fn() -> Option<i64> [make_none], make_some: fn() -> Option<i64> [make_some], opt: Option<i64>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ opt ⇒ Option<i64>
+      T-Var: {make_none: fn() -> Option<i64>, make_some: fn() -> Option<i64>, opt: Option<i64>, unwrap_option: fn(Option<i64>) -> i64} ⊢ opt ⇒ Option<i64>
       Unify-Enum: Option<i64> ~ Option => {i64/t0}
         Unify-Var: i64 ~ t0 => {i64/t0}
       T-Tail: v => i64
-        T-Var: {make_none: fn() -> Option<i64> [make_none], make_some: fn() -> Option<i64> [make_some], opt: Option<i64>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], v: i64} ⊢ v ⇒ i64
+        T-Var: {make_none: fn() -> Option<i64>, make_some: fn() -> Option<i64>, opt: Option<i64>, unwrap_option: fn(Option<i64>) -> i64, v: i64} ⊢ v ⇒ i64
       Unify-Enum: Option<i64> ~ Option => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: 0 => i64
-        T-Int: {make_none: fn() -> Option<i64> [make_none], make_some: fn() -> Option<i64> [make_some], opt: Option<i64>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ 0 ⇒ i64
+        T-Int: {make_none: fn() -> Option<i64>, make_some: fn() -> Option<i64>, opt: Option<i64>, unwrap_option: fn(Option<i64>) -> i64} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: make_ok => Result<i64, bool>
   T-ReturnTail: Result::Ok(42) => Result
-    T-Call: {make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ Result::Ok(42) ⇒ Result
-      T-Var: {make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ Result::Ok ⇒ fn(t7) -> Result [0]
-      T-Int: {make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ 42 ⇒ i64
+    T-Call: {make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, unwrap_option: fn(Option<i64>) -> i64} ⊢ Result::Ok(42) ⇒ Result
+      T-Var: {make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, unwrap_option: fn(Option<i64>) -> i64} ⊢ Result::Ok ⇒ fn(t7) -> Result
+      T-Int: {make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, unwrap_option: fn(Option<i64>) -> i64} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t7 => {i64/t9}
     Unify-Enum: Result ~ Result<i64, bool> => {bool/t8, i64/t7}
       Unify-Var: i64 ~ i64 => {i64/t7}
@@ -819,9 +865,9 @@ T-Fn: make_ok => Result<i64, bool>
 
 T-Fn: make_err => Result<i64, bool>
   T-ReturnTail: Result::Err(false) => Result
-    T-Call: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ Result::Err(false) ⇒ Result
-      T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ Result::Err ⇒ fn(t11) -> Result [1]
-      T-Bool: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option]} ⊢ false ⇒ bool
+    T-Call: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, unwrap_option: fn(Option<i64>) -> i64} ⊢ Result::Err(false) ⇒ Result
+      T-Var: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, unwrap_option: fn(Option<i64>) -> i64} ⊢ Result::Err ⇒ fn(t11) -> Result
+      T-Bool: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, unwrap_option: fn(Option<i64>) -> i64} ⊢ false ⇒ bool
       Unify-Var: bool ~ t11 => {bool/t11}
     Unify-Enum: Result ~ Result<i64, bool> => {i64/t10}
       Unify-Var: t10 ~ i64 => {i64/t10}
@@ -836,7 +882,7 @@ T-Fn: unwrap_result => i64
         0
     },
 } => i64
-    T-Match: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result]} ⊢ match res {
+    T-Match: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64} ⊢ match res {
     Result::Ok(v) => {
         v
     },
@@ -844,41 +890,40 @@ T-Fn: unwrap_result => i64
         0
     },
 } ⇒ i64
-      T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result]} ⊢ res ⇒ Result<i64, bool>
+      T-Var: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64} ⊢ res ⇒ Result<i64, bool>
       Unify-Enum: Result<i64, bool> ~ Result => {bool/t2, i64/t1}
         Unify-Var: i64 ~ t1 => {i64/t1}
         Unify-Var: bool ~ t2 => {bool/t2}
       T-Tail: v => i64
-        T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], v: i64} ⊢ v ⇒ i64
+        T-Var: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, v: i64} ⊢ v ⇒ i64
       Unify-Enum: Result<i64, bool> ~ Result => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: bool ~ bool => {}
       T-Tail: 0 => i64
-        T-Int: {e: bool, make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result]} ⊢ 0 ⇒ i64
+        T-Int: {e: bool, make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, res: Result<i64, bool>, unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 
 T-Fn: run => ()
-  T-Expr: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ unwrap_option(make_some()); ⇒ ()
-    T-Call: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ unwrap_option(make_some()) ⇒ i64
-      T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ unwrap_option ⇒ fn(Option<i64>) -> i64 [unwrap_option]
-      T-Call: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ make_some() ⇒ Option<i64>
-        T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ make_some ⇒ fn() -> Option<i64> [make_some]
+  T-Expr: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ unwrap_option(make_some()); ⇒ ()
+    T-Call: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ unwrap_option(make_some()) ⇒ i64
+      T-Var: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ unwrap_option ⇒ fn(Option<i64>) -> i64
+      T-Call: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ make_some() ⇒ Option<i64>
+        T-Var: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ make_some ⇒ fn() -> Option<i64>
       Unify-Enum: Option<i64> ~ Option<i64> => {}
         Unify-Const: i64 ~ i64 => {}
-  T-Expr: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ unwrap_result(make_ok()); ⇒ ()
-    T-Call: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ unwrap_result(make_ok()) ⇒ i64
-      T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ unwrap_result ⇒ fn(Result<i64, bool>) -> i64 [unwrap_result]
-      T-Call: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ make_ok() ⇒ Result<i64, bool>
-        T-Var: {make_err: fn() -> Result<i64, bool> [make_err], make_none: fn() -> Option<i64> [make_none], make_ok: fn() -> Result<i64, bool> [make_ok], make_some: fn() -> Option<i64> [make_some], run: fn(Thing, Result<i64, bool>) -> () [run], unwrap_option: fn(Option<i64>) -> i64 [unwrap_option], unwrap_result: fn(Result<i64, bool>) -> i64 [unwrap_result], x: Thing, y: Result<i64, bool>} ⊢ make_ok ⇒ fn() -> Result<i64, bool> [make_ok]
+  T-Expr: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ unwrap_result(make_ok()); ⇒ ()
+    T-Call: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ unwrap_result(make_ok()) ⇒ i64
+      T-Var: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ unwrap_result ⇒ fn(Result<i64, bool>) -> i64
+      T-Call: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ make_ok() ⇒ Result<i64, bool>
+        T-Var: {make_err: fn() -> Result<i64, bool>, make_none: fn() -> Option<i64>, make_ok: fn() -> Result<i64, bool>, make_some: fn() -> Option<i64>, run: fn(Thing, Result<i64, bool>) -> (), unwrap_option: fn(Option<i64>) -> i64, unwrap_result: fn(Result<i64, bool>) -> i64, x: Thing, y: Result<i64, bool>} ⊢ make_ok ⇒ fn() -> Result<i64, bool>
       Unify-Enum: Result<i64, bool> ~ Result<i64, bool> => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: bool ~ bool => {}
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Function(
             TypedFunctionDef {
@@ -887,6 +932,7 @@ TypedProgram {
                     name: "make_some",
                     span: 3..12,
                 },
+                id: NameId(2),
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1034,6 +1080,7 @@ TypedProgram {
                     name: "make_none",
                     span: 59..68,
                 },
+                id: NameId(3),
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1121,6 +1168,7 @@ TypedProgram {
                     name: "unwrap_option",
                     span: 111..124,
                 },
+                id: NameId(4),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -1305,6 +1353,7 @@ TypedProgram {
                     name: "make_ok",
                     span: 285..292,
                 },
+                id: NameId(5),
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1465,6 +1514,7 @@ TypedProgram {
                     name: "make_err",
                     span: 343..351,
                 },
+                id: NameId(6),
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1618,6 +1668,7 @@ TypedProgram {
                     name: "unwrap_result",
                     span: 406..419,
                 },
+                id: NameId(7),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -1902,6 +1953,7 @@ TypedProgram {
                     name: "run",
                     span: 631..634,
                 },
+                id: NameId(8),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2040,7 +2092,7 @@ TypedProgram {
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                "unwrap_option",
+                                                                NameId(4),
                                                             ),
                                                         ),
                                                     },
@@ -2123,7 +2175,7 @@ TypedProgram {
                                                                         ),
                                                                         callee: Some(
                                                                             Named(
-                                                                                "make_some",
+                                                                                NameId(2),
                                                                             ),
                                                                         ),
                                                                     },
@@ -2205,7 +2257,7 @@ TypedProgram {
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                "unwrap_result",
+                                                                NameId(7),
                                                             ),
                                                         ),
                                                     },
@@ -2298,7 +2350,7 @@ TypedProgram {
                                                                         ),
                                                                         callee: Some(
                                                                             Named(
-                                                                                "make_ok",
+                                                                                NameId(5),
                                                                             ),
                                                                         ),
                                                                     },

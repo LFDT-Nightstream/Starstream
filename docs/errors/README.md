@@ -33,7 +33,6 @@ Looking for non-fatal diagnostics? See [Warning Codes](../warnings/README.md).
 | [E0023](./E0023.md) | Unknown enum variant |
 | [E0024](./E0024.md) | Enum payload mismatch |
 | [E0025](./E0025.md) | Pattern enum mismatch |
-| [E0026](./E0026.md) | Unsupported type feature |
 | [E0027](./E0027.md) | Non-exhaustive match |
 | [E0028](./E0028.md) | Unreachable pattern |
 | [E0029](./E0029.md) | Not a function |

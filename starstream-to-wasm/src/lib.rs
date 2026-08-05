@@ -8,13 +8,13 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
-    BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionType, IntWidth, Literal, Span,
-    Spanned, StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition,
-    TypedEnumDef, TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
-    TypedImportDef, TypedImportItems, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
-    TypedStatement, TypedStructDef, TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart,
-    UnaryOp, ast::Identifier,
+    BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned,
+    StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
+    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
+    TypedImportDef, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
+    TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
+use starstream_types::{ImportSource, NameId};
 use thiserror::Error;
 use wasm_encoder::{
     BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
@@ -142,29 +142,15 @@ impl CompileOptions {
     ) -> CompileResult {
         let mut compiler = Compiler::new(self);
 
-        // Build a reachable-from-entry set by chasing edges through the typed
-        // graph. We don't have the untyped graph's edges here, so we synthesize
-        // them from each module's `TypedDefinition::Import` entries. Cheaper
-        // than threading the source graph through.
+        // Build a reachable-from-entry set by chasing edges through the graph.
         use std::collections::HashSet;
         let mut reachable: HashSet<starstream_compiler::ModuleId> = HashSet::new();
         reachable.insert(entry);
         let mut stack = vec![entry];
         while let Some(id) = stack.pop() {
             let module = graph.module(id);
-            for def in &module.program.definitions {
-                if let TypedDefinition::Import(import) = def
-                    && let TypedImportSource::Path {
-                        canonical: Some(canonical),
-                        ..
-                    } = &import.from
-                    && let Some(target) = graph
-                        .modules
-                        .iter()
-                        .find(|m| &m.abs_path == canonical)
-                        .map(|m| m.id)
-                    && reachable.insert(target)
-                {
+            for &target in &module.edges {
+                if reachable.insert(target) {
                     stack.push(target);
                 }
             }
@@ -231,7 +217,10 @@ struct Compiler {
     // Function building.
     core_func_type_cache: HashMap<FuncType, u32>,
     /// Map from name to function index.
-    callables: HashMap<String, u32>,
+    callables: HashMap<NameId, u32>,
+    builtin_starstream_i64_add_checked: Option<u32>,
+    builtin_starstream_i64_sub_checked: Option<u32>,
+    builtin_starstream_i64_mul_checked: Option<u32>,
     /// Map from name to resource index.
     resources: HashMap<String, u32>,
     /// Function bodies.
@@ -431,7 +420,12 @@ impl Compiler {
             .map(|g| self.global_details[g as usize].1)
             .collect();
         if storage_flat.is_empty() {
-            return;
+            // The runtime requires get-storage and set-storage to exist. WIT
+            // requires record types to be non-empty, so we can only output
+            // them if there's at least one storage variable. Right now Utxos
+            // are always given a yield point ID, so this is satisfied, but
+            // bail early if there's a change.
+            panic!("utxo has no storage")
         }
 
         let storage_record = Rc::new(ComponentAbiType::Record {
@@ -567,7 +561,7 @@ impl Compiler {
     /// Get or create the `__starstream_i64_add_checked` function for overflow-checked addition.
     /// Returns the function index.
     fn get_or_create_i64_add_checked(&mut self) -> u32 {
-        if let Some(&checked_sum) = self.callables.get("__starstream_i64_add_checked") {
+        if let Some(checked_sum) = self.builtin_starstream_i64_add_checked {
             return checked_sum;
         }
 
@@ -612,17 +606,14 @@ impl Compiler {
         code.instructions().end();
 
         let idx = self.add_function(&FuncType::new(params, result), code.into_raw_body());
-
-        self.callables
-            .insert("__starstream_i64_add_checked".to_string(), idx);
-
+        self.builtin_starstream_i64_add_checked = Some(idx);
         idx
     }
 
     /// Get or create the `__starstream_i64_sub_checked` function for overflow-checked subtraction.
     /// Returns the function index.
     fn get_or_create_i64_sub_checked(&mut self) -> u32 {
-        if let Some(&checked_sub) = self.callables.get("__starstream_i64_sub_checked") {
+        if let Some(checked_sub) = self.builtin_starstream_i64_sub_checked {
             return checked_sub;
         }
 
@@ -670,17 +661,14 @@ impl Compiler {
         code.instructions().end();
 
         let idx = self.add_function(&FuncType::new(params, result), code.into_raw_body());
-
-        self.callables
-            .insert("__starstream_i64_sub_checked".to_string(), idx);
-
+        self.builtin_starstream_i64_sub_checked = Some(idx);
         idx
     }
 
     /// Get or create the `__starstream_i64_mul_checked` function for overflow-checked multiplication.
     /// Returns the function index.
     fn get_or_create_i64_mul_checked(&mut self) -> u32 {
-        if let Some(&checked_mul) = self.callables.get("__starstream_i64_mul_checked") {
+        if let Some(checked_mul) = self.builtin_starstream_i64_mul_checked {
             return checked_mul;
         }
 
@@ -753,10 +741,7 @@ impl Compiler {
         code.instructions().end();
 
         let idx = self.add_function(&FuncType::new(params, result), code.into_raw_body());
-
-        self.callables
-            .insert("__starstream_i64_mul_checked".to_string(), idx);
-
+        self.builtin_starstream_i64_mul_checked = Some(idx);
         idx
     }
 
@@ -1085,7 +1070,7 @@ impl Compiler {
                     .collect();
                 ComponentAbiType::Variant { cases }
             }
-            Type::AbiNarrow(_) => {
+            Type::Abi(_) => {
                 // ABI narrowing is a type-checker-only concept; no codegen yet.
                 return None;
             }
@@ -1110,7 +1095,7 @@ impl Compiler {
             }
             Type::Tuple(items) => {
                 // flatten_record
-                for each in items {
+                for each in items.iter() {
                     ok = self.star_to_core_types(span, dest, each).and(ok);
                 }
             }
@@ -1120,12 +1105,10 @@ impl Compiler {
                     ok = self.star_to_core_types(span, dest, &f.ty).and(ok);
                 }
             }
-            Type::Enum(EnumType {
-                name: _, variants, ..
-            }) => {
+            Type::Enum(enum_type) => {
                 // flatten_variant
                 let mut flat = Vec::new();
-                for v in variants {
+                for v in &enum_type.variants {
                     let mut case_flat = Vec::new();
                     match &v.kind {
                         EnumVariantKind::Unit => {}
@@ -1154,7 +1137,7 @@ impl Compiler {
                     .component_to_core_types(
                         span,
                         dest,
-                        &ComponentAbiType::discriminant_type(variants.len()),
+                        &ComponentAbiType::discriminant_type(enum_type.variants.len()),
                     )
                     .and(ok);
                 dest.extend(flat);
@@ -1271,7 +1254,7 @@ impl Compiler {
             }
             Type::Function { .. } => todo!(),
             Type::Var(_) => todo!(),
-            Type::AbiNarrow(_) => 0,
+            Type::Abi(_) => 0,
         }
     }
 
@@ -1282,7 +1265,12 @@ impl Compiler {
     /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &TypedProgram) {
         // First, import builtins.
-        if program.has_yields {
+        // Utxo context methods needed if the program contains any UTXOs.
+        if program
+            .definitions
+            .iter()
+            .any(|d| matches!(d, TypedDefinition::Utxo(_)))
+        {
             let core_fn_ty = self.add_core_func_type(&FuncType::new([ValType::I64; 4], []));
             self.builtin_implements_method =
                 self.import_function("starstream:std/builtin", "implements-method", core_fn_ty);
@@ -1345,100 +1333,56 @@ impl Compiler {
     }
 
     fn visit_import(&mut self, def: &TypedImportDef) {
-        // Path imports (`from "./other.star"`) don't produce WIT externals.
-        // Their imported names just need callable aliases so calls resolve to
-        // the correct wasm function index that was registered when the target
-        // module's `visit_function` ran.
-        if matches!(&def.from, TypedImportSource::Path { .. }) {
-            self.alias_path_import(def);
+        if matches!(&def.from, ImportSource::Path { .. }) {
+            // For now, path imports have been visited in topological order,
+            // and visit_function already called for them, so we don't need to
+            // do anything here.
+            // TODO: will change once we have cross-contract imports.
             return;
         }
 
-        let (namespace, list) = match &def.items {
-            TypedImportItems::Named(functions) => (None, functions),
-            TypedImportItems::Namespace { alias, functions } => (Some(alias), functions),
-        };
-        for item in list {
-            let local_name = if let Some(namespace) = namespace {
-                format!("{}::{}", namespace, item.local)
-            } else {
-                item.local.to_string()
-            };
-
+        for item in &def.items {
             match &item.ty {
-                Type::Function(FunctionType {
-                    params,
-                    param_spans: _,
-                    result,
-                    kind: _,
-                    name_span: _,
-                    callee: _, // We know it's an import.
-                }) => {
-                    let mut core_params = Vec::with_capacity(16);
-                    let mut core_results = Vec::with_capacity(1);
-                    let span = item.local.span();
-                    for p in params {
-                        _ = self.star_to_core_types(span, &mut core_params, p);
+                Type::Function(func_ty) => {
+                    if let Some(StaticFunction::Named(id)) = func_ty.callee {
+                        let mut core_params = Vec::with_capacity(16);
+                        let mut core_results = Vec::with_capacity(1);
+                        let span = item.local.span();
+                        for p in &func_ty.params {
+                            _ = self.star_to_core_types(span, &mut core_params, p);
+                        }
+                        _ = self.star_to_core_types(span, &mut core_results, &func_ty.result);
+
+                        let kebab = to_kebab_case(&item.imported.name);
+
+                        // Core import
+                        let core_fn_ty = self.add_core_func_type(&FuncType::new(
+                            core_params.iter().copied(),
+                            core_results.iter().copied(),
+                        ));
+                        let func_idx =
+                            self.import_function(&def.from.to_string(), &kebab, core_fn_ty);
+                        self.callables.insert(id, func_idx);
+
+                        // Component import
+                        let comp_params = func_ty
+                            .params
+                            .iter()
+                            .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
+                            .collect::<Vec<_>>();
+                        let comp_result = self.star_to_component_type(&func_ty.result);
+                        let iface = self
+                            .imported_interfaces
+                            .entry(def.from.to_string())
+                            .or_default();
+                        let comp_fn_ty =
+                            iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
+                        iface
+                            .inner
+                            .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                     }
-                    _ = self.star_to_core_types(span, &mut core_results, result);
-
-                    let kebab = to_kebab_case(&item.imported.name);
-
-                    // Core import
-                    let core_fn_ty = self.add_core_func_type(&FuncType::new(
-                        core_params.iter().copied(),
-                        core_results.iter().copied(),
-                    ));
-                    let func = self.import_function(&def.from.to_string(), &kebab, core_fn_ty);
-                    self.callables.insert(local_name, func);
-
-                    // Component import
-                    let comp_params = params
-                        .iter()
-                        .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
-                        .collect::<Vec<_>>();
-                    let comp_result = self.star_to_component_type(result);
-                    let iface = self
-                        .imported_interfaces
-                        .entry(def.from.to_string())
-                        .or_default();
-                    let comp_fn_ty =
-                        iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
-                    iface
-                        .inner
-                        .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
                 _ => todo!(),
-            }
-        }
-    }
-
-    /// Set up callable aliases for a path import. The target module has
-    /// already been visited (topo order), so its functions live in
-    /// `self.callables` keyed by their original short name. We just need to
-    /// add an alias when the local binding name differs (`as` rename) or for
-    /// namespace-qualified callees (`alias::name`).
-    fn alias_path_import(&mut self, def: &TypedImportDef) {
-        match &def.items {
-            TypedImportItems::Named(items) => {
-                for item in items {
-                    let imported = item.imported.as_str();
-                    let local = item.local.as_str();
-                    if imported == local {
-                        continue;
-                    }
-                    if let Some(&idx) = self.callables.get(imported) {
-                        self.callables.insert(local.to_string(), idx);
-                    }
-                }
-            }
-            TypedImportItems::Namespace { alias, functions } => {
-                for func in functions {
-                    let key = format!("{}::{}", alias.as_str(), func.imported.as_str());
-                    if let Some(&idx) = self.callables.get(func.imported.as_str()) {
-                        self.callables.insert(key, idx);
-                    }
-                }
             }
         }
     }
@@ -1463,7 +1407,7 @@ impl Compiler {
                         std::iter::empty(),
                     ));
                     let func = self.import_function(&interface, &kebab, core_fn_ty);
-                    self.callables.insert(event.name.as_str().to_owned(), func);
+                    self.callables.insert(event.id, func);
 
                     // Component import
                     let comp_params = event
@@ -1498,7 +1442,7 @@ impl Compiler {
                         core_results,
                     ));
                     let func = self.import_function(&interface, &kebab, core_fn_ty);
-                    self.callables.insert(effect.name.as_str().to_owned(), func);
+                    self.callables.insert(effect.id, func);
 
                     // Component import
                     let comp_params = effect
@@ -1584,8 +1528,7 @@ impl Compiler {
             ));
         }
         let idx: u32 = self.add_function(&stackified.ty, stackified.code);
-        self.callables
-            .insert(function.name.as_str().to_owned(), idx);
+        self.callables.insert(function.id, idx);
 
         // Stackify from each resume point.
         for &resume in &func.cfg.resumes {
@@ -1663,7 +1606,7 @@ impl Compiler {
                         );
                         let ty = self.add_core_func_type(&FuncType::new(params, results));
                         let idx = self.import_function(&interface_name, &wit_name, ty);
-                        self.callables.insert(function.name.to_string(), idx);
+                        self.callables.insert(function.id, idx);
                     }
                 }
                 _ => {}
@@ -1715,8 +1658,8 @@ impl Compiler {
                     // Hack: if pre_visit_utxo created a callable for this function,
                     // restore it after we finish with the utxo, so coordination scripts
                     // see the "import" version.
-                    if let Some(c) = self.callables.get(function.name.as_str()) {
-                        coordination_script_callables.insert(function.name.to_string(), *c);
+                    if let Some(c) = self.callables.get(&function.id) {
+                        coordination_script_callables.insert(function.id, *c);
                     }
 
                     let core =
@@ -3101,12 +3044,11 @@ impl Compiler {
             | TypedExprKind::Raise { callee, args }
             | TypedExprKind::Runtime { callee, args } => {
                 let callee_span = callee.span;
-                let Type::Function(FunctionType { callee, .. }) = &callee.node.ty else {
+                let Type::Function(func_ty) = &callee.node.ty else {
                     unreachable!()
                 };
-                match callee {
+                match &func_ty.callee {
                     Some(StaticFunction::Named(name)) => {
-                        // TODO: properly handle namespacing in `callables`
                         let Some(&target) = self.callables.get(name) else {
                             return Err(
                                 self.push_error(callee_span, "no callable found for identifier")
@@ -3149,9 +3091,7 @@ impl Compiler {
 
                         Ok(())
                     }
-                    None => {
-                        return Err(self.push_error(callee_span, "function pointers not supported"));
-                    }
+                    None => Err(self.push_error(callee_span, "function pointers not supported")),
                 }
             }
             TypedExprKind::Match { scrutinee, arms } => {

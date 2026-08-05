@@ -85,7 +85,7 @@ impl CtorSet {
             | Type::UtxoNamed(_)
             | Type::TokenAny
             | Type::TokenNamed(_)
-            | Type::AbiNarrow(_) => Some(Self::infinite()),
+            | Type::Abi(_) => Some(Self::infinite()),
         }
     }
 
@@ -850,7 +850,7 @@ mod tests {
     use super::*;
 
     fn make_enum_type(name: &str, variants: Vec<(&str, usize)>) -> Type {
-        Type::Enum(EnumType {
+        Type::from(EnumType {
             name: name.to_string(),
             variants: variants
                 .into_iter()

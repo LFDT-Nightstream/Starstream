@@ -19,10 +19,12 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 20..23,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 20..23,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -38,10 +40,12 @@ Program {
                                     },
                                     ty: Some(
                                         TypeAnnotation {
-                                            name: Identifier {
-                                                name: "i64",
-                                                span: 39..42,
-                                            },
+                                            name: [
+                                                Identifier {
+                                                    name: "i64",
+                                                    span: 39..42,
+                                                },
+                                            ],
                                             generics: [],
                                         },
                                     ),
@@ -69,10 +73,12 @@ Program {
                                     },
                                     ty: Some(
                                         TypeAnnotation {
-                                            name: Identifier {
-                                                name: "u8",
-                                                span: 66..68,
-                                            },
+                                            name: [
+                                                Identifier {
+                                                    name: "u8",
+                                                    span: 66..68,
+                                                },
+                                            ],
                                             generics: [],
                                         },
                                     ),
@@ -100,10 +106,12 @@ Program {
                                     },
                                     ty: Some(
                                         TypeAnnotation {
-                                            name: Identifier {
-                                                name: "u16",
-                                                span: 93..96,
-                                            },
+                                            name: [
+                                                Identifier {
+                                                    name: "u16",
+                                                    span: 93..96,
+                                                },
+                                            ],
                                             generics: [],
                                         },
                                     ),
@@ -237,36 +245,35 @@ Program {
 
 ==== Inference trace ====
 T-Fn: main => i64
-  T-Let: {main: fn() -> i64 [main]} ⊢ let hex: i64 = 0xFF; ⇒ i64
-    T-Int: {main: fn() -> i64 [main]} ⊢ 0xFF ⇒ i64
+  T-Let: {main: fn() -> i64} ⊢ let hex: i64 = 0xFF; ⇒ i64
+    T-Int: {main: fn() -> i64} ⊢ 0xFF ⇒ i64
     Unify-Var: i64 ~ i64 => {i64/t3}
-  T-Let: {hex: i64, main: fn() -> i64 [main]} ⊢ let octal: u8 = 0o17; ⇒ u8
-    T-Int: {hex: i64, main: fn() -> i64 [main]} ⊢ 0o17 ⇒ i64
+  T-Let: {hex: i64, main: fn() -> i64} ⊢ let octal: u8 = 0o17; ⇒ u8
+    T-Int: {hex: i64, main: fn() -> i64} ⊢ 0o17 ⇒ i64
     Unify-Var: u8 ~ i64 => {u8/t4}
-  T-Let: {hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ let binary: u16 = 0b1010; ⇒ u16
-    T-Int: {hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0b1010 ⇒ i64
+  T-Let: {hex: i64, main: fn() -> i64, octal: u8} ⊢ let binary: u16 = 0b1010; ⇒ u16
+    T-Int: {hex: i64, main: fn() -> i64, octal: u8} ⊢ 0b1010 ⇒ i64
     Unify-Var: u16 ~ i64 => {u16/t5}
-  T-Let: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ let masked = 0x10 + 0b1 + 0o7 + 9; ⇒ i64
-    T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0x10 + 0b1 + 0o7 + 9 ⇒ i64
-      T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0x10 + 0b1 + 0o7 ⇒ i64
-        T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0x10 + 0b1 ⇒ i64
-          T-Int: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0x10 ⇒ i64
-          T-Int: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0b1 ⇒ i64
+  T-Let: {binary: u16, hex: i64, main: fn() -> i64, octal: u8} ⊢ let masked = 0x10 + 0b1 + 0o7 + 9; ⇒ i64
+    T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64, octal: u8} ⊢ 0x10 + 0b1 + 0o7 + 9 ⇒ i64
+      T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64, octal: u8} ⊢ 0x10 + 0b1 + 0o7 ⇒ i64
+        T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64, octal: u8} ⊢ 0x10 + 0b1 ⇒ i64
+          T-Int: {binary: u16, hex: i64, main: fn() -> i64, octal: u8} ⊢ 0x10 ⇒ i64
+          T-Int: {binary: u16, hex: i64, main: fn() -> i64, octal: u8} ⊢ 0b1 ⇒ i64
           Unify-Var: i64 ~ i64 => {i64/t6}
-        T-Int: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 0o7 ⇒ i64
+        T-Int: {binary: u16, hex: i64, main: fn() -> i64, octal: u8} ⊢ 0o7 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t7}
-      T-Int: {binary: u16, hex: i64, main: fn() -> i64 [main], octal: u8} ⊢ 9 ⇒ i64
+      T-Int: {binary: u16, hex: i64, main: fn() -> i64, octal: u8} ⊢ 9 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t8}
   T-ReturnTail: hex + masked => i64
-    T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64 [main], masked: i64, octal: u8} ⊢ hex + masked ⇒ i64
-      T-Var: {binary: u16, hex: i64, main: fn() -> i64 [main], masked: i64, octal: u8} ⊢ hex ⇒ i64
-      T-Var: {binary: u16, hex: i64, main: fn() -> i64 [main], masked: i64, octal: u8} ⊢ masked ⇒ i64
+    T-Bin-Add: {binary: u16, hex: i64, main: fn() -> i64, masked: i64, octal: u8} ⊢ hex + masked ⇒ i64
+      T-Var: {binary: u16, hex: i64, main: fn() -> i64, masked: i64, octal: u8} ⊢ hex ⇒ i64
+      T-Var: {binary: u16, hex: i64, main: fn() -> i64, masked: i64, octal: u8} ⊢ masked ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t9}
     Unify-Const: i64 ~ i64 => {}
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Function(
             TypedFunctionDef {
@@ -277,6 +284,7 @@ TypedProgram {
                     name: "main",
                     span: 10..14,
                 },
+                id: NameId(2),
                 params: [],
                 return_type: Int(
                     I64,

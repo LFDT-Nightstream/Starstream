@@ -56,10 +56,12 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 77..80,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 77..80,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -126,10 +128,12 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 161..164,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 161..164,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -166,56 +170,53 @@ Program {
 ==== Inference trace ====
 
 T-Fn: reexport => i64
-  T-Expr: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ runtime blockHeight(); ⇒ ()
-    T-Call: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ runtime blockHeight() ⇒ i64
-      T-Var: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ blockHeight ⇒ runtime fn() -> i64 [blockHeight]
+  T-Expr: {reexport: fn() -> i64} ⊢ runtime blockHeight(); ⇒ ()
+    T-Call: {reexport: fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
+      T-Var: {reexport: fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
   T-ReturnTail: runtime blockHeight() => i64
-    T-Call: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ runtime blockHeight() ⇒ i64
-      T-Var: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport]} ⊢ blockHeight ⇒ runtime fn() -> i64 [blockHeight]
+    T-Call: {reexport: fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
+      T-Var: {reexport: fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: second => i64
   T-ReturnTail: reexport() => i64
-    T-Call: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport], second: fn() -> i64 [second]} ⊢ reexport() ⇒ i64
-      T-Var: {blockHeight: runtime fn() -> i64 [blockHeight], reexport: fn() -> i64 [reexport], second: fn() -> i64 [second]} ⊢ reexport ⇒ fn() -> i64 [reexport]
+    T-Call: {reexport: fn() -> i64, second: fn() -> i64} ⊢ reexport() ⇒ i64
+      T-Var: {reexport: fn() -> i64, second: fn() -> i64} ⊢ reexport ⇒ fn() -> i64
     Unify-Const: i64 ~ i64 => {}
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Import(
             TypedImportDef {
-                items: Named(
-                    [
-                        TypedImportNamedItem {
-                            imported: Identifier {
-                                name: "blockHeight",
-                                span: 9..20,
-                            },
-                            local: Identifier {
-                                name: "blockHeight",
-                                span: 9..20,
-                            },
-                            ty: Function(
-                                FunctionType {
-                                    kind: Runtime,
-                                    name_span: 0..0,
-                                    params: [],
-                                    param_spans: [],
-                                    result: Int(
-                                        I64,
-                                    ),
-                                    callee: Some(
-                                        Named(
-                                            "blockHeight",
-                                        ),
-                                    ),
-                                },
-                            ),
+                items: [
+                    TypedImportItem {
+                        imported: Identifier {
+                            name: "blockHeight",
+                            span: 9..20,
                         },
-                    ],
-                ),
+                        local: Identifier {
+                            name: "blockHeight",
+                            span: 9..20,
+                        },
+                        ty: Function(
+                            FunctionType {
+                                kind: Runtime,
+                                name_span: 0..0,
+                                params: [],
+                                param_spans: [],
+                                result: Int(
+                                    I64,
+                                ),
+                                callee: Some(
+                                    Named(
+                                        NameId(2),
+                                    ),
+                                ),
+                            },
+                        ),
+                    },
+                ],
                 from: Wit {
                     namespace: Identifier {
                         name: "starstream",
@@ -243,6 +244,7 @@ TypedProgram {
                     name: "reexport",
                     span: 63..71,
                 },
+                id: NameId(2),
                 params: [],
                 return_type: Int(
                     I64,
@@ -269,7 +271,7 @@ TypedProgram {
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                "blockHeight",
+                                                                NameId(2),
                                                             ),
                                                         ),
                                                     },
@@ -281,7 +283,9 @@ TypedProgram {
                                                             span: 95..106,
                                                         },
                                                     ],
-                                                    constant: None,
+                                                    constant: Some(
+                                                        0,
+                                                    ),
                                                 },
                                             },
                                             span: 95..106,
@@ -313,7 +317,7 @@ TypedProgram {
                                                     ),
                                                     callee: Some(
                                                         Named(
-                                                            "blockHeight",
+                                                            NameId(2),
                                                         ),
                                                     ),
                                                 },
@@ -325,7 +329,9 @@ TypedProgram {
                                                         span: 122..133,
                                                     },
                                                 ],
-                                                constant: None,
+                                                constant: Some(
+                                                    0,
+                                                ),
                                             },
                                         },
                                         span: 122..133,
@@ -348,6 +354,7 @@ TypedProgram {
                     name: "second",
                     span: 149..155,
                 },
+                id: NameId(3),
                 params: [],
                 return_type: Int(
                     I64,
@@ -374,7 +381,7 @@ TypedProgram {
                                                     ),
                                                     callee: Some(
                                                         Named(
-                                                            "reexport",
+                                                            NameId(2),
                                                         ),
                                                     ),
                                                 },

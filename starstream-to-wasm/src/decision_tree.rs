@@ -5,7 +5,7 @@
 //! representation, compiled to a [`DecisionTree`], then lowered to Wasm by
 //! the main codegen module.
 
-use starstream_types::types::{EnumType, EnumVariantKind, Type};
+use starstream_types::types::{EnumVariantKind, Type};
 
 /// Simplified pattern for the matrix (Section 2 of the paper).
 /// Variables/bindings are represented as Wildcard (optionally with a binding).
@@ -324,9 +324,9 @@ fn head_constructors(matrix: &Matrix, col: usize) -> Vec<Ctor> {
 fn is_complete_signature(ctors: &[Ctor], ty: &Type) -> bool {
     match ty {
         Type::Bool => ctors.contains(&Ctor::BoolTrue) && ctors.contains(&Ctor::BoolFalse),
-        Type::Enum(EnumType { variants, .. }) => {
-            !variants.is_empty()
-                && (0..variants.len())
+        Type::Enum(enum_type) => {
+            !enum_type.variants.is_empty()
+                && (0..enum_type.variants.len())
                     .all(|i| ctors.contains(&Ctor::EnumVariant { variant_index: i }))
         }
         Type::Record(_) => true,

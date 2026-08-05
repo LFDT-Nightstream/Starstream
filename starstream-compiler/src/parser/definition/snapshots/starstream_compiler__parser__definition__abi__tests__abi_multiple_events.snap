@@ -22,10 +22,12 @@ AbiDef {
                             span: 32..38,
                         },
                         ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 40..43,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 40..43,
+                                },
+                            ],
                             generics: [],
                         },
                     },
@@ -36,10 +38,12 @@ AbiDef {
                             span: 45..47,
                         },
                         ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 49..52,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 49..52,
+                                },
+                            ],
                             generics: [],
                         },
                     },
@@ -50,10 +54,12 @@ AbiDef {
                             span: 54..60,
                         },
                         ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 62..65,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 62..65,
+                                },
+                            ],
                             generics: [],
                         },
                     },
@@ -75,10 +81,12 @@ AbiDef {
                             span: 82..89,
                         },
                         ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 91..94,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 91..94,
+                                },
+                            ],
                             generics: [],
                         },
                     },

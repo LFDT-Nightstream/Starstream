@@ -90,7 +90,7 @@ fn let_binding_traces() {
             let answer = 42;
             let foo: i64 = 10;
             let bar: bool = false;
-            let baz: _ = 2;
+            let baz: i8 = 2;
         }
         "#
     );
@@ -347,17 +347,6 @@ fn unknown_type_annotation_error() {
     assert_typecheck_snapshot!(
         r#"
         fn takes(value: Missing) {
-            value;
-        }
-        "#
-    );
-}
-
-#[test]
-fn unsupported_type_feature_error() {
-    assert_typecheck_snapshot!(
-        r#"
-        fn takes(value: Box<i64>) {
             value;
         }
         "#

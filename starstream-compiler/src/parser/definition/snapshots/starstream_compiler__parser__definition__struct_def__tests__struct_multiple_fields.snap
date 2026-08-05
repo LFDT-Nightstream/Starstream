@@ -14,10 +14,12 @@ StructDef {
                 span: 15..16,
             },
             ty: TypeAnnotation {
-                name: Identifier {
-                    name: "i64",
-                    span: 18..21,
-                },
+                name: [
+                    Identifier {
+                        name: "i64",
+                        span: 18..21,
+                    },
+                ],
                 generics: [],
             },
             span: 15..21,
@@ -28,10 +30,12 @@ StructDef {
                 span: 23..24,
             },
             ty: TypeAnnotation {
-                name: Identifier {
-                    name: "i64",
-                    span: 26..29,
-                },
+                name: [
+                    Identifier {
+                        name: "i64",
+                        span: 26..29,
+                    },
+                ],
                 generics: [],
             },
             span: 23..30,
