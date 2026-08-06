@@ -6,16 +6,17 @@ This crate is the dependency boundary between:
 
 - `neo-wasm`, which captures and normalizes Wasm instructions and expands
   verifier-authored host-event grammar templates; and
-- `starstream-runtime-next`, which exposes backend-neutral callbacks after
-  component instantiation but before an exported function is called; and
+- `starstream-runtime-next`, which executes Starstream components and provides
+  their host-facing runtime integration; and
 - `starstream-interleaving-spec`, which decodes committed blocks into semantic
   events and replays complete traces through Quint.
 
-`TracedContract` pairs a runtime contract with its Wasm tracing artifacts.
-It installs a post-instantiation hook on the runtime contract, which registers
-each new core instance before the constructor, storage setter, or coordination
-script begins executing. Consequently, `starstream-runtime-next` does not
-depend on `neo-wasm` or enable Wasmtime's debug feature; those details live here.
+`TracedContract` pairs a runtime contract with its Wasm tracing artifacts. Its
+`instantiate` method registers each new core instance before returning the
+runtime's `ContractInstance`; the caller can then invoke a constructor, storage
+setter, or coordination script. Consequently, `starstream-runtime-next` does
+not depend on `neo-wasm` or enable Wasmtime's debug feature; those details live
+here.
 
 `build_component_templates` parses the first core Wasm module and constructs
 the emitter and decoder sides together. Its coordination-export allowlist is

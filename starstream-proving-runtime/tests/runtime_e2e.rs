@@ -12,7 +12,7 @@ use starstream_proving_runtime::{
 use starstream_runtime_next::{ConstructorExport, EventHandler, Utxo, UtxoHandler, bindings};
 use starstream_to_wasm::compile;
 use wasmtime::component::{Resource, ResourceTable, Val};
-use wasmtime::{Engine, StoreContextMut, bail};
+use wasmtime::{AsContextMut, Engine, StoreContextMut, bail};
 
 const SOURCE: &str = r#"
     abi Counter {
@@ -98,7 +98,7 @@ impl UtxoHandler for Ctx {
     }
 
     async fn construct_utxo(
-        store: StoreContextMut<'_, Self>,
+        mut store: StoreContextMut<'_, Self>,
         instance: &Arc<str>,
         name: &Arc<str>,
         params: &[Val],
@@ -111,7 +111,8 @@ impl UtxoHandler for Ctx {
         }
         let contract = store.data().contract.clone();
         let constructor = store.data().constructor.clone();
-        contract.create_utxo(store, &constructor, params).await
+        let instance = contract.instantiate(store.as_context_mut()).await?;
+        instance.create_utxo(store, &constructor, params).await
     }
 }
 
@@ -180,7 +181,8 @@ async fn compiled_coordination_script_traces_utxo_creation_and_abi_publication()
         },
     )?;
 
-    contract
+    let instance = contract.instantiate(&mut store).await?;
+    instance
         .call_coordination_script(&mut store, &script, [], [])
         .await?;
 
@@ -327,7 +329,8 @@ async fn coordination_script_trace_decodes_method_call() -> wasmtime::Result<()>
         },
     )?;
 
-    coord_contract
+    let instance = coord_contract.instantiate(&mut store).await?;
+    instance
         .call_coordination_script(&mut store, &script, [], [])
         .await?;
     assert!(store.data().untraced_instances.is_empty());
