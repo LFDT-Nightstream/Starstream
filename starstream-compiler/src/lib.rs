@@ -7,6 +7,7 @@ pub mod docs;
 pub mod formatter;
 pub mod module_graph;
 pub mod parser;
+mod pointer_map;
 pub mod typecheck;
 
 pub use docs::{DocsOutput, generate_docs};

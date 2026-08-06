@@ -34,7 +34,7 @@ use super::{
     tree::InferenceTree,
     warnings::{TypeWarning, TypeWarningKind},
 };
-use crate::{ModuleId, formatter};
+use crate::{ModuleId, formatter, pointer_map::PointerMap};
 
 /// Optional settings that control type-checker behavior.
 #[derive(Clone, Debug, Default)]
@@ -393,8 +393,8 @@ struct Inferencer {
 
     /// Name ID assignment.
     next_name_id: NameId,
-    function_names: HashMap<usize, NameId>,
-    import_lists: HashMap<usize, Vec<TypedImportItem>>,
+    function_names: PointerMap<NameId>,
+    import_lists: PointerMap<Vec<TypedImportItem>>,
 
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
     abi_call_trackers: Vec<AbiCallTracker>,
@@ -542,8 +542,7 @@ impl Inferencer {
                 }
 
                 // Memorize the [TypedImportItem]s for later.
-                self.import_lists
-                    .insert(import as *const _ as usize, typed_items);
+                self.import_lists.insert(import, typed_items);
             }
         }
         Ok(())
@@ -593,7 +592,7 @@ impl Inferencer {
                         None => Type::Unit,
                     };
                     let id = self.next_name_id.fresh();
-                    self.function_names.insert(method as *const _ as usize, id);
+                    self.function_names.insert(method, id);
                     let ty = Arc::new(FunctionType {
                         kind: FunctionKind::Normal,
                         name_span: method.name.span,
@@ -634,7 +633,7 @@ impl Inferencer {
             param_spans.push(param.ty.name_span());
         }
         let id = self.next_name_id.fresh();
-        self.function_names.insert(event as *const _ as usize, id);
+        self.function_names.insert(event, id);
         env.root.insert_constant(
             &event.name,
             ConstantInfo::new(
@@ -665,7 +664,7 @@ impl Inferencer {
             None => Type::Unit,
         };
         let id = self.next_name_id.fresh();
-        self.function_names.insert(effect as *const _ as usize, id);
+        self.function_names.insert(effect, id);
         env.root.insert_constant(
             &effect.name,
             ConstantInfo::new(
@@ -1001,10 +1000,7 @@ impl Inferencer {
 
     fn build_typed_import(&mut self, def: &ImportDef) -> TypedImportDef {
         TypedImportDef {
-            items: self
-                .import_lists
-                .remove(&(def as *const _ as usize))
-                .unwrap(),
+            items: self.import_lists.remove(def).unwrap(),
             from: def.from.clone(),
         }
     }
@@ -1041,10 +1037,7 @@ impl Inferencer {
 
                     typed_parts.push(TypedAbiPart::Event(TypedEventDef {
                         name: event.name.clone(),
-                        id: *self
-                            .function_names
-                            .get(&(event as *const _ as usize))
-                            .unwrap(),
+                        id: *self.function_names.get(event).unwrap(),
                         params,
                     }));
                 }
@@ -1075,10 +1068,7 @@ impl Inferencer {
 
                     typed_parts.push(TypedAbiPart::Effect(TypedEffectDef {
                         name: effect.name.clone(),
-                        id: *self
-                            .function_names
-                            .get(&(effect as *const _ as usize))
-                            .unwrap(),
+                        id: *self.function_names.get(effect).unwrap(),
                         params,
                         return_type: func.result.clone(),
                     }));
@@ -1819,7 +1809,7 @@ impl Inferencer {
             .collect::<Vec<_>>();
         let id = *self
             .function_names
-            .entry(function as *const _ as usize)
+            .entry(function)
             .or_insert_with(|| self.next_name_id.fresh());
         Ok(FunctionType {
             params: param_types.clone(),
@@ -1920,10 +1910,7 @@ impl Inferencer {
             TypedFunctionDef {
                 export: function.export.clone(),
                 name: function.name.clone(),
-                id: *self
-                    .function_names
-                    .get(&(function as *const _ as usize))
-                    .unwrap(),
+                id: *self.function_names.get(function).unwrap(),
                 params: typed_params,
                 return_type: ctx.expected_return,
                 body: typed_body,
