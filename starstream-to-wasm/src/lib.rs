@@ -2071,12 +2071,15 @@ impl Compiler {
                     *bb = usize::MAX;
                     break;
                 }
-                TypedStatement::TryWith {
-                    subject,
-                    effects: _,
-                } => {
+                TypedStatement::TryWith { subject, effects } => {
                     self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
                     // TODO: actually emit effect handler blocks
+                    if let Some(first) = effects.first() {
+                        return Err(self.push_error(
+                            first.0.last().unwrap().span,
+                            "TODO: effect handlers not yet implemented",
+                        ));
+                    }
                 }
             }
         }
