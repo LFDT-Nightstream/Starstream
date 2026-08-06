@@ -2245,7 +2245,14 @@ impl Inferencer {
                 for (name, patterns, block) in effects {
                     env.push_scope();
                     let (ty, _) = self.lookup_name(env, name)?;
-                    let Type::Function(func) = ty else { panic!() };
+                    let Type::Function(func) = ty else {
+                        return Err(TypeError::new(
+                            TypeErrorKind::NotAFunction {
+                                found: self.apply_for_display(&ty),
+                            },
+                            name.first().unwrap().span,
+                        ));
+                    };
                     // TODO: enforce that it's an effect?
 
                     if func.params.len() != patterns.len() {
