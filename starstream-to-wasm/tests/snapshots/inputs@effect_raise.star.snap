@@ -170,7 +170,7 @@ TypedProgram {
                                 name: "Hello",
                                 span: 21..26,
                             },
-                            id: NameId(2),
+                            id: NameId(4),
                             params: [],
                             return_type: Unit,
                         },
@@ -181,7 +181,7 @@ TypedProgram {
                                 name: "Goodbye",
                                 span: 40..47,
                             },
-                            id: NameId(3),
+                            id: NameId(5),
                             params: [],
                         },
                     ),
@@ -197,7 +197,7 @@ TypedProgram {
                     name: "main",
                     span: 64..68,
                 },
-                id: NameId(4),
+                id: NameId(6),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -221,7 +221,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            NameId(2),
+                                                                            NameId(4),
                                                                         ),
                                                                     ),
                                                                 },
@@ -276,7 +276,7 @@ TypedProgram {
                                                                             result: Unit,
                                                                             callee: Some(
                                                                                 Named(
-                                                                                    NameId(3),
+                                                                                    NameId(5),
                                                                                 ),
                                                                             ),
                                                                         },

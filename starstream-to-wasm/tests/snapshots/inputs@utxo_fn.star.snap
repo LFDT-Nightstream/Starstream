@@ -153,7 +153,7 @@ TypedProgram {
                                 name: "HelloEvent",
                                 span: 23..33,
                             },
-                            id: NameId(2),
+                            id: NameId(4),
                             params: [],
                         },
                     ),
@@ -174,7 +174,7 @@ TypedProgram {
                                 name: "private_fn",
                                 span: 61..71,
                             },
-                            id: NameId(4),
+                            id: NameId(6),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -195,7 +195,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            NameId(2),
+                                                                            NameId(4),
                                                                         ),
                                                                     ),
                                                                 },
@@ -234,7 +234,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 121..131,
                             },
-                            id: NameId(3),
+                            id: NameId(5),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -255,7 +255,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            NameId(4),
+                                                                            NameId(6),
                                                                         ),
                                                                     ),
                                                                 },

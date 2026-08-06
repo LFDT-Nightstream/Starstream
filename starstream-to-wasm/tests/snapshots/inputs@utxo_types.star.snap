@@ -104,7 +104,7 @@ TypedProgram {
                     name: "script_accepts_utxos",
                     span: 28..48,
                 },
-                id: NameId(2),
+                id: NameId(4),
                 params: [
                     TypedFunctionParam {
                         public: false,

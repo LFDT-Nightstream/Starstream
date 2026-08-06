@@ -159,7 +159,7 @@ TypedProgram {
                                 result: Unit,
                                 callee: Some(
                                     Named(
-                                        NameId(2),
+                                        NameId(4),
                                     ),
                                 ),
                             },
@@ -184,7 +184,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 53..63,
                             },
-                            id: NameId(3),
+                            id: NameId(5),
                             params: [
                                 TypedFunctionParam {
                                     public: false,
@@ -226,7 +226,7 @@ TypedProgram {
                                                                         result: Unit,
                                                                         callee: Some(
                                                                             Named(
-                                                                                NameId(2),
+                                                                                NameId(4),
                                                                             ),
                                                                         ),
                                                                     },
@@ -267,7 +267,7 @@ TypedProgram {
                                             result: Unit,
                                             callee: Some(
                                                 Named(
-                                                    NameId(2),
+                                                    NameId(4),
                                                 ),
                                             ),
                                         },
@@ -282,7 +282,7 @@ TypedProgram {
                                     name: "foo",
                                     span: 126..129,
                                 },
-                                id: NameId(4),
+                                id: NameId(6),
                                 params: [],
                                 return_type: Unit,
                                 body: TypedBlock {

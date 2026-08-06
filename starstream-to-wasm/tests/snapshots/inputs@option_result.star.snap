@@ -932,7 +932,7 @@ TypedProgram {
                     name: "make_some",
                     span: 3..12,
                 },
-                id: NameId(2),
+                id: NameId(4),
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1080,7 +1080,7 @@ TypedProgram {
                     name: "make_none",
                     span: 59..68,
                 },
-                id: NameId(3),
+                id: NameId(5),
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1168,7 +1168,7 @@ TypedProgram {
                     name: "unwrap_option",
                     span: 111..124,
                 },
-                id: NameId(4),
+                id: NameId(6),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -1353,7 +1353,7 @@ TypedProgram {
                     name: "make_ok",
                     span: 285..292,
                 },
-                id: NameId(5),
+                id: NameId(7),
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1514,7 +1514,7 @@ TypedProgram {
                     name: "make_err",
                     span: 343..351,
                 },
-                id: NameId(6),
+                id: NameId(8),
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1668,7 +1668,7 @@ TypedProgram {
                     name: "unwrap_result",
                     span: 406..419,
                 },
-                id: NameId(7),
+                id: NameId(9),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -1953,7 +1953,7 @@ TypedProgram {
                     name: "run",
                     span: 631..634,
                 },
-                id: NameId(8),
+                id: NameId(10),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2092,7 +2092,7 @@ TypedProgram {
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                NameId(4),
+                                                                NameId(6),
                                                             ),
                                                         ),
                                                     },
@@ -2175,7 +2175,7 @@ TypedProgram {
                                                                         ),
                                                                         callee: Some(
                                                                             Named(
-                                                                                NameId(2),
+                                                                                NameId(4),
                                                                             ),
                                                                         ),
                                                                     },
@@ -2257,7 +2257,7 @@ TypedProgram {
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                NameId(7),
+                                                                NameId(9),
                                                             ),
                                                         ),
                                                     },
@@ -2350,7 +2350,7 @@ TypedProgram {
                                                                         ),
                                                                         callee: Some(
                                                                             Named(
-                                                                                NameId(5),
+                                                                                NameId(7),
                                                                             ),
                                                                         ),
                                                                     },

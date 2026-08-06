@@ -110,7 +110,7 @@ TypedProgram {
                                 name: "HelloEvent",
                                 span: 23..33,
                             },
-                            id: NameId(2),
+                            id: NameId(4),
                             params: [],
                         },
                     ),
@@ -133,7 +133,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 66..76,
                             },
-                            id: NameId(3),
+                            id: NameId(5),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -154,7 +154,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            NameId(2),
+                                                                            NameId(4),
                                                                         ),
                                                                     ),
                                                                 },
