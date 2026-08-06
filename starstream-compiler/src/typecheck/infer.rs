@@ -4091,28 +4091,15 @@ impl Inferencer {
         right: Type,
     ) -> Result<(Type, Vec<InferenceTree>, &'static str), ()> {
         match (left, right) {
+            (Type::Unit, Type::Unit) => Ok((Type::Unit, Vec::new(), "Unify-Const")),
+            (Type::Bool, Type::Bool) => Ok((Type::Bool, Vec::new(), "Unify-Const")),
             (Type::Int(w1), Type::Int(w2)) if w1 == w2 => {
                 Ok((Type::Int(w1), Vec::new(), "Unify-Const"))
-            }
-            (Type::Bool, Type::Bool) => Ok((Type::Bool, Vec::new(), "Unify-Const")),
-            (Type::Unit, Type::Unit) => Ok((Type::Unit, Vec::new(), "Unify-Const")),
-            (Type::Tuple(left), Type::Tuple(right))
-                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
-            {
-                Ok((Type::Tuple(left), vec![], "Unify-Tuple-Identity"))
-            }
-            (Type::Tuple(ls), Type::Tuple(rs)) if ls.len() == rs.len() => {
-                let mut children = Vec::new();
-                for (l, r) in ls.iter().zip(rs.iter()) {
-                    let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
-                    children.extend(child);
-                }
-                Ok((Type::Tuple(ls), children, "Unify-Tuple"))
             }
             (Type::Function(left), Type::Function(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
-                Ok((Type::Function(left), vec![], "Unify-Arrow-Identity"))
+                Ok((Type::Function(left), vec![], "Unify-Const"))
             }
             (Type::Function(left), Type::Function(right))
                 if left.params.len() == right.params.len() && left.kind == right.kind =>
@@ -4142,12 +4129,25 @@ impl Inferencer {
                     "Unify-Arrow",
                 ))
             }
+            (Type::Tuple(left), Type::Tuple(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                Ok((Type::Tuple(left), vec![], "Unify-Const"))
+            }
+            (Type::Tuple(ls), Type::Tuple(rs)) if ls.len() == rs.len() => {
+                let mut children = Vec::new();
+                for (l, r) in ls.iter().zip(rs.iter()) {
+                    let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
+                    children.extend(child);
+                }
+                Ok((Type::Tuple(ls), children, "Unify-Tuple"))
+            }
             // Records unify structurally: names are aliases, but fields must
             // line up in declaration order, matching `unify` below.
             (Type::Record(left), Type::Record(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
-                Ok((Type::Record(left), vec![], "Unify-Record-Identity"))
+                Ok((Type::Record(left), vec![], "Unify-Const"))
             }
             (Type::Record(ls), Type::Record(rs)) if ls.fields.len() == rs.fields.len() => {
                 let mut children = Vec::new();
@@ -4163,7 +4163,7 @@ impl Inferencer {
             // Enums likewise unify by shape, not name, with variants compared
             // in declaration order.
             (Type::Enum(left), Type::Enum(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
-                Ok((Type::Enum(left), vec![], "Unify-Enum-Identity"))
+                Ok((Type::Enum(left), vec![], "Unify-Const"))
             }
             (Type::Enum(ls), Type::Enum(rs)) if ls.variants.len() == rs.variants.len() => {
                 let mut children = Vec::new();
@@ -4196,6 +4196,19 @@ impl Inferencer {
                     }
                 }
                 Ok((Type::Enum(ls), children, "Unify-Enum"))
+            }
+            // Utxo and Token types are nominal and only unify with themselves.
+            (Type::Utxo(left), Type::Utxo(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                Ok((Type::Utxo(left), Vec::new(), "Unify-Const"))
+            }
+            (Type::Token(left), Type::Token(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                Ok((Type::Token(left), Vec::new(), "Unify-Const"))
+            }
+            // TODO: structural unification for Abi types
+            (Type::Abi(left), Type::Abi(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                Ok((Type::Abi(left), Vec::new(), "Unify-Const"))
             }
             (Type::Var(id), ty) => {
                 if ty == Type::Var(id) {
@@ -4247,7 +4260,6 @@ impl Inferencer {
                 self.subst.insert(id, ty.clone());
                 Ok((ty, Vec::new(), "Unify-Var"))
             }
-            (Type::Abi(l), Type::Abi(r)) if l == r => Ok((Type::Abi(l), Vec::new(), "Unify-Const")),
             _ => Err(()),
         }
     }
@@ -4272,37 +4284,15 @@ impl Inferencer {
         };
 
         let (result_ty, children, rule) = match (left, right) {
+            (Type::Unit, Type::Unit) => (Type::Unit, Vec::new(), "Unify-Const"),
+            (Type::Bool, Type::Bool) => (Type::Bool, Vec::new(), "Unify-Const"),
             (Type::Int(w1), Type::Int(w2)) if w1 == w2 => {
                 (Type::Int(w1), Vec::new(), "Unify-Const")
-            }
-            (Type::Bool, Type::Bool) => (Type::Bool, Vec::new(), "Unify-Const"),
-            (Type::Unit, Type::Unit) => (Type::Unit, Vec::new(), "Unify-Const"),
-            (Type::Tuple(ls), Type::Tuple(rs)) => {
-                if ls.len() != rs.len() {
-                    return Err(TypeError::new(error_kind, left_span)
-                        .with_secondary(right_span, "type mismatch"));
-                }
-
-                let mut tuple_children = Vec::new();
-                for (l, r) in ls.iter().zip(rs.iter()) {
-                    let (_, child) = self.unify(
-                        l.clone(),
-                        r.clone(),
-                        left_span,
-                        right_span,
-                        TypeErrorKind::GeneralMismatch {
-                            expected: l.clone(),
-                            found: r.clone(),
-                        },
-                    )?;
-                    tuple_children.push(child);
-                }
-                (Type::Tuple(ls), tuple_children, "Unify-Tuple")
             }
             (Type::Function(left), Type::Function(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
-                (Type::Function(left), Vec::new(), "Unify-Arrow-Identity")
+                (Type::Function(left), Vec::new(), "Unify-Const")
             }
             (Type::Function(left), Type::Function(right)) => {
                 if left.params.len() != right.params.len() {
@@ -4358,10 +4348,37 @@ impl Inferencer {
                     "Unify-Arrow",
                 )
             }
+            (Type::Tuple(left), Type::Tuple(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                (Type::Tuple(left), Vec::new(), "Unify-Const")
+            }
+            (Type::Tuple(ls), Type::Tuple(rs)) => {
+                if ls.len() != rs.len() {
+                    return Err(TypeError::new(error_kind, left_span)
+                        .with_secondary(right_span, "type mismatch"));
+                }
+
+                let mut tuple_children = Vec::new();
+                for (l, r) in ls.iter().zip(rs.iter()) {
+                    let (_, child) = self.unify(
+                        l.clone(),
+                        r.clone(),
+                        left_span,
+                        right_span,
+                        TypeErrorKind::GeneralMismatch {
+                            expected: l.clone(),
+                            found: r.clone(),
+                        },
+                    )?;
+                    tuple_children.push(child);
+                }
+                (Type::Tuple(ls), tuple_children, "Unify-Tuple")
+            }
             (Type::Record(left), Type::Record(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
-                (Type::Record(left), Vec::new(), "Unify-Record-Identity")
+                (Type::Record(left), Vec::new(), "Unify-Const")
             }
             (Type::Record(ls), Type::Record(rs)) => {
                 if ls.fields.len() != rs.fields.len()
@@ -4392,7 +4409,7 @@ impl Inferencer {
                 (Type::Record(ls), record_children, "Unify-Record")
             }
             (Type::Enum(left), Type::Enum(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
-                (Type::Enum(left), Vec::new(), "Unify-Enum-Identity")
+                (Type::Enum(left), Vec::new(), "Unify-Const")
             }
             (Type::Enum(ls), Type::Enum(rs)) => {
                 if ls.variants.len() != rs.variants.len()
@@ -4470,6 +4487,17 @@ impl Inferencer {
                     }
                 }
                 (Type::Enum(ls), enum_children, "Unify-Enum")
+            }
+            (Type::Utxo(left), Type::Utxo(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                (Type::Utxo(left), Vec::new(), "Unify-Const")
+            }
+            (Type::Token(left), Type::Token(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                (Type::Token(left), Vec::new(), "Unify-Const")
+            }
+            (Type::Abi(left), Type::Abi(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                (Type::Abi(left), Vec::new(), "Unify-Const")
             }
             (Type::Var(id), ty) => {
                 self.bind(id, ty.clone(), left_span, right_span, error_kind.clone())?;
