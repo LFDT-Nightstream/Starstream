@@ -1584,32 +1584,29 @@ impl Compiler {
         // Utxos declared in a file have an "exported" half and an "imported" half
         // since calls need to go through the runtime.
         for part in &utxo.parts {
-            match part {
-                TypedUtxoPart::Function(function) => {
-                    if let Some(FunctionExport::UtxoMain) = function.export {
-                        let mut params = Vec::with_capacity(16);
-                        for p in &function.params {
-                            _ = self.star_to_core_types(
-                                p.name.span_or(function.name.span()),
-                                &mut params,
-                                &p.ty,
-                            );
-                        }
-
-                        // Don't use declared result (always Unit). The imported version returns a handle.
-                        let mut results = Vec::with_capacity(1);
-                        _ = self.star_to_core_types(function.name.span(), &mut results, &utxo.ty);
-
-                        let wit_name = format!(
-                            "[static]{resource_name}.{}",
-                            to_kebab_case(function.name.as_str())
-                        );
-                        let ty = self.add_core_func_type(&FuncType::new(params, results));
-                        let idx = self.import_function(&interface_name, &wit_name, ty);
-                        self.callables.insert(function.id, idx);
-                    }
+            if let TypedUtxoPart::Function(function) = part
+                && let Some(FunctionExport::UtxoMain) = function.export
+            {
+                let mut params = Vec::with_capacity(16);
+                for p in &function.params {
+                    _ = self.star_to_core_types(
+                        p.name.span_or(function.name.span()),
+                        &mut params,
+                        &p.ty,
+                    );
                 }
-                _ => {}
+
+                // Don't use declared result (always Unit). The imported version returns a handle.
+                let mut results = Vec::with_capacity(1);
+                _ = self.star_to_core_types(function.name.span(), &mut results, &utxo.ty);
+
+                let wit_name = format!(
+                    "[static]{resource_name}.{}",
+                    to_kebab_case(function.name.as_str())
+                );
+                let ty = self.add_core_func_type(&FuncType::new(params, results));
+                let idx = self.import_function(&interface_name, &wit_name, ty);
+                self.callables.insert(function.id, idx);
             }
         }
     }

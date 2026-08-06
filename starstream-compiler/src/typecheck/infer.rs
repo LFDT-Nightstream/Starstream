@@ -90,7 +90,7 @@ pub fn typecheck_program(
 
     // Pass 1: register imports
     env.root
-        .import_all_from(&inferencer.builtins.prelude())
+        .import_all_from(inferencer.builtins.prelude())
         .unwrap();
     if let Err(error) =
         inferencer.register_imports(&mut env, &program.definitions, &Default::default())
@@ -154,7 +154,7 @@ pub fn typecheck_program(
         Vec::new()
     };
 
-    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude());
+    let generic_types = Inferencer::build_generic_type_defs(inferencer.builtins.prelude());
     let warnings = inferencer.warnings;
 
     Ok(TypecheckSuccess {
@@ -229,7 +229,7 @@ pub fn typecheck_modules(
 
         // Pass 1: register imports
         env.root
-            .import_all_from(&inferencer.builtins.prelude())
+            .import_all_from(inferencer.builtins.prelude())
             .unwrap();
         let resolved_imports = resolve_path_imports(graph, module_id, &module_exports);
         if let Err(error) =
@@ -321,7 +321,7 @@ pub fn typecheck_modules(
         inferencer.apply_substitutions_program(typed_program);
     }
 
-    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude());
+    let generic_types = Inferencer::build_generic_type_defs(inferencer.builtins.prelude());
 
     let mut modules: Vec<TypedModule> = Vec::with_capacity(graph.modules().len());
     for source_module in graph.modules() {
@@ -1147,7 +1147,7 @@ impl Inferencer {
                         .collect::<Result<Vec<_>, _>>()?;
 
                     // Assert that the signature sets match
-                    let abi_info = env.root.get_abi(&abi)?;
+                    let abi_info = env.root.get_abi(abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
                     let abi = Type::Abi(abi_info.clone());
@@ -1270,7 +1270,7 @@ impl Inferencer {
 
                     // Assert that the signature sets match. `Token` resolves to
                     // the built-in ABI; other names must be user-declared ABIs.
-                    let abi_info = env.root.get_abi(&abi)?;
+                    let abi_info = env.root.get_abi(abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
                     let abi = Type::Abi(abi_info.clone());
@@ -2953,7 +2953,7 @@ impl Inferencer {
                                 }
                             }
 
-                            let abi = env.root.get_abi(&abi_name)?.clone();
+                            let abi = env.root.get_abi(abi_name)?.clone();
                             let var_name_str = name.name.clone();
                             let abi_name_str = abi_name.name.clone();
 
@@ -3198,7 +3198,7 @@ impl Inferencer {
                 // TODO: assert that this utxo impls each abi named
                 let abis = abis
                     .iter()
-                    .map(|abi| Ok(env.root.get_abi(&abi)?.clone()))
+                    .map(|abi| Ok(env.root.get_abi(abi)?.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok((
                     Spanned::new(
