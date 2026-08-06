@@ -2269,12 +2269,12 @@ impl Inferencer {
                     children.extend(trace);
                     let (_, unit_trace) = self.unify(
                         Type::Unit,
-                        subject.ty().clone(),
+                        block.ty().clone(),
                         ctx.return_span,
-                        subject.tail_span(),
+                        block.tail_span(),
                         TypeErrorKind::GeneralMismatch {
                             expected: Type::Unit,
-                            found: self.apply_for_display(subject.ty()),
+                            found: self.apply_for_display(block.ty()),
                         },
                     )?;
                     children.push(unit_trace);
