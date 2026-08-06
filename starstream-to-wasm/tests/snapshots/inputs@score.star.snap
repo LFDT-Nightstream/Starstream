@@ -803,7 +803,7 @@ TypedProgram {
                                 name: "new",
                                 span: 263..266,
                             },
-                            id: NameId(7),
+                            id: NameId(8),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -1133,7 +1133,7 @@ TypedProgram {
                                     name: "plus_chips",
                                     span: 362..372,
                                 },
-                                id: NameId(8),
+                                id: NameId(9),
                                 params: [
                                     TypedFunctionParam {
                                         public: true,
@@ -1210,7 +1210,7 @@ TypedProgram {
                                     name: "plus_mult",
                                     span: 449..458,
                                 },
-                                id: NameId(9),
+                                id: NameId(10),
                                 params: [
                                     TypedFunctionParam {
                                         public: true,
@@ -1287,7 +1287,7 @@ TypedProgram {
                                     name: "mult_mult",
                                     span: 531..540,
                                 },
-                                id: NameId(10),
+                                id: NameId(11),
                                 params: [
                                     TypedFunctionParam {
                                         public: true,
@@ -1391,7 +1391,7 @@ TypedProgram {
                                     name: "finish",
                                     span: 625..631,
                                 },
-                                id: NameId(11),
+                                id: NameId(12),
                                 params: [],
                                 return_type: Unit,
                                 body: TypedBlock {
@@ -1407,6 +1407,7 @@ TypedProgram {
                 ty: Utxo(
                     UtxoType {
                         name: "ScoreProgress",
+                        id: NameId(7),
                     },
                 ),
             },
@@ -1420,7 +1421,7 @@ TypedProgram {
                     name: "example",
                     span: 685..692,
                 },
-                id: NameId(12),
+                id: NameId(13),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -1437,6 +1438,7 @@ TypedProgram {
                                     ty: Utxo(
                                         UtxoType {
                                             name: "ScoreProgress",
+                                            id: NameId(7),
                                         },
                                     ),
                                     kind: Call {
@@ -1451,11 +1453,12 @@ TypedProgram {
                                                         result: Utxo(
                                                             UtxoType {
                                                                 name: "ScoreProgress",
+                                                                id: NameId(7),
                                                             },
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                NameId(7),
+                                                                NameId(8),
                                                             ),
                                                         ),
                                                     },

@@ -866,6 +866,7 @@ impl Inferencer {
     fn register_utxo(&mut self, env: &mut TypeEnv, def: &UtxoDef) -> Result<(), TypeError> {
         let ty = Type::Utxo(Arc::new(UtxoType {
             name: def.name.to_string(),
+            id: self.next_name_id.fresh(),
         }));
         env.root.insert_type(
             &def.name,
@@ -911,6 +912,7 @@ impl Inferencer {
     fn register_token(&mut self, env: &mut TypeEnv, def: &TokenDef) -> Result<(), TypeError> {
         let ty = Type::Token(Arc::new(TokenType {
             name: def.name.to_string(),
+            id: self.next_name_id.fresh(),
         }));
         env.root.insert_type(
             &def.name,

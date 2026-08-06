@@ -150,6 +150,7 @@ pub enum EnumVariantKind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct UtxoType {
     pub name: String,
+    pub id: NameId,
 }
 
 /// Type of a `token`.
@@ -157,6 +158,7 @@ pub struct UtxoType {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TokenType {
     pub name: String,
+    pub id: NameId,
 }
 
 /// Type of an `abi`.

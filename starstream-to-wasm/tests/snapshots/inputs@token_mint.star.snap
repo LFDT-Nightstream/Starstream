@@ -193,7 +193,7 @@ TypedProgram {
                                 name: "mint",
                                 span: 85..89,
                             },
-                            id: NameId(2),
+                            id: NameId(3),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -290,7 +290,7 @@ TypedProgram {
                                     name: "attach",
                                     span: 148..154,
                                 },
-                                id: NameId(3),
+                                id: NameId(4),
                                 params: [
                                     TypedFunctionParam {
                                         public: false,
@@ -313,7 +313,7 @@ TypedProgram {
                                     name: "detach",
                                     span: 180..186,
                                 },
-                                id: NameId(4),
+                                id: NameId(5),
                                 params: [
                                     TypedFunctionParam {
                                         public: false,
@@ -336,6 +336,7 @@ TypedProgram {
                 ty: Token(
                     TokenType {
                         name: "MyToken",
+                        id: NameId(2),
                     },
                 ),
             },

@@ -191,7 +191,7 @@ TypedProgram {
                                     name: "hello",
                                     span: 80..85,
                                 },
-                                id: NameId(3),
+                                id: NameId(4),
                                 params: [],
                                 return_type: Int(
                                     I32,
@@ -224,6 +224,7 @@ TypedProgram {
                 ty: Utxo(
                     UtxoType {
                         name: "MyUtxo",
+                        id: NameId(3),
                     },
                 ),
             },

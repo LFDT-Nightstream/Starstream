@@ -133,7 +133,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 66..76,
                             },
-                            id: NameId(3),
+                            id: NameId(4),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -188,6 +188,7 @@ TypedProgram {
                 ty: Utxo(
                     UtxoType {
                         name: "MyUtxo",
+                        id: NameId(3),
                     },
                 ),
             },

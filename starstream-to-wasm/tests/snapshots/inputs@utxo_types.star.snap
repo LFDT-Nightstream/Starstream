@@ -93,6 +93,7 @@ TypedProgram {
                 ty: Utxo(
                     UtxoType {
                         name: "MyUtxo",
+                        id: NameId(2),
                     },
                 ),
             },
@@ -106,7 +107,7 @@ TypedProgram {
                     name: "script_accepts_utxos",
                     span: 28..48,
                 },
-                id: NameId(2),
+                id: NameId(3),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -125,6 +126,7 @@ TypedProgram {
                         ty: Utxo(
                             UtxoType {
                                 name: "MyUtxo",
+                                id: NameId(2),
                             },
                         ),
                     },

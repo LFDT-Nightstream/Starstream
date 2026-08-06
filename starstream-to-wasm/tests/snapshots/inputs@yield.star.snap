@@ -184,7 +184,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 53..63,
                             },
-                            id: NameId(3),
+                            id: NameId(4),
                             params: [
                                 TypedFunctionParam {
                                     public: false,
@@ -282,7 +282,7 @@ TypedProgram {
                                     name: "foo",
                                     span: 126..129,
                                 },
-                                id: NameId(4),
+                                id: NameId(5),
                                 params: [],
                                 return_type: Unit,
                                 body: TypedBlock {
@@ -298,6 +298,7 @@ TypedProgram {
                 ty: Utxo(
                     UtxoType {
                         name: "MyUtxo",
+                        id: NameId(3),
                     },
                 ),
             },
