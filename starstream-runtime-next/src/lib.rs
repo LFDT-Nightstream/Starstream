@@ -3,12 +3,13 @@ use std::sync::Arc;
 use tracing::{debug, instrument};
 use wasmtime::component::{
     Component, ComponentExportIndex, ExportLookup, Func, HasSelf, Instance, InstancePre, Linker,
-    LinkerInstance, ResourceAny, ResourceTable, ResourceType, Type, Val, types,
+    LinkerInstance, Resource, ResourceAny, ResourceTable, ResourceType, Type, Val, types,
 };
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut, Engine, StoreContextMut, bail, ensure};
 
 pub mod bindings {
+    // NOTE: `starstream:std/utxo-context` bindings are hand-written
     wasmtime::component::bindgen!({
         path: "../starstream-to-wasm/wit",
         inline: "
@@ -23,15 +24,50 @@ pub mod bindings {
             "starstream:std/builtin.utxo": crate::Utxo,
         },
         imports: {
-            "starstream:std/builtin.implements-method": tracing | trappable,
-            default: tracing,
+            default: tracing | trappable,
         }
     });
 }
 
+pub trait ResourceView {
+    fn table(&mut self) -> &mut ResourceTable;
+}
+
+impl<T: ResourceView> ResourceView for &mut T {
+    fn table(&mut self) -> &mut ResourceTable {
+        T::table(self)
+    }
+}
+
+/// Utxo handler
+pub trait UtxoHandler: ResourceView + Send + Sized {
+    type Context;
+
+    fn construct_utxo(
+        store: StoreContextMut<Self>,
+        instance: &Arc<str>,
+        name: &Arc<str>,
+        params: &[Val],
+    ) -> impl Future<Output = wasmtime::Result<Utxo>> + Send;
+
+    fn implements_method(
+        store: StoreContextMut<Self>,
+        cx: Resource<Self::Context>,
+        hash: (u64, u64, u64, u64),
+    ) -> wasmtime::Result<()>;
+
+    fn resume(store: StoreContextMut<Self>, cx: Resource<Self::Context>) -> wasmtime::Result<()>;
+
+    fn drop(store: StoreContextMut<Self>, cx: Resource<Self::Context>) -> wasmtime::Result<()>;
+}
+
+/// ABI event handler
+pub trait EventHandler {
+    fn emit_event(&mut self, instance: &str, name: &str, params: &[Val]);
+}
+
 pub trait Host:
     bindings::starstream::std::builtin::Host
-    + bindings::starstream::std::builtin::HostUtxo
     + bindings::starstream::std::cardano::Host
     + EventHandler
     + UtxoHandler
@@ -41,31 +77,11 @@ pub trait Host:
 
 impl<T> Host for T where
     T: bindings::starstream::std::builtin::Host
-        + bindings::starstream::std::builtin::HostUtxo
         + bindings::starstream::std::cardano::Host
         + EventHandler
         + UtxoHandler
         + 'static
 {
-}
-
-/// Utxo handler
-pub trait UtxoHandler: Send {
-    fn table(&mut self) -> &mut ResourceTable;
-
-    fn construct_utxo(
-        store: StoreContextMut<Self>,
-        instance: &Arc<str>,
-        name: &Arc<str>,
-        params: &[Val],
-    ) -> impl Future<Output = wasmtime::Result<Utxo>> + Send
-    where
-        Self: Sized;
-}
-
-/// ABI event handler
-pub trait EventHandler {
-    fn emit_event(&mut self, instance: &str, name: &str, params: &[Val]);
 }
 
 pub fn componentize(wasm: impl AsRef<[u8]>) -> anyhow::Result<Vec<u8>> {
@@ -256,6 +272,20 @@ pub fn link_instance<T: Host>(
     }
 }
 
+pub fn link_utxo_context<T: UtxoHandler>(linker: &mut LinkerInstance<T>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "[method]utxo-context.implements-method",
+        |store, (cx, hash)| T::implements_method(store, cx, hash),
+    )?;
+    linker.func_wrap("[method]utxo-context.resume", |store, (cx,)| {
+        T::resume(store, cx)
+    })?;
+    linker.func_wrap("[resource-drop]utxo-context", |store, (cx,)| {
+        T::drop(store, cx)
+    })?;
+    Ok(())
+}
+
 /// Link dynamic imports of the contract
 #[instrument(level = "trace", skip_all)]
 pub fn link_dynamic_imports<T: Host>(
@@ -264,8 +294,14 @@ pub fn link_dynamic_imports<T: Host>(
     ty: &types::Component,
 ) -> wasmtime::Result<()> {
     for (name, types::ComponentExtern { ty, .. }) in ty.imports(engine) {
-        if let Some(("starstream:std", ..)) = name.split_once('/') {
-            debug!(?name, "skipping builtin instance import");
+        if let Some(("starstream:std", interface)) = name.split_once('/') {
+            let mut linker = linker
+                .instance("utxo-context")
+                .context("failed to instantiate `utxo-context` in the linker")?;
+            match interface {
+                "utxo-context" => link_utxo_context(&mut linker)?,
+                _ => debug!(?name, "skipping builtin instance import"),
+            };
             continue;
         }
         match ty {
