@@ -82,16 +82,16 @@ impl From<&Type> for TypeRef {
                 name: "Utxo".to_owned(),
                 kind: TypeKind::Resource,
             },
-            Type::UtxoNamed(name) => TypeRef::Resource {
-                name: name.to_owned(),
+            Type::Utxo(utxo) => TypeRef::Resource {
+                name: utxo.name.to_owned(),
                 kind: TypeKind::Resource,
             },
             Type::TokenAny => TypeRef::Resource {
                 name: "Token".to_owned(),
                 kind: TypeKind::Resource,
             },
-            Type::TokenNamed(name) => TypeRef::Resource {
-                name: name.to_owned(),
+            Type::Token(token) => TypeRef::Resource {
+                name: token.name.to_owned(),
                 kind: TypeKind::Resource,
             },
             Type::Abi(abi) => TypeRef::Resource {

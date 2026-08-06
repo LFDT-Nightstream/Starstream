@@ -9,9 +9,9 @@ use std::{
 use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
     FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
-    Spanned, StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId,
-    TypedEffectDef, TypedImportItem, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef,
-    TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    Spanned, StaticFunction, TokenDef, TokenGlobal, TokenPart, TokenType, Type, TypeParam,
+    TypeVarId, TypedEffectDef, TypedImportItem, TypedTokenDef, TypedTokenGlobal, TypedTokenPart,
+    TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart, UtxoType,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportDef, ImportItems, ImportSource, IntegerLiteral, Literal, Pattern, Program, Statement,
@@ -864,7 +864,9 @@ impl Inferencer {
     }
 
     fn register_utxo(&mut self, env: &mut TypeEnv, def: &UtxoDef) -> Result<(), TypeError> {
-        let ty = Type::UtxoNamed(def.name.to_string());
+        let ty = Type::Utxo(Arc::new(UtxoType {
+            name: def.name.to_string(),
+        }));
         env.root.insert_type(
             &def.name,
             TypeEntry {
@@ -907,7 +909,9 @@ impl Inferencer {
     }
 
     fn register_token(&mut self, env: &mut TypeEnv, def: &TokenDef) -> Result<(), TypeError> {
-        let ty = Type::TokenNamed(def.name.to_string());
+        let ty = Type::Token(Arc::new(TokenType {
+            name: def.name.to_string(),
+        }));
         env.root.insert_type(
             &def.name,
             TypeEntry {
@@ -1161,7 +1165,7 @@ impl Inferencer {
         let Some(ty) = env.root.types.get(def.name.as_str()) else {
             unreachable!()
         };
-        assert!(matches!(ty.ty, Type::UtxoNamed(_)));
+        assert!(matches!(ty.ty, Type::Utxo(_)));
         Ok((
             TypedUtxoDef {
                 name: def.name.clone(),
@@ -1284,7 +1288,7 @@ impl Inferencer {
         let Some(ty) = env.root.types.get(def.name.as_str()) else {
             unreachable!()
         };
-        assert!(matches!(ty.ty, Type::TokenNamed(_)));
+        assert!(matches!(ty.ty, Type::Token(_)));
         Ok((
             TypedTokenDef {
                 name: def.name.clone(),
@@ -2927,7 +2931,7 @@ impl Inferencer {
                             let var_ty = self.apply(&binding.scheme.ty);
 
                             match &var_ty {
-                                Type::UtxoAny | Type::UtxoNamed(_) => {}
+                                Type::UtxoAny | Type::Utxo(_) => {}
                                 _ => {
                                     return Err(TypeError::new(
                                         TypeErrorKind::IsCheckRequiresUtxo {
@@ -4628,9 +4632,9 @@ fn substitute_type(
         Type::Bool => Type::Bool,
         Type::Unit => Type::Unit,
         Type::UtxoAny => Type::UtxoAny,
-        Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
+        Type::Utxo(id) => Type::Utxo(id.clone()),
         Type::TokenAny => Type::TokenAny,
-        Type::TokenNamed(id) => Type::TokenNamed(id.clone()),
+        Type::Token(id) => Type::Token(id.clone()),
         Type::Abi(name) => Type::Abi(name.clone()),
     }
 }
@@ -4673,9 +4677,9 @@ fn occurs_in(var: TypeVarId, ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> b
         | Type::Bool
         | Type::Unit
         | Type::UtxoAny
-        | Type::UtxoNamed(_)
+        | Type::Utxo(_)
         | Type::TokenAny
-        | Type::TokenNamed(_)
+        | Type::Token(_)
         | Type::Abi(_) => false,
     }
 }
@@ -4730,9 +4734,9 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
         | Type::Bool
         | Type::Unit
         | Type::UtxoAny
-        | Type::UtxoNamed(_)
+        | Type::Utxo(_)
         | Type::TokenAny
-        | Type::TokenNamed(_)
+        | Type::Token(_)
         | Type::Abi(_) => {}
     }
 }

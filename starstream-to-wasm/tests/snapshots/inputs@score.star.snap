@@ -1404,8 +1404,10 @@ TypedProgram {
                         ],
                     },
                 ],
-                ty: UtxoNamed(
-                    "ScoreProgress",
+                ty: Utxo(
+                    UtxoType {
+                        name: "ScoreProgress",
+                    },
                 ),
             },
         ),
@@ -1432,8 +1434,10 @@ TypedProgram {
                             },
                             value: Spanned {
                                 node: TypedExpr {
-                                    ty: UtxoNamed(
-                                        "ScoreProgress",
+                                    ty: Utxo(
+                                        UtxoType {
+                                            name: "ScoreProgress",
+                                        },
                                     ),
                                     kind: Call {
                                         callee: Spanned {
@@ -1444,8 +1448,10 @@ TypedProgram {
                                                         name_span: 263..266,
                                                         params: [],
                                                         param_spans: [],
-                                                        result: UtxoNamed(
-                                                            "ScoreProgress",
+                                                        result: Utxo(
+                                                            UtxoType {
+                                                                name: "ScoreProgress",
+                                                            },
                                                         ),
                                                         callee: Some(
                                                             Named(

@@ -221,8 +221,10 @@ TypedProgram {
                         ],
                     },
                 ],
-                ty: UtxoNamed(
-                    "MyUtxo",
+                ty: Utxo(
+                    UtxoType {
+                        name: "MyUtxo",
+                    },
                 ),
             },
         ),

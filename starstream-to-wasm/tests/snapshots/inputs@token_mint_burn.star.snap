@@ -513,8 +513,10 @@ TypedProgram {
                         ],
                     },
                 ],
-                ty: TokenNamed(
-                    "MyToken",
+                ty: Token(
+                    TokenType {
+                        name: "MyToken",
+                    },
                 ),
             },
         ),

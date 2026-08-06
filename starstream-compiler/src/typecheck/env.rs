@@ -365,9 +365,9 @@ fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
         | Type::Bool
         | Type::Unit
         | Type::UtxoAny
-        | Type::UtxoNamed(_)
+        | Type::Utxo(_)
         | Type::TokenAny
-        | Type::TokenNamed(_)
+        | Type::Token(_)
         | Type::Abi(_) => {}
     }
 }

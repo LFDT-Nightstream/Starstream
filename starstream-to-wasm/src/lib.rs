@@ -221,7 +221,7 @@ struct Compiler {
     builtin_starstream_i64_add_checked: Option<u32>,
     builtin_starstream_i64_sub_checked: Option<u32>,
     builtin_starstream_i64_mul_checked: Option<u32>,
-    /// Map from name to resource index.
+    /// Map from resource full name to resource index.
     resources: HashMap<String, u32>,
     /// Function bodies.
     code_bytes: Vec<Vec<u8>>,
@@ -952,9 +952,9 @@ impl Compiler {
                     ComponentAbiType::Borrow { resource: idx }
                 }
             }
-            Type::UtxoNamed(name) => {
-                if let Some(idx) = self.resources.get(name) {
-                    ComponentAbiType::Borrow { resource: *idx }
+            Type::Utxo(utxo) => {
+                if let Some(&idx) = self.resources.get(&utxo.name) {
+                    ComponentAbiType::Borrow { resource: idx }
                 } else {
                     return None;
                 }
@@ -972,9 +972,9 @@ impl Compiler {
                     ComponentAbiType::Borrow { resource: idx }
                 }
             }
-            Type::TokenNamed(name) => {
-                if let Some(idx) = self.resources.get(name) {
-                    ComponentAbiType::Borrow { resource: *idx }
+            Type::Token(token) => {
+                if let Some(&idx) = self.resources.get(&token.name) {
+                    ComponentAbiType::Borrow { resource: idx }
                 } else {
                     return None;
                 }
@@ -1142,7 +1142,7 @@ impl Compiler {
                     .and(ok);
                 dest.extend(flat);
             }
-            Type::UtxoAny | Type::UtxoNamed(_) | Type::TokenAny | Type::TokenNamed(_) => {
+            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) => {
                 dest.push(ValType::I32)
             }
             _ => ok = Err(self.push_error(span, format!("unknown core lowering for {ty:?}"))),
@@ -1227,7 +1227,7 @@ impl Compiler {
             Type::Unit => 0,
             Type::Bool => 1,
             Type::Int(_) => 1,
-            Type::UtxoAny | Type::UtxoNamed(_) | Type::TokenAny | Type::TokenNamed(_) => 1,
+            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) => 1,
             Type::Tuple(items) => items.iter().map(|t| self.star_count_core_types(t)).sum(),
             Type::Record(record) => record
                 .fields
@@ -2366,7 +2366,7 @@ impl Compiler {
                         func.instructions(bb).i64_const(value as i64);
                         Ok(())
                     }
-                    Type::Int(_) | Type::UtxoNamed(_) => {
+                    Type::Int(_) | Type::Utxo(_) => {
                         func.instructions(bb).i32_const(value as i32);
                         Ok(())
                     }

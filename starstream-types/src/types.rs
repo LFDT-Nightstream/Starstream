@@ -38,11 +38,11 @@ pub enum Type {
     /// The built-in `Utxo` type.
     UtxoAny,
     /// The type created by a `utxo` definition.
-    UtxoNamed(String),
+    Utxo(Arc<UtxoType>),
     /// The built-in `Token` type.
     TokenAny,
     /// The type created by a `token` definition.
-    TokenNamed(String),
+    Token(Arc<TokenType>),
     /// The type created by an `abi` definition. Also the type of a Utxo
     /// narrowed via `if x is AbiName`.
     Abi(Arc<AbiType>),
@@ -108,6 +108,7 @@ pub enum StaticFunction {
 }
 
 /// Type of a `struct`.
+/// Structural: interchangeable with other `struct`s and tuples with the same field type order.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordType {
     pub name: String,
@@ -121,6 +122,7 @@ pub struct RecordFieldType {
 }
 
 /// Type of an `enum`.
+/// Structural: interchangeable with other `enum`s with the same variant counts and types.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EnumType {
     pub name: String,
@@ -143,7 +145,22 @@ pub enum EnumVariantKind {
     Struct(Vec<RecordFieldType>),
 }
 
+/// Type of a `utxo`.
+/// Nominal: encodes the source contract hash.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UtxoType {
+    pub name: String,
+}
+
+/// Type of a `token`.
+/// Nominal: encodes the source contract hash.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TokenType {
+    pub name: String,
+}
+
 /// Type of an `abi`.
+/// Structural: compatible with similar interfaces.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AbiType {
     pub name: Identifier,
@@ -528,9 +545,9 @@ impl Type {
                 TypeDocMode::Expanded => enum_doc(enum_type, params),
             },
             Type::UtxoAny => RcDoc::text("Utxo"),
-            Type::UtxoNamed(id) => RcDoc::text(id.to_owned()),
+            Type::Utxo(utxo) => RcDoc::text(utxo.name.to_owned()),
             Type::TokenAny => RcDoc::text("Token"),
-            Type::TokenNamed(id) => RcDoc::text(id.to_owned()),
+            Type::Token(token) => RcDoc::text(token.name.to_owned()),
             Type::Abi(abi) => RcDoc::text(abi.name.to_string()),
         }
     }
