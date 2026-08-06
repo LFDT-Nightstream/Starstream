@@ -253,7 +253,11 @@ pub enum TypeErrorKind {
         needed_keyword: FunctionKind,
         wrong_keyword: FunctionKind,
     },
-    // E0041 was RuntimeWithoutKeyword, replaced with EmitRaiseRuntimeNeeded
+    /// `with` blocks must handle effects, not other types of functions.
+    WithRequiresEffect {
+        function_name: String,
+        wrong_keyword: FunctionKind,
+    },
     /// Writing or initializing a public binding requires explicit disclosure of private data.
     ExplicitDisclosureRequiredForPublicBinding {
         variable_name: String,
@@ -362,7 +366,7 @@ impl TypeErrorKind {
             TypeErrorKind::EmitRaiseRuntimeUnneeded { .. } => error_code!(E0038),
             TypeErrorKind::EmitRaiseRuntimeNeeded { .. } => error_code!(E0039),
             TypeErrorKind::EmitRaiseRuntimeMismatch { .. } => error_code!(E0040),
-            // E0041 removed
+            TypeErrorKind::WithRequiresEffect { .. } => error_code!(E0041),
             TypeErrorKind::WrongGenericArity { .. } => error_code!(E0042),
             TypeErrorKind::ReturnTypeNotAllowed => error_code!(E0043),
             TypeErrorKind::LiteralOutOfRange { .. } => error_code!(E0044),
@@ -692,7 +696,17 @@ impl fmt::Display for TypeErrorKind {
                     function_name,
                 )
             }
-            // E0041 removed
+            TypeErrorKind::WithRequiresEffect {
+                function_name,
+                wrong_keyword,
+            } => {
+                write!(
+                    f,
+                    "`with` statement requires `effect`, not `{} {}`",
+                    wrong_keyword.declaration_keyword(),
+                    function_name
+                )
+            }
             TypeErrorKind::ExplicitDisclosureRequiredForPublicBinding { variable_name } => {
                 write!(
                     f,

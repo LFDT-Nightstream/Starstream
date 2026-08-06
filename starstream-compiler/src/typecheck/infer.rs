@@ -2250,18 +2250,25 @@ impl Inferencer {
                             TypeErrorKind::NotAFunction {
                                 found: self.apply_for_display(&ty),
                             },
-                            name.first().unwrap().span,
+                            name.last().unwrap().span,
                         ));
                     };
-                    // TODO: enforce that it's an effect?
-
+                    if func.kind != FunctionKind::Raise {
+                        return Err(TypeError::new(
+                            TypeErrorKind::WithRequiresEffect {
+                                function_name: name.last().unwrap().to_string(),
+                                wrong_keyword: func.kind,
+                            },
+                            name.last().unwrap().span,
+                        ));
+                    }
                     if func.params.len() != patterns.len() {
                         return Err(TypeError::new(
                             TypeErrorKind::ArityMismatch {
                                 expected: func.params.len(),
                                 found: patterns.len(),
                             },
-                            name.first().unwrap().span,
+                            name.last().unwrap().span,
                         ));
                     }
 
