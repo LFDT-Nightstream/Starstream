@@ -22,20 +22,24 @@ AbiDef {
                             span: 31..37,
                         },
                         ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 39..42,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 39..42,
+                                },
+                            ],
                             generics: [],
                         },
                     },
                 ],
                 return_type: Some(
                     TypeAnnotation {
-                        name: Identifier {
-                            name: "bool",
-                            span: 47..51,
-                        },
+                        name: [
+                            Identifier {
+                                name: "bool",
+                                span: 47..51,
+                            },
+                        ],
                         generics: [],
                     },
                 ),

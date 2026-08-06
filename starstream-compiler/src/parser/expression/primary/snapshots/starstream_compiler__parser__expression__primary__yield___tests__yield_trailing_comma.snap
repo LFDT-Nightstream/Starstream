@@ -1,0 +1,19 @@
+---
+source: starstream-compiler/src/parser/expression/primary/yield_.rs
+description: "Code:\n\nyield(AbiA, AbiB,)"
+---
+Spanned {
+    node: Yield {
+        abis: [
+            Identifier {
+                name: "AbiA",
+                span: 6..10,
+            },
+            Identifier {
+                name: "AbiB",
+                span: 12..16,
+            },
+        ],
+    },
+    span: 0..18,
+}

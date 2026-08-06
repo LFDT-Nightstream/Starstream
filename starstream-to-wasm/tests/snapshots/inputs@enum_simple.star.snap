@@ -30,10 +30,12 @@ Program {
                             payload: Tuple(
                                 [
                                     TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: 34..37,
-                                        },
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 34..37,
+                                            },
+                                        ],
                                         generics: [],
                                     },
                                 ],
@@ -52,7 +54,6 @@ Program {
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Enum(
             TypedEnumDef {

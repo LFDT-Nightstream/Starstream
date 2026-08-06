@@ -5,7 +5,10 @@ description: "Code:\n\n42"
 Spanned {
     node: Literal(
         Integer(
-            42,
+            IntegerLiteral {
+                digits: "42",
+                radix: Decimal,
+            },
         ),
     ),
     span: 0..2,

@@ -31,6 +31,8 @@
   "is"
   "yield"
   "resume"
+  "try"
+  "with"
 ] @keyword
 
 ; Literals
@@ -39,7 +41,7 @@
 (integer_literal) @number
 
 ; Type annotations (override the fallback for types)
-(type_annotation (identifier) @type)
+(type_annotation (scoped_name) @type)
 (type_annotation "<" @operator)
 (type_annotation "," @operator)
 (type_annotation ">" @operator)

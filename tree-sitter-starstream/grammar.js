@@ -86,6 +86,7 @@ module.exports = grammar({
         optional(
           seq($.function_parameter, repeat(seq(",", $.function_parameter))),
         ),
+        optional(","),
         ")",
         optional(seq("->", $.type_annotation)),
         $.block,
@@ -171,6 +172,7 @@ module.exports = grammar({
         $.identifier,
         "(",
         optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        optional(","),
         ")",
         ";",
       ),
@@ -181,6 +183,7 @@ module.exports = grammar({
         $.identifier,
         "(",
         optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        optional(","),
         ")",
         optional(seq("->", $.type_annotation)),
         ";",
@@ -192,6 +195,7 @@ module.exports = grammar({
         $.identifier,
         "(",
         optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        optional(","),
         ")",
         optional(seq("->", $.type_annotation)),
         ";",
@@ -201,9 +205,15 @@ module.exports = grammar({
 
     type_annotation: ($) =>
       seq(
-        $.identifier,
+        $.scoped_name,
         optional(
-          seq("<", $.type_annotation, repeat(seq(",", $.type_annotation)), ">"),
+          seq(
+            "<",
+            $.type_annotation,
+            repeat(seq(",", $.type_annotation)),
+            optional(","),
+            ">",
+          ),
         ),
       ),
 
@@ -218,6 +228,7 @@ module.exports = grammar({
         $.while_statement,
         $.return_statement,
         $.resume_statement,
+        $.try_with_statement,
         $._expression_statement,
       ),
 
@@ -240,6 +251,15 @@ module.exports = grammar({
     return_statement: ($) => seq("return", optional($.expression), ";"),
 
     resume_statement: ($) => seq("resume", ";"),
+
+    try_with_statement: ($) =>
+      seq(
+        "try",
+        $.block,
+        repeat(
+          seq("with", $.tuple_pattern, $.block),
+        ),
+      ),
 
     _expression_statement: ($) => seq($.expression, ";"),
 
@@ -345,6 +365,7 @@ module.exports = grammar({
         "yield",
         "(",
         optional(seq($.identifier, repeat(seq(",", $.identifier)))),
+        optional(","),
         ")",
       ),
 
@@ -420,7 +441,8 @@ module.exports = grammar({
 
     // Literals and other terminals
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
-    integer_literal: ($) => /[0-9]+/,
+    integer_literal: ($) =>
+      choice(/0x[0-9a-fA-F]+/, /0o[0-7]+/, /0b[01]+/, /[0-9]+/),
     boolean_literal: ($) => choice("true", "false"),
     unit_literal: ($) => seq("(", ")"),
 

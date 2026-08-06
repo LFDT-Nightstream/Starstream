@@ -39,7 +39,6 @@ T-Fn: main => ()
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Function(
             TypedFunctionDef {
@@ -50,6 +49,7 @@ TypedProgram {
                     name: "main",
                     span: 22..26,
                 },
+                id: NameId(2),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {

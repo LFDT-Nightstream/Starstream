@@ -78,18 +78,23 @@ impl ModuleGraph {
     pub fn modules(&self) -> &[Module] {
         &self.modules
     }
+
     pub fn module(&self, id: ModuleId) -> &Module {
         &self.modules[id.index()]
     }
+
     pub fn topo_order(&self) -> &[ModuleId] {
         &self.topo_order
     }
+
     pub fn edges_of(&self, id: ModuleId) -> &[PathImport] {
         self.edges.get(&id.0).map(|v| v.as_slice()).unwrap_or(&[])
     }
+
     pub fn contract_entries(&self) -> &[ModuleId] {
         &self.contract_entries
     }
+
     /// Look up a module by its canonical absolute path.
     pub fn find_by_path(&self, abs_path: &Path) -> Option<ModuleId> {
         self.modules

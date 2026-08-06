@@ -36,10 +36,12 @@ Program {
                                 span: 49..53,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "Utxo",
-                                    span: 55..59,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "Utxo",
+                                        span: 55..59,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -50,10 +52,12 @@ Program {
                                 span: 61..68,
                             },
                             ty: TypeAnnotation {
-                                name: Identifier {
-                                    name: "MyUtxo",
-                                    span: 70..76,
-                                },
+                                name: [
+                                    Identifier {
+                                        name: "MyUtxo",
+                                        span: 70..76,
+                                    },
+                                ],
                                 generics: [],
                             },
                         },
@@ -78,7 +82,6 @@ T-Fn: script_accepts_utxos => ()
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Utxo(
             TypedUtxoDef {
@@ -101,6 +104,7 @@ TypedProgram {
                     name: "script_accepts_utxos",
                     span: 28..48,
                 },
+                id: NameId(2),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -133,17 +137,33 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32) (result i32)))
-  (type (;1;) (func (param i32)))
-  (type (;2;) (func))
-  (type (;3;) (func (param i32 i32)))
-  (import "[export]my-utxo" "[resource-new]utxo" (func (;0;) (type 0)))
-  (import "[export]my-utxo" "[resource-drop]utxo" (func (;1;) (type 1)))
-  (export "script-accepts-utxos" (func 3))
-  (func (;2;) (type 2)
+  (type (;0;) (func (param i64 i64 i64 i64)))
+  (type (;1;) (func (param i32) (result i32)))
+  (type (;2;) (func (param i32)))
+  (type (;3;) (func))
+  (type (;4;) (func (param i32 i32)))
+  (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
+  (global (;0;) (mut i32) (i32.const 0))
+  (export "my-utxo#get-storage" (func 4))
+  (export "my-utxo#set-storage" (func 5))
+  (export "script-accepts-utxos" (func 6))
+  (func (;3;) (type 3)
     (unreachable)
   )
-  (func (;3;) (type 3) (param i32 i32))
+  (func (;4;) (type 1) (param i32) (result i32)
+    (local i32)
+    (global.get 0)
+  )
+  (func (;5;) (type 1) (param i32) (result i32)
+    (local i32)
+    (global.set 0
+      (local.get 0))
+    (return_call 1
+      (i32.const 0))
+  )
+  (func (;6;) (type 4) (param i32 i32))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -158,15 +178,39 @@ TypedProgram {
               (type (;3;)
                 (instance
                   (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (record (field "yield" s32)))
+                  (export (;2;) "storage" (type (eq 1)))
+                  (type (;3;) (borrow 0))
+                  (type (;4;) (func (param "self" 3) (result 2)))
+                  (export (;0;) "get-storage" (func (type 4)))
+                  (type (;5;) (own 0))
+                  (type (;6;) (func (param "storage" 2) (result 5)))
+                  (export (;1;) "set-storage" (func (type 6)))
                 )
               )
               (import "my-utxo" (instance (;0;) (type 3)))
               (type (;4;)
                 (instance
-                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "hash" 0)))
+                  (export (;0;) "implements-method" (func (type 1)))
                 )
               )
-              (export (;1;) "my-utxo" (instance (type 4)))
+              (import "starstream:std/builtin" (instance (;1;) (type 4)))
+              (type (;5;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (record (field "yield" s32)))
+                  (export (;2;) "storage" (type (eq 1)))
+                  (type (;3;) (borrow 0))
+                  (type (;4;) (func (param "self" 3) (result 2)))
+                  (export (;0;) "get-storage" (func (type 4)))
+                  (type (;5;) (own 0))
+                  (type (;6;) (func (param "storage" 2) (result 5)))
+                  (export (;1;) "set-storage" (func (type 6)))
+                )
+              )
+              (export (;2;) "my-utxo" (instance (type 5)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -181,10 +225,25 @@ TypedProgram {
 package root:component;
 
 world root {
+  import starstream:std/builtin;
+
   resource utxo;
 
   export script-accepts-utxos: func(utxo: borrow<utxo>, my-utxo: borrow<utxo>);
   export my-utxo: interface {
     resource utxo;
+
+    record storage {
+      yield: s32,
+    }
+
+    get-storage: func(self: borrow<utxo>) -> storage;
+
+    set-storage: func(storage: storage) -> utxo;
+  }
+}
+package starstream:std {
+  interface builtin {
+    implements-method: func(hash: tuple<u64, u64, u64, u64>);
   }
 }

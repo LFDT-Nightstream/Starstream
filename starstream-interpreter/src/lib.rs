@@ -9,7 +9,7 @@ use starstream_types::{
 };
 
 #[cfg(test)]
-use starstream_types::{Spanned, Type};
+use starstream_types::{IntegerLiteral, Spanned, Type};
 
 // ----------------------------------------------------------------------------
 // Tree walker
@@ -68,6 +68,7 @@ fn eval_block(block: &TypedBlock, locals: &Locals) -> ControlFlow<Value, Value> 
             TypedStatement::Resume => {
                 return ControlFlow::Break(Value::Unit);
             }
+            TypedStatement::TryWith { .. } => todo!(),
         }
     }
 
@@ -84,7 +85,8 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
         // Identifiers
         TypedExprKind::ScopedName { name, .. } => locals.get(name.last().unwrap().as_str()),
         // Literals
-        TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(*i as i64),
+        // Overflowing digits are rejected by the type checker before evaluation.
+        TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(i.value().unwrap_or(0) as i64),
         TypedExprKind::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
         TypedExprKind::Literal(Literal::Unit) => Value::Unit,
         // Arithmetic operators
@@ -232,11 +234,11 @@ fn eval_math() {
                     op: BinaryOp::Add,
                     left: Box::new(Spanned::none(TypedExpr::new(
                         Type::int(),
-                        TypedExprKind::Literal(Literal::Integer(17))
+                        TypedExprKind::Literal(Literal::Integer(IntegerLiteral::from(17)))
                     ))),
                     right: Box::new(Spanned::none(TypedExpr::new(
                         Type::int(),
-                        TypedExprKind::Literal(Literal::Integer(33))
+                        TypedExprKind::Literal(Literal::Integer(IntegerLiteral::from(33)))
                     ))),
                 },
             ),
@@ -258,7 +260,7 @@ fn eval_locals() {
                 name: foo.clone(),
                 value: Spanned::none(TypedExpr::new(
                     Type::int(),
-                    TypedExprKind::Literal(Literal::Integer(6)),
+                    TypedExprKind::Literal(Literal::Integer(IntegerLiteral::from(6))),
                 )),
             },
             TypedStatement::Assignment {
@@ -273,7 +275,7 @@ fn eval_locals() {
                         ))),
                         right: Box::new(Spanned::none(TypedExpr::new(
                             Type::int(),
-                            TypedExprKind::Literal(Literal::Integer(3)),
+                            TypedExprKind::Literal(Literal::Integer(IntegerLiteral::from(3))),
                         ))),
                     },
                 )),

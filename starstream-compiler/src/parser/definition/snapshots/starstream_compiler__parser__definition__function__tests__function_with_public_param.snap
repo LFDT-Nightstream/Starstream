@@ -16,20 +16,24 @@ FunctionDef {
                 span: 14..19,
             },
             ty: TypeAnnotation {
-                name: Identifier {
-                    name: "i64",
-                    span: 21..24,
-                },
+                name: [
+                    Identifier {
+                        name: "i64",
+                        span: 21..24,
+                    },
+                ],
                 generics: [],
             },
         },
     ],
     return_type: Some(
         TypeAnnotation {
-            name: Identifier {
-                name: "i64",
-                span: 29..32,
-            },
+            name: [
+                Identifier {
+                    name: "i64",
+                    span: 29..32,
+                },
+            ],
             generics: [],
         },
     ),

@@ -75,7 +75,7 @@ impl Diagnostic for TypeError {
             labels.push(LabeledSpan::new_with_span(
                 Some(format!(
                     "parameter expects `{}`",
-                    expected.to_compact_string()
+                    expected.compact_display()
                 )),
                 to_source_span(*span),
             ));
@@ -181,9 +181,6 @@ pub enum TypeErrorKind {
         enum_name: String,
         found: Type,
     },
-    UnsupportedTypeFeature {
-        description: String,
-    },
     /// Pattern matching is not exhaustive; some cases are not covered.
     NonExhaustiveMatch {
         missing_patterns: Vec<String>,
@@ -271,7 +268,8 @@ pub enum TypeErrorKind {
     ReturnTypeNotAllowed,
     /// An integer literal is out of range for its resolved type.
     LiteralOutOfRange {
-        value: i128,
+        /// The literal as written in the source (including any radix prefix).
+        literal: String,
         ty: Type,
     },
     /// `if x is Abi` used on a non-Utxo variable.
@@ -349,7 +347,7 @@ impl TypeErrorKind {
             TypeErrorKind::UnknownEnumVariant { .. } => error_code!(E0023),
             TypeErrorKind::EnumPayloadMismatch { .. } => error_code!(E0024),
             TypeErrorKind::PatternEnumMismatch { .. } => error_code!(E0025),
-            TypeErrorKind::UnsupportedTypeFeature { .. } => error_code!(E0026),
+            // E0026 was UnsupportedTypeFeature
             TypeErrorKind::NonExhaustiveMatch { .. } => error_code!(E0027),
             TypeErrorKind::UnreachablePattern => error_code!(E0028),
             TypeErrorKind::NotAFunction { .. } => error_code!(E0029),
@@ -455,8 +453,8 @@ impl fmt::Display for TypeErrorKind {
             } => write!(
                 f,
                 "cannot assign value of type `{}` to variable `{name}` of type `{}`",
-                found.to_compact_string(),
-                expected.to_compact_string()
+                found.compact_display(),
+                expected.compact_display()
             ),
             TypeErrorKind::AssignmentToImmutable { name } => {
                 write!(f, "cannot assign to immutable variable `{name}`")
@@ -469,46 +467,42 @@ impl fmt::Display for TypeErrorKind {
                 f,
                 "unary `{}` expects type `{}` but found `{}`",
                 display_unary_op(*op),
-                expected.to_compact_string(),
-                found.to_compact_string()
+                expected.compact_display(),
+                found.compact_display()
             ),
             TypeErrorKind::BinaryOperandMismatch { op, left, right } => write!(
                 f,
                 "binary `{}` operands must match; found `{}` and `{}`",
                 display_binary_op(*op),
-                left.to_compact_string(),
-                right.to_compact_string()
+                left.compact_display(),
+                right.compact_display()
             ),
             TypeErrorKind::ConditionNotBool { context, found } => {
                 write!(
                     f,
                     "the {} must have type `bool`, found `{}`",
                     context,
-                    found.to_compact_string()
+                    found.compact_display()
                 )
             }
             TypeErrorKind::GeneralMismatch { expected, found } => {
                 write!(
                     f,
                     "expected type `{}`, found `{}`",
-                    expected.to_compact_string(),
-                    found.to_compact_string()
+                    expected.compact_display(),
+                    found.compact_display()
                 )
             }
             TypeErrorKind::ReturnMismatch { expected, found } => {
                 write!(
                     f,
                     "return type `{}` does not match function signature `{}`",
-                    found.to_compact_string(),
-                    expected.to_compact_string()
+                    found.compact_display(),
+                    expected.compact_display()
                 )
             }
             TypeErrorKind::MissingReturn { expected } => {
-                write!(
-                    f,
-                    "missing return of type `{}`",
-                    expected.to_compact_string()
-                )
+                write!(f, "missing return of type `{}`", expected.compact_display())
             }
             TypeErrorKind::UnknownTypeAnnotation { name } => {
                 write!(f, "unknown type annotation `{name}`")
@@ -556,7 +550,7 @@ impl fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "cannot access fields on value of type `{}`",
-                    found.to_compact_string()
+                    found.compact_display()
                 )
             }
             TypeErrorKind::FieldAccessUnknownField { field_name, ty } => {
@@ -585,11 +579,8 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::PatternEnumMismatch { enum_name, found } => write!(
                 f,
                 "pattern references enum `{enum_name}` but scrutinee has type `{}`",
-                found.to_compact_string()
+                found.compact_display()
             ),
-            TypeErrorKind::UnsupportedTypeFeature { description } => {
-                write!(f, "unsupported type feature: {description}")
-            }
             TypeErrorKind::NonExhaustiveMatch { .. } => {
                 write!(f, "non-exhaustive match")
             }
@@ -600,7 +591,7 @@ impl fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "cannot call value of type `{}` as a function",
-                    found.to_compact_string()
+                    found.compact_display()
                 )
             }
             TypeErrorKind::ArityMismatch { expected, found } => {
@@ -620,8 +611,8 @@ impl fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "argument {position} has type `{}` but `{}` was expected",
-                    found.to_compact_string(),
-                    expected.to_compact_string()
+                    found.compact_display(),
+                    expected.compact_display()
                 )
             }
             TypeErrorKind::UnknownEvent { name } => write!(f, "unknown event `{name}`"),
@@ -647,8 +638,8 @@ impl fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "event `{event_name}` argument {position} has type `{}` but `{}` was expected",
-                    found.to_compact_string(),
-                    expected.to_compact_string()
+                    found.compact_display(),
+                    expected.compact_display()
                 )
             }
             TypeErrorKind::UnknownImportPackage { namespace, package } => {
@@ -723,18 +714,18 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::ReturnTypeNotAllowed => {
                 write!(f, "return type not allowed on this function")
             }
-            TypeErrorKind::LiteralOutOfRange { value, ty } => {
+            TypeErrorKind::LiteralOutOfRange { literal, ty } => {
                 write!(
                     f,
-                    "integer literal `{value}` does not fit in type `{}`",
-                    ty.to_compact_string()
+                    "integer literal `{literal}` does not fit in type `{}`",
+                    ty.compact_display()
                 )
             }
             TypeErrorKind::IsCheckRequiresUtxo { name, found } => {
                 write!(
                     f,
                     "`if {name} is ...` requires a Utxo type, but `{name}` has type `{}`",
-                    found.to_compact_string()
+                    found.compact_display()
                 )
             }
             TypeErrorKind::UnknownAbi { name } => {
@@ -809,6 +800,6 @@ fn field_owner_label(ty: &Type) -> String {
     match ty {
         Type::Record(record) => format!("struct `{}`", record.name),
         Type::Enum(enum_type) => format!("enum `{}`", enum_type.name),
-        _ => format!("type `{}`", ty.to_compact_string()),
+        _ => format!("type `{}`", ty.compact_display()),
     }
 }

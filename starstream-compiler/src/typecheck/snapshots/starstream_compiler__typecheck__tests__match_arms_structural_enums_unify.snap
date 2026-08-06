@@ -1,6 +1,6 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-description: "Source:\n\nenum First {\n    Go(i64),\n    Stop,\n}\n\nenum Second {\n    Stop,\n    Go(i64),\n}\n\nfn pick(c: bool, a: First, b: Second) -> First {\n    match c {\n        true => { a },\n        false => { b },\n    }\n}\n"
+description: "Source:\n\nenum First {\n    Go(i64),\n    Stop,\n}\n\nenum Second {\n    Go(i64),\n    Stop,\n}\n\nfn pick(c: bool, a: First, b: Second) -> First {\n    match c {\n        true => { a },\n        false => { b },\n    }\n}\n"
 ---
 T-Fn: pick => First
   T-ReturnTail: match c {
@@ -11,7 +11,7 @@ T-Fn: pick => First
         b
     },
 } => Second
-    T-Match: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First [pick]} ⊢ match c {
+    T-Match: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First} ⊢ match c {
     true => {
         a
     },
@@ -19,13 +19,13 @@ T-Fn: pick => First
         b
     },
 } ⇒ Second
-      T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First [pick]} ⊢ c ⇒ bool
+      T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First} ⊢ c ⇒ bool
       Unify-Const: bool ~ bool => {}
       T-Tail: a => First
-        T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First [pick]} ⊢ a ⇒ First
+        T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First} ⊢ a ⇒ First
       Unify-Const: bool ~ bool => {}
       T-Tail: b => Second
-        T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First [pick]} ⊢ b ⇒ Second
+        T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First} ⊢ b ⇒ Second
       Unify-Enum: Second ~ First => Second
     Unify-Enum: Second ~ First => {}
       Unify-Const: i64 ~ i64 => {}

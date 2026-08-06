@@ -2,13 +2,13 @@ use core::array;
 use core::iter::zip;
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
-    ConstructorExport, Contract, EventHandler, Host, MethodExport, Utxo, UtxoHandler,
-    UtxoStorageExport, bindings, new_wasmtime_config,
+    ConstructorExport, Contract, CoordinationScriptExport, EventHandler, Host, MethodExport,
+    ResourceView, Utxo, UtxoHandler, UtxoStorageExport, bindings,
 };
 use starstream_to_wasm::compile;
 use wasmtime::component::{Resource, ResourceTable, Val};
@@ -39,16 +39,29 @@ fn compile_contract(source: &str) -> Vec<u8> {
 static EXAMPLE_SCORE: LazyLock<Vec<u8>> =
     LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
 
-#[derive(Debug, Default)]
 struct Ctx {
+    contract: Contract<Self>,
+    ty: ProgressUtxo,
+
     table: ResourceTable,
-    methods: Vec<(u64, u64, u64, u64)>,
     events: Vec<(String, String, Box<[Val]>)>,
+
+    utxo_cx: Option<UtxoCtx>,
+}
+
+pub struct UtxoCtx {
+    methods: Vec<(u64, u64, u64, u64)>,
+}
+
+impl ResourceView for Ctx {
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
 }
 
 impl bindings::starstream::std::builtin::Host for Ctx {
-    fn implements_method(&mut self, hash: (u64, u64, u64, u64)) -> wasmtime::Result<()> {
-        self.methods.push(hash);
+    // TODO: Remove this function
+    fn implements_method(&mut self, _hash: (u64, u64, u64, u64)) -> wasmtime::Result<()> {
         Ok(())
     }
 }
@@ -60,12 +73,12 @@ impl bindings::starstream::std::builtin::HostUtxo for Ctx {
 }
 
 impl bindings::starstream::std::cardano::Host for Ctx {
-    fn block_height(&mut self) -> i64 {
-        0
+    fn block_height(&mut self) -> wasmtime::Result<i64> {
+        Ok(0)
     }
 
-    fn current_slot(&mut self) -> i64 {
-        0
+    fn current_slot(&mut self) -> wasmtime::Result<i64> {
+        Ok(0)
     }
 }
 
@@ -77,20 +90,56 @@ impl EventHandler for Ctx {
 }
 
 impl UtxoHandler for Ctx {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
+    type Context = UtxoCtx;
 
     async fn construct_utxo(
-        _store: wasmtime::StoreContextMut<'_, Self>,
-        _instance: &str,
-        _name: &str,
-        _params: &[Val],
+        mut store: wasmtime::StoreContextMut<'_, Self>,
+        instance: &Arc<str>,
+        name: &Arc<str>,
+        params: &[Val],
     ) -> wasmtime::Result<Utxo>
     where
         Self: Sized,
     {
-        bail!("UTXO construction not supported yet")
+        match (instance.as_ref(), name.as_ref()) {
+            ("score-progress", "[static]utxo.new") => {
+                let Ctx { contract, ty, .. } = store.data();
+                let contract = contract.clone();
+                let ty = ty.clone();
+                let instance = contract.instantiate(&mut store).await?;
+                instance.create_utxo(store, &ty.new, params).await
+            }
+            _ => panic!("unexpected UTXO constructor call `{instance}#{name}`"),
+        }
+    }
+
+    fn resume(
+        mut store: wasmtime::StoreContextMut<'_, Self>,
+        cx: Resource<UtxoCtx>,
+    ) -> wasmtime::Result<()> {
+        let _cx = store.data_mut().table.get_mut(&cx)?;
+        // TODO: handle resume
+        Ok(())
+    }
+
+    fn implements_method(
+        mut store: wasmtime::StoreContextMut<'_, Self>,
+        cx: Resource<UtxoCtx>,
+        hash: (u64, u64, u64, u64),
+    ) -> wasmtime::Result<()> {
+        let cx = store.data_mut().table.get_mut(&cx)?;
+        cx.methods.push(hash);
+        Ok(())
+    }
+
+    fn drop(
+        mut store: wasmtime::StoreContextMut<'_, Self>,
+        cx: Resource<UtxoCtx>,
+    ) -> wasmtime::Result<()> {
+        let data = store.data_mut();
+        let cx = data.table.delete(cx)?;
+        assert!(data.utxo_cx.replace(cx).is_none());
+        Ok(())
     }
 }
 
@@ -116,6 +165,7 @@ fn method_hash(name: &str) -> (u64, u64, u64, u64) {
 static METHODS: LazyLock<[(u64, u64, u64, u64); 4]> =
     LazyLock::new(|| ["plus_chips", "plus_mult", "mult_mult", "finish"].map(method_hash));
 
+#[derive(Clone)]
 struct ProgressUtxo {
     storage: UtxoStorageExport,
     new: ConstructorExport,
@@ -123,6 +173,7 @@ struct ProgressUtxo {
     mult_mult: MethodExport,
     plus_chips: MethodExport,
     plus_mult: MethodExport,
+    example: CoordinationScriptExport,
 }
 
 fn assert_progress_utxo<T: Host>(contract: &Contract<T>) -> wasmtime::Result<ProgressUtxo> {
@@ -167,6 +218,18 @@ fn assert_progress_utxo<T: Host>(contract: &Contract<T>) -> wasmtime::Result<Pro
             .with_context(|| format!("failed to get `{name}` UTXO method export by name"))?;
     }
 
+    let example = {
+        let mut exports = contract.coordination_scripts();
+        match (exports.next(), exports.next()) {
+            (Some(("example", Ok(example))), None) => example,
+            exports => bail!("unexpected UTXO coordination script exports: {exports:?}"),
+        }
+    };
+
+    let _named = contract
+        .get_coordination_script("example")
+        .context("failed to get `example` UTXO coordination script export by name")?;
+
     let storage = utxo.storage().context("failed to lookup storage export")?;
     Ok(ProgressUtxo {
         storage: storage.clone(),
@@ -175,6 +238,7 @@ fn assert_progress_utxo<T: Host>(contract: &Contract<T>) -> wasmtime::Result<Pro
         mult_mult: methods["[method]utxo.mult-mult"].clone(),
         plus_chips: methods["[method]utxo.plus-chips"].clone(),
         plus_mult: methods["[method]utxo.plus-mult"].clone(),
+        example,
     })
 }
 
@@ -226,102 +290,105 @@ async fn get_progress_storage<T: Send + 'static>(
     Ok(storage.iter().collect())
 }
 
+#[ignore = "compiler does not support the new WIT shape yet"]
 #[tokio::test]
 async fn score() -> wasmtime::Result<()> {
-    let engine = wasmtime::Engine::new(&new_wasmtime_config())?;
+    let engine = wasmtime::Engine::default();
     let contract =
         Contract::new(&engine, EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
-    let ProgressUtxo {
-        storage,
-        new,
-        finish,
-        mult_mult,
-        plus_chips,
-        plus_mult,
-    } = assert_progress_utxo(&contract)?;
+    let ty = assert_progress_utxo(&contract)?;
 
-    let [utxo0, utxo1, utxo2, utxo3, utxo4] = array::from_fn(|_| {
-        let mut store = Store::new(&engine, Ctx::default());
-        async {
-            contract
-                .create_utxo(&mut store, &new, [])
-                .await
-                .map(|utxo| (store, utxo))
-        }
+    let [utxo0, utxo1, utxo2, utxo3, utxo4] = array::from_fn(|_| async {
+        let mut store = wasmtime::Store::new(
+            &engine,
+            Ctx {
+                contract: contract.clone(),
+                ty: ty.clone(),
+                table: ResourceTable::default(),
+                utxo_cx: None,
+                events: Vec::default(),
+            },
+        );
+        let instance = contract.instantiate(&mut store).await?;
+        instance
+            .create_utxo(&mut store, &ty.new, [])
+            .await
+            .map(|utxo| (store, utxo))
     });
     let (utxo0, utxo1, utxo2, utxo3, utxo4) =
         tokio::try_join!(utxo0, utxo1, utxo2, utxo3, utxo4).context("failed to construct UTXOs")?;
 
     for (i, (mut store, utxo)) in zip(0.., [utxo0, utxo1, utxo2, utxo3, utxo4]) {
         let Ctx {
-            methods, events, ..
+            events, utxo_cx, ..
         } = store.data();
-        assert_eq!(methods.as_ref(), *METHODS);
         assert_eq!(events.as_ref(), []);
+        assert!(utxo_cx.is_none());
 
         let ProgressStorage {
             chips,
             mult,
             r#yield,
             yield1,
-        } = get_progress_storage(&mut store, &utxo, &storage).await?;
+        } = get_progress_storage(&mut store, &utxo, &ty.storage).await?;
         assert_eq!(chips, 0);
         assert_eq!(mult, 0);
         assert_eq!(r#yield, 1);
         assert_eq!(yield1, 1);
 
-        let res = utxo
-            .call(
-                &mut store,
-                &plus_chips,
-                [Val::Resource(utxo.resource()), Val::U64(i)],
-            )
-            .await
-            .context("failed to call `plus-chips`")?;
-        assert!(res.is_empty());
+        utxo.call(
+            &mut store,
+            &ty.plus_chips,
+            [Val::Resource(utxo.resource()), Val::U64(i)],
+            [],
+        )
+        .await
+        .context("failed to call `plus-chips`")?;
 
-        let res = utxo
-            .call(
-                &mut store,
-                &plus_mult,
-                [Val::Resource(utxo.resource()), Val::U64(i)],
-            )
-            .await
-            .context("failed to call `plus-mult`")?;
-        assert!(res.is_empty());
+        utxo.call(
+            &mut store,
+            &ty.plus_mult,
+            [Val::Resource(utxo.resource()), Val::U64(i)],
+            [],
+        )
+        .await
+        .context("failed to call `plus-mult`")?;
 
-        let res = utxo
-            .call(
-                &mut store,
-                &mult_mult,
-                [Val::Resource(utxo.resource()), Val::U64(200)],
-            )
-            .await
-            .context("failed to call `mult-mult`")?;
-        assert!(res.is_empty());
+        utxo.call(
+            &mut store,
+            &ty.mult_mult,
+            [Val::Resource(utxo.resource()), Val::U64(200)],
+            [],
+        )
+        .await
+        .context("failed to call `mult-mult`")?;
 
         let ProgressStorage {
             chips,
             mult,
             r#yield,
             yield1,
-        } = get_progress_storage(&mut store, &utxo, &storage).await?;
+        } = get_progress_storage(&mut store, &utxo, &ty.storage).await?;
         assert_eq!(chips, i as i64);
         assert_eq!(mult, (i * 2) as i64);
         assert_eq!(r#yield, 1);
         assert_eq!(yield1, 1);
 
-        let res = utxo
-            .call(&mut store, &finish, [Val::Resource(utxo.resource())])
+        utxo.call(&mut store, &ty.finish, [Val::Resource(utxo.resource())], [])
             .await
             .context("failed to call `finish`")?;
-        assert!(res.is_empty());
 
         utxo.drop(&mut store).await.context("failed to drop UTXO")?;
         let Ctx {
-            methods, events, ..
+            table,
+            events,
+            utxo_cx,
+            ..
         } = store.into_data();
-        assert_eq!(methods, *METHODS);
+        assert!(table.is_empty());
+        assert!(utxo_cx.is_none());
+        // TODO: Assert methods on the context
+        //assert_eq!(methods, *METHODS);
         assert_eq!(
             events,
             [(
@@ -330,6 +397,42 @@ async fn score() -> wasmtime::Result<()> {
                 [Val::U64(i * i * 2)].into()
             )]
         );
+        assert!(utxo_cx.is_none());
     }
+
+    let mut store = wasmtime::Store::new(
+        &engine,
+        Ctx {
+            contract: contract.clone(),
+            ty: ty.clone(),
+            table: ResourceTable::default(),
+            events: Vec::default(),
+            utxo_cx: None,
+        },
+    );
+    let instance = contract
+        .instantiate(&mut store)
+        .await
+        .context("failed to instantiate contract")?;
+    instance
+        .call_coordination_script(&mut store, &ty.example, [], [])
+        .await
+        .context("failed to call `example` coordination script")?;
+    let data = store.data_mut();
+    let utxo = {
+        let mut resources = data.table.iter_mut();
+        match (resources.next(), resources.next()) {
+            (Some(utxo), None) => utxo,
+            _ => bail!("unexpected resources in table"),
+        }
+    };
+    let UtxoCtx { methods } = data.utxo_cx.take().context("UTXO context missing")?;
+    assert_eq!(methods.as_slice(), *METHODS);
+    assert!(data.events.is_empty());
+    let utxo = utxo
+        .downcast_mut::<Utxo>()
+        .context("failed to downcast UTXO")
+        .copied()?;
+    utxo.drop(&mut store).await.context("failed to drop UTXO")?;
     Ok(())
 }

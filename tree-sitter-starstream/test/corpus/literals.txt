@@ -1,0 +1,33 @@
+==================
+Integer literal radixes
+==================
+
+fn main() {
+    let dec = 42;
+    let hex = 0xFf;
+    let oct = 0o17;
+    let bin = 0b1010;
+}
+
+---
+
+(program
+  (function_definition
+    (identifier)
+    (block
+      (variable_declaration
+        (identifier)
+        (expression
+          (integer_literal)))
+      (variable_declaration
+        (identifier)
+        (expression
+          (integer_literal)))
+      (variable_declaration
+        (identifier)
+        (expression
+          (integer_literal)))
+      (variable_declaration
+        (identifier)
+        (expression
+          (integer_literal))))))

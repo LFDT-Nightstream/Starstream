@@ -1,6 +1,6 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-description: "Source:\n\nstruct A {\n    x: i64,\n    y: bool,\n}\n\nstruct B {\n    y: bool,\n    x: i64,\n}\n\nfn pick(c: bool, a: A, b: B) -> A {\n    if (c) { a } else { b }\n}\n"
+description: "Source:\n\nstruct A {\n    x: i64,\n    y: bool,\n}\n\nstruct B {\n    x: i64,\n    y: bool,\n}\n\nfn pick(c: bool, a: A, b: B) -> A {\n    if (c) { a } else { b }\n}\n"
 ---
 T-Fn: pick => A
   T-ReturnTail: if (c) {
@@ -8,17 +8,17 @@ T-Fn: pick => A
 } else {
     b
 } => A
-    T-If: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A [pick]} ⊢ if (c) {
+    T-If: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A} ⊢ if (c) {
     a
 } else {
     b
 } ⇒ ()
-      T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A [pick]} ⊢ c ⇒ bool
+      T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A} ⊢ c ⇒ bool
       Check-Bool: bool => ok
       T-Tail: a => A
-        T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A [pick]} ⊢ a ⇒ A
+        T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A} ⊢ a ⇒ A
       T-Tail: b => B
-        T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A [pick]} ⊢ b ⇒ B
+        T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A} ⊢ b ⇒ B
       Unify-Record: A ~ B => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: bool ~ bool => {}

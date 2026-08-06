@@ -1,7 +1,7 @@
 use chumsky::{error::Rich, prelude::*};
 use starstream_types::{
     ScopedName,
-    ast::{Identifier, Literal},
+    ast::{Identifier, IntegerLiteral, IntegerRadix, Literal},
 };
 
 use super::context::Extra;
@@ -23,7 +23,7 @@ use super::context::Extra;
 const KEYWORDS: &[&str] = &[
     "let", "pub", "mut", "if", "else", "while", "true", "false", "fn", "return", "struct", "enum",
     "match", "abi", "emit", "import", "from", "as", "raise", "runtime", "disclose", "is", "yield",
-    "resume",
+    "resume", "try", "with",
 ];
 pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> + Clone {
     text::ident()
@@ -41,12 +41,22 @@ pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> + Clo
 }
 
 pub fn integer_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
-    text::int(10)
-        .map(|digits: &str| {
-            let value = digits.parse::<i128>().expect("integer literal");
-            Literal::Integer(value)
-        })
-        .boxed()
+    let with_radix = |radix: IntegerRadix| {
+        just(radix.prefix())
+            .ignore_then(text::digits(radix.base()).to_slice())
+            .map(move |digits: &str| IntegerLiteral::new(digits, radix))
+    };
+
+    choice((
+        with_radix(IntegerRadix::Hexadecimal),
+        with_radix(IntegerRadix::Octal),
+        with_radix(IntegerRadix::Binary),
+        text::digits(10)
+            .to_slice()
+            .map(|digits: &str| IntegerLiteral::new(digits, IntegerRadix::Decimal)),
+    ))
+    .map(Literal::Integer)
+    .boxed()
 }
 
 pub fn boolean_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {

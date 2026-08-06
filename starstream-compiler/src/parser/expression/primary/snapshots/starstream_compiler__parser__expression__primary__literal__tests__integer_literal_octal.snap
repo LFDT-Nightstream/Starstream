@@ -1,0 +1,15 @@
+---
+source: starstream-compiler/src/parser/expression/primary/literal.rs
+description: "Code:\n\n0o755"
+---
+Spanned {
+    node: Literal(
+        Integer(
+            IntegerLiteral {
+                digits: "755",
+                radix: Octal,
+            },
+        ),
+    ),
+    span: 0..5,
+}

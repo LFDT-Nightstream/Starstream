@@ -16,10 +16,12 @@ EnumDef {
             payload: Tuple(
                 [
                     TypeAnnotation {
-                        name: Identifier {
-                            name: "i64",
-                            span: 19..22,
-                        },
+                        name: [
+                            Identifier {
+                                name: "i64",
+                                span: 19..22,
+                            },
+                        ],
                         generics: [],
                     },
                 ],

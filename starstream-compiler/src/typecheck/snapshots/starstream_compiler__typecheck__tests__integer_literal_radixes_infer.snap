@@ -1,0 +1,19 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let hex: u8 = 0xFF;\n    let octal: i64 = 0o17;\n    let binary: u16 = 0b1111000011110000;\n    let inferred = 0x10 + 2;\n}\n"
+---
+T-Fn: test => ()
+  T-Let: {test: fn() -> ()} ⊢ let hex: u8 = 0xFF; ⇒ u8
+    T-Int: {test: fn() -> ()} ⊢ 0xFF ⇒ i64
+    Unify-Var: u8 ~ i64 => {u8/t3}
+  T-Let: {hex: u8, test: fn() -> ()} ⊢ let octal: i64 = 0o17; ⇒ i64
+    T-Int: {hex: u8, test: fn() -> ()} ⊢ 0o17 ⇒ i64
+    Unify-Var: i64 ~ i64 => {i64/t4}
+  T-Let: {hex: u8, octal: i64, test: fn() -> ()} ⊢ let binary: u16 = 0b1111000011110000; ⇒ u16
+    T-Int: {hex: u8, octal: i64, test: fn() -> ()} ⊢ 0b1111000011110000 ⇒ i64
+    Unify-Var: u16 ~ i64 => {u16/t5}
+  T-Let: {binary: u16, hex: u8, octal: i64, test: fn() -> ()} ⊢ let inferred = 0x10 + 2; ⇒ i64
+    T-Bin-Add: {binary: u16, hex: u8, octal: i64, test: fn() -> ()} ⊢ 0x10 + 2 ⇒ i64
+      T-Int: {binary: u16, hex: u8, octal: i64, test: fn() -> ()} ⊢ 0x10 ⇒ i64
+      T-Int: {binary: u16, hex: u8, octal: i64, test: fn() -> ()} ⊢ 2 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t6}

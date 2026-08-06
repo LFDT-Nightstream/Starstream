@@ -23,6 +23,28 @@ mod tests {
     }
 
     #[test]
+    fn integer_literal_hex() {
+        assert_expression_snapshot!("0xDeadBeef");
+    }
+
+    #[test]
+    fn integer_literal_octal() {
+        assert_expression_snapshot!("0o755");
+    }
+
+    #[test]
+    fn integer_literal_binary() {
+        assert_expression_snapshot!("0b1010");
+    }
+
+    #[test]
+    fn integer_literal_huge_does_not_panic() {
+        // Digits overflowing `i128` must parse; range checking is the type
+        // checker's job.
+        assert_expression_snapshot!("170141183460469231731687303715884105728");
+    }
+
+    #[test]
     fn boolean_literal() {
         assert_expression_snapshot!("true");
     }

@@ -23,6 +23,10 @@ pub fn span(start: usize, end: usize) -> Span {
     Span::new((), start..end)
 }
 
+fn span_or(first: Span, second: Span) -> Span {
+    if first != DUMMY_SPAN { first } else { second }
+}
+
 /// AST node with a source span attached.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Spanned<T> {
@@ -57,9 +61,11 @@ impl<T> Spanned<T> {
 }
 
 /// Identifier text with a source span attached.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Eq)]
 pub struct Identifier {
+    /// The text of the identifier.
     pub name: String,
+    /// The span where it appeared in source. Excluded from comparisons.
     #[serde(skip)]
     pub span: Span,
 }
@@ -117,6 +123,18 @@ impl Identifier {
 impl std::fmt::Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str(&self.name)
+    }
+}
+
+impl std::cmp::PartialEq for Identifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl std::hash::Hash for Identifier {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
     }
 }
 
@@ -219,14 +237,57 @@ pub enum ImportSource {
     Path(ImportPath),
 }
 
+impl std::fmt::Display for ImportSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImportSource::Wit {
+                namespace,
+                package,
+                interface: Some(interface),
+            } => write!(f, "{namespace}:{package}/{interface}"),
+            ImportSource::Wit {
+                namespace,
+                package,
+                interface: None,
+            } => write!(f, "{namespace}:{package}"),
+            ImportSource::Path(import_path) => import_path.fmt(f),
+        }
+    }
+}
+
 /// A quoted relative path to another `.star` file.
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ImportPath {
     /// The raw path text as written in the source (without surrounding quotes).
     pub value: String,
     /// Span of the literal including surrounding quotes.
     #[serde(skip)]
     pub span: Span,
+}
+
+impl PartialEq for ImportPath {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl std::fmt::Display for ImportPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Write;
+        f.write_char('"')?;
+        for c in self.value.chars() {
+            match c {
+                '"' => f.write_str("\\\"")?,
+                '\\' => f.write_str("\\\\")?,
+                '\n' => f.write_str("\\n")?,
+                '\r' => f.write_str("\\r")?,
+                '\t' => f.write_str("\\t")?,
+                c => f.write_char(c)?,
+            }
+        }
+        f.write_char('"')?;
+        Ok(())
+    }
 }
 
 /// `fn` definition.
@@ -241,9 +302,9 @@ pub struct FunctionDef {
 
 impl FunctionDef {
     pub fn return_span(&self) -> Span {
-        self.return_type
-            .as_ref()
-            .map_or(self.name.span, |ret| ret.name.span_or(self.name.span))
+        self.return_type.as_ref().map_or(self.name.span, |ret| {
+            span_or(scoped_name_span(&ret.name), self.name.span)
+        })
     }
 }
 
@@ -427,14 +488,20 @@ pub struct EffectDef {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct TypeAnnotation {
-    pub name: Identifier,
+    pub name: ScopedName,
     pub generics: Vec<TypeAnnotation>,
+}
+
+impl TypeAnnotation {
+    pub fn name_span(&self) -> Span {
+        scoped_name_span(&self.name)
+    }
 }
 
 impl From<Identifier> for TypeAnnotation {
     fn from(name: Identifier) -> Self {
         TypeAnnotation {
-            name,
+            name: vec![name],
             generics: Default::default(),
         }
     }
@@ -474,6 +541,10 @@ pub enum Statement {
     Expression(Spanned<Expr>),
     Return(Option<Spanned<Expr>>),
     Resume,
+    TryWith {
+        subject: Block,
+        effects: Vec<(ScopedName, Vec<Pattern>, Block)>,
+    },
 }
 
 // ----------------------------------------------------------------------------
@@ -493,6 +564,18 @@ pub enum IfCondition {
 
 /// Identifiers separated by `::`. Non-empty.
 pub type ScopedName = Vec<Identifier>;
+
+pub fn scoped_name_span(name: &ScopedName) -> Span {
+    name.iter().fold(DUMMY_SPAN, |s, i| {
+        if s == DUMMY_SPAN {
+            i.span
+        } else if i.span == DUMMY_SPAN {
+            s
+        } else {
+            s.union(i.span)
+        }
+    })
+}
 
 /// Expressions within parentheses and separated by commas.
 pub type Arguments = Vec<Spanned<Expr>>;
@@ -589,15 +672,97 @@ impl From<Identifier> for Spanned<Expr> {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Literal {
-    Integer(i128),
+    Integer(IntegerLiteral),
     Boolean(bool),
     Unit,
+}
+
+/// The radix an integer literal was written in, used to format it back in its
+/// original notation.
+#[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]
+pub enum IntegerRadix {
+    Binary,
+    Octal,
+    Decimal,
+    Hexadecimal,
+}
+
+impl IntegerRadix {
+    /// The literal prefix that introduces this radix in source code.
+    #[must_use]
+    pub fn prefix(self) -> &'static str {
+        match self {
+            IntegerRadix::Binary => "0b",
+            IntegerRadix::Octal => "0o",
+            IntegerRadix::Decimal => "",
+            IntegerRadix::Hexadecimal => "0x",
+        }
+    }
+
+    /// The numeric base for digit parsing.
+    #[must_use]
+    pub fn base(self) -> u32 {
+        match self {
+            IntegerRadix::Binary => 2,
+            IntegerRadix::Octal => 8,
+            IntegerRadix::Decimal => 10,
+            IntegerRadix::Hexadecimal => 16,
+        }
+    }
+}
+
+/// An integer literal kept as the digits written in the source plus their
+/// radix, so the formatter can reproduce the original notation. The numeric
+/// value is computed on demand where a phase needs it (type checking, codegen).
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct IntegerLiteral {
+    /// The digits exactly as written, without the radix prefix.
+    pub digits: String,
+    pub radix: IntegerRadix,
+}
+
+impl IntegerLiteral {
+    pub fn new(digits: impl Into<String>, radix: IntegerRadix) -> Self {
+        Self {
+            digits: digits.into(),
+            radix,
+        }
+    }
+
+    /// The numeric value, or `None` if the digits overflow `i128`. Every
+    /// supported integer type fits comfortably in `i128`, so `None` always
+    /// means the literal is out of range.
+    #[must_use]
+    pub fn value(&self) -> Option<i128> {
+        i128::from_str_radix(&self.digits, self.radix.base()).ok()
+    }
+}
+
+impl From<i128> for IntegerLiteral {
+    fn from(value: i128) -> Self {
+        Self::new(value.to_string(), IntegerRadix::Decimal)
+    }
+}
+
+impl std::fmt::Display for IntegerLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}{}", self.radix.prefix(), self.digits)
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]
 pub enum UnaryOp {
     Negate,
     Not,
+}
+
+impl UnaryOp {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UnaryOp::Negate => "-",
+            UnaryOp::Not => "!",
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]
@@ -615,6 +780,26 @@ pub enum BinaryOp {
     NotEqual,
     And,
     Or,
+}
+
+impl BinaryOp {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BinaryOp::Multiply => "*",
+            BinaryOp::Divide => "/",
+            BinaryOp::Remainder => "%",
+            BinaryOp::Add => "+",
+            BinaryOp::Subtract => "-",
+            BinaryOp::Less => "<",
+            BinaryOp::LessEqual => "<=",
+            BinaryOp::Greater => ">",
+            BinaryOp::GreaterEqual => ">=",
+            BinaryOp::Equal => "==",
+            BinaryOp::NotEqual => "!=",
+            BinaryOp::And => "&&",
+            BinaryOp::Or => "||",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

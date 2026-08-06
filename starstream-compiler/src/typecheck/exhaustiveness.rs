@@ -85,7 +85,7 @@ impl CtorSet {
             | Type::UtxoNamed(_)
             | Type::TokenAny
             | Type::TokenNamed(_)
-            | Type::AbiNarrow(_) => Some(Self::infinite()),
+            | Type::Abi(_) => Some(Self::infinite()),
         }
     }
 
@@ -586,7 +586,9 @@ pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
         TypedPattern::Binding(_) | TypedPattern::Wildcard => SimplePat::Wildcard,
         TypedPattern::Literal(lit) => {
             let simple_lit = match lit {
-                Literal::Integer(n) => SimpleLiteral::Int(*n),
+                // Overflowing digits are rejected during pattern inference, so
+                // by the time exhaustiveness runs every literal has a value.
+                Literal::Integer(n) => SimpleLiteral::Int(n.value().unwrap_or(0)),
                 Literal::Boolean(b) => SimpleLiteral::Bool(*b),
                 Literal::Unit => SimpleLiteral::Unit,
             };
@@ -848,7 +850,7 @@ mod tests {
     use super::*;
 
     fn make_enum_type(name: &str, variants: Vec<(&str, usize)>) -> Type {
-        Type::Enum(EnumType {
+        Type::from(EnumType {
             name: name.to_string(),
             variants: variants
                 .into_iter()

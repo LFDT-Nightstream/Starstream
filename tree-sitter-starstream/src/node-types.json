@@ -127,6 +127,10 @@
           "named": true
         },
         {
+          "type": "try_with_statement",
+          "named": true
+        },
+        {
           "type": "variable_declaration",
           "named": true
         },
@@ -735,6 +739,11 @@
     }
   },
   {
+    "type": "integer_literal",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "is_condition",
     "named": true,
     "fields": {},
@@ -1245,6 +1254,25 @@
     }
   },
   {
+    "type": "try_with_statement",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "tuple_pattern",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "tuple_pattern",
     "named": true,
     "fields": {},
@@ -1272,7 +1300,7 @@
       "required": true,
       "types": [
         {
-          "type": "identifier",
+          "type": "scoped_name",
           "named": true
         },
         {
@@ -1557,10 +1585,6 @@
     "named": false
   },
   {
-    "type": "integer_literal",
-    "named": true
-  },
-  {
     "type": "is",
     "named": false
   },
@@ -1629,6 +1653,10 @@
     "named": false
   },
   {
+    "type": "try",
+    "named": false
+  },
+  {
     "type": "utxo",
     "named": false
   },
@@ -1639,6 +1667,10 @@
   {
     "type": "wildcard_pattern",
     "named": true
+  },
+  {
+    "type": "with",
+    "named": false
   },
   {
     "type": "yield",

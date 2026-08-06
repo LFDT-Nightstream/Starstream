@@ -106,10 +106,12 @@ Program {
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: 119..122,
-                            },
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 119..122,
+                                },
+                            ],
                             generics: [],
                         },
                     ),
@@ -127,7 +129,10 @@ Program {
                                     value: Spanned {
                                         node: Literal(
                                             Integer(
-                                                41,
+                                                IntegerLiteral {
+                                                    digits: "41",
+                                                    radix: Decimal,
+                                                },
                                             ),
                                         ),
                                         span: 140..142,
@@ -154,7 +159,10 @@ Program {
                                     right: Spanned {
                                         node: Literal(
                                             Integer(
-                                                1,
+                                                IntegerLiteral {
+                                                    digits: "1",
+                                                    radix: Decimal,
+                                                },
                                             ),
                                         ),
                                         span: 155..156,
@@ -174,40 +182,39 @@ Program {
 
 ==== Inference trace ====
 T-Fn: main => ()
-  T-Let: {main: fn() -> () [main]} ⊢ let flag = true; ⇒ bool
-    T-Bool: {main: fn() -> () [main]} ⊢ true ⇒ bool
+  T-Let: {main: fn() -> ()} ⊢ let flag = true; ⇒ bool
+    T-Bool: {main: fn() -> ()} ⊢ true ⇒ bool
   T-ReturnTail: if (flag) {
     return;
 } else {
     return;
 } => ()
-    T-If: {flag: bool, main: fn() -> () [main]} ⊢ if (flag) {
+    T-If: {flag: bool, main: fn() -> ()} ⊢ if (flag) {
     return;
 } else {
     return;
 } ⇒ ()
-      T-Var: {flag: bool, main: fn() -> () [main]} ⊢ flag ⇒ bool
+      T-Var: {flag: bool, main: fn() -> ()} ⊢ flag ⇒ bool
       Check-Bool: bool => ok
-      T-ReturnUnit: {flag: bool, main: fn() -> () [main]} ⊢ return; ⇒ ()
+      T-ReturnUnit: {flag: bool, main: fn() -> ()} ⊢ return; ⇒ ()
         Unify-Const: () ~ () => {}
-      T-ReturnUnit: {flag: bool, main: fn() -> () [main]} ⊢ return; ⇒ ()
+      T-ReturnUnit: {flag: bool, main: fn() -> ()} ⊢ return; ⇒ ()
         Unify-Const: () ~ () => {}
       Unify-Const: () ~ () => {}
     Unify-Const: () ~ () => {}
 
 T-Fn: compute => i64
-  T-Let: {compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ let base = 41; ⇒ i64
-    T-Int: {compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ 41 ⇒ i64
+  T-Let: {compute: fn() -> i64, main: fn() -> ()} ⊢ let base = 41; ⇒ i64
+    T-Int: {compute: fn() -> i64, main: fn() -> ()} ⊢ 41 ⇒ i64
   T-ReturnTail: base + 1 => i64
-    T-Bin-Add: {base: i64, compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ base + 1 ⇒ i64
-      T-Var: {base: i64, compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ base ⇒ i64
-      T-Int: {base: i64, compute: fn() -> i64 [compute], main: fn() -> () [main]} ⊢ 1 ⇒ i64
+    T-Bin-Add: {base: i64, compute: fn() -> i64, main: fn() -> ()} ⊢ base + 1 ⇒ i64
+      T-Var: {base: i64, compute: fn() -> i64, main: fn() -> ()} ⊢ base ⇒ i64
+      T-Int: {base: i64, compute: fn() -> i64, main: fn() -> ()} ⊢ 1 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t3}
     Unify-Var: i64 ~ i64 => {i64/t4}
 
 ==== Typed AST ====
 TypedProgram {
-    has_yields: false,
     definitions: [
         Function(
             TypedFunctionDef {
@@ -216,6 +223,7 @@ TypedProgram {
                     name: "main",
                     span: 3..7,
                 },
+                id: NameId(2),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -299,6 +307,7 @@ TypedProgram {
                     name: "compute",
                     span: 106..113,
                 },
+                id: NameId(3),
                 params: [],
                 return_type: Int(
                     I64,
@@ -319,7 +328,10 @@ TypedProgram {
                                     ),
                                     kind: Literal(
                                         Integer(
-                                            41,
+                                            IntegerLiteral {
+                                                digits: "41",
+                                                radix: Decimal,
+                                            },
                                         ),
                                     ),
                                 },
@@ -359,7 +371,10 @@ TypedProgram {
                                             ),
                                             kind: Literal(
                                                 Integer(
-                                                    1,
+                                                    IntegerLiteral {
+                                                        digits: "1",
+                                                        radix: Decimal,
+                                                    },
                                                 ),
                                             ),
                                         },

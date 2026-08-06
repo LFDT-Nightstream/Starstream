@@ -2,8 +2,8 @@ use pretty::RcDoc;
 use starstream_types::{
     AbiDef, AbiMethodDecl, AbiPart, Arguments, BinaryOp, Block, Comment, CommentMap, Definition,
     EffectDef, EventDef, Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal,
-    ScopedName, Spanned, Statement, TokenDef, TokenGlobal, TokenPart, TypeAnnotation, UnaryOp,
-    UtxoDef, UtxoGlobal, UtxoPart,
+    ScopedName, Spanned, Statement, TokenDef, TokenGlobal, TokenPart, TypeAnnotation, UtxoDef,
+    UtxoGlobal, UtxoPart,
     ast::{
         EnumDef, EnumVariant, EnumVariantPayload, Identifier, ImportDef, ImportItems,
         ImportNamedItem, ImportSource, MatchArm, Pattern, Program, StructDef, StructField,
@@ -207,22 +207,7 @@ fn import_source_to_doc<'a>(source_path: &ImportSource, source: &'a str) -> RcDo
 
             doc
         }
-        ImportSource::Path(path) => {
-            let mut quoted = String::with_capacity(path.value.len() + 2);
-            quoted.push('"');
-            for c in path.value.chars() {
-                match c {
-                    '"' => quoted.push_str("\\\""),
-                    '\\' => quoted.push_str("\\\\"),
-                    '\n' => quoted.push_str("\\n"),
-                    '\r' => quoted.push_str("\\r"),
-                    '\t' => quoted.push_str("\\t"),
-                    c => quoted.push(c),
-                }
-            }
-            quoted.push('"');
-            RcDoc::text(quoted)
-        }
+        ImportSource::Path(path) => RcDoc::as_string(path),
     }
 }
 
@@ -770,6 +755,25 @@ fn statement_to_doc<'a>(
             .append(RcDoc::text(";")),
         Statement::Return(None) => RcDoc::text("return;"),
         Statement::Resume => RcDoc::text("resume;"),
+        Statement::TryWith { subject, effects } => RcDoc::text("try")
+            .append(RcDoc::space())
+            .append(block_to_doc(subject, source, comments))
+            .append(RcDoc::concat(effects.iter().map(
+                |(name, pattern, block)| {
+                    RcDoc::space()
+                        .append("with")
+                        .append(RcDoc::space())
+                        .append(scoped_name_to_doc(name, source))
+                        .append("(")
+                        .append(RcDoc::intersperse(
+                            pattern.iter().map(|p| pattern_to_doc(p, source)),
+                            ",",
+                        ))
+                        .append(")")
+                        .append(RcDoc::space())
+                        .append(block_to_doc(block, source, comments))
+                },
+            ))),
     }
 }
 
@@ -846,11 +850,11 @@ fn scoped_name_to_doc<'a>(name: &ScopedName, source: &'a str) -> RcDoc<'a, ()> {
 }
 
 fn identifier_to_doc<'a>(identifier: &Identifier, _source: &'a str) -> RcDoc<'a, ()> {
-    RcDoc::text(identifier.name.clone())
+    RcDoc::as_string(identifier)
 }
 
 fn type_annotation_to_doc<'a>(annotation: &TypeAnnotation, source: &'a str) -> RcDoc<'a, ()> {
-    let mut doc = identifier_to_doc(&annotation.name, source);
+    let mut doc = scoped_name_to_doc(&annotation.name, source);
     if !annotation.generics.is_empty() {
         let generics = RcDoc::intersperse(
             annotation
@@ -1039,7 +1043,7 @@ fn expr_with_prec<'a>(
                         expr_with_prec(node, prec, ChildPosition::Unary, source, comments)
                     });
 
-                    RcDoc::text(unary_op_str(op)).append(operand)
+                    RcDoc::text(op.as_str()).append(operand)
                 }
                 Expr::Binary { op, left, right } => {
                     let left_doc = spanned(left, source, |node| {
@@ -1051,7 +1055,7 @@ fn expr_with_prec<'a>(
 
                     left_doc
                         .append(RcDoc::space())
-                        .append(RcDoc::text(binary_op_str(op)))
+                        .append(RcDoc::text(op.as_str()))
                         .append(RcDoc::space())
                         .append(right_doc)
                 }
@@ -1200,34 +1204,9 @@ fn arguments_to_doc<'a>(args: &Arguments, source: &'a str, comments: &CommentMap
 
 fn literal_to_doc<'a>(literal: &Literal, _source: &'a str) -> RcDoc<'a, ()> {
     match literal {
-        Literal::Integer(value) => RcDoc::as_string(*value),
+        Literal::Integer(value) => RcDoc::as_string(value),
         Literal::Boolean(value) => RcDoc::text(if *value { "true" } else { "false" }),
         Literal::Unit => RcDoc::text("()"),
-    }
-}
-
-fn binary_op_str(op: &BinaryOp) -> &'static str {
-    match op {
-        BinaryOp::Multiply => "*",
-        BinaryOp::Divide => "/",
-        BinaryOp::Remainder => "%",
-        BinaryOp::Add => "+",
-        BinaryOp::Subtract => "-",
-        BinaryOp::Less => "<",
-        BinaryOp::LessEqual => "<=",
-        BinaryOp::Greater => ">",
-        BinaryOp::GreaterEqual => ">=",
-        BinaryOp::Equal => "==",
-        BinaryOp::NotEqual => "!=",
-        BinaryOp::And => "&&",
-        BinaryOp::Or => "||",
-    }
-}
-
-fn unary_op_str(op: &UnaryOp) -> &'static str {
-    match op {
-        UnaryOp::Negate => "-",
-        UnaryOp::Not => "!",
     }
 }
 
@@ -1363,6 +1342,21 @@ mod tests {
                 value = (1 + 2) * (3 - 4) / 5;
                 value = value + (10 / (3 + 2));
                 result = (1 + 2 == 3) && !(false || true);
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn integer_literal_radixes() {
+        // Literals keep the notation they were written in.
+        assert_format_snapshot!(
+            r#"
+            fn main() {
+                let hex = 0xFf;
+                let octal = 0o17;
+                let binary =    0b1010;
+                let decimal = 042;
             }
             "#,
         );

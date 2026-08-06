@@ -113,10 +113,12 @@ Program {
                                                 span: 182..183,
                                             },
                                             ty: TypeAnnotation {
-                                                name: Identifier {
-                                                    name: "i32",
-                                                    span: 185..188,
-                                                },
+                                                name: [
+                                                    Identifier {
+                                                        name: "i32",
+                                                        span: 185..188,
+                                                    },
+                                                ],
                                                 generics: [],
                                             },
                                         },
@@ -158,10 +160,12 @@ Program {
                                     params: [],
                                     return_type: Some(
                                         TypeAnnotation {
-                                            name: Identifier {
-                                                name: "i32",
-                                                span: 257..260,
-                                            },
+                                            name: [
+                                                Identifier {
+                                                    name: "i32",
+                                                    span: 257..260,
+                                                },
+                                            ],
                                             generics: [],
                                         },
                                     ),
@@ -171,7 +175,10 @@ Program {
                                             Spanned {
                                                 node: Literal(
                                                     Integer(
-                                                        17,
+                                                        IntegerLiteral {
+                                                            digits: "17",
+                                                            radix: Decimal,
+                                                        },
                                                     ),
                                                 ),
                                                 span: 275..277,
