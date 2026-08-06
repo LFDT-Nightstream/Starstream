@@ -6,14 +6,14 @@ members = [
   "starstream-interpreter",
   "starstream-language-server",
   "starstream-language-server-web",
+  "starstream-interleaving-spec",
+  "starstream-proving-runtime",
   "starstream-runtime-next",
   "starstream-sandbox-web",
   "starstream-to-wasm",
   "starstream-types",
-  "interleaving/starstream-interleaving-proof",
-  "interleaving/starstream-interleaving-spec",
-  "interleaving/starstream-component-runtime",
-  "interleaving/starstream-runtime",
+  "interleaving/starstream-interleaving-proof-legacy",
+  "interleaving/starstream-interleaving-spec-legacy",
   "ark-poseidon2",
   "ark-goldilocks",
 ]
@@ -41,6 +41,7 @@ starstream-language-server = { path = "starstream-language-server" }
 starstream-runtime-next = { path = "starstream-runtime-next" }
 starstream-to-wasm = { path = "starstream-to-wasm" }
 starstream-types = { path = "starstream-types" }
+tempfile = "3.27.0"
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", default-features = false }
 tower-lsp-server = { version = "0.22.1", default-features = false, features = [
@@ -53,10 +54,15 @@ wasmparser = "0.240.0"
 wasmtime = { version = "47.0", default-features = false }
 wit-component = "0.240.0"
 
-neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
-neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
-neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
-neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
+# NOTE: this doesn't point to main, but to the enzo/wasm-vm-host-abi-impl branch
+#
+# this is temporary/wip since both branches are currently moving kind of together
+# for easy experimentation
+neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "ca7e87154af39b732d9cd378f15f83dc5164f702" }
+neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "ca7e87154af39b732d9cd378f15f83dc5164f702" }
+neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "ca7e87154af39b732d9cd378f15f83dc5164f702" }
+neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "ca7e87154af39b732d9cd378f15f83dc5164f702" }
+neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "ca7e87154af39b732d9cd378f15f83dc5164f702" }
 
 [profile.dev.package]
 insta.opt-level = 3

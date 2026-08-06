@@ -23,6 +23,7 @@ pub mod bindings {
             "starstream:std/builtin.utxo": crate::Utxo,
         },
         imports: {
+            "starstream:std/builtin.abis-clear": tracing | trappable,
             "starstream:std/builtin.implements-method": tracing | trappable,
             default: tracing,
         }
@@ -194,8 +195,10 @@ pub fn link_utxo_function<T: UtxoHandler>(
                         };
                         let utxo = utxo.try_into_resource::<Utxo>(&mut store)?;
                         let utxo = store.data_mut().table().get(&utxo).copied()?;
-                        let f = utxo.get_function_export(&mut store, &*name)?;
-                        f.call_async(&mut store, params, results).await?;
+                        let f = utxo.get_named_function_export(&mut store, &name)?;
+                        let mut target_params = params.to_vec();
+                        target_params[0] = Val::Resource(utxo.resource());
+                        f.call_async(&mut store, &target_params, results).await?;
                         Ok(())
                     })
                 },
@@ -425,6 +428,7 @@ impl<T: Host> Contract<T> {
                     ty: storage_ty,
                     get,
                     set,
+                    instance_idx,
                 })
             })
             .transpose()?;
@@ -484,7 +488,11 @@ impl<T: Host> Contract<T> {
         if resource_ty != utxo.resource_ty {
             bail!("function return value does not match UTXO resource type");
         }
-        Ok(ConstructorExport { ty, idx })
+        Ok(ConstructorExport {
+            ty,
+            idx,
+            instance_idx: utxo.instance_idx,
+        })
     }
 
     /// Get a constructor of an exported UTXO by name
@@ -655,6 +663,7 @@ impl ContractInstance {
         &self,
         mut store: impl AsContextMut<Data = T>,
         name: impl ExportLookup,
+        instance_idx: ComponentExportIndex,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo>
     where
@@ -675,6 +684,7 @@ impl ContractInstance {
         Ok(Utxo {
             instance: self.0,
             resource,
+            instance_idx,
         })
     }
 
@@ -682,26 +692,30 @@ impl ContractInstance {
     pub async fn create_utxo<T>(
         &self,
         store: impl AsContextMut<Data = T>,
-        ConstructorExport { idx, .. }: &ConstructorExport,
+        ConstructorExport {
+            idx, instance_idx, ..
+        }: &ConstructorExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo>
     where
         T: Send + 'static,
     {
-        self.construct_utxo(store, idx, params).await
+        self.construct_utxo(store, idx, *instance_idx, params).await
     }
 
     #[instrument(level = "trace", skip_all)]
     pub async fn load_utxo<T>(
         &self,
         store: impl AsContextMut<Data = T>,
-        UtxoStorageExport { set, .. }: &UtxoStorageExport,
+        UtxoStorageExport {
+            set, instance_idx, ..
+        }: &UtxoStorageExport,
         fields: impl Into<Vec<(String, Val)>>,
     ) -> wasmtime::Result<Utxo>
     where
         T: Send + 'static,
     {
-        self.construct_utxo(store, set, [Val::Record(fields.into())])
+        self.construct_utxo(store, set, *instance_idx, [Val::Record(fields.into())])
             .await
     }
 
@@ -733,6 +747,7 @@ pub struct UtxoStorageExport {
     ty: types::Record,
     get: ComponentExportIndex,
     set: ComponentExportIndex,
+    instance_idx: ComponentExportIndex,
 }
 
 impl UtxoStorageExport {
@@ -761,6 +776,7 @@ impl UtxoExport {
 pub struct ConstructorExport {
     ty: types::ComponentFunc,
     idx: ComponentExportIndex,
+    instance_idx: ComponentExportIndex,
 }
 
 impl ConstructorExport {
@@ -800,6 +816,7 @@ impl CoordinationScriptExport {
 pub struct Utxo {
     instance: Instance,
     resource: ResourceAny,
+    instance_idx: ComponentExportIndex,
 }
 
 impl Utxo {
@@ -827,6 +844,20 @@ impl Utxo {
     ) -> wasmtime::Result<Func> {
         self.instance
             .get_func(store, name)
+            .context("function export not found")
+    }
+
+    fn get_named_function_export(
+        &self,
+        mut store: impl AsContextMut,
+        name: &str,
+    ) -> wasmtime::Result<Func> {
+        let index = self
+            .instance
+            .get_export_index(store.as_context_mut(), Some(&self.instance_idx), name)
+            .context("function export not found in UTXO instance")?;
+        self.instance
+            .get_func(store, index)
             .context("function export not found")
     }
 

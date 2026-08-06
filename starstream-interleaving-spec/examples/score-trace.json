@@ -1,0 +1,83 @@
+[
+  {
+    "event": "init"
+  },
+  {
+    "event": "new_utxo",
+    "arguments": [55],
+    "resource": 7
+  },
+  {
+    "event": "clear_abi"
+  },
+  {
+    "event": "advertise_method",
+    "method": [1, 0, 0, 0]
+  },
+  {
+    "event": "advertise_method",
+    "method": [2, 0, 0, 0]
+  },
+  {
+    "event": "return_control",
+    "result": []
+  },
+  {
+    "event": "call_method",
+    "resource": 7,
+    "method": [1, 0, 0, 0],
+    "arguments": [13],
+    "result": [21]
+  },
+  {
+    "event": "enter_method",
+    "arguments": [13]
+  },
+  {
+    "event": "return_control",
+    "result": [21]
+  },
+  {
+    "event": "call_method",
+    "resource": 7,
+    "method": [2, 0, 0, 0],
+    "arguments": [],
+    "result": []
+  },
+  {
+    "event": "enter_method",
+    "arguments": []
+  },
+  {
+    "event": "clear_abi"
+  },
+  {
+    "event": "advertise_method",
+    "method": [3, 0, 0, 0]
+  },
+  {
+    "event": "return_control",
+    "result": []
+  },
+  {
+    "event": "call_method",
+    "resource": 7,
+    "method": [3, 0, 0, 0],
+    "arguments": [42, 0],
+    "result": [99]
+  },
+  {
+    "event": "enter_method",
+    "arguments": [42, 0]
+  },
+  {
+    "event": "coroutine_return"
+  },
+  {
+    "event": "return_control",
+    "result": [99]
+  },
+  {
+    "event": "coord_return"
+  }
+]

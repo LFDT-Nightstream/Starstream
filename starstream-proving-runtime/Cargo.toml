@@ -1,0 +1,30 @@
+[package]
+name = "starstream-proving-runtime"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+neo-wasm = { workspace = true }
+sha2 = { workspace = true }
+starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
+starstream-runtime-next = { workspace = true }
+thiserror = { workspace = true }
+wasmparser = { workspace = true }
+wasmtime = { workspace = true, features = [
+    "anyhow",
+    "async",
+    "component-model",
+    "cranelift",
+    "debug",
+    "runtime",
+] }
+
+[dev-dependencies]
+starstream-compiler = { workspace = true }
+starstream-to-wasm = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+wat = "1.240.0"

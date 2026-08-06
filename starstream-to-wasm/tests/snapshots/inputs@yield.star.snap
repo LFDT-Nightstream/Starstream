@@ -305,38 +305,39 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i64 i64 i64 i64)))
-  (type (;1;) (func (param i32) (result i32)))
-  (type (;2;) (func (param i32)))
-  (type (;3;) (func))
+  (type (;0;) (func))
+  (type (;1;) (func (param i64 i64 i64 i64)))
+  (type (;2;) (func (param i32) (result i32)))
+  (type (;3;) (func (param i32)))
   (type (;4;) (func (param i32) (result i32 i32 i32)))
   (type (;5;) (func (param i32 i32 i32) (result i32)))
-  (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
-  (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
-  (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
-  (import "my-utxo" "[static]utxo.hello-utxo" (func (;3;) (type 1)))
+  (import "starstream:std/builtin" "abis-clear" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "implements-method" (func (;1;) (type 1)))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;2;) (type 2)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;3;) (type 3)))
+  (import "my-utxo" "[static]utxo.hello-utxo" (func (;4;) (type 2)))
   (memory (;0;) 1)
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
   (global (;2;) (mut i32) (i32.const 0))
-  (export "my-utxo#[static]utxo.hello-utxo" (func 5))
-  (export "my-utxo#[method]utxo.foo" (func 7))
-  (export "my-utxo#get-storage" (func 9))
-  (export "my-utxo#set-storage" (func 10))
+  (export "my-utxo#[static]utxo.hello-utxo" (func 6))
+  (export "my-utxo#[method]utxo.foo" (func 8))
+  (export "my-utxo#get-storage" (func 10))
+  (export "my-utxo#set-storage" (func 11))
   (export "memory" (memory 0))
-  (func (;4;) (type 3)
+  (func (;5;) (type 0)
     (block ;; label = @1
       (br_if 0 (;@1;)
         (i32.ne
           (global.get 0)
           (i32.const 1)))
-      (return_call 6))
+      (return_call 7))
     (unreachable)
   )
-  (func (;5;) (type 1) (param i32) (result i32)
+  (func (;6;) (type 2) (param i32) (result i32)
     (local i32)
     (local.set 1
-      (call 1
+      (call 2
         (i32.const 0)))
     (global.set 0
       (i32.const 1))
@@ -344,14 +345,15 @@ TypedProgram {
       (local.get 0))
     (global.set 2
       (local.get 1))
-    (call 0
+    (call 0)
+    (call 1
       (i64.const -8086495256948496852)
       (i64.const 3765343665581825017)
       (i64.const -6863622839687364077)
       (i64.const -5843589418109203719))
     (local.get 1)
   )
-  (func (;6;) (type 3)
+  (func (;7;) (type 0)
     (local i32 i32)
     (local.set 0
       (global.get 1))
@@ -362,19 +364,19 @@ TypedProgram {
     (global.set 2
       (i32.const 0))
   )
-  (func (;7;) (type 2) (param i32)
-    (return_call 4)
+  (func (;8;) (type 3) (param i32)
+    (return_call 5)
   )
-  (func (;8;) (type 4) (param i32) (result i32 i32 i32)
+  (func (;9;) (type 4) (param i32) (result i32 i32 i32)
     (local i32)
     (global.get 0)
     (global.get 1)
     (global.get 2)
   )
-  (func (;9;) (type 1) (param i32) (result i32)
+  (func (;10;) (type 2) (param i32) (result i32)
     (local i32 i32 i32 i32)
     (i32.const 4)
-    (call 8
+    (call 9
       (local.get 0))
     (local.set 4)
     (local.set 3)
@@ -391,7 +393,7 @@ TypedProgram {
       (local.get 4))
     (i32.const 4)
   )
-  (func (;10;) (type 5) (param i32 i32 i32) (result i32)
+  (func (;11;) (type 5) (param i32 i32 i32) (result i32)
     (local i32 i32 i32)
     (global.set 0
       (local.get 0))
@@ -399,7 +401,7 @@ TypedProgram {
       (local.get 1))
     (global.set 2
       (local.get 2))
-    (return_call 1
+    (return_call 2
       (i32.const 0))
   )
   (@custom "component-type"
@@ -429,9 +431,11 @@ TypedProgram {
               (import "my-utxo" (instance (;0;) (type 0)))
               (type (;1;)
                 (instance
-                  (type (;0;) (tuple u64 u64 u64 u64))
-                  (type (;1;) (func (param "hash" 0)))
-                  (export (;0;) "implements-method" (func (type 1)))
+                  (type (;0;) (func))
+                  (export (;0;) "abis-clear" (func (type 0)))
+                  (type (;1;) (tuple u64 u64 u64 u64))
+                  (type (;2;) (func (param "hash" 1)))
+                  (export (;1;) "implements-method" (func (type 2)))
                 )
               )
               (import "starstream:std/builtin" (instance (;1;) (type 1)))
@@ -493,6 +497,8 @@ world root {
 }
 package starstream:std {
   interface builtin {
+    abis-clear: func();
+
     implements-method: func(hash: tuple<u64, u64, u64, u64>);
   }
 }

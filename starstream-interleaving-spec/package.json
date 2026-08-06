@@ -1,0 +1,19 @@
+{
+  "name": "@starstream/interleaving-spec",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "quint typecheck spec/starstream.qnt",
+    "simulate": "quint run spec/starstream.qnt --main=starstream_sim --invariants=next_utxo_id_is_nonnegative current_coroutine_is_known call_stack_is_well_formed call_frames_are_well_formed utxo_lifecycle_is_well_scoped enabled_methods_are_well_scoped resource_bindings_are_well_scoped active_turn_is_well_formed --witnesses=has_bound_resource has_entered_method has_yielded_utxo has_returned_coroutine --max-samples=1000 --max-steps=30 --seed=0x5eed --backend=rust --verbosity=1",
+    "trace": "quint run spec/starstream.qnt --main=starstream_sim --max-samples=1 --max-steps=20 --seed=0x12060 --backend=rust --verbosity=3 --mbt",
+    "repl": "quint repl -r spec/starstream.qnt::starstream_sim --seed=0x12060",
+    "check": "npm run typecheck && npm run simulate",
+    "test": "cargo test -p starstream-interleaving-spec"
+  },
+  "devDependencies": {
+    "@informalsystems/quint": "0.32.0"
+  },
+  "overrides": {
+    "adm-zip": "0.6.0"
+  }
+}
