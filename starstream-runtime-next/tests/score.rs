@@ -49,6 +49,11 @@ struct Ctx {
 }
 
 impl bindings::starstream::std::builtin::Host for Ctx {
+    fn abis_clear(&mut self) -> wasmtime::Result<()> {
+        self.methods.clear();
+        Ok(())
+    }
+
     fn implements_method(&mut self, hash: (u64, u64, u64, u64)) -> wasmtime::Result<()> {
         self.methods.push(hash);
         Ok(())

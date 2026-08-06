@@ -23,6 +23,7 @@ pub mod bindings {
             "starstream:std/builtin.utxo": crate::Utxo,
         },
         imports: {
+            "starstream:std/builtin.abis-clear": tracing | trappable,
             "starstream:std/builtin.implements-method": tracing | trappable,
             default: tracing,
         }
