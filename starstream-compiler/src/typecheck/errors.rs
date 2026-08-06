@@ -13,30 +13,32 @@ use super::diagnostic::{DiagnosticCore, to_source_span};
 #[derive(Debug, Error)]
 #[error("{kind}")]
 pub struct TypeError {
-    pub kind: TypeErrorKind,
-    core: DiagnosticCore,
+    // Boxed to keep TypeError small (clippy::result_large_err).
+    pub kind: Box<TypeErrorKind>,
+    core: Box<DiagnosticCore>,
 }
 
 impl TypeError {
     pub fn new(kind: TypeErrorKind, span: Span) -> Self {
         Self {
-            kind,
-            core: DiagnosticCore::new(span),
+            kind: Box::new(kind),
+            core: Box::new(DiagnosticCore::new(span)),
         }
     }
 
     pub fn with_secondary(mut self, span: Span, message: impl Into<String>) -> Self {
-        self.core = self.core.with_secondary(span, message);
+        // TODO: use [Box::map] when stabilized: https://github.com/rust-lang/rust/issues/144419
+        self.core = Box::new(self.core.with_secondary(span, message));
         self
     }
 
     pub fn with_primary_message(mut self, message: impl Into<String>) -> Self {
-        self.core = self.core.with_primary_message(message);
+        self.core = Box::new(self.core.with_primary_message(message));
         self
     }
 
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
-        self.core = self.core.with_help(help);
+        self.core = Box::new(self.core.with_help(help));
         self
     }
 
@@ -70,7 +72,7 @@ impl Diagnostic for TypeError {
             expected,
             param_span: Some(span),
             ..
-        } = &self.kind
+        } = &*self.kind
         {
             labels.push(LabeledSpan::new_with_span(
                 Some(format!(
