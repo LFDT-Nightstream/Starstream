@@ -1,0 +1,18 @@
+package starstream:std;
+
+/// Builtins needed by contracts which declare Utxos.
+interface utxo-context {
+    /// A context through which a Utxo can tell the runtime information about
+    /// its own execution status.
+    resource utxo-context {
+        /// The `resume;` statement calls this to indicate the Utxo is resuming.
+        /// This resets the `implements-method` list. If the Utxo then returns
+        /// without calling `implements-method` again, the Utxo is considered
+        /// consumed.
+        resume: func();
+
+        /// The `yield(...);` statement in a Utxo `main fn` calls this to mark
+        /// a method hash as implemented at the current yield point.
+        implements-method: func(hash: tuple<u64, u64, u64, u64>);
+    }
+}

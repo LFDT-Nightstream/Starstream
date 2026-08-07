@@ -59,12 +59,7 @@ impl ResourceView for Ctx {
     }
 }
 
-impl bindings::starstream::std::builtin::Host for Ctx {
-    // TODO: Remove this function
-    fn implements_method(&mut self, _hash: (u64, u64, u64, u64)) -> wasmtime::Result<()> {
-        Ok(())
-    }
-}
+impl bindings::starstream::std::builtin::Host for Ctx {}
 
 impl bindings::starstream::std::builtin::HostUtxo for Ctx {
     fn drop(&mut self, _utxo: Resource<Utxo>) -> wasmtime::Result<()> {
