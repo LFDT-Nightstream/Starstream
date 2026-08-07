@@ -284,7 +284,7 @@ fn register_std_cardano(cardano: &mut Namespace, next_name_id: &mut NameId) {
                 params: vec![],
                 param_spans: vec![],
                 result: Type::int(),
-                callee: Some(StaticFunction::Named(next_name_id.clone())),
+                callee: Some(StaticFunction::Named(next_name_id.fresh())),
             }),
         ),
     );
@@ -300,7 +300,7 @@ fn register_std_cardano(cardano: &mut Namespace, next_name_id: &mut NameId) {
                 params: vec![],
                 param_spans: vec![],
                 result: Type::int(),
-                callee: Some(StaticFunction::Named(next_name_id.clone())),
+                callee: Some(StaticFunction::Named(next_name_id.fresh())),
             }),
         ),
     );

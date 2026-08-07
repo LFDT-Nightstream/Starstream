@@ -226,7 +226,7 @@ TypedProgram {
                     name: "total_value",
                     span: 60..71,
                 },
-                id: NameId(2),
+                id: NameId(4),
                 params: [
                     TypedFunctionParam {
                         public: false,

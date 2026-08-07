@@ -223,7 +223,7 @@ TypedProgram {
                     name: "main",
                     span: 3..7,
                 },
-                id: NameId(2),
+                id: NameId(4),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -307,7 +307,7 @@ TypedProgram {
                     name: "compute",
                     span: 106..113,
                 },
-                id: NameId(3),
+                id: NameId(5),
                 params: [],
                 return_type: Int(
                     I64,

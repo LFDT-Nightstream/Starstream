@@ -135,7 +135,7 @@ TypedProgram {
                                 ),
                                 callee: Some(
                                     Named(
-                                        NameId(2),
+                                        NameId(4),
                                     ),
                                 ),
                             },
@@ -176,7 +176,7 @@ TypedProgram {
                                             ),
                                             callee: Some(
                                                 Named(
-                                                    NameId(2),
+                                                    NameId(4),
                                                 ),
                                             ),
                                         },
@@ -191,7 +191,7 @@ TypedProgram {
                                     name: "hello",
                                     span: 80..85,
                                 },
-                                id: NameId(3),
+                                id: NameId(5),
                                 params: [],
                                 return_type: Int(
                                     I32,

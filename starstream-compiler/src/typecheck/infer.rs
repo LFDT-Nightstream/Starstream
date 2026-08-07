@@ -90,7 +90,7 @@ pub fn typecheck_program(
 
     // Pass 1: register imports
     env.root
-        .import_all_from(&inferencer.builtins.prelude())
+        .import_all_from(inferencer.builtins.prelude())
         .unwrap();
     if let Err(error) =
         inferencer.register_imports(&mut env, &program.definitions, &Default::default())
@@ -154,7 +154,7 @@ pub fn typecheck_program(
         Vec::new()
     };
 
-    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude());
+    let generic_types = Inferencer::build_generic_type_defs(inferencer.builtins.prelude());
     let warnings = inferencer.warnings;
 
     Ok(TypecheckSuccess {
@@ -229,7 +229,7 @@ pub fn typecheck_modules(
 
         // Pass 1: register imports
         env.root
-            .import_all_from(&inferencer.builtins.prelude())
+            .import_all_from(inferencer.builtins.prelude())
             .unwrap();
         let resolved_imports = resolve_path_imports(graph, module_id, &module_exports);
         if let Err(error) =
@@ -321,7 +321,7 @@ pub fn typecheck_modules(
         inferencer.apply_substitutions_program(typed_program);
     }
 
-    let generic_types = Inferencer::build_generic_type_defs(&inferencer.builtins.prelude());
+    let generic_types = Inferencer::build_generic_type_defs(inferencer.builtins.prelude());
 
     let mut modules: Vec<TypedModule> = Vec::with_capacity(graph.modules().len());
     for source_module in graph.modules() {
@@ -1147,7 +1147,7 @@ impl Inferencer {
                         .collect::<Result<Vec<_>, _>>()?;
 
                     // Assert that the signature sets match
-                    let abi_info = env.root.get_abi(&abi)?;
+                    let abi_info = env.root.get_abi(abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
                     let abi = Type::Abi(abi_info.clone());
@@ -1270,7 +1270,7 @@ impl Inferencer {
 
                     // Assert that the signature sets match. `Token` resolves to
                     // the built-in ABI; other names must be user-declared ABIs.
-                    let abi_info = env.root.get_abi(&abi)?;
+                    let abi_info = env.root.get_abi(abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
                     let abi = Type::Abi(abi_info.clone());
@@ -2245,16 +2245,30 @@ impl Inferencer {
                 for (name, patterns, block) in effects {
                     env.push_scope();
                     let (ty, _) = self.lookup_name(env, name)?;
-                    let Type::Function(func) = ty else { panic!() };
-                    // TODO: enforce that it's an effect?
-
+                    let Type::Function(func) = ty else {
+                        return Err(TypeError::new(
+                            TypeErrorKind::NotAFunction {
+                                found: self.apply_for_display(&ty),
+                            },
+                            name.last().unwrap().span,
+                        ));
+                    };
+                    if func.kind != FunctionKind::Raise {
+                        return Err(TypeError::new(
+                            TypeErrorKind::WithRequiresEffect {
+                                function_name: name.last().unwrap().to_string(),
+                                wrong_keyword: func.kind,
+                            },
+                            name.last().unwrap().span,
+                        ));
+                    }
                     if func.params.len() != patterns.len() {
                         return Err(TypeError::new(
                             TypeErrorKind::ArityMismatch {
                                 expected: func.params.len(),
                                 found: patterns.len(),
                             },
-                            name.first().unwrap().span,
+                            name.last().unwrap().span,
                         ));
                     }
 
@@ -2269,12 +2283,12 @@ impl Inferencer {
                     children.extend(trace);
                     let (_, unit_trace) = self.unify(
                         Type::Unit,
-                        subject.ty().clone(),
+                        block.ty().clone(),
                         ctx.return_span,
-                        subject.tail_span(),
+                        block.tail_span(),
                         TypeErrorKind::GeneralMismatch {
                             expected: Type::Unit,
-                            found: self.apply_for_display(subject.ty()),
+                            found: self.apply_for_display(block.ty()),
                         },
                     )?;
                     children.push(unit_trace);
@@ -2939,7 +2953,7 @@ impl Inferencer {
                                 }
                             }
 
-                            let abi = env.root.get_abi(&abi_name)?.clone();
+                            let abi = env.root.get_abi(abi_name)?.clone();
                             let var_name_str = name.name.clone();
                             let abi_name_str = abi_name.name.clone();
 
@@ -3184,7 +3198,7 @@ impl Inferencer {
                 // TODO: assert that this utxo impls each abi named
                 let abis = abis
                     .iter()
-                    .map(|abi| Ok(env.root.get_abi(&abi)?.clone()))
+                    .map(|abi| Ok(env.root.get_abi(abi)?.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok((
                     Spanned::new(

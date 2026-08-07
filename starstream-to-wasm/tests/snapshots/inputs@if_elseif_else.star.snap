@@ -172,7 +172,7 @@ TypedProgram {
                     name: "main",
                     span: 10..14,
                 },
-                id: NameId(2),
+                id: NameId(4),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
