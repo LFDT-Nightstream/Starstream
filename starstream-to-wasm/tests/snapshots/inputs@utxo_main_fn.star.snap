@@ -111,7 +111,7 @@ TypedProgram {
                             name: "HelloEvent",
                             span: 23..33,
                         },
-                        id: NameId(2),
+                        id: NameId(4),
                         ty: FunctionType {
                             kind: Emit,
                             name_span: 23..33,
@@ -120,7 +120,7 @@ TypedProgram {
                             result: Unit,
                             callee: Some(
                                 Named(
-                                    NameId(2),
+                                    NameId(4),
                                 ),
                             ),
                         },
@@ -144,7 +144,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 66..76,
                             },
-                            id: NameId(4),
+                            id: NameId(6),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -165,7 +165,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            NameId(2),
+                                                                            NameId(4),
                                                                         ),
                                                                     ),
                                                                 },
@@ -198,7 +198,7 @@ TypedProgram {
                 ],
                 ty: UtxoType {
                     name: "MyUtxo",
-                    id: NameId(3),
+                    id: NameId(5),
                     possible_abis: [],
                     always_abis: [],
                 },

@@ -260,21 +260,21 @@ impl Namespace {
     /// Import like `import * from ...`
     pub fn import_all_from(&mut self, other: &Namespace) -> Result<(), TypeError> {
         for (k, v) in &other.namespaces {
-            self.add_child(k.to_owned()).import_all_from(&v)?;
+            self.add_child(k.to_owned()).import_all_from(v)?;
         }
         for (k, v) in &other.constants {
             if let Some(old) = self.constants.insert(k.to_owned(), v.clone()) {
-                return Err(collision2(&k, v.span, old.span));
+                return Err(collision2(k, v.span, old.span));
             }
         }
         for (k, v) in &other.struct_constructors {
             if let Some(old) = self.struct_constructors.insert(k.to_owned(), v.clone()) {
-                return Err(collision(&k, v.span, old.span));
+                return Err(collision(k, v.span, old.span));
             }
         }
         for (k, v) in &other.types {
             if let Some(old) = self.types.insert(k.to_owned(), v.clone()) {
-                return Err(collision(&k, v.span, old.span));
+                return Err(collision(k, v.span, old.span));
             }
         }
         Ok(())
@@ -299,10 +299,10 @@ impl Namespace {
     }
 
     pub fn get_abi(&self, name: &Identifier) -> Result<&Arc<AbiType>, TypeError> {
-        if let Some(type_entry) = self.types.get(name.as_str()) {
-            if let Type::Abi(abi) = &type_entry.ty {
-                return Ok(abi);
-            }
+        if let Some(type_entry) = self.types.get(name.as_str())
+            && let Type::Abi(abi) = &type_entry.ty
+        {
+            return Ok(abi);
         }
         Err(TypeError::new(
             TypeErrorKind::UnknownAbi {

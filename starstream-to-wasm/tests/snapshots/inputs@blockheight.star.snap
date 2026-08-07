@@ -243,7 +243,7 @@ TypedProgram {
                     name: "reexport",
                     span: 63..71,
                 },
-                id: NameId(2),
+                id: NameId(4),
                 params: [],
                 return_type: Int(
                     I64,
@@ -353,7 +353,7 @@ TypedProgram {
                     name: "second",
                     span: 149..155,
                 },
-                id: NameId(3),
+                id: NameId(5),
                 params: [],
                 return_type: Int(
                     I64,
@@ -380,7 +380,7 @@ TypedProgram {
                                                     ),
                                                     callee: Some(
                                                         Named(
-                                                            NameId(2),
+                                                            NameId(4),
                                                         ),
                                                     ),
                                                 },

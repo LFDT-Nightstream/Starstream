@@ -171,7 +171,7 @@ TypedProgram {
                             name: "Hello",
                             span: 21..26,
                         },
-                        id: NameId(2),
+                        id: NameId(4),
                         ty: FunctionType {
                             kind: Raise,
                             name_span: 21..26,
@@ -180,7 +180,7 @@ TypedProgram {
                             result: Unit,
                             callee: Some(
                                 Named(
-                                    NameId(2),
+                                    NameId(4),
                                 ),
                             ),
                         },
@@ -190,7 +190,7 @@ TypedProgram {
                             name: "Goodbye",
                             span: 40..47,
                         },
-                        id: NameId(3),
+                        id: NameId(5),
                         ty: FunctionType {
                             kind: Emit,
                             name_span: 40..47,
@@ -199,7 +199,7 @@ TypedProgram {
                             result: Unit,
                             callee: Some(
                                 Named(
-                                    NameId(3),
+                                    NameId(5),
                                 ),
                             ),
                         },
@@ -216,7 +216,7 @@ TypedProgram {
                     name: "main",
                     span: 64..68,
                 },
-                id: NameId(4),
+                id: NameId(6),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -240,7 +240,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            NameId(2),
+                                                                            NameId(4),
                                                                         ),
                                                                     ),
                                                                 },
@@ -295,7 +295,7 @@ TypedProgram {
                                                                             result: Unit,
                                                                             callee: Some(
                                                                                 Named(
-                                                                                    NameId(3),
+                                                                                    NameId(5),
                                                                                 ),
                                                                             ),
                                                                         },
@@ -335,65 +335,11 @@ TypedProgram {
 }
 
 ==== Core WebAssembly ====
-(module
-  (type (;0;) (func))
-  (import "starstream:effects/foo" "hello" (func (;0;) (type 0)))
-  (import "starstream:events/foo" "goodbye" (func (;1;) (type 0)))
-  (export "main" (func 2))
-  (func (;2;) (type 0)
-    (call 0)
-  )
-  (@custom "component-type"
-    (component
-      (@custom "wit-component-encoding" "\04\00")
-      (type (;0;)
-        (component
-          (type (;0;)
-            (component
-              (type (;0;) (func))
-              (export (;0;) "main" (func (type 0)))
-              (type (;1;)
-                (instance
-                  (type (;0;) (func))
-                  (export (;0;) "hello" (func (type 0)))
-                )
-              )
-              (import "starstream:effects/foo" (instance (;0;) (type 1)))
-              (type (;2;)
-                (instance
-                  (type (;0;) (func))
-                  (export (;0;) "goodbye" (func (type 0)))
-                )
-              )
-              (import "starstream:events/foo" (instance (;1;) (type 2)))
-            )
-          )
-          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
-        )
-      )
-      (export (;1;) "x" (type 0))
-    )
-  )
-)
-
-==== WIT ====
-package root:component;
-
-world root {
-  import starstream:effects/foo;
-  import starstream:events/foo;
-
-  export main: func();
-}
-package starstream:effects {
-  interface foo {
-    hello: func();
-  }
-}
-
-
-package starstream:events {
-  interface foo {
-    goodbye: func();
-  }
-}
+  x TODO: effect handlers not yet implemented
+    ,-[9:12]
+  8 |         raise Hello();
+  9 |     } with Hello() {
+    :            ^^|^^
+    :              `-- TODO: effect handlers not yet implemented
+ 10 |         emit Goodbye();
+    `----

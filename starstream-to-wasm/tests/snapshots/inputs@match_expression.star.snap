@@ -1285,7 +1285,7 @@ TypedProgram {
                     name: "match_foo",
                     span: 131..140,
                 },
-                id: NameId(2),
+                id: NameId(4),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -1721,7 +1721,7 @@ TypedProgram {
                     name: "match_with_wildcard",
                     span: 398..417,
                 },
-                id: NameId(3),
+                id: NameId(5),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2025,7 +2025,7 @@ TypedProgram {
                     name: "match_literal",
                     span: 555..568,
                 },
-                id: NameId(4),
+                id: NameId(6),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2187,7 +2187,7 @@ TypedProgram {
                     name: "match_point",
                     span: 751..762,
                 },
-                id: NameId(5),
+                id: NameId(7),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2448,7 +2448,7 @@ TypedProgram {
                     name: "get_bar",
                     span: 927..934,
                 },
-                id: NameId(6),
+                id: NameId(8),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -2568,7 +2568,7 @@ TypedProgram {
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                NameId(2),
+                                                                NameId(4),
                                                             ),
                                                         ),
                                                     },

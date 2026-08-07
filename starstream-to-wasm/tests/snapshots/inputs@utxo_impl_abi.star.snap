@@ -123,7 +123,7 @@ TypedProgram {
                                 name: "hello",
                                 span: 19..24,
                             },
-                            id: NameId(2),
+                            id: NameId(4),
                             ty: FunctionType {
                                 kind: Normal,
                                 name_span: 19..24,
@@ -134,7 +134,7 @@ TypedProgram {
                                 ),
                                 callee: Some(
                                     Named(
-                                        NameId(2),
+                                        NameId(4),
                                     ),
                                 ),
                             },
@@ -147,7 +147,7 @@ TypedProgram {
                             name: "hello",
                             span: 19..24,
                         },
-                        id: NameId(2),
+                        id: NameId(4),
                         ty: FunctionType {
                             kind: Normal,
                             name_span: 19..24,
@@ -158,7 +158,7 @@ TypedProgram {
                             ),
                             callee: Some(
                                 Named(
-                                    NameId(2),
+                                    NameId(4),
                                 ),
                             ),
                         },
@@ -186,7 +186,7 @@ TypedProgram {
                                         name: "hello",
                                         span: 19..24,
                                     },
-                                    id: NameId(2),
+                                    id: NameId(4),
                                     ty: FunctionType {
                                         kind: Normal,
                                         name_span: 19..24,
@@ -197,7 +197,7 @@ TypedProgram {
                                         ),
                                         callee: Some(
                                             Named(
-                                                NameId(2),
+                                                NameId(4),
                                             ),
                                         ),
                                     },
@@ -211,7 +211,7 @@ TypedProgram {
                                     name: "hello",
                                     span: 80..85,
                                 },
-                                id: NameId(4),
+                                id: NameId(6),
                                 params: [],
                                 return_type: Int(
                                     I32,
@@ -243,7 +243,7 @@ TypedProgram {
                 ],
                 ty: UtxoType {
                     name: "MyUtxo",
-                    id: NameId(3),
+                    id: NameId(5),
                     possible_abis: [
                         AbiType {
                             name: Identifier {
@@ -256,7 +256,7 @@ TypedProgram {
                                         name: "hello",
                                         span: 19..24,
                                     },
-                                    id: NameId(2),
+                                    id: NameId(4),
                                     ty: FunctionType {
                                         kind: Normal,
                                         name_span: 19..24,
@@ -267,7 +267,7 @@ TypedProgram {
                                         ),
                                         callee: Some(
                                             Named(
-                                                NameId(2),
+                                                NameId(4),
                                             ),
                                         ),
                                     },

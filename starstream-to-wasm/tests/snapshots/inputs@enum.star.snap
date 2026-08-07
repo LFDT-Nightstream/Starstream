@@ -325,7 +325,7 @@ TypedProgram {
                     name: "accepts_foo",
                     span: 46..57,
                 },
-                id: NameId(2),
+                id: NameId(4),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -386,7 +386,7 @@ TypedProgram {
                     name: "get_bar",
                     span: 83..90,
                 },
-                id: NameId(3),
+                id: NameId(5),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -445,7 +445,7 @@ TypedProgram {
                                                         result: Unit,
                                                         callee: Some(
                                                             Named(
-                                                                NameId(2),
+                                                                NameId(4),
                                                             ),
                                                         ),
                                                     },
@@ -608,7 +608,7 @@ TypedProgram {
                     name: "get_baz",
                     span: 141..148,
                 },
-                id: NameId(4),
+                id: NameId(6),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -667,7 +667,7 @@ TypedProgram {
                                                         result: Unit,
                                                         callee: Some(
                                                             Named(
-                                                                NameId(2),
+                                                                NameId(4),
                                                             ),
                                                         ),
                                                     },
