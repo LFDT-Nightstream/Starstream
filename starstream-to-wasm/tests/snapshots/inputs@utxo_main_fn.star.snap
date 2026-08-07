@@ -200,6 +200,8 @@ TypedProgram {
                     UtxoType {
                         name: "MyUtxo",
                         id: NameId(3),
+                        possible_abis: [],
+                        always_abis: [],
                     },
                 ),
             },

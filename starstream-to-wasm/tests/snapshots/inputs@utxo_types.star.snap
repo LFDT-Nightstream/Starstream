@@ -94,6 +94,8 @@ TypedProgram {
                     UtxoType {
                         name: "MyUtxo",
                         id: NameId(2),
+                        possible_abis: [],
+                        always_abis: [],
                     },
                 ),
             },
@@ -127,6 +129,8 @@ TypedProgram {
                             UtxoType {
                                 name: "MyUtxo",
                                 id: NameId(2),
+                                possible_abis: [],
+                                always_abis: [],
                             },
                         ),
                     },

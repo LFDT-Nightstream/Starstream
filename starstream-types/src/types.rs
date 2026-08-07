@@ -151,6 +151,10 @@ pub enum EnumVariantKind {
 pub struct UtxoType {
     pub name: String,
     pub id: NameId,
+    /// All [AbiType]s that this Utxo sometimes implements.
+    pub possible_abis: Vec<Arc<AbiType>>,
+    /// [AbiType]s that this Utxo implements at all of its yield points.
+    pub always_abis: Vec<Arc<AbiType>>,
 }
 
 /// Type of a `token`.

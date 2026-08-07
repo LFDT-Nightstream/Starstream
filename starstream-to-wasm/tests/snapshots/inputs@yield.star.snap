@@ -319,6 +319,64 @@ TypedProgram {
                     UtxoType {
                         name: "MyUtxo",
                         id: NameId(3),
+                        possible_abis: [
+                            AbiType {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 4..7,
+                                },
+                                methods: [
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "foo",
+                                            span: 17..20,
+                                        },
+                                        id: NameId(2),
+                                        ty: FunctionType {
+                                            kind: Normal,
+                                            name_span: 17..20,
+                                            params: [],
+                                            param_spans: [],
+                                            result: Unit,
+                                            callee: Some(
+                                                Named(
+                                                    NameId(2),
+                                                ),
+                                            ),
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
+                        always_abis: [
+                            AbiType {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 4..7,
+                                },
+                                methods: [
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "foo",
+                                            span: 17..20,
+                                        },
+                                        id: NameId(2),
+                                        ty: FunctionType {
+                                            kind: Normal,
+                                            name_span: 17..20,
+                                            params: [],
+                                            param_spans: [],
+                                            result: Unit,
+                                            callee: Some(
+                                                Named(
+                                                    NameId(2),
+                                                ),
+                                            ),
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
                     },
                 ),
             },

@@ -930,9 +930,42 @@ impl Inferencer {
     }
 
     fn register_utxo(&mut self, env: &mut TypeEnv, def: &UtxoDef) -> Result<(), TypeError> {
+        let mut yields = Vec::new();
+        let mut possible_abis = Vec::new();
+        for part in &def.parts {
+            match part {
+                UtxoPart::Function(def) => {
+                    Self::collect_yields(&mut yields, &def.body);
+                }
+                UtxoPart::AbiImpl { abi, parts } => {
+                    possible_abis.push(env.root.get_abi(&abi)?.clone());
+                    for part in parts {
+                        Self::collect_yields(&mut yields, &part.body);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut always_abis = Vec::new();
+        if let Some((first, rest)) = yields.split_first() {
+            for abi in first.iter() {
+                always_abis.push(env.root.get_abi(&abi)?.clone());
+            }
+            for &expr in rest {
+                let mut abis = Vec::new();
+                for abi in expr.iter() {
+                    abis.push(env.root.get_abi(&abi)?.clone());
+                }
+                always_abis.retain(|a| abis.contains(a));
+            }
+        }
+
         let ty = Type::Utxo(Arc::new(UtxoType {
             name: def.name.to_string(),
             id: self.next_name_id.fresh(),
+            possible_abis,
+            always_abis,
         }));
         env.root.insert_type(
             &def.name,
@@ -960,10 +993,7 @@ impl Inferencer {
                     }
                 }
                 UtxoPart::Storage(_) => {}
-                UtxoPart::AbiImpl { .. } => {
-                    // TODO: expose ABI impl functions in the namespace?
-                    // (not actually sure if we want to do this)
-                }
+                UtxoPart::AbiImpl { .. } => {}
             }
         }
 
@@ -973,6 +1003,97 @@ impl Inferencer {
             .import_all_from(&ns)?;
 
         Ok(())
+    }
+
+    fn collect_yields<'a>(dest: &mut Vec<&'a Vec<Identifier>>, block: &'a Block) {
+        for stmt in &block.statements {
+            match &stmt.node {
+                Statement::VariableDeclaration { value, .. } => {
+                    Self::collect_yields_expr(dest, &value.node);
+                }
+                Statement::Assignment { value, .. } => {
+                    Self::collect_yields_expr(dest, &value.node);
+                }
+                Statement::While { condition, body } => {
+                    Self::collect_yields_expr(dest, &condition.node);
+                    Self::collect_yields(dest, body);
+                }
+                Statement::Expression(spanned) => {
+                    Self::collect_yields_expr(dest, &spanned.node);
+                }
+                Statement::Return(spanned) => {
+                    if let Some(expr) = spanned {
+                        Self::collect_yields_expr(dest, &expr.node);
+                    }
+                }
+                Statement::Resume => {}
+                Statement::TryWith { subject, effects } => {
+                    Self::collect_yields(dest, subject);
+                    for (_, _, body) in effects {
+                        Self::collect_yields(dest, body);
+                    }
+                }
+            }
+        }
+        if let Some(tail) = &block.tail_expression {
+            Self::collect_yields_expr(dest, &tail.node);
+        }
+    }
+
+    fn collect_yields_expr<'a>(dest: &mut Vec<&'a Vec<Identifier>>, expr: &'a Expr) {
+        match expr {
+            Expr::Yield { abis } => {
+                dest.push(abis);
+            }
+            Expr::Grouping(spanned) => Self::collect_yields_expr(dest, &spanned.node),
+            Expr::ScopedName(_) => {}
+            Expr::Literal(_) => {}
+            Expr::StructConstructor { fields, .. } => {
+                for each in fields {
+                    Self::collect_yields_expr(dest, &each.value.node);
+                }
+            }
+            Expr::Emit { callee, args }
+            | Expr::Raise { callee, args }
+            | Expr::Runtime { callee, args }
+            | Expr::Call { callee, args } => {
+                Self::collect_yields_expr(dest, &callee.node);
+                for each in args {
+                    Self::collect_yields_expr(dest, &each.node);
+                }
+            }
+            Expr::Block(block) => Self::collect_yields(dest, block),
+            Expr::If {
+                branches,
+                else_branch,
+            } => {
+                for (condition, block) in branches {
+                    if let IfCondition::Bool(expr) = condition {
+                        Self::collect_yields_expr(dest, &expr.node);
+                    }
+                    Self::collect_yields(dest, block);
+                }
+                if let Some(block) = else_branch {
+                    Self::collect_yields(dest, block);
+                }
+            }
+            Expr::Match { scrutinee, arms } => {
+                Self::collect_yields_expr(dest, &scrutinee.node);
+                for arm in arms {
+                    Self::collect_yields(dest, &arm.body);
+                }
+            }
+            Expr::FieldAccess { target, .. } => {
+                Self::collect_yields_expr(dest, &target.node);
+            }
+            Expr::Disclose { expr } | Expr::Unary { expr, .. } => {
+                Self::collect_yields_expr(dest, &expr.node);
+            }
+            Expr::Binary { left, right, .. } => {
+                Self::collect_yields_expr(dest, &left.node);
+                Self::collect_yields_expr(dest, &right.node);
+            }
+        }
     }
 
     fn register_token(&mut self, env: &mut TypeEnv, def: &TokenDef) -> Result<(), TypeError> {
