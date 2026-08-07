@@ -90,7 +90,7 @@ pub enum TypedUtxoPart {
     Function(Box<TypedFunctionDef>),
     AbiImpl {
         span: Span,
-        abi: Type,
+        abi: Arc<AbiType>,
         parts: Vec<TypedFunctionDef>,
     },
 }

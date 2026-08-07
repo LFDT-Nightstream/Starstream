@@ -1168,9 +1168,11 @@ impl Inferencer {
                     // Assert that the signature sets match
                     let abi_info = env.root.get_abi(&abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
-
-                    let abi = Type::Abi(abi_info.clone());
-                    TypedUtxoPart::AbiImpl { abi, span, parts }
+                    TypedUtxoPart::AbiImpl {
+                        abi: abi_info.clone(),
+                        span,
+                        parts,
+                    }
                 }
             });
         }
@@ -3692,7 +3694,10 @@ impl Inferencer {
                     span: _,
                     parts,
                 } => {
-                    *abi = self.apply(abi);
+                    let Type::Abi(new_abi) = self.apply(&Type::Abi(abi.clone())) else {
+                        unreachable!()
+                    };
+                    *abi = new_abi;
                     for part in parts {
                         self.apply_function(part);
                     }

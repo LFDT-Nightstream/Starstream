@@ -2171,8 +2171,8 @@ impl DocumentState {
                         .filter_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
-                        name: abi.compact_display().to_string(),
-                        detail: Some(abi.to_string()),
+                        name: Type::Abi(abi.clone()).compact_display().to_string(),
+                        detail: Some(Type::Abi(abi.clone()).to_string()),
                         kind: SymbolKind::INTERFACE,
                         tags: None,
                         #[allow(deprecated)]

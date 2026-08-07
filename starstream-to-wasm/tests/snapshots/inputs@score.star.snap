@@ -1115,110 +1115,108 @@ TypedProgram {
                     ),
                     AbiImpl {
                         span: 343..348,
-                        abi: Abi(
-                            AbiType {
-                                name: Identifier {
-                                    name: "Score",
-                                    span: 4..9,
-                                },
-                                methods: [
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "plus_chips",
-                                            span: 19..29,
-                                        },
-                                        id: NameId(2),
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 19..29,
-                                            params: [
-                                                Int(
-                                                    U64,
-                                                ),
-                                            ],
-                                            param_spans: [
-                                                30..35,
-                                            ],
-                                            result: Unit,
-                                            callee: Some(
-                                                Named(
-                                                    NameId(2),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "plus_mult",
-                                            span: 50..59,
-                                        },
-                                        id: NameId(3),
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 50..59,
-                                            params: [
-                                                Int(
-                                                    U64,
-                                                ),
-                                            ],
-                                            param_spans: [
-                                                60..64,
-                                            ],
-                                            result: Unit,
-                                            callee: Some(
-                                                Named(
-                                                    NameId(3),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "mult_mult",
-                                            span: 79..88,
-                                        },
-                                        id: NameId(4),
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 79..88,
-                                            params: [
-                                                Int(
-                                                    U64,
-                                                ),
-                                            ],
-                                            param_spans: [
-                                                89..97,
-                                            ],
-                                            result: Unit,
-                                            callee: Some(
-                                                Named(
-                                                    NameId(4),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "finish",
-                                            span: 112..118,
-                                        },
-                                        id: NameId(5),
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 112..118,
-                                            params: [],
-                                            param_spans: [],
-                                            result: Unit,
-                                            callee: Some(
-                                                Named(
-                                                    NameId(5),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                ],
+                        abi: AbiType {
+                            name: Identifier {
+                                name: "Score",
+                                span: 4..9,
                             },
-                        ),
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "plus_chips",
+                                        span: 19..29,
+                                    },
+                                    id: NameId(2),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 19..29,
+                                        params: [
+                                            Int(
+                                                U64,
+                                            ),
+                                        ],
+                                        param_spans: [
+                                            30..35,
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(2),
+                                            ),
+                                        ),
+                                    },
+                                },
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "plus_mult",
+                                        span: 50..59,
+                                    },
+                                    id: NameId(3),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 50..59,
+                                        params: [
+                                            Int(
+                                                U64,
+                                            ),
+                                        ],
+                                        param_spans: [
+                                            60..64,
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(3),
+                                            ),
+                                        ),
+                                    },
+                                },
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "mult_mult",
+                                        span: 79..88,
+                                    },
+                                    id: NameId(4),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 79..88,
+                                        params: [
+                                            Int(
+                                                U64,
+                                            ),
+                                        ],
+                                        param_spans: [
+                                            89..97,
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(4),
+                                            ),
+                                        ),
+                                    },
+                                },
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "finish",
+                                        span: 112..118,
+                                    },
+                                    id: NameId(5),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 112..118,
+                                        params: [],
+                                        param_spans: [],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(5),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
                         parts: [
                             TypedFunctionDef {
                                 export: None,
