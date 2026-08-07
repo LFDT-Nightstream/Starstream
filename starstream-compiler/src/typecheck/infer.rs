@@ -1182,12 +1182,14 @@ impl Inferencer {
         let Some(ty) = env.root.types.get(def.name.as_str()) else {
             unreachable!()
         };
-        assert!(matches!(ty.ty, Type::Utxo(_)));
+        let Type::Utxo(utxo_ty) = &ty.ty else {
+            unreachable!()
+        };
         Ok((
             TypedUtxoDef {
                 name: def.name.clone(),
                 parts,
-                ty: ty.ty.clone(),
+                ty: utxo_ty.clone(),
             },
             self.make_trace("T-Utxo", None, Some(def.name.to_string()), None, || traces),
         ))

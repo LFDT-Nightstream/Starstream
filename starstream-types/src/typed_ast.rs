@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::{
     AbiType, DUMMY_SPAN, EnumType, FunctionExport, ImportSource, RecordType, ScopedName, Span,
-    Spanned, TypedAbiMethodDecl,
+    Spanned, TypedAbiMethodDecl, UtxoType,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -81,7 +81,7 @@ pub struct TypedEnumDef {
 pub struct TypedUtxoDef {
     pub name: Identifier,
     pub parts: Vec<TypedUtxoPart>,
-    pub ty: Type,
+    pub ty: Arc<UtxoType>,
 }
 
 #[derive(Clone, Debug)]

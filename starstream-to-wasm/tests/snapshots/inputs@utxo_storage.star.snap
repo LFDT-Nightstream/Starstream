@@ -356,14 +356,12 @@ TypedProgram {
                         },
                     ),
                 ],
-                ty: Utxo(
-                    UtxoType {
-                        name: "MyUtxo",
-                        id: NameId(2),
-                        possible_abis: [],
-                        always_abis: [],
-                    },
-                ),
+                ty: UtxoType {
+                    name: "MyUtxo",
+                    id: NameId(2),
+                    possible_abis: [],
+                    always_abis: [],
+                },
             },
         ),
     ],

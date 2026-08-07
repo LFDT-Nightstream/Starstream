@@ -1582,7 +1582,7 @@ impl Compiler {
             ty,
         );
         self.resource_abi_fns
-            .insert(utxo.ty.clone(), (new_fn, drop_fn));
+            .insert(Type::Utxo(utxo.ty.clone()), (new_fn, drop_fn));
 
         // Utxos declared in a file have an "exported" half and an "imported" half
         // since calls need to go through the runtime.
@@ -1601,7 +1601,11 @@ impl Compiler {
 
                         // Don't use declared result (always Unit). The imported version returns a handle.
                         let mut results = Vec::with_capacity(1);
-                        _ = self.star_to_core_types(function.name.span(), &mut results, &utxo.ty);
+                        _ = self.star_to_core_types(
+                            function.name.span(),
+                            &mut results,
+                            &Type::Utxo(utxo.ty.clone()),
+                        );
 
                         let wit_name = format!(
                             "[static]{resource_name}.{}",
@@ -1630,7 +1634,10 @@ impl Compiler {
         );
         self.resources.insert(utxo.name.to_string(), resource);
 
-        let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&utxo.ty).unwrap();
+        let (resource_new_fn, _resource_drop_fn) = *self
+            .resource_abi_fns
+            .get(&Type::Utxo(utxo.ty.clone()))
+            .unwrap();
 
         // Reserve the ID for the `resume;` function for this Utxo.
         let yield_start = self.yield_id;
@@ -1695,14 +1702,15 @@ impl Compiler {
                     parts,
                 } => {
                     _ = abi; // TODO: generate cast functions
+                    let this = Type::Utxo(utxo.ty.clone());
                     for function in parts {
                         let core = self.visit_function(
-                            Some(&utxo.ty),
+                            Some(&this),
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
                         let sig = self.star_to_component_signature(
-                            Some(&utxo.ty),
+                            Some(&this),
                             &function.params,
                             &function.return_type,
                         );
@@ -1731,7 +1739,7 @@ impl Compiler {
         let end_global = self.globals.len();
         self.generate_storage_exports(
             &utxo.name,
-            &utxo.ty,
+            &Type::Utxo(utxo.ty.clone()),
             &mut iface,
             &interface_name,
             self.yield_global

@@ -241,44 +241,42 @@ TypedProgram {
                         ],
                     },
                 ],
-                ty: Utxo(
-                    UtxoType {
-                        name: "MyUtxo",
-                        id: NameId(3),
-                        possible_abis: [
-                            AbiType {
-                                name: Identifier {
-                                    name: "MyAbi",
-                                    span: 4..9,
-                                },
-                                methods: [
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "hello",
-                                            span: 19..24,
-                                        },
-                                        id: NameId(2),
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 19..24,
-                                            params: [],
-                                            param_spans: [],
-                                            result: Int(
-                                                I32,
-                                            ),
-                                            callee: Some(
-                                                Named(
-                                                    NameId(2),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                ],
+                ty: UtxoType {
+                    name: "MyUtxo",
+                    id: NameId(3),
+                    possible_abis: [
+                        AbiType {
+                            name: Identifier {
+                                name: "MyAbi",
+                                span: 4..9,
                             },
-                        ],
-                        always_abis: [],
-                    },
-                ),
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "hello",
+                                        span: 19..24,
+                                    },
+                                    id: NameId(2),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 19..24,
+                                        params: [],
+                                        param_spans: [],
+                                        result: Int(
+                                            I32,
+                                        ),
+                                        callee: Some(
+                                            Named(
+                                                NameId(2),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                    always_abis: [],
+                },
             },
         ),
     ],
