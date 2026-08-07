@@ -2802,6 +2802,22 @@ impl Inferencer {
                             })?;
                         Type::Function(method.ty.clone())
                     }
+                    Type::Utxo(utxo) => 'method: {
+                        for abi in &utxo.always_abis {
+                            if let Some(method) =
+                                abi.methods.iter().find(|m| m.name.as_str() == field.name)
+                            {
+                                break 'method Type::Function(method.ty.clone());
+                            }
+                        }
+                        return Err(TypeError::new(
+                            TypeErrorKind::AbiMethodNotFound {
+                                abi_name: utxo.name.to_string(),
+                                method_name: field.name.clone(),
+                            },
+                            field.span(),
+                        ));
+                    }
                     _ => {
                         return Err(TypeError::new(
                             TypeErrorKind::FieldAccessNotStruct {

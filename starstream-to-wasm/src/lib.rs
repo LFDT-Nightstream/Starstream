@@ -218,6 +218,8 @@ struct Compiler {
     core_func_type_cache: HashMap<FuncType, u32>,
     /// Map from name to function index.
     callables: HashMap<NameId, u32>,
+    /// Map from (this type, name) to function index, for calling ABI methods on concrete UTXOs.
+    method_callables: HashMap<(Type, NameId), u32>,
     builtin_starstream_i64_add_checked: Option<u32>,
     builtin_starstream_i64_sub_checked: Option<u32>,
     builtin_starstream_i64_mul_checked: Option<u32>,
@@ -1616,6 +1618,49 @@ impl Compiler {
                         self.callables.insert(function.id, idx);
                     }
                 }
+                TypedUtxoPart::AbiImpl {
+                    span: _,
+                    abi,
+                    parts,
+                } => {
+                    let always_on = utxo.ty.always_abis.iter().any(|a| a == abi);
+                    if always_on {
+                        let this = Type::Utxo(utxo.ty.clone());
+                        for function in parts {
+                            let mut params = Vec::with_capacity(16);
+                            _ = self.star_to_core_types(function.name.span, &mut params, &this);
+                            for p in &function.params {
+                                _ = self.star_to_core_types(
+                                    p.name.span_or(function.name.span()),
+                                    &mut params,
+                                    &p.ty,
+                                );
+                            }
+
+                            let mut results = Vec::with_capacity(1);
+                            _ = self.star_to_core_types(
+                                function.name.span(),
+                                &mut results,
+                                &function.return_type,
+                            );
+
+                            let wit_name = format!(
+                                "[method]{resource_name}.{}",
+                                to_kebab_case(function.name.as_str())
+                            );
+                            let ty = self.add_core_func_type(&FuncType::new(params, results));
+                            let idx = self.import_function(&interface_name, &wit_name, ty);
+                            let abi_function_id = abi
+                                .methods
+                                .iter()
+                                .find(|m| m.name == function.name)
+                                .unwrap()
+                                .id;
+                            self.method_callables
+                                .insert((this.clone(), abi_function_id), idx);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -1698,10 +1743,10 @@ impl Compiler {
                 }
                 TypedUtxoPart::AbiImpl {
                     span: _,
-                    abi,
+                    abi: _,
                     parts,
                 } => {
-                    _ = abi; // TODO: generate cast functions
+                    // TODO: generate cast functions
                     let this = Type::Utxo(utxo.ty.clone());
                     for function in parts {
                         let core = self.visit_function(
@@ -3060,12 +3105,31 @@ impl Compiler {
                 };
                 match &func_ty.callee {
                     Some(StaticFunction::Named(name)) => {
-                        let Some(&target) = self.callables.get(name) else {
-                            return Err(
-                                self.push_error(callee_span, "no callable found for identifier")
-                            );
-                        };
-                        self.visit_call(func, bb, locals, span, target, args)
+                        if let TypedExprKind::FieldAccess { target, .. } = &callee.node.kind {
+                            if let Some(&core_fn_idx) =
+                                self.method_callables.get(&(target.node.ty.clone(), *name))
+                            {
+                                self.visit_expr_stack(func, bb, locals, target.span, &target.node)?;
+                                self.visit_call(func, bb, locals, span, core_fn_idx, args)
+                            } else if let Some(&core_fn_idx) = self.callables.get(name) {
+                                self.visit_call(func, bb, locals, span, core_fn_idx, args)
+                            } else {
+                                return Err(self.push_error(
+                                    callee_span,
+                                    format!(
+                                        "no callable found for method {name} on type {}",
+                                        target.node.ty
+                                    ),
+                                ));
+                            }
+                        } else if let Some(&core_fn_idx) = self.callables.get(name) {
+                            self.visit_call(func, bb, locals, span, core_fn_idx, args)
+                        } else {
+                            return Err(self.push_error(
+                                callee_span,
+                                format!("no callable found for function {name}"),
+                            ));
+                        }
                     }
                     Some(StaticFunction::Constructor { variant }) => {
                         // Enum tuple variant constructor.
