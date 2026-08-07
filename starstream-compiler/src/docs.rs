@@ -2,12 +2,9 @@
 
 use serde::Serialize;
 use starstream_types::{
-    CommentMap,
+    CommentMap, EnumVariantKind,
     ast::{Definition, EnumDef, Program, StructDef},
-    typed_ast::{
-        TypedDefinition, TypedEnumDef, TypedEnumVariantPayload, TypedFunctionDef, TypedProgram,
-        TypedStructDef,
-    },
+    typed_ast::{TypedDefinition, TypedEnumDef, TypedFunctionDef, TypedProgram, TypedStructDef},
     types::Type,
 };
 
@@ -63,11 +60,11 @@ impl From<&Type> for TypeRef {
             Type::Unit => TypeRef::Primitive("()".to_string()),
             Type::Var(id) => TypeRef::Primitive(id.to_string()),
             Type::Record(r) => TypeRef::Struct {
-                name: r.name.clone(),
+                name: r.name.to_string(),
                 kind: TypeKind::Struct,
             },
             Type::Enum(e) => TypeRef::Enum {
-                name: e.name.clone(),
+                name: e.name.to_string(),
                 kind: TypeKind::Enum,
             },
             Type::Tuple(types) => TypeRef::Tuple {
@@ -232,9 +229,10 @@ fn struct_doc(
     field_docs: Vec<Option<String>>,
 ) -> StructDoc {
     StructDoc {
-        name: s.name.name.clone(),
+        name: s.ty.name.to_string(),
         doc,
         fields: s
+            .ty
             .fields
             .iter()
             .zip(field_docs.into_iter().chain(std::iter::repeat(None)))
@@ -249,21 +247,22 @@ fn struct_doc(
 
 fn enum_doc(e: &TypedEnumDef, doc: Option<String>, variant_docs: Vec<Option<String>>) -> EnumDoc {
     EnumDoc {
-        name: e.name.name.clone(),
+        name: e.ty.name.to_string(),
         doc,
         variants: e
+            .ty
             .variants
             .iter()
             .zip(variant_docs.into_iter().chain(std::iter::repeat(None)))
             .map(|(v, doc)| VariantDoc {
                 name: v.name.name.clone(),
                 doc,
-                payload: match &v.payload {
-                    TypedEnumVariantPayload::Unit => VariantPayload::Unit("unit".to_string()),
-                    TypedEnumVariantPayload::Tuple(types) => VariantPayload::Tuple {
+                payload: match &v.kind {
+                    EnumVariantKind::Unit => VariantPayload::Unit("unit".to_string()),
+                    EnumVariantKind::Tuple(types) => VariantPayload::Tuple {
                         tuple: types.iter().map(TypeRef::from).collect(),
                     },
-                    TypedEnumVariantPayload::Struct(fields) => VariantPayload::Struct {
+                    EnumVariantKind::Struct(fields) => VariantPayload::Struct {
                         fields: fields
                             .iter()
                             .map(|f| FieldDoc {

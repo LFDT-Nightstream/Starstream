@@ -109,9 +109,9 @@ impl CtorSet {
                 };
                 CtorInfo {
                     ctor: Ctor::EnumVariant {
-                        enum_name: enum_type.name.clone(),
+                        enum_name: enum_type.name.to_string(),
                         variant_index: index,
-                        variant_name: variant.name.clone(),
+                        variant_name: variant.name.to_string(),
                     },
                     arity,
                     field_types,
@@ -127,7 +127,7 @@ impl CtorSet {
         Self {
             ctors: vec![CtorInfo {
                 ctor: Ctor::Record {
-                    record_name: record_type.name.clone(),
+                    record_name: record_type.name.to_string(),
                 },
                 arity: record_type.fields.len(),
                 field_types,
@@ -623,9 +623,9 @@ pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
                         .variants
                         .iter()
                         .enumerate()
-                        .find(|(_, v)| v.name == last_name.as_str())
+                        .find(|(_, v)| v.name.as_str() == last_name.as_str())
                         .map(|(i, v)| (i, v.clone()))
-                        .unwrap_or((0, EnumVariantType::unit(last_name.as_str())));
+                        .unwrap_or((0, EnumVariantType::unit(last_name.clone())));
 
                     // Get field order from the type definition
                     let type_fields = match &variant_info.kind {
@@ -666,9 +666,9 @@ pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
                         .variants
                         .iter()
                         .enumerate()
-                        .find(|(_, v)| v.name == last_name.as_str())
+                        .find(|(_, v)| v.name.as_str() == last_name.as_str())
                         .map(|(i, v)| (i, v.clone()))
-                        .unwrap_or((0, EnumVariantType::unit(last_name.as_str())));
+                        .unwrap_or((0, EnumVariantType::unit(last_name.clone())));
 
                     let field_types = match &variant_info.kind {
                         EnumVariantKind::Tuple(types) => types.clone(),
@@ -845,18 +845,20 @@ fn merge_spans(a: Span, b: Span) -> Span {
 
 #[cfg(test)]
 mod tests {
+    use starstream_types::Identifier;
+
     use super::*;
 
     fn make_enum_type(name: &str, variants: Vec<(&str, usize)>) -> Type {
         Type::from(EnumType {
-            name: name.to_string(),
+            name: Identifier::anon(name),
             variants: variants
                 .into_iter()
                 .map(|(vname, arity)| {
                     if arity == 0 {
-                        EnumVariantType::unit(vname)
+                        EnumVariantType::unit(Identifier::anon(vname))
                     } else {
-                        EnumVariantType::tuple(vname, vec![Type::int(); arity])
+                        EnumVariantType::tuple(Identifier::anon(vname), vec![Type::int(); arity])
                     }
                 })
                 .collect(),

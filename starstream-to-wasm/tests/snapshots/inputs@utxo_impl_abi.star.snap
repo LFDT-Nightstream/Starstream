@@ -101,7 +101,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Utxo: MyUtxo => 
   T-Fn: hello => i32
     T-ReturnTail: 17 => i32
@@ -113,18 +112,18 @@ TypedProgram {
     definitions: [
         Abi(
             TypedAbiDef {
-                name: Identifier {
-                    name: "MyAbi",
-                    span: 4..9,
-                },
-                parts: [
-                    FnDecl(
+                ty: AbiType {
+                    name: Identifier {
+                        name: "MyAbi",
+                        span: 4..9,
+                    },
+                    methods: [
                         TypedAbiMethodDecl {
                             name: Identifier {
                                 name: "hello",
                                 span: 19..24,
                             },
-                            span: 19..24,
+                            id: NameId(2),
                             ty: FunctionType {
                                 kind: Normal,
                                 name_span: 19..24,
@@ -140,7 +139,30 @@ TypedProgram {
                                 ),
                             },
                         },
-                    ),
+                    ],
+                },
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "hello",
+                            span: 19..24,
+                        },
+                        id: NameId(2),
+                        ty: FunctionType {
+                            kind: Normal,
+                            name_span: 19..24,
+                            params: [],
+                            param_spans: [],
+                            result: Int(
+                                I32,
+                            ),
+                            callee: Some(
+                                Named(
+                                    NameId(2),
+                                ),
+                            ),
+                        },
+                    },
                 ],
             },
         ),
@@ -165,7 +187,7 @@ TypedProgram {
                                             name: "hello",
                                             span: 19..24,
                                         },
-                                        span: 19..24,
+                                        id: NameId(2),
                                         ty: FunctionType {
                                             kind: Normal,
                                             name_span: 19..24,

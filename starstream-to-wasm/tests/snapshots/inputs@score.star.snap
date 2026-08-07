@@ -584,7 +584,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Utxo: ScoreProgress => 
   T-Fn: new => ()
     T-Expr: {chips: u64, mult: u64, new: fn() -> ()} ⊢ yield(Score); ⇒ ()
@@ -634,18 +633,18 @@ TypedProgram {
     definitions: [
         Abi(
             TypedAbiDef {
-                name: Identifier {
-                    name: "Score",
-                    span: 4..9,
-                },
-                parts: [
-                    FnDecl(
+                ty: AbiType {
+                    name: Identifier {
+                        name: "Score",
+                        span: 4..9,
+                    },
+                    methods: [
                         TypedAbiMethodDecl {
                             name: Identifier {
                                 name: "plus_chips",
                                 span: 19..29,
                             },
-                            span: 19..29,
+                            id: NameId(2),
                             ty: FunctionType {
                                 kind: Normal,
                                 name_span: 19..29,
@@ -665,14 +664,12 @@ TypedProgram {
                                 ),
                             },
                         },
-                    ),
-                    FnDecl(
                         TypedAbiMethodDecl {
                             name: Identifier {
                                 name: "plus_mult",
                                 span: 50..59,
                             },
-                            span: 50..59,
+                            id: NameId(3),
                             ty: FunctionType {
                                 kind: Normal,
                                 name_span: 50..59,
@@ -692,14 +689,12 @@ TypedProgram {
                                 ),
                             },
                         },
-                    ),
-                    FnDecl(
                         TypedAbiMethodDecl {
                             name: Identifier {
                                 name: "mult_mult",
                                 span: 79..88,
                             },
-                            span: 79..88,
+                            id: NameId(4),
                             ty: FunctionType {
                                 kind: Normal,
                                 name_span: 79..88,
@@ -719,14 +714,12 @@ TypedProgram {
                                 ),
                             },
                         },
-                    ),
-                    FnDecl(
                         TypedAbiMethodDecl {
                             name: Identifier {
                                 name: "finish",
                                 span: 112..118,
                             },
-                            span: 112..118,
+                            id: NameId(5),
                             ty: FunctionType {
                                 kind: Normal,
                                 name_span: 112..118,
@@ -740,28 +733,128 @@ TypedProgram {
                                 ),
                             },
                         },
-                    ),
-                    Event(
-                        TypedEventDef {
-                            name: Identifier {
-                                name: "Finish",
-                                span: 132..138,
-                            },
-                            id: NameId(6),
-                            params: [
-                                TypedFunctionParam {
-                                    public: false,
-                                    name: Identifier {
-                                        name: "total",
-                                        span: 139..144,
-                                    },
-                                    ty: Int(
-                                        U64,
-                                    ),
-                                },
-                            ],
+                    ],
+                },
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "plus_chips",
+                            span: 19..29,
                         },
-                    ),
+                        id: NameId(2),
+                        ty: FunctionType {
+                            kind: Normal,
+                            name_span: 19..29,
+                            params: [
+                                Int(
+                                    U64,
+                                ),
+                            ],
+                            param_spans: [
+                                30..35,
+                            ],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(2),
+                                ),
+                            ),
+                        },
+                    },
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "plus_mult",
+                            span: 50..59,
+                        },
+                        id: NameId(3),
+                        ty: FunctionType {
+                            kind: Normal,
+                            name_span: 50..59,
+                            params: [
+                                Int(
+                                    U64,
+                                ),
+                            ],
+                            param_spans: [
+                                60..64,
+                            ],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(3),
+                                ),
+                            ),
+                        },
+                    },
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "mult_mult",
+                            span: 79..88,
+                        },
+                        id: NameId(4),
+                        ty: FunctionType {
+                            kind: Normal,
+                            name_span: 79..88,
+                            params: [
+                                Int(
+                                    U64,
+                                ),
+                            ],
+                            param_spans: [
+                                89..97,
+                            ],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(4),
+                                ),
+                            ),
+                        },
+                    },
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "finish",
+                            span: 112..118,
+                        },
+                        id: NameId(5),
+                        ty: FunctionType {
+                            kind: Normal,
+                            name_span: 112..118,
+                            params: [],
+                            param_spans: [],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(5),
+                                ),
+                            ),
+                        },
+                    },
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "Finish",
+                            span: 132..138,
+                        },
+                        id: NameId(6),
+                        ty: FunctionType {
+                            kind: Emit,
+                            name_span: 132..138,
+                            params: [
+                                Int(
+                                    U64,
+                                ),
+                            ],
+                            param_spans: [
+                                146..149,
+                            ],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(6),
+                                ),
+                            ),
+                        },
+                    },
                 ],
             },
         ),
@@ -825,7 +918,7 @@ TypedProgram {
                                                                         name: "plus_chips",
                                                                         span: 19..29,
                                                                     },
-                                                                    span: 19..29,
+                                                                    id: NameId(2),
                                                                     ty: FunctionType {
                                                                         kind: Normal,
                                                                         name_span: 19..29,
@@ -850,7 +943,7 @@ TypedProgram {
                                                                         name: "plus_mult",
                                                                         span: 50..59,
                                                                     },
-                                                                    span: 50..59,
+                                                                    id: NameId(3),
                                                                     ty: FunctionType {
                                                                         kind: Normal,
                                                                         name_span: 50..59,
@@ -875,7 +968,7 @@ TypedProgram {
                                                                         name: "mult_mult",
                                                                         span: 79..88,
                                                                     },
-                                                                    span: 79..88,
+                                                                    id: NameId(4),
                                                                     ty: FunctionType {
                                                                         kind: Normal,
                                                                         name_span: 79..88,
@@ -900,7 +993,7 @@ TypedProgram {
                                                                         name: "finish",
                                                                         span: 112..118,
                                                                     },
-                                                                    span: 112..118,
+                                                                    id: NameId(5),
                                                                     ty: FunctionType {
                                                                         kind: Normal,
                                                                         name_span: 112..118,
@@ -1034,7 +1127,7 @@ TypedProgram {
                                             name: "plus_chips",
                                             span: 19..29,
                                         },
-                                        span: 19..29,
+                                        id: NameId(2),
                                         ty: FunctionType {
                                             kind: Normal,
                                             name_span: 19..29,
@@ -1059,7 +1152,7 @@ TypedProgram {
                                             name: "plus_mult",
                                             span: 50..59,
                                         },
-                                        span: 50..59,
+                                        id: NameId(3),
                                         ty: FunctionType {
                                             kind: Normal,
                                             name_span: 50..59,
@@ -1084,7 +1177,7 @@ TypedProgram {
                                             name: "mult_mult",
                                             span: 79..88,
                                         },
-                                        span: 79..88,
+                                        id: NameId(4),
                                         ty: FunctionType {
                                             kind: Normal,
                                             name_span: 79..88,
@@ -1109,7 +1202,7 @@ TypedProgram {
                                             name: "finish",
                                             span: 112..118,
                                         },
-                                        span: 112..118,
+                                        id: NameId(5),
                                         ty: FunctionType {
                                             kind: Normal,
                                             name_span: 112..118,
@@ -1133,7 +1226,7 @@ TypedProgram {
                                     name: "plus_chips",
                                     span: 362..372,
                                 },
-                                id: NameId(9),
+                                id: NameId(10),
                                 params: [
                                     TypedFunctionParam {
                                         public: true,
@@ -1210,7 +1303,7 @@ TypedProgram {
                                     name: "plus_mult",
                                     span: 449..458,
                                 },
-                                id: NameId(10),
+                                id: NameId(11),
                                 params: [
                                     TypedFunctionParam {
                                         public: true,
@@ -1287,7 +1380,7 @@ TypedProgram {
                                     name: "mult_mult",
                                     span: 531..540,
                                 },
-                                id: NameId(11),
+                                id: NameId(12),
                                 params: [
                                     TypedFunctionParam {
                                         public: true,
@@ -1391,7 +1484,7 @@ TypedProgram {
                                     name: "finish",
                                     span: 625..631,
                                 },
-                                id: NameId(12),
+                                id: NameId(13),
                                 params: [],
                                 return_type: Unit,
                                 body: TypedBlock {
@@ -1421,7 +1514,7 @@ TypedProgram {
                     name: "example",
                     span: 685..692,
                 },
-                id: NameId(13),
+                id: NameId(9),
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {

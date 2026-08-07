@@ -419,7 +419,7 @@ TypedProgram {
                                             name: "attach",
                                             span: 0..0,
                                         },
-                                        span: 0..0,
+                                        id: NameId(0),
                                         ty: FunctionType {
                                             kind: Normal,
                                             name_span: 0..0,
@@ -442,7 +442,7 @@ TypedProgram {
                                             name: "detach",
                                             span: 0..0,
                                         },
-                                        span: 0..0,
+                                        id: NameId(1),
                                         ty: FunctionType {
                                             kind: Normal,
                                             name_span: 0..0,

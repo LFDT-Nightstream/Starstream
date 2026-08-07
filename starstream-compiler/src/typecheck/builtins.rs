@@ -160,17 +160,20 @@ fn register_prelude(
     // `impl Token { ... }` block is checked against. It declares
     // `attach(Utxo) -> ()` and `detach(Utxo) -> ()`. User code may not
     // redeclare `abi Token` (guarded in `register_abi`).
-    let mut method = |name: &str| TypedAbiMethodDecl {
-        name: Identifier::new(name, DUMMY_SPAN),
-        ty: Arc::new(FunctionType {
-            kind: FunctionKind::Normal,
-            name_span: DUMMY_SPAN,
-            params: vec![Type::UtxoAny],
-            param_spans: vec![DUMMY_SPAN],
-            result: Type::Unit,
-            callee: Some(StaticFunction::Named(next_name_id.fresh())),
-        }),
-        span: DUMMY_SPAN,
+    let mut method = |name: &str| {
+        let id = next_name_id.fresh();
+        TypedAbiMethodDecl {
+            name: Identifier::new(name, DUMMY_SPAN),
+            id,
+            ty: Arc::new(FunctionType {
+                kind: FunctionKind::Normal,
+                name_span: DUMMY_SPAN,
+                params: vec![Type::UtxoAny],
+                param_spans: vec![DUMMY_SPAN],
+                result: Type::Unit,
+                callee: Some(StaticFunction::Named(id)),
+            }),
+        }
     };
     prelude.types.insert(
         "Token".to_owned(),
@@ -194,13 +197,13 @@ fn register_prelude_enum(
     let type_variants: Vec<EnumVariantType> = variants
         .iter()
         .map(|(vname, kind)| EnumVariantType {
-            name: vname.to_string(),
+            name: Identifier::anon(*vname),
             kind: kind.clone(),
         })
         .collect();
 
     let ty = Type::from(EnumType {
-        name: name.to_owned(),
+        name: Identifier::anon(name),
         variants: type_variants,
         type_args: vec![],
     });

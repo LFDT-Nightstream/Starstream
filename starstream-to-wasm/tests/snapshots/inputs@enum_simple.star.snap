@@ -57,54 +57,35 @@ TypedProgram {
     definitions: [
         Enum(
             TypedEnumDef {
-                name: Identifier {
-                    name: "Message",
-                    span: 5..12,
-                },
-                variants: [
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Ping",
-                            span: 19..23,
-                        },
-                        payload: Unit,
-                    },
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Pong",
-                            span: 29..33,
-                        },
-                        payload: Tuple(
-                            [
-                                Int(
-                                    I64,
-                                ),
-                            ],
-                        ),
-                    },
-                ],
-                ty: Enum(
-                    EnumType {
+                ty: EnumType {
+                    name: Identifier {
                         name: "Message",
-                        variants: [
-                            EnumVariantType {
-                                name: "Ping",
-                                kind: Unit,
-                            },
-                            EnumVariantType {
-                                name: "Pong",
-                                kind: Tuple(
-                                    [
-                                        Int(
-                                            I64,
-                                        ),
-                                    ],
-                                ),
-                            },
-                        ],
-                        type_args: [],
+                        span: 5..12,
                     },
-                ),
+                    variants: [
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Ping",
+                                span: 19..23,
+                            },
+                            kind: Unit,
+                        },
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Pong",
+                                span: 29..33,
+                            },
+                            kind: Tuple(
+                                [
+                                    Int(
+                                        I64,
+                                    ),
+                                ],
+                            ),
+                        },
+                    ],
+                    type_args: [],
+                },
             },
         ),
     ],

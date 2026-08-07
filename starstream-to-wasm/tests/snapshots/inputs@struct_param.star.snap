@@ -150,7 +150,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Fn: total_value => i64
   T-ReturnTail: item.amount * item.price => i64
     T-Bin-Mul: {item: Item, total_value: fn(Item) -> i64} ⊢ item.amount * item.price ⇒ i64
@@ -166,55 +165,32 @@ TypedProgram {
     definitions: [
         Struct(
             TypedStructDef {
-                name: Identifier {
-                    name: "Item",
-                    span: 7..11,
-                },
-                fields: [
-                    TypedStructField {
-                        name: Identifier {
-                            name: "amount",
-                            span: 18..24,
-                        },
-                        ty: Int(
-                            I64,
-                        ),
-                    },
-                    TypedStructField {
-                        name: Identifier {
-                            name: "price",
-                            span: 35..40,
-                        },
-                        ty: Int(
-                            I64,
-                        ),
-                    },
-                ],
-                ty: Record(
-                    RecordType {
+                ty: RecordType {
+                    name: Identifier {
                         name: "Item",
-                        fields: [
-                            RecordFieldType {
-                                name: Identifier {
-                                    name: "amount",
-                                    span: 18..24,
-                                },
-                                ty: Int(
-                                    I64,
-                                ),
-                            },
-                            RecordFieldType {
-                                name: Identifier {
-                                    name: "price",
-                                    span: 35..40,
-                                },
-                                ty: Int(
-                                    I64,
-                                ),
-                            },
-                        ],
+                        span: 7..11,
                     },
-                ),
+                    fields: [
+                        RecordFieldType {
+                            name: Identifier {
+                                name: "amount",
+                                span: 18..24,
+                            },
+                            ty: Int(
+                                I64,
+                            ),
+                        },
+                        RecordFieldType {
+                            name: Identifier {
+                                name: "price",
+                                span: 35..40,
+                            },
+                            ty: Int(
+                                I64,
+                            ),
+                        },
+                    ],
+                },
             },
         ),
         Function(
@@ -236,7 +212,10 @@ TypedProgram {
                         },
                         ty: Record(
                             RecordType {
-                                name: "Item",
+                                name: Identifier {
+                                    name: "Item",
+                                    span: 7..11,
+                                },
                                 fields: [
                                     RecordFieldType {
                                         name: Identifier {
@@ -284,7 +263,10 @@ TypedProgram {
                                                     node: TypedExpr {
                                                         ty: Record(
                                                             RecordType {
-                                                                name: "Item",
+                                                                name: Identifier {
+                                                                    name: "Item",
+                                                                    span: 7..11,
+                                                                },
                                                                 fields: [
                                                                     RecordFieldType {
                                                                         name: Identifier {
@@ -337,7 +319,10 @@ TypedProgram {
                                                     node: TypedExpr {
                                                         ty: Record(
                                                             RecordType {
-                                                                name: "Item",
+                                                                name: Identifier {
+                                                                    name: "Item",
+                                                                    span: 7..11,
+                                                                },
                                                                 fields: [
                                                                     RecordFieldType {
                                                                         name: Identifier {

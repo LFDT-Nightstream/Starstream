@@ -61,55 +61,32 @@ TypedProgram {
     definitions: [
         Struct(
             TypedStructDef {
-                name: Identifier {
-                    name: "Point",
-                    span: 7..12,
-                },
-                fields: [
-                    TypedStructField {
-                        name: Identifier {
-                            name: "x",
-                            span: 19..20,
-                        },
-                        ty: Int(
-                            I64,
-                        ),
-                    },
-                    TypedStructField {
-                        name: Identifier {
-                            name: "y",
-                            span: 31..32,
-                        },
-                        ty: Int(
-                            I64,
-                        ),
-                    },
-                ],
-                ty: Record(
-                    RecordType {
+                ty: RecordType {
+                    name: Identifier {
                         name: "Point",
-                        fields: [
-                            RecordFieldType {
-                                name: Identifier {
-                                    name: "x",
-                                    span: 19..20,
-                                },
-                                ty: Int(
-                                    I64,
-                                ),
-                            },
-                            RecordFieldType {
-                                name: Identifier {
-                                    name: "y",
-                                    span: 31..32,
-                                },
-                                ty: Int(
-                                    I64,
-                                ),
-                            },
-                        ],
+                        span: 7..12,
                     },
-                ),
+                    fields: [
+                        RecordFieldType {
+                            name: Identifier {
+                                name: "x",
+                                span: 19..20,
+                            },
+                            ty: Int(
+                                I64,
+                            ),
+                        },
+                        RecordFieldType {
+                            name: Identifier {
+                                name: "y",
+                                span: 31..32,
+                            },
+                            ty: Int(
+                                I64,
+                            ),
+                        },
+                    ],
+                },
             },
         ),
     ],

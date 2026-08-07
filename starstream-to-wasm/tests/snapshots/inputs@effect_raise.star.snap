@@ -138,7 +138,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Fn: main => ()
   T-TryWith: {main: fn() -> ()} ⊢ try {
     raise Hello();
@@ -159,32 +158,52 @@ TypedProgram {
     definitions: [
         Abi(
             TypedAbiDef {
-                name: Identifier {
-                    name: "Foo",
-                    span: 4..7,
+                ty: AbiType {
+                    name: Identifier {
+                        name: "Foo",
+                        span: 4..7,
+                    },
+                    methods: [],
                 },
-                parts: [
-                    Effect(
-                        TypedEffectDef {
-                            name: Identifier {
-                                name: "Hello",
-                                span: 21..26,
-                            },
-                            id: NameId(2),
-                            params: [],
-                            return_type: Unit,
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "Hello",
+                            span: 21..26,
                         },
-                    ),
-                    Event(
-                        TypedEventDef {
-                            name: Identifier {
-                                name: "Goodbye",
-                                span: 40..47,
-                            },
-                            id: NameId(3),
+                        id: NameId(2),
+                        ty: FunctionType {
+                            kind: Raise,
+                            name_span: 21..26,
                             params: [],
+                            param_spans: [],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(2),
+                                ),
+                            ),
                         },
-                    ),
+                    },
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "Goodbye",
+                            span: 40..47,
+                        },
+                        id: NameId(3),
+                        ty: FunctionType {
+                            kind: Emit,
+                            name_span: 40..47,
+                            params: [],
+                            param_spans: [],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(3),
+                                ),
+                            ),
+                        },
+                    },
                 ],
             },
         ),

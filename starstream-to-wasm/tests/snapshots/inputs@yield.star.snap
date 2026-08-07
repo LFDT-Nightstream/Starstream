@@ -126,7 +126,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Utxo: MyUtxo => 
   T-Fn: hello_utxo => ()
     T-Expr: {hello_utxo: fn(i32) -> (), x: i32} ⊢ yield(Foo); ⇒ ()
@@ -139,18 +138,18 @@ TypedProgram {
     definitions: [
         Abi(
             TypedAbiDef {
-                name: Identifier {
-                    name: "Foo",
-                    span: 4..7,
-                },
-                parts: [
-                    FnDecl(
+                ty: AbiType {
+                    name: Identifier {
+                        name: "Foo",
+                        span: 4..7,
+                    },
+                    methods: [
                         TypedAbiMethodDecl {
                             name: Identifier {
                                 name: "foo",
                                 span: 17..20,
                             },
-                            span: 17..20,
+                            id: NameId(2),
                             ty: FunctionType {
                                 kind: Normal,
                                 name_span: 17..20,
@@ -164,7 +163,28 @@ TypedProgram {
                                 ),
                             },
                         },
-                    ),
+                    ],
+                },
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "foo",
+                            span: 17..20,
+                        },
+                        id: NameId(2),
+                        ty: FunctionType {
+                            kind: Normal,
+                            name_span: 17..20,
+                            params: [],
+                            param_spans: [],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(2),
+                                ),
+                            ),
+                        },
+                    },
                 ],
             },
         ),
@@ -217,7 +237,7 @@ TypedProgram {
                                                                         name: "foo",
                                                                         span: 17..20,
                                                                     },
-                                                                    span: 17..20,
+                                                                    id: NameId(2),
                                                                     ty: FunctionType {
                                                                         kind: Normal,
                                                                         name_span: 17..20,
@@ -258,7 +278,7 @@ TypedProgram {
                                             name: "foo",
                                             span: 17..20,
                                         },
-                                        span: 17..20,
+                                        id: NameId(2),
                                         ty: FunctionType {
                                             kind: Normal,
                                             name_span: 17..20,

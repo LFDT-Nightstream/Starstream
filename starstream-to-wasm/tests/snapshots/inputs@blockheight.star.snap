@@ -168,7 +168,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Fn: reexport => i64
   T-Expr: {reexport: fn() -> i64} ⊢ runtime blockHeight(); ⇒ ()
     T-Call: {reexport: fn() -> i64} ⊢ runtime blockHeight() ⇒ i64

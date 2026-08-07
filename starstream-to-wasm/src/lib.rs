@@ -9,12 +9,12 @@ use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
     BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned,
-    StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
-    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
-    TypedImportDef, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
-    TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    StaticFunction, Type, TypedAbiDef, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
+    TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef,
+    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
-use starstream_types::{ImportSource, NameId};
+use starstream_types::{FunctionKind, ImportSource, NameId};
 use thiserror::Error;
 use wasm_encoder::{
     BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
@@ -1039,7 +1039,7 @@ impl Compiler {
                     .iter()
                     .map(|v| {
                         (
-                            to_kebab_case(&v.name),
+                            to_kebab_case(v.name.as_str()),
                             match &v.kind {
                                 EnumVariantKind::Unit => None,
                                 EnumVariantKind::Tuple(fields) => {
@@ -1388,18 +1388,18 @@ impl Compiler {
     }
 
     fn visit_abi(&mut self, def: &TypedAbiDef) {
-        for part in &def.parts {
-            match part {
-                TypedAbiPart::Event(event) => {
+        for part in &def.functions {
+            match part.ty.kind {
+                FunctionKind::Emit => {
                     let mut core_params = Vec::with_capacity(16);
-                    let span = event.name.span();
-                    for p in &event.params {
-                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
+                    let span = part.ty.name_span;
+                    for p in &part.ty.params {
+                        _ = self.star_to_core_types(span, &mut core_params, p);
                     }
 
                     let interface =
-                        format!("starstream:events/{}", to_kebab_case(def.name.as_str()));
-                    let kebab = to_kebab_case(event.name.as_str());
+                        format!("starstream:events/{}", to_kebab_case(def.ty.name.as_str()));
+                    let kebab = to_kebab_case(part.name.as_str());
 
                     // Core import
                     let core_fn_ty = self.add_core_func_type(&FuncType::new(
@@ -1407,13 +1407,14 @@ impl Compiler {
                         std::iter::empty(),
                     ));
                     let func = self.import_function(&interface, &kebab, core_fn_ty);
-                    self.callables.insert(event.id, func);
+                    self.callables.insert(part.id, func);
 
                     // Component import
-                    let comp_params = event
+                    let comp_params = part
+                        .ty
                         .params
                         .iter()
-                        .filter_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
+                        .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
                     let comp_result = None;
                     let iface = self.imported_interfaces.entry(interface).or_default();
@@ -1423,18 +1424,18 @@ impl Compiler {
                         .inner
                         .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
-                TypedAbiPart::Effect(effect) => {
+                FunctionKind::Raise => {
                     let mut core_params = Vec::with_capacity(16);
-                    let span = effect.name.span();
-                    for p in &effect.params {
-                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
+                    let span = part.name.span();
+                    for p in &part.ty.params {
+                        _ = self.star_to_core_types(span, &mut core_params, p);
                     }
                     let mut core_results = Vec::new();
-                    _ = self.star_to_core_types(span, &mut core_results, &effect.return_type);
+                    _ = self.star_to_core_types(span, &mut core_results, &part.ty.result);
 
                     let interface =
-                        format!("starstream:effects/{}", to_kebab_case(def.name.as_str()));
-                    let kebab = to_kebab_case(effect.name.as_str());
+                        format!("starstream:effects/{}", to_kebab_case(def.ty.name.as_str()));
+                    let kebab = to_kebab_case(part.name.as_str());
 
                     // Core import
                     let core_fn_ty = self.add_core_func_type(&FuncType::new(
@@ -1442,15 +1443,16 @@ impl Compiler {
                         core_results,
                     ));
                     let func = self.import_function(&interface, &kebab, core_fn_ty);
-                    self.callables.insert(effect.id, func);
+                    self.callables.insert(part.id, func);
 
                     // Component import
-                    let comp_params = effect
+                    let comp_params = part
+                        .ty
                         .params
                         .iter()
-                        .filter_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
+                        .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
-                    let comp_result = self.star_to_component_type(&effect.return_type);
+                    let comp_result = self.star_to_component_type(&part.ty.result);
                     let iface = self.imported_interfaces.entry(interface).or_default();
                     let comp_fn_ty =
                         iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
@@ -1458,9 +1460,10 @@ impl Compiler {
                         .inner
                         .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
-                TypedAbiPart::FnDecl(_) => {
+                FunctionKind::Normal => {
                     // ABI method codegen not yet implemented.
                 }
+                FunctionKind::Runtime => unreachable!(),
             }
         }
     }
@@ -1554,11 +1557,11 @@ impl Compiler {
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
-        self.export_component_ty(struct_.name.as_str(), &struct_.ty);
+        self.export_component_ty(struct_.ty.name.as_str(), &Type::Record(struct_.ty.clone()));
     }
 
     fn visit_enum(&mut self, enum_: &TypedEnumDef) {
-        self.export_component_ty(enum_.name.as_str(), &enum_.ty);
+        self.export_component_ty(enum_.ty.name.as_str(), &Type::Enum(enum_.ty.clone()));
     }
 
     fn pre_visit_utxo(&mut self, utxo: &TypedUtxoDef) {

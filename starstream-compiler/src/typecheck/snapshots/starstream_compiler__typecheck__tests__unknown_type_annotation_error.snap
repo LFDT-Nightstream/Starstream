@@ -10,3 +10,11 @@ E0011 (https://starstream.nightstream.dev/errors/E0011)
    :                 ^^^^^^^
  2 |     value;
    `----
+E0011 (https://starstream.nightstream.dev/errors/E0011)
+
+  x unknown type annotation `Missing`
+   ,-[test.star:1:17]
+ 1 | fn takes(value: Missing) {
+   :                 ^^^^^^^
+ 2 |     value;
+   `----

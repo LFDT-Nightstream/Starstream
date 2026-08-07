@@ -126,7 +126,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Utxo: MyUtxo => 
   T-Fn: private_fn => ()
     T-Expr: {private_fn: fn() -> ()} ⊢ emit HelloEvent(); ⇒ ()
@@ -142,21 +141,33 @@ TypedProgram {
     definitions: [
         Abi(
             TypedAbiDef {
-                name: Identifier {
-                    name: "FooAbi",
-                    span: 4..10,
+                ty: AbiType {
+                    name: Identifier {
+                        name: "FooAbi",
+                        span: 4..10,
+                    },
+                    methods: [],
                 },
-                parts: [
-                    Event(
-                        TypedEventDef {
-                            name: Identifier {
-                                name: "HelloEvent",
-                                span: 23..33,
-                            },
-                            id: NameId(2),
-                            params: [],
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "HelloEvent",
+                            span: 23..33,
                         },
-                    ),
+                        id: NameId(2),
+                        ty: FunctionType {
+                            kind: Emit,
+                            name_span: 23..33,
+                            params: [],
+                            param_spans: [],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(2),
+                                ),
+                            ),
+                        },
+                    },
                 ],
             },
         ),
