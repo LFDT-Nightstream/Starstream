@@ -4,8 +4,8 @@ use std::{
 };
 
 use starstream_types::{
-    AbiType, DUMMY_SPAN, Identifier, RecordFieldType, Scheme, Span, Type, TypeParam, TypeVarId,
-    types::EnumVariantKind,
+    AbiType, DUMMY_SPAN, Identifier, RecordFieldType, Scheme, Span, SubstituteType, Type,
+    TypeParam, TypeVarId, types::EnumVariantKind,
 };
 
 use crate::typecheck::{TypeError, TypeErrorKind};
@@ -333,62 +333,10 @@ fn collision2(name: &str, span: Span, prev: Span) -> TypeError {
     .with_secondary(prev, "previously defined here")
 }
 
-fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
-    match ty {
-        Type::Var(id) => {
-            out.insert(*id);
-        }
-        Type::Function(func) => {
-            for ty in &func.params {
-                free_type_vars_type(ty, out);
-            }
-            free_type_vars_type(&func.result, out);
-        }
-        Type::Tuple(types) => {
-            for ty in types.iter() {
-                free_type_vars_type(ty, out);
-            }
-        }
-        Type::Record(record) => {
-            for field in &record.fields {
-                free_type_vars_type(&field.ty, out);
-            }
-        }
-        Type::Enum(enum_type) => {
-            for variant in &enum_type.variants {
-                match &variant.kind {
-                    EnumVariantKind::Unit => {}
-                    EnumVariantKind::Tuple(payload) => {
-                        for ty in payload {
-                            free_type_vars_type(ty, out);
-                        }
-                    }
-                    EnumVariantKind::Struct(fields) => {
-                        for field in fields {
-                            free_type_vars_type(&field.ty, out);
-                        }
-                    }
-                }
-            }
-        }
-        Type::Int(_)
-        | Type::Bool
-        | Type::Unit
-        | Type::UtxoAny
-        | Type::Utxo(_)
-        | Type::TokenAny
-        | Type::Token(_)
-        | Type::Abi(_) => {}
-    }
-}
-
 fn free_type_vars_scheme(scheme: &Scheme) -> HashSet<TypeVarId> {
-    let mut free = HashSet::new();
-    free_type_vars_type(&scheme.ty, &mut free);
-
+    let mut free = scheme.ty.free_type_vars();
     for bound in &scheme.vars {
         free.remove(bound);
     }
-
     free
 }

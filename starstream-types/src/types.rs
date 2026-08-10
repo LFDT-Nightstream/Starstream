@@ -12,6 +12,9 @@ use std::sync::Arc;
 use crate::{Identifier, NameId, Span};
 
 mod display;
+mod subst;
+
+pub use subst::SubstituteType;
 
 // ----------------------------------------------------------------------------
 // Core `Type` data structure and its parts.

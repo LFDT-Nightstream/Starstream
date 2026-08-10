@@ -9,8 +9,8 @@ use std::{
 use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
     FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
-    Spanned, StaticFunction, TokenDef, TokenGlobal, TokenPart, TokenType, Type, TypeParam,
-    TypeVarId, TypedAbiMethodDecl, TypedImportItem, TypedTokenDef, TypedTokenGlobal,
+    Spanned, StaticFunction, SubstituteType, TokenDef, TokenGlobal, TokenPart, TokenType, Type,
+    TypeParam, TypeVarId, TypedAbiMethodDecl, TypedImportItem, TypedTokenDef, TypedTokenGlobal,
     TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     UtxoType,
     ast::{
@@ -1518,7 +1518,9 @@ impl Inferencer {
             .map(|(param, arg)| (param.id, arg.clone()))
             .collect();
 
-        let mut ty = substitute_type(template_ty, &mapping, &Default::default());
+        let mut ty = template_ty
+            .substitute_type(&mapping, &Default::default())
+            .into_owned();
         if let Type::Enum(ref mut enum_type) = ty {
             Arc::make_mut(enum_type).type_args = type_args.to_vec();
         }
@@ -3667,12 +3669,13 @@ impl Inferencer {
     /// variables to `i64` so that error messages show a concrete type name
     /// instead of an internal type variable like `t3`.
     fn apply_for_display(&self, ty: &Type) -> Type {
-        substitute_type(ty, &self.subst, &self.int_vars)
+        ty.substitute_type(&self.subst, &self.int_vars).into_owned()
     }
 
     /// Fully normalize a type by applying the current substitution set.
     fn apply(&self, ty: &Type) -> Type {
-        substitute_type(ty, &self.subst, &Default::default())
+        ty.substitute_type(&self.subst, &Default::default())
+            .into_owned()
     }
 
     /// Rewrite every definition in the program with normalized types.
@@ -3876,7 +3879,7 @@ impl Inferencer {
     /// Quantify over all type variables that are free in `ty` but not in the environment.
     fn generalize(&self, env: &TypeEnv, ty: &Type) -> Scheme {
         let applied = self.apply(ty);
-        let mut ty_free = free_type_vars_type(&applied);
+        let mut ty_free = applied.free_type_vars();
         let env_free = env.free_type_vars();
         // Don't quantify int-constrained vars — they should stay monomorphic
         // so that all uses share the same int type variable.
@@ -3892,7 +3895,10 @@ impl Inferencer {
         for var in &scheme.vars {
             mapping.insert(*var, self.fresh_var());
         }
-        substitute_type(&scheme.ty, &mapping, &Default::default())
+        scheme
+            .ty
+            .substitute_type(&mapping, &Default::default())
+            .into_owned()
     }
 
     /// Allocate a new inference variable unique to this inferencer.
@@ -4226,7 +4232,7 @@ impl Inferencer {
                 if ty == Type::Var(id) {
                     return Ok((ty, Vec::new(), "Unify-Var"));
                 }
-                if occurs_in(id, &ty, &self.subst) {
+                if ty.contains_var(id, &self.subst) {
                     return Err(());
                 }
                 // If this var is int-constrained, verify the target is an int type
@@ -4252,7 +4258,7 @@ impl Inferencer {
                 if ty == Type::Var(id) {
                     return Ok((ty, Vec::new(), "Unify-Var"));
                 }
-                if occurs_in(id, &ty, &self.subst) {
+                if ty.contains_var(id, &self.subst) {
                     return Err(());
                 }
                 // If this var is int-constrained, verify the target is an int type
@@ -4564,7 +4570,7 @@ impl Inferencer {
             return Ok(());
         }
 
-        if occurs_in(var, &ty, &self.subst) {
+        if ty.contains_var(var, &self.subst) {
             return Err(TypeError::new(kind, var_span)
                 .with_secondary(other_span, "would create an infinite type"));
         }
@@ -4591,194 +4597,5 @@ impl Inferencer {
 
         self.subst.insert(var, ty);
         Ok(())
-    }
-}
-
-/// Recursively replace any variables mentioned in `mapping` within `ty`.
-fn substitute_type(
-    ty: &Type,
-    mapping: &HashMap<TypeVarId, Type>,
-    int_vars: &HashSet<TypeVarId>,
-) -> Type {
-    match ty {
-        Type::Var(id) => match mapping.get(id) {
-            Some(ty) => substitute_type(ty, mapping, int_vars),
-            None if int_vars.contains(id) => Type::int(),
-            None => Type::Var(*id),
-        },
-        Type::Function(func) => Type::from(FunctionType {
-            params: func
-                .params
-                .iter()
-                .map(|ty| substitute_type(ty, mapping, int_vars))
-                .collect(),
-            param_spans: func.param_spans.clone(),
-            result: substitute_type(&func.result, mapping, int_vars),
-            kind: func.kind,
-            name_span: func.name_span,
-            callee: func.callee.clone(),
-        }),
-        Type::Tuple(items) => Type::Tuple(Arc::new(
-            items
-                .iter()
-                .map(|ty| substitute_type(ty, mapping, int_vars))
-                .collect(),
-        )),
-        Type::Record(record) => Type::from(RecordType {
-            name: record.name.clone(),
-            fields: record
-                .fields
-                .iter()
-                .map(|field| RecordFieldType {
-                    name: field.name.clone(),
-                    ty: substitute_type(&field.ty, mapping, int_vars),
-                })
-                .collect(),
-        }),
-        Type::Enum(enum_type) => Type::from(EnumType {
-            name: enum_type.name.clone(),
-            variants: enum_type
-                .variants
-                .iter()
-                .map(|variant| EnumVariantType {
-                    name: variant.name.clone(),
-                    kind: match &variant.kind {
-                        EnumVariantKind::Unit => EnumVariantKind::Unit,
-                        EnumVariantKind::Tuple(payload) => EnumVariantKind::Tuple(
-                            payload
-                                .iter()
-                                .map(|ty| substitute_type(ty, mapping, int_vars))
-                                .collect(),
-                        ),
-                        EnumVariantKind::Struct(fields) => EnumVariantKind::Struct(
-                            fields
-                                .iter()
-                                .map(|field| {
-                                    RecordFieldType::new(
-                                        field.name.clone(),
-                                        substitute_type(&field.ty, mapping, int_vars),
-                                    )
-                                })
-                                .collect(),
-                        ),
-                    },
-                })
-                .collect(),
-            type_args: enum_type
-                .type_args
-                .iter()
-                .map(|ty| substitute_type(ty, mapping, int_vars))
-                .collect(),
-        }),
-        Type::Int(w) => Type::Int(*w),
-        Type::Bool => Type::Bool,
-        Type::Unit => Type::Unit,
-        Type::UtxoAny => Type::UtxoAny,
-        Type::Utxo(id) => Type::Utxo(id.clone()),
-        Type::TokenAny => Type::TokenAny,
-        Type::Token(id) => Type::Token(id.clone()),
-        Type::Abi(name) => Type::Abi(name.clone()),
-    }
-}
-
-/// Return `true` if `var` appears anywhere inside `ty`, expanding substitutions as needed.
-fn occurs_in(var: TypeVarId, ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> bool {
-    match ty {
-        Type::Var(id) => {
-            if id == &var {
-                true
-            } else {
-                mapping
-                    .get(id)
-                    .map(|ty| occurs_in(var, ty, mapping))
-                    .unwrap_or(false)
-            }
-        }
-        Type::Function(func) => {
-            func.params.iter().any(|t| occurs_in(var, t, mapping))
-                || occurs_in(var, &func.result, mapping)
-        }
-        Type::Tuple(items) => items.iter().any(|t| occurs_in(var, t, mapping)),
-        Type::Record(record) => record
-            .fields
-            .iter()
-            .any(|field| occurs_in(var, &field.ty, mapping)),
-        Type::Enum(enum_type) => enum_type
-            .variants
-            .iter()
-            .any(|variant| match &variant.kind {
-                EnumVariantKind::Unit => false,
-                EnumVariantKind::Tuple(payload) => {
-                    payload.iter().any(|ty| occurs_in(var, ty, mapping))
-                }
-                EnumVariantKind::Struct(fields) => fields
-                    .iter()
-                    .any(|field| occurs_in(var, &field.ty, mapping)),
-            }),
-        Type::Int(_)
-        | Type::Bool
-        | Type::Unit
-        | Type::UtxoAny
-        | Type::Utxo(_)
-        | Type::TokenAny
-        | Type::Token(_)
-        | Type::Abi(_) => false,
-    }
-}
-
-/// Collect all free type variables present in `ty`.
-pub(crate) fn free_type_vars_type(ty: &Type) -> HashSet<TypeVarId> {
-    let mut set = HashSet::new();
-    collect_free_type_vars(ty, &mut set);
-    set
-}
-
-/// Helper for `free_type_vars_type` that walks the type tree.
-fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
-    match ty {
-        Type::Var(id) => {
-            set.insert(*id);
-        }
-        Type::Function(func) => {
-            for ty in &func.params {
-                collect_free_type_vars(ty, set);
-            }
-            collect_free_type_vars(&func.result, set);
-        }
-        Type::Tuple(items) => {
-            for ty in items.iter() {
-                collect_free_type_vars(ty, set);
-            }
-        }
-        Type::Record(record) => {
-            for field in &record.fields {
-                collect_free_type_vars(&field.ty, set);
-            }
-        }
-        Type::Enum(enum_type) => {
-            for variant in &enum_type.variants {
-                match &variant.kind {
-                    EnumVariantKind::Unit => {}
-                    EnumVariantKind::Tuple(payload) => {
-                        for ty in payload {
-                            collect_free_type_vars(ty, set);
-                        }
-                    }
-                    EnumVariantKind::Struct(fields) => {
-                        for field in fields {
-                            collect_free_type_vars(&field.ty, set);
-                        }
-                    }
-                }
-            }
-        }
-        Type::Int(_)
-        | Type::Bool
-        | Type::Unit
-        | Type::UtxoAny
-        | Type::Utxo(_)
-        | Type::TokenAny
-        | Type::Token(_)
-        | Type::Abi(_) => {}
     }
 }
