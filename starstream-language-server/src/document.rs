@@ -1234,7 +1234,7 @@ impl DocumentState {
                         }
                         TypedIfCondition::Is {
                             name,
-                            abi_name,
+                            abi,
                             original_type,
                         } => {
                             // Hover on the variable shows its original type
@@ -1242,8 +1242,8 @@ impl DocumentState {
                                 self.add_hover_span(span, original_type);
                             }
                             // Hover on the ABI name shows the ABI definition label
-                            if let Some(span) = abi_name.opt_span() {
-                                self.add_hover_label(span, format!("abi {}", abi_name.name));
+                            if let Some(span) = abi.name.opt_span() {
+                                self.add_hover_label(span, format!("abi {}", abi.name));
                             }
                         }
                     }
@@ -2236,8 +2236,8 @@ impl DocumentState {
                         .flat_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
-                        name: abi.compact_display().to_string(),
-                        detail: Some(abi.to_string()),
+                        name: Type::Abi(abi.clone()).compact_display().to_string(),
+                        detail: Some(Type::Abi(abi.clone()).to_string()),
                         kind: SymbolKind::INTERFACE,
                         tags: None,
                         #[allow(deprecated)]

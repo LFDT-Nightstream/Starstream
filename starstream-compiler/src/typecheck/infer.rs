@@ -1303,8 +1303,11 @@ impl Inferencer {
                     let abi_info = env.root.get_abi(abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
-                    let abi = Type::Abi(abi_info.clone());
-                    TypedTokenPart::AbiImpl { abi, span, parts }
+                    TypedTokenPart::AbiImpl {
+                        abi: abi_info.clone(),
+                        span,
+                        parts,
+                    }
                 }
             });
         }
@@ -1314,12 +1317,14 @@ impl Inferencer {
         let Some(ty) = env.root.types.get(def.name.as_str()) else {
             unreachable!()
         };
-        assert!(matches!(ty.ty, Type::Token(_)));
+        let Type::Token(token) = &ty.ty else {
+            unreachable!()
+        };
         Ok((
             TypedTokenDef {
                 name: def.name.clone(),
                 parts,
-                ty: ty.ty.clone(),
+                ty: token.clone(),
             },
             self.make_trace("T-Token", None, Some(def.name.to_string()), None, || traces),
         ))
@@ -2995,7 +3000,7 @@ impl Inferencer {
                             typed_branches.push((
                                 TypedIfCondition::Is {
                                     name: name.clone(),
-                                    abi_name: abi_name.clone(),
+                                    abi: abi.clone(),
                                     original_type: var_ty,
                                 },
                                 typed_then,
@@ -3691,7 +3696,10 @@ impl Inferencer {
     }
 
     fn apply_token(&self, token: &mut TypedTokenDef) {
-        token.ty = self.apply(&token.ty);
+        let Type::Token(new_ty) = self.apply(&Type::Token(token.ty.clone())) else {
+            unreachable!()
+        };
+        token.ty = new_ty;
         for part in &mut token.parts {
             match part {
                 TypedTokenPart::Storage(vars) => {
@@ -3707,7 +3715,10 @@ impl Inferencer {
                     span: _,
                     parts,
                 } => {
-                    *abi = self.apply(abi);
+                    let Type::Abi(new_ty) = self.apply(&Type::Abi(abi.clone())) else {
+                        unreachable!()
+                    };
+                    *abi = new_ty;
                     for part in parts {
                         self.apply_function(part);
                     }

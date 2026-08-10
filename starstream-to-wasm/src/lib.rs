@@ -1818,7 +1818,7 @@ impl Compiler {
             ty,
         );
         self.resource_abi_fns
-            .insert(token.ty.clone(), (new_fn, drop_fn));
+            .insert(Type::Token(token.ty.clone()), (new_fn, drop_fn));
     }
 
     fn visit_token(&mut self, token: &TypedTokenDef) {
@@ -1834,7 +1834,10 @@ impl Compiler {
         );
         self.resources.insert(token.name.to_string(), resource);
 
-        let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&token.ty).unwrap();
+        let (resource_new_fn, _resource_drop_fn) = *self
+            .resource_abi_fns
+            .get(&Type::Token(token.ty.clone()))
+            .unwrap();
 
         // Tokens have no coroutine/`yield` semantics, so there is no `resume;`
         // function to reserve (unlike `utxo`). `resume_fn` is never read because
@@ -1934,12 +1937,12 @@ impl Compiler {
                     _ = abi; // TODO: generate cast functions (mirrors `utxo`)
                     for function in parts {
                         let core = self.visit_function(
-                            Some(&token.ty),
+                            Some(&Type::Token(token.ty.clone())),
                             function,
                             &(&() as &dyn Locals, &token_storage),
                         );
                         let sig = self.star_to_component_signature(
-                            Some(&token.ty),
+                            Some(&Type::Token(token.ty.clone())),
                             &function.params,
                             &function.ty.result,
                         );
@@ -1966,7 +1969,7 @@ impl Compiler {
         let end_global = self.globals.len();
         self.generate_storage_exports(
             &token.name,
-            &token.ty,
+            &Type::Token(token.ty.clone()),
             &mut iface,
             &interface_name,
             start_global..end_global,

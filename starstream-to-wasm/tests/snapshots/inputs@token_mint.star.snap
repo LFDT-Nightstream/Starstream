@@ -238,62 +238,60 @@ TypedProgram {
                     ),
                     AbiImpl {
                         span: 129..134,
-                        abi: Abi(
-                            AbiType {
-                                name: Identifier {
-                                    name: "Token",
-                                    span: 0..0,
-                                },
-                                methods: [
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "attach",
-                                            span: 0..0,
-                                        },
-                                        id: NameId(0),
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 0..0,
-                                            params: [
-                                                UtxoAny,
-                                            ],
-                                            param_spans: [
-                                                0..0,
-                                            ],
-                                            result: Unit,
-                                            callee: Some(
-                                                Named(
-                                                    NameId(0),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "detach",
-                                            span: 0..0,
-                                        },
-                                        id: NameId(1),
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 0..0,
-                                            params: [
-                                                UtxoAny,
-                                            ],
-                                            param_spans: [
-                                                0..0,
-                                            ],
-                                            result: Unit,
-                                            callee: Some(
-                                                Named(
-                                                    NameId(1),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                ],
+                        abi: AbiType {
+                            name: Identifier {
+                                name: "Token",
+                                span: 0..0,
                             },
-                        ),
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "attach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(0),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            UtxoAny,
+                                        ],
+                                        param_spans: [
+                                            0..0,
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(0),
+                                            ),
+                                        ),
+                                    },
+                                },
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "detach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(1),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            UtxoAny,
+                                        ],
+                                        param_spans: [
+                                            0..0,
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(1),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
                         parts: [
                             TypedFunctionDef {
                                 export: None,
@@ -374,12 +372,10 @@ TypedProgram {
                         ],
                     },
                 ],
-                ty: Token(
-                    TokenType {
-                        name: "MyToken",
-                        id: NameId(4),
-                    },
-                ),
+                ty: TokenType {
+                    name: "MyToken",
+                    id: NameId(4),
+                },
             },
         ),
     ],

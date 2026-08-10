@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::{
     AbiType, DUMMY_SPAN, EnumType, FunctionExport, FunctionType, ImportSource, RecordType,
-    ScopedName, Span, Spanned, TypedAbiMethodDecl, UtxoType,
+    ScopedName, Span, Spanned, TokenType, TypedAbiMethodDecl, UtxoType,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -105,7 +105,7 @@ pub struct TypedUtxoGlobal {
 pub struct TypedTokenDef {
     pub name: Identifier,
     pub parts: Vec<TypedTokenPart>,
-    pub ty: Type,
+    pub ty: Arc<TokenType>,
 }
 
 #[derive(Clone, Debug)]
@@ -114,7 +114,7 @@ pub enum TypedTokenPart {
     Function(Box<TypedFunctionDef>),
     AbiImpl {
         span: Span,
-        abi: Type,
+        abi: Arc<AbiType>,
         parts: Vec<TypedFunctionDef>,
     },
 }
@@ -209,7 +209,7 @@ pub enum TypedIfCondition {
     /// A type-narrowing test: `if ident is AbiType { ... }`
     Is {
         name: Identifier,
-        abi_name: Identifier,
+        abi: Arc<AbiType>,
         /// The original type of the variable before narrowing.
         original_type: Type,
     },
