@@ -945,7 +945,7 @@ impl Inferencer {
                     Self::collect_yields(&mut yields, &def.body);
                 }
                 UtxoPart::AbiImpl { abi, parts } => {
-                    possible_abis.push(env.root.get_abi(&abi)?.clone());
+                    possible_abis.push(env.root.get_abi(abi)?.clone());
                     for part in parts {
                         Self::collect_yields(&mut yields, &part.body);
                     }
@@ -957,12 +957,12 @@ impl Inferencer {
         let mut always_abis = Vec::new();
         if let Some((first, rest)) = yields.split_first() {
             for abi in first.iter() {
-                always_abis.push(env.root.get_abi(&abi)?.clone());
+                always_abis.push(env.root.get_abi(abi)?.clone());
             }
             for &expr in rest {
                 let mut abis = Vec::new();
                 for abi in expr.iter() {
-                    abis.push(env.root.get_abi(&abi)?.clone());
+                    abis.push(env.root.get_abi(abi)?.clone());
                 }
                 always_abis.retain(|a| abis.contains(a));
             }

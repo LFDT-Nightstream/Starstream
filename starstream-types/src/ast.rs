@@ -132,7 +132,7 @@ impl std::cmp::PartialEq for Identifier {
     }
 }
 
-impl<'a> std::cmp::PartialEq<&'a str> for Identifier {
+impl std::cmp::PartialEq<&str> for Identifier {
     fn eq(&self, other: &&str) -> bool {
         self.name == *other
     }

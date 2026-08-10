@@ -3117,21 +3117,21 @@ impl Compiler {
                             } else if let Some(&core_fn_idx) = self.callables.get(name) {
                                 self.visit_call(func, bb, locals, span, core_fn_idx, args)
                             } else {
-                                return Err(self.push_error(
+                                Err(self.push_error(
                                     callee_span,
                                     format!(
                                         "no callable found for method {name} on type {}",
                                         target.node.ty
                                     ),
-                                ));
+                                ))
                             }
                         } else if let Some(&core_fn_idx) = self.callables.get(name) {
                             self.visit_call(func, bb, locals, span, core_fn_idx, args)
                         } else {
-                            return Err(self.push_error(
+                            Err(self.push_error(
                                 callee_span,
                                 format!("no callable found for function {name}"),
-                            ));
+                            ))
                         }
                     }
                     Some(StaticFunction::Constructor { variant }) => {
