@@ -4192,7 +4192,7 @@ impl Inferencer {
             (Type::Utxo(left), Type::Utxo(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
                 Ok((Type::Utxo(left), Vec::new(), "Unify-Const"))
             }
-            (Type::TokenAny, Type::TokenAny) => Ok((Type::UtxoAny, Vec::new(), "Unify-Const")),
+            (Type::TokenAny, Type::TokenAny) => Ok((Type::TokenAny, Vec::new(), "Unify-Const")),
             (Type::Token(left), Type::Token(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
