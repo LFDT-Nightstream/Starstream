@@ -57,7 +57,6 @@ pub struct TypedFunctionDef {
     pub id: NameId,
     pub ty: Arc<FunctionType>,
     pub params: Vec<TypedFunctionParam>,
-    pub return_type: Type,
     pub body: TypedBlock,
 }
 

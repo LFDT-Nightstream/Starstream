@@ -237,7 +237,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Unit,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -335,9 +334,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {

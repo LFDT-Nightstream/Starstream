@@ -959,7 +959,6 @@ TypedProgram {
                                 ),
                             },
                             params: [],
-                            return_type: Unit,
                             body: TypedBlock {
                                 statements: [
                                     Expression(
@@ -1316,7 +1315,6 @@ TypedProgram {
                                         ),
                                     },
                                 ],
-                                return_type: Unit,
                                 body: TypedBlock {
                                     statements: [
                                         Assignment {
@@ -1411,7 +1409,6 @@ TypedProgram {
                                         ),
                                     },
                                 ],
-                                return_type: Unit,
                                 body: TypedBlock {
                                     statements: [
                                         Assignment {
@@ -1506,7 +1503,6 @@ TypedProgram {
                                         ),
                                     },
                                 ],
-                                return_type: Unit,
                                 body: TypedBlock {
                                     statements: [
                                         Assignment {
@@ -1611,7 +1607,6 @@ TypedProgram {
                                     ),
                                 },
                                 params: [],
-                                return_type: Unit,
                                 body: TypedBlock {
                                     statements: [
                                         Resume,
@@ -1859,7 +1854,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Unit,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {

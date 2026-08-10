@@ -999,7 +999,7 @@ impl DocumentState {
                 .map(|p| format!("{}: {}", p.name.name, p.ty.compact_display()))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let signature = format!("({}) -> {}", params, function.return_type.compact_display());
+            let signature = format!("({}) -> {}", params, function.ty.result.compact_display());
 
             self.add_hover_label_with_doc(span, signature.clone(), doc.clone());
 

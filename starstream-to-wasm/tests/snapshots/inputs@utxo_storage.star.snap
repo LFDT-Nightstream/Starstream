@@ -240,7 +240,6 @@ TypedProgram {
                                 ),
                             },
                             params: [],
-                            return_type: Unit,
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -321,7 +320,6 @@ TypedProgram {
                                 ),
                             },
                             params: [],
-                            return_type: Unit,
                             body: TypedBlock {
                                 statements: [
                                     Assignment {

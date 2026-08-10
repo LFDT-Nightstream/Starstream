@@ -235,7 +235,6 @@ TypedProgram {
                                     ),
                                 },
                             ],
-                            return_type: Unit,
                             body: TypedBlock {
                                 statements: [
                                     Expression(
@@ -332,7 +331,6 @@ TypedProgram {
                                     ),
                                 },
                                 params: [],
-                                return_type: Unit,
                                 body: TypedBlock {
                                     statements: [
                                         Resume,

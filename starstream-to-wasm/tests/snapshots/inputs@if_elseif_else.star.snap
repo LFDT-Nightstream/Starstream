@@ -186,7 +186,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Unit,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(

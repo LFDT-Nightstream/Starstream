@@ -217,7 +217,7 @@ fn function_doc(f: &TypedFunctionDef, doc: Option<String>) -> FunctionDoc {
                 ty: TypeRef::from(&p.ty),
             })
             .collect(),
-        return_type: TypeRef::from(&f.return_type),
+        return_type: TypeRef::from(&f.ty.result),
         kind: "",
         export: f.export.as_ref().map(|e| e.keyword()),
     }

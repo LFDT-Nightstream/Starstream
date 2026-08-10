@@ -1496,9 +1496,6 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -2041,9 +2038,6 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -2276,9 +2270,6 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -2544,9 +2535,6 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -2763,7 +2751,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Unit,
                 body: TypedBlock {
                     statements: [
                         Expression(

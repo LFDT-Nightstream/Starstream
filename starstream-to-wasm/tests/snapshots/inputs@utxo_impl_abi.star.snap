@@ -227,9 +227,6 @@ TypedProgram {
                                     ),
                                 },
                                 params: [],
-                                return_type: Int(
-                                    I32,
-                                ),
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: Some(

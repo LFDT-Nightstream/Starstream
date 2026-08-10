@@ -207,7 +207,6 @@ TypedProgram {
                                 ),
                             },
                             params: [],
-                            return_type: Unit,
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -329,7 +328,6 @@ TypedProgram {
                                         ty: UtxoAny,
                                     },
                                 ],
-                                return_type: Unit,
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,
@@ -368,7 +366,6 @@ TypedProgram {
                                         ty: UtxoAny,
                                     },
                                 ],
-                                return_type: Unit,
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,

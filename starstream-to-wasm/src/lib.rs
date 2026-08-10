@@ -1318,7 +1318,7 @@ impl Compiler {
                     let core = self.visit_function(None, func, &());
                     if let Some(FunctionExport::Script) = func.export {
                         let sig =
-                            self.star_to_component_signature(None, &func.params, &func.return_type);
+                            self.star_to_component_signature(None, &func.params, &func.ty.result);
                         self.export_component_fn(
                             &to_kebab_case(func.name.as_str()),
                             func.name.span,
@@ -1490,7 +1490,7 @@ impl Compiler {
             _ = self.star_to_core_types(p.name.span_or(function.name.span()), &mut params, &p.ty);
         }
         let mut results = Vec::with_capacity(1);
-        _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
+        _ = self.star_to_core_types(function.name.span(), &mut results, &function.ty.result);
 
         let mut func = StFunction::new(&params, &results);
         let bb_orig = func.cfg.add_block();
@@ -1641,7 +1641,7 @@ impl Compiler {
                             _ = self.star_to_core_types(
                                 function.name.span(),
                                 &mut results,
-                                &function.return_type,
+                                &function.ty.result,
                             );
 
                             let wit_name = format!(
@@ -1723,7 +1723,7 @@ impl Compiler {
                         let mut sig = self.star_to_component_signature(
                             None,
                             &function.params,
-                            &function.return_type,
+                            &function.ty.result,
                         );
                         sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
                         let wit_name = format!(
@@ -1757,7 +1757,7 @@ impl Compiler {
                         let sig = self.star_to_component_signature(
                             Some(&this),
                             &function.params,
-                            &function.return_type,
+                            &function.ty.result,
                         );
                         let wit_name = format!(
                             "[method]{resource_name}.{}",
@@ -1871,7 +1871,7 @@ impl Compiler {
                             let mut sig = self.star_to_component_signature(
                                 None,
                                 &function.params,
-                                &function.return_type,
+                                &function.ty.result,
                             );
                             sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
                             let wit_name = format!(
@@ -1899,7 +1899,7 @@ impl Compiler {
                             let sig = self.star_to_component_signature(
                                 None,
                                 &function.params,
-                                &function.return_type,
+                                &function.ty.result,
                             );
                             let wit_name = format!(
                                 "[static]{resource_name}.{}",
@@ -1941,7 +1941,7 @@ impl Compiler {
                         let sig = self.star_to_component_signature(
                             Some(&token.ty),
                             &function.params,
-                            &function.return_type,
+                            &function.ty.result,
                         );
                         let wit_name = format!(
                             "[method]{resource_name}.{}",

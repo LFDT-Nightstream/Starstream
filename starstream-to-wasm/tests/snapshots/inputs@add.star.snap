@@ -170,9 +170,6 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(

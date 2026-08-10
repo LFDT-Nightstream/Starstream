@@ -158,7 +158,6 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Unit,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: None,

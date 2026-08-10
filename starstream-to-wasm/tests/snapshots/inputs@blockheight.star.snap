@@ -259,9 +259,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -383,9 +380,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(

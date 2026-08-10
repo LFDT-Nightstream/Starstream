@@ -1416,11 +1416,11 @@ impl Inferencer {
                     }
                 }
                 // And return type must match
-                if abi_method.ty.result != impl_method.return_type {
+                if abi_method.ty.result != impl_method.ty.result {
                     return Err(TypeError::new(
                         TypeErrorKind::ReturnMismatch {
                             expected: abi_method.ty.result.clone(),
-                            found: impl_method.return_type.clone(),
+                            found: impl_method.ty.result.clone(),
                         },
                         abi_method.name.span,
                     ));
@@ -1888,7 +1888,6 @@ impl Inferencer {
                 id: *self.function_names.get(function).unwrap(),
                 ty: func_ty,
                 params: typed_params,
-                return_type: ctx.expected_return,
                 body: typed_body,
             },
             trace,
@@ -3746,7 +3745,10 @@ impl Inferencer {
     }
 
     fn apply_function(&self, function: &mut TypedFunctionDef) {
-        function.return_type = self.apply(&function.return_type);
+        let Type::Function(func) = self.apply(&Type::Function(function.ty.clone())) else {
+            unreachable!()
+        };
+        function.ty = func;
         for param in &mut function.params {
             param.ty = self.apply(&param.ty);
         }

@@ -979,41 +979,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Enum(
-                    EnumType {
-                        name: Identifier {
-                            name: "Option",
-                            span: 0..0,
-                        },
-                        variants: [
-                            EnumVariantType {
-                                name: Identifier {
-                                    name: "None",
-                                    span: 0..0,
-                                },
-                                kind: Unit,
-                            },
-                            EnumVariantType {
-                                name: Identifier {
-                                    name: "Some",
-                                    span: 0..0,
-                                },
-                                kind: Tuple(
-                                    [
-                                        Int(
-                                            I64,
-                                        ),
-                                    ],
-                                ),
-                            },
-                        ],
-                        type_args: [
-                            Int(
-                                I64,
-                            ),
-                        ],
-                    },
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -1200,41 +1165,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Enum(
-                    EnumType {
-                        name: Identifier {
-                            name: "Option",
-                            span: 0..0,
-                        },
-                        variants: [
-                            EnumVariantType {
-                                name: Identifier {
-                                    name: "None",
-                                    span: 0..0,
-                                },
-                                kind: Unit,
-                            },
-                            EnumVariantType {
-                                name: Identifier {
-                                    name: "Some",
-                                    span: 0..0,
-                                },
-                                kind: Tuple(
-                                    [
-                                        Int(
-                                            I64,
-                                        ),
-                                    ],
-                                ),
-                            },
-                        ],
-                        type_args: [
-                            Int(
-                                I64,
-                            ),
-                        ],
-                    },
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -1401,9 +1331,6 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -1612,46 +1539,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Enum(
-                    EnumType {
-                        name: Identifier {
-                            name: "Result",
-                            span: 0..0,
-                        },
-                        variants: [
-                            EnumVariantType {
-                                name: Identifier {
-                                    name: "Ok",
-                                    span: 0..0,
-                                },
-                                kind: Tuple(
-                                    [
-                                        Int(
-                                            I64,
-                                        ),
-                                    ],
-                                ),
-                            },
-                            EnumVariantType {
-                                name: Identifier {
-                                    name: "Err",
-                                    span: 0..0,
-                                },
-                                kind: Tuple(
-                                    [
-                                        Bool,
-                                    ],
-                                ),
-                            },
-                        ],
-                        type_args: [
-                            Int(
-                                I64,
-                            ),
-                            Bool,
-                        ],
-                    },
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -1851,46 +1738,6 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Enum(
-                    EnumType {
-                        name: Identifier {
-                            name: "Result",
-                            span: 0..0,
-                        },
-                        variants: [
-                            EnumVariantType {
-                                name: Identifier {
-                                    name: "Ok",
-                                    span: 0..0,
-                                },
-                                kind: Tuple(
-                                    [
-                                        Int(
-                                            I64,
-                                        ),
-                                    ],
-                                ),
-                            },
-                            EnumVariantType {
-                                name: Identifier {
-                                    name: "Err",
-                                    span: 0..0,
-                                },
-                                kind: Tuple(
-                                    [
-                                        Bool,
-                                    ],
-                                ),
-                            },
-                        ],
-                        type_args: [
-                            Int(
-                                I64,
-                            ),
-                            Bool,
-                        ],
-                    },
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -2137,9 +1984,6 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int(
-                    I64,
-                ),
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -2577,7 +2421,6 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Unit,
                 body: TypedBlock {
                     statements: [
                         Expression(
