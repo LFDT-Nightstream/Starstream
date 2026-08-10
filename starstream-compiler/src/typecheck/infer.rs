@@ -4188,9 +4188,11 @@ impl Inferencer {
                 Ok((Type::Enum(ls), children, "Unify-Enum"))
             }
             // Utxo and Token types are nominal and only unify with themselves.
+            (Type::UtxoAny, Type::UtxoAny) => Ok((Type::UtxoAny, Vec::new(), "Unify-Const")),
             (Type::Utxo(left), Type::Utxo(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
                 Ok((Type::Utxo(left), Vec::new(), "Unify-Const"))
             }
+            (Type::TokenAny, Type::TokenAny) => Ok((Type::UtxoAny, Vec::new(), "Unify-Const")),
             (Type::Token(left), Type::Token(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
@@ -4478,9 +4480,11 @@ impl Inferencer {
                 }
                 (Type::Enum(ls), enum_children, "Unify-Enum")
             }
+            (Type::UtxoAny, Type::UtxoAny) => (Type::UtxoAny, Vec::new(), "Unify-Const"),
             (Type::Utxo(left), Type::Utxo(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
                 (Type::Utxo(left), Vec::new(), "Unify-Const")
             }
+            (Type::TokenAny, Type::TokenAny) => (Type::TokenAny, Vec::new(), "Unify-Const"),
             (Type::Token(left), Type::Token(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
