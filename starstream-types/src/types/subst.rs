@@ -78,11 +78,16 @@ impl<T: Sized + Clone + SubstituteType> SubstituteType for Arc<T> {
         subst: &HashMap<TypeVarId, Type>,
         int_vars: &HashSet<TypeVarId>,
     ) {
-        if let Cow::Owned(replacement) = (**self).substitute_type(subst, int_vars) {
-            match Arc::get_mut(self) {
-                Some(reuse) => *reuse = replacement,
-                None => *self = Arc::new(replacement),
-            }
+        match Arc::get_mut(self) {
+            // We're unique, so recursively substitute in place.
+            Some(this) => this.substitute_in_place(subst, int_vars),
+            // Not unique, so substitute by reference.
+            None => match (**self).substitute_type(subst, int_vars) {
+                // No substitution needed, can continue to share.
+                Cow::Borrowed(_) => {}
+                // Substitution needed, self becomes a new unique Arc.
+                Cow::Owned(owned) => *self = Arc::new(owned),
+            },
         }
     }
 }
@@ -111,6 +116,16 @@ impl<T: SubstituteType> SubstituteType for Vec<T> {
             Cow::Borrowed(self)
         } else {
             Cow::Owned(children.into_iter().map(|p| p.into_owned()).collect())
+        }
+    }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        for each in self.iter_mut() {
+            each.substitute_in_place(subst, int_vars);
         }
     }
 }
@@ -200,7 +215,28 @@ impl SubstituteType for Type {
         }
     }
 
-    // TODO: substitute_in_place that forwards to Arc::substitute_in_place
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        match self {
+            Type::Var(id) => match subst.get(id) {
+                // NB: substitutions must always become Owned
+                Some(ty) => *self = ty.substitute_type(subst, int_vars).into_owned(),
+                None if int_vars.contains(id) => *self = Type::int(),
+                None => {}
+            },
+            Type::Function(function_type) => function_type.substitute_in_place(subst, int_vars),
+            Type::Tuple(items) => items.substitute_in_place(subst, int_vars),
+            Type::Record(record_type) => record_type.substitute_in_place(subst, int_vars),
+            Type::Enum(enum_type) => enum_type.substitute_in_place(subst, int_vars),
+            Type::Utxo(utxo_type) => utxo_type.substitute_in_place(subst, int_vars),
+            Type::Token(token_type) => token_type.substitute_in_place(subst, int_vars),
+            Type::Abi(abi_type) => abi_type.substitute_in_place(subst, int_vars),
+            Type::Unit | Type::Bool | Type::Int(_) | Type::UtxoAny | Type::TokenAny => {}
+        }
+    }
 }
 
 impl SubstituteType for FunctionType {
@@ -232,6 +268,15 @@ impl SubstituteType for FunctionType {
             })
         }
     }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        self.params.substitute_in_place(subst, int_vars);
+        self.result.substitute_in_place(subst, int_vars);
+    }
 }
 
 impl SubstituteType for TypedFunctionParam {
@@ -257,6 +302,14 @@ impl SubstituteType for TypedFunctionParam {
                 ty_span: self.ty_span,
             }),
         }
+    }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        self.ty.substitute_in_place(subst, int_vars);
     }
 }
 
@@ -286,6 +339,14 @@ impl SubstituteType for RecordType {
             }),
         }
     }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        self.fields.substitute_in_place(subst, int_vars);
+    }
 }
 
 impl SubstituteType for RecordFieldType {
@@ -309,6 +370,14 @@ impl SubstituteType for RecordFieldType {
                 ty: owned,
             }),
         }
+    }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        self.ty.substitute_in_place(subst, int_vars);
     }
 }
 
@@ -343,6 +412,15 @@ impl SubstituteType for EnumType {
             })
         }
     }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        self.variants.substitute_in_place(subst, int_vars);
+        self.type_args.substitute_in_place(subst, int_vars);
+    }
 }
 
 impl SubstituteType for EnumVariantType {
@@ -366,6 +444,14 @@ impl SubstituteType for EnumVariantType {
                 kind: owned,
             }),
         }
+    }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        self.kind.substitute_in_place(subst, int_vars);
     }
 }
 
@@ -406,6 +492,20 @@ impl SubstituteType for EnumVariantKind {
                     Cow::Borrowed(_) => Cow::Borrowed(self),
                     Cow::Owned(owned) => Cow::Owned(EnumVariantKind::Struct(owned)),
                 }
+            }
+        }
+    }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        match self {
+            EnumVariantKind::Unit => {}
+            EnumVariantKind::Tuple(items) => items.substitute_in_place(subst, int_vars),
+            EnumVariantKind::Struct(record_field_types) => {
+                record_field_types.substitute_in_place(subst, int_vars)
             }
         }
     }
