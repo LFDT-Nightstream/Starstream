@@ -96,6 +96,40 @@ with that contract's digest.
 
 ## Importing ABIs
 
+ABIs can contain events, effects, and methods.
+
+### Importing events
+
+To emit events, import and call `starstream:events/<abi-name>#<event-name>`.
+For example:
+
+```wit
+interface starstream:events/my-abi {
+    my-event: func(number: s32);
+}
+
+world root {
+    import starstream:events/my-abi;
+}
+```
+
+### Importing effects
+
+To raise effects, import and call `starstream:effects/<abi-name>#<event-name>`.
+For example:
+
+```wit
+interface starstream:effects/my-abi {
+    my-effect: func(number: s32);
+}
+
+world root {
+    import starstream:effects/my-abi;
+}
+```
+
+### ABI methods
+
 To call methods on a Utxo without knowing its concrete type, import the methods
 from `starstream:contract/dynamic-utxo`:
 
@@ -103,7 +137,7 @@ from `starstream:contract/dynamic-utxo`:
 interface starstream:contract/dynamic-utxo {
     use starstream:std/builtin.utxo;
 
-    my-method: func(this: borrow<utxo>, parameter: i32);
+    my-method: func(this: borrow<utxo>, parameter: s32);
 }
 
 world root {
@@ -131,7 +165,7 @@ to. For example:
 ```wit
 interface starstream:contract/scripts {
     @external-id("0123456789abcdef")
-    foobar: func() -> i32;
+    foobar: func() -> s32;
 }
 world root {
     import starstream:contract/scripts;

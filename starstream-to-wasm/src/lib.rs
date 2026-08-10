@@ -37,6 +37,7 @@ mod decision_tree;
 mod encoder;
 mod ir;
 mod stackifier;
+mod world_spec;
 
 /*
     The entry points [compile] and [CompileOptions::compile] are responsible
@@ -1408,80 +1409,17 @@ impl Compiler {
         for part in &def.functions {
             match part.ty.kind {
                 FunctionKind::Emit => {
-                    let mut core_params = Vec::with_capacity(16);
-                    let span = part.ty.name_span;
-                    for p in &part.ty.params {
-                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
-                    }
-
-                    let interface =
-                        format!("starstream:events/{}", to_kebab_case(def.ty.name.as_str()));
-                    let kebab = to_kebab_case(part.name.as_str());
-
-                    // Core import
-                    let core_fn_ty = self.add_core_func_type(&FuncType::new(
-                        core_params.iter().copied(),
-                        std::iter::empty(),
-                    ));
-                    let func = self.import_function(&interface, &kebab, core_fn_ty);
+                    let func = self.declare_event(&def.ty.name, &part.name, &part.ty.params);
                     self.callables.insert(part.id, func);
-
-                    // Component import
-                    let comp_params = part
-                        .ty
-                        .params
-                        .iter()
-                        .filter_map(|p| {
-                            self.star_to_component_type(&p.ty)
-                                .map(|t| (p.name.as_str(), t))
-                        })
-                        .collect::<Vec<_>>();
-                    let comp_result = None;
-                    let iface = self.imported_interfaces.entry(interface).or_default();
-                    let comp_fn_ty =
-                        iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
-                    iface
-                        .inner
-                        .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
                 FunctionKind::Raise => {
-                    let mut core_params = Vec::with_capacity(16);
-                    let span = part.name.span();
-                    for p in &part.ty.params {
-                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
-                    }
-                    let mut core_results = Vec::new();
-                    _ = self.star_to_core_types(span, &mut core_results, &part.ty.result);
-
-                    let interface =
-                        format!("starstream:effects/{}", to_kebab_case(def.ty.name.as_str()));
-                    let kebab = to_kebab_case(part.name.as_str());
-
-                    // Core import
-                    let core_fn_ty = self.add_core_func_type(&FuncType::new(
-                        core_params.iter().copied(),
-                        core_results,
-                    ));
-                    let func = self.import_function(&interface, &kebab, core_fn_ty);
+                    let func = self.declare_effect(
+                        &def.ty.name,
+                        &part.name,
+                        &part.ty.params,
+                        &part.ty.result,
+                    );
                     self.callables.insert(part.id, func);
-
-                    // Component import
-                    let comp_params = part
-                        .ty
-                        .params
-                        .iter()
-                        .filter_map(|p| {
-                            self.star_to_component_type(&p.ty)
-                                .map(|t| (p.name.as_str(), t))
-                        })
-                        .collect::<Vec<_>>();
-                    let comp_result = self.star_to_component_type(&part.ty.result);
-                    let iface = self.imported_interfaces.entry(interface).or_default();
-                    let comp_fn_ty =
-                        iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
-                    iface
-                        .inner
-                        .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
                 FunctionKind::Normal => {
                     // ABI method codegen not yet implemented.
