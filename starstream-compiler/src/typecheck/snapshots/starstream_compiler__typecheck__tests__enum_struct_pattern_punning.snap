@@ -20,13 +20,11 @@ T-Fn: add => i64
     },
 } ⇒ i64
       T-Var: {a: Point, add: fn(a: Point, b: Message) -> i64, b: Message} ⊢ b ⇒ Message
-      Unify-Enum: Message ~ Message => {}
-        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Message ~ Message => {}
       T-Tail: a.x => i64
         T-FieldAccess: {a: Point, add: fn(a: Point, b: Message) -> i64, b: Message} ⊢ a.x ⇒ i64
           T-Var: {a: Point, add: fn(a: Point, b: Message) -> i64, b: Message} ⊢ a ⇒ Point
-      Unify-Enum: Message ~ Message => {}
-        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Message ~ Message => {}
       T-Tail: x + a.x => i64
         T-Bin-Add: {a: Point, add: fn(a: Point, b: Message) -> i64, b: Message, x: i64} ⊢ x + a.x ⇒ i64
           T-Var: {a: Point, add: fn(a: Point, b: Message) -> i64, b: Message, x: i64} ⊢ x ⇒ i64

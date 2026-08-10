@@ -22,6 +22,4 @@ T-Fn: pick => A
       Unify-Record: A ~ B => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: bool ~ bool => {}
-    Unify-Record: A ~ A => {}
-      Unify-Const: i64 ~ i64 => {}
-      Unify-Const: bool ~ bool => {}
+    Unify-Const: A ~ A => {}

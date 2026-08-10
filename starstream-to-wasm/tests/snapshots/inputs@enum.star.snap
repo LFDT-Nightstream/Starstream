@@ -262,9 +262,7 @@ T-Fn: get_bar => ()
         T-Var: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> ()} ⊢ Foo::Bar ⇒ fn(p0: bool) -> Foo
         T-Bool: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> ()} ⊢ true ⇒ bool
         Unify-Const: bool ~ bool => {}
-      Unify-Enum: Foo ~ Foo => {}
-        Unify-Const: bool ~ bool => {}
-        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Foo ~ Foo => {}
 
 T-Fn: get_baz => ()
   T-Expr: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo(Foo::Baz(2)); ⇒ ()
@@ -274,9 +272,7 @@ T-Fn: get_baz => ()
         T-Var: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ Foo::Baz ⇒ fn(p0: i64) -> Foo
         T-Int: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ 2 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t3}
-      Unify-Enum: Foo ~ Foo => {}
-        Unify-Const: bool ~ bool => {}
-        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Foo ~ Foo => {}
 
 ==== Typed AST ====
 TypedProgram {

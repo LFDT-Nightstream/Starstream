@@ -973,33 +973,16 @@ T-Fn: match_foo => i64
     },
 } ⇒ i64
       T-Var: {foo: Foo, match_foo: fn(foo: Foo) -> i64} ⊢ foo ⇒ Foo
-      Unify-Enum: Foo ~ Foo => {}
-        Unify-Const: bool ~ bool => {}
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Enum: Thing ~ Thing => {}
-          Unify-Record: Ctx ~ Ctx => {}
-            Unify-Const: i64 ~ i64 => {}
-      Unify-Enum: Thing ~ Thing => {}
-        Unify-Record: Ctx ~ Ctx => {}
-          Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Foo ~ Foo => {}
+      Unify-Const: Thing ~ Thing => {}
       T-Tail: ctx.x => i64
         T-FieldAccess: {ctx: Ctx, foo: Foo, match_foo: fn(foo: Foo) -> i64} ⊢ ctx.x ⇒ i64
           T-Var: {ctx: Ctx, foo: Foo, match_foo: fn(foo: Foo) -> i64} ⊢ ctx ⇒ Ctx
-      Unify-Enum: Foo ~ Foo => {}
-        Unify-Const: bool ~ bool => {}
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Enum: Thing ~ Thing => {}
-          Unify-Record: Ctx ~ Ctx => {}
-            Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Foo ~ Foo => {}
       T-Tail: 0 => i64
         T-Int: {b: bool, foo: Foo, match_foo: fn(foo: Foo) -> i64} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
-      Unify-Enum: Foo ~ Foo => {}
-        Unify-Const: bool ~ bool => {}
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Enum: Thing ~ Thing => {}
-          Unify-Record: Ctx ~ Ctx => {}
-            Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Foo ~ Foo => {}
       T-Tail: n => i64
         T-Var: {foo: Foo, match_foo: fn(foo: Foo) -> i64, n: i64} ⊢ n ⇒ i64
       Unify-Const: i64 ~ i64 => i64
@@ -1026,12 +1009,7 @@ T-Fn: match_with_wildcard => i64
     },
 } ⇒ i64
       T-Var: {foo: Foo, match_foo: fn(foo: Foo) -> i64, match_with_wildcard: fn(foo: Foo) -> i64} ⊢ foo ⇒ Foo
-      Unify-Enum: Foo ~ Foo => {}
-        Unify-Const: bool ~ bool => {}
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Enum: Thing ~ Thing => {}
-          Unify-Record: Ctx ~ Ctx => {}
-            Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Foo ~ Foo => {}
       T-Tail: 1 => i64
         T-Int: {b: bool, foo: Foo, match_foo: fn(foo: Foo) -> i64, match_with_wildcard: fn(foo: Foo) -> i64} ⊢ 1 ⇒ i64
       T-Tail: 0 => i64
@@ -1083,9 +1061,7 @@ T-Fn: match_point => i64
     },
 } ⇒ i64
       T-Var: {match_foo: fn(foo: Foo) -> i64, match_literal: fn(x: i64) -> i64, match_point: fn(msg: Message) -> i64, match_with_wildcard: fn(foo: Foo) -> i64, msg: Message} ⊢ msg ⇒ Message
-      Unify-Enum: Message ~ Message => {}
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Message ~ Message => {}
       T-Tail: x + y => i64
         T-Bin-Add: {match_foo: fn(foo: Foo) -> i64, match_literal: fn(x: i64) -> i64, match_point: fn(msg: Message) -> i64, match_with_wildcard: fn(foo: Foo) -> i64, msg: Message, x: i64, y: i64} ⊢ x + y ⇒ i64
           T-Var: {match_foo: fn(foo: Foo) -> i64, match_literal: fn(x: i64) -> i64, match_point: fn(msg: Message) -> i64, match_with_wildcard: fn(foo: Foo) -> i64, msg: Message, x: i64, y: i64} ⊢ x ⇒ i64
@@ -1104,12 +1080,7 @@ T-Fn: get_bar => ()
         T-Var: {get_bar: fn() -> (), match_foo: fn(foo: Foo) -> i64, match_literal: fn(x: i64) -> i64, match_point: fn(msg: Message) -> i64, match_with_wildcard: fn(foo: Foo) -> i64} ⊢ Foo::Bar ⇒ fn(p0: bool) -> Foo
         T-Bool: {get_bar: fn() -> (), match_foo: fn(foo: Foo) -> i64, match_literal: fn(x: i64) -> i64, match_point: fn(msg: Message) -> i64, match_with_wildcard: fn(foo: Foo) -> i64} ⊢ true ⇒ bool
         Unify-Const: bool ~ bool => {}
-      Unify-Enum: Foo ~ Foo => {}
-        Unify-Const: bool ~ bool => {}
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Enum: Thing ~ Thing => {}
-          Unify-Record: Ctx ~ Ctx => {}
-            Unify-Const: i64 ~ i64 => {}
+      Unify-Const: Foo ~ Foo => {}
 
 ==== Typed AST ====
 TypedProgram {

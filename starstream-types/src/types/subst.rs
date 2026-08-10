@@ -87,8 +87,33 @@ impl<T: Sized + Clone + SubstituteType> SubstituteType for Arc<T> {
     }
 }
 
-// TODO: avoid unconditional into_owned calls below, instead returning Borrowed
-// if all children returned Borrowed.
+impl<T: SubstituteType> SubstituteType for Vec<T> {
+    fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
+        self.iter().any(|ty| ty.contains_var(var, subst))
+    }
+
+    fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
+        for each in self.iter() {
+            each.collect_free_type_vars(set);
+        }
+    }
+
+    fn substitute_type(
+        &self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) -> Cow<'_, Self> {
+        let children = self
+            .iter()
+            .map(|ty| ty.substitute_type(subst, int_vars))
+            .collect::<Vec<_>>();
+        if children.iter().all(|p| matches!(p, Cow::Borrowed(_))) {
+            Cow::Borrowed(self)
+        } else {
+            Cow::Owned(children.into_iter().map(|p| p.into_owned()).collect())
+        }
+    }
+}
 
 // TODO: add anti-infinite-recursion (perhaps HashSet<usize> for seen pointers)
 // when needed.
@@ -193,13 +218,19 @@ impl SubstituteType for FunctionType {
         subst: &HashMap<TypeVarId, Type>,
         int_vars: &HashSet<TypeVarId>,
     ) -> Cow<'_, Self> {
-        Cow::Owned(FunctionType {
-            params: self.params.substitute_type(subst, int_vars).into_owned(),
-            result: self.result.substitute_type(subst, int_vars).into_owned(),
-            kind: self.kind,
-            name_span: self.name_span,
-            callee: self.callee.clone(),
-        })
+        let params = self.params.substitute_type(subst, int_vars);
+        let result = self.result.substitute_type(subst, int_vars);
+        if matches!((&params, &result), (Cow::Borrowed(_), Cow::Borrowed(_))) {
+            Cow::Borrowed(self)
+        } else {
+            Cow::Owned(FunctionType {
+                params: params.into_owned(),
+                result: result.into_owned(),
+                kind: self.kind,
+                name_span: self.name_span,
+                callee: self.callee.clone(),
+            })
+        }
     }
 }
 
@@ -226,54 +257,6 @@ impl SubstituteType for TypedFunctionParam {
                 ty_span: self.ty_span,
             }),
         }
-    }
-}
-
-impl SubstituteType for Vec<TypedFunctionParam> {
-    fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
-        self.iter().any(|ty| ty.contains_var(var, subst))
-    }
-
-    fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
-        for ty in self.iter() {
-            ty.collect_free_type_vars(set);
-        }
-    }
-
-    fn substitute_type(
-        &self,
-        subst: &HashMap<TypeVarId, Type>,
-        int_vars: &HashSet<TypeVarId>,
-    ) -> Cow<'_, Self> {
-        Cow::Owned(
-            self.iter()
-                .map(|ty| ty.substitute_type(subst, int_vars).into_owned())
-                .collect(),
-        )
-    }
-}
-
-impl SubstituteType for Vec<Type> {
-    fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
-        self.iter().any(|ty| ty.contains_var(var, subst))
-    }
-
-    fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
-        for ty in self.iter() {
-            ty.collect_free_type_vars(set);
-        }
-    }
-
-    fn substitute_type(
-        &self,
-        subst: &HashMap<TypeVarId, Type>,
-        int_vars: &HashSet<TypeVarId>,
-    ) -> Cow<'_, Self> {
-        Cow::Owned(
-            self.iter()
-                .map(|ty| ty.substitute_type(subst, int_vars).into_owned())
-                .collect(),
-        )
     }
 }
 
@@ -305,15 +288,13 @@ impl SubstituteType for RecordType {
     }
 }
 
-impl SubstituteType for Vec<RecordFieldType> {
+impl SubstituteType for RecordFieldType {
     fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
-        self.iter().any(|field| field.ty.contains_var(var, subst))
+        self.ty.contains_var(var, subst)
     }
 
     fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
-        for field in self.iter() {
-            field.ty.collect_free_type_vars(set);
-        }
+        self.ty.collect_free_type_vars(set);
     }
 
     fn substitute_type(
@@ -321,14 +302,13 @@ impl SubstituteType for Vec<RecordFieldType> {
         subst: &HashMap<TypeVarId, Type>,
         int_vars: &HashSet<TypeVarId>,
     ) -> Cow<'_, Self> {
-        Cow::Owned(
-            self.iter()
-                .map(|field| RecordFieldType {
-                    name: field.name.clone(),
-                    ty: field.ty.substitute_type(subst, int_vars).into_owned(),
-                })
-                .collect(),
-        )
+        match self.ty.substitute_type(subst, int_vars) {
+            Cow::Borrowed(_) => Cow::Borrowed(self),
+            Cow::Owned(owned) => Cow::Owned(RecordFieldType {
+                name: self.name.clone(),
+                ty: owned,
+            }),
+        }
     }
 }
 
@@ -348,19 +328,20 @@ impl SubstituteType for EnumType {
         subst: &HashMap<TypeVarId, Type>,
         int_vars: &HashSet<TypeVarId>,
     ) -> Cow<'_, Self> {
-        Cow::Owned(EnumType {
-            name: self.name.clone(),
-            variants: self
-                .variants
-                .iter()
-                .map(|variant| variant.substitute_type(subst, int_vars).into_owned())
-                .collect(),
-            type_args: self
-                .type_args
-                .iter()
-                .map(|ty| ty.substitute_type(subst, int_vars).into_owned())
-                .collect(),
-        })
+        let variants = self.variants.substitute_type(subst, int_vars);
+        let type_args = self.type_args.substitute_type(subst, int_vars);
+        if matches!(
+            (&variants, &type_args),
+            (Cow::Borrowed(_), Cow::Borrowed(_))
+        ) {
+            Cow::Borrowed(self)
+        } else {
+            Cow::Owned(EnumType {
+                name: self.name.clone(),
+                variants: variants.into_owned(),
+                type_args: type_args.into_owned(),
+            })
+        }
     }
 }
 

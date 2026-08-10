@@ -20,7 +20,7 @@ T-Fn: test => i64
     },
 } ⇒ i64
       T-Var: {c: Color, test: fn(c: Color) -> i64} ⊢ c ⇒ Color
-      Unify-Enum: Color ~ Color => {}
+      Unify-Const: Color ~ Color => {}
       T-Tail: 0 => i64
         T-Int: {c: Color, test: fn(c: Color) -> i64} ⊢ 0 ⇒ i64
       T-Tail: 1 => i64
