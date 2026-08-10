@@ -88,13 +88,7 @@ impl<T: TypeRegistry> TypeBuilder<T> {
             ComponentAbiType::Variant { cases } => {
                 let cases: Vec<_> = cases
                     .iter()
-                    .map(|(name, ty)| {
-                        (
-                            name.as_str(),
-                            ty.as_ref().map(|ty| self.encode_value(ty)),
-                            None,
-                        )
-                    })
+                    .map(|(name, ty)| (name.as_str(), ty.as_ref().map(|ty| self.encode_value(ty))))
                     .collect();
                 let (idx, ty) = self.ty();
                 ty.defined_type().variant(cases);
