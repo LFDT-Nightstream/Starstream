@@ -11,7 +11,7 @@ T-Fn: pick => First
         b
     },
 } => Second
-    T-Match: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First} ⊢ match c {
+    T-Match: {a: First, b: Second, c: bool, pick: fn(c: bool, a: First, b: Second) -> First} ⊢ match c {
     true => {
         a
     },
@@ -19,13 +19,13 @@ T-Fn: pick => First
         b
     },
 } ⇒ Second
-      T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First} ⊢ c ⇒ bool
+      T-Var: {a: First, b: Second, c: bool, pick: fn(c: bool, a: First, b: Second) -> First} ⊢ c ⇒ bool
       Unify-Const: bool ~ bool => {}
       T-Tail: a => First
-        T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First} ⊢ a ⇒ First
+        T-Var: {a: First, b: Second, c: bool, pick: fn(c: bool, a: First, b: Second) -> First} ⊢ a ⇒ First
       Unify-Const: bool ~ bool => {}
       T-Tail: b => Second
-        T-Var: {a: First, b: Second, c: bool, pick: fn(bool, First, Second) -> First} ⊢ b ⇒ Second
+        T-Var: {a: First, b: Second, c: bool, pick: fn(c: bool, a: First, b: Second) -> First} ⊢ b ⇒ Second
       Unify-Enum: Second ~ First => Second
     Unify-Enum: Second ~ First => {}
       Unify-Const: i64 ~ i64 => {}

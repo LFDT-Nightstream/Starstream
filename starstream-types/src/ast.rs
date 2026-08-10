@@ -71,6 +71,11 @@ pub struct Identifier {
 }
 
 impl Identifier {
+    pub const DUMMY: &Identifier = &Identifier {
+        name: String::new(),
+        span: DUMMY_SPAN,
+    };
+
     /// Construct an Identifier without an associated span.
     pub fn anon(name: impl Into<String>) -> Self {
         Self {

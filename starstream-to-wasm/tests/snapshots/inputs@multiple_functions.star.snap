@@ -228,7 +228,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 3..7,
                     params: [],
-                    param_spans: [],
                     result: Unit,
                     callee: Some(
                         Named(
@@ -236,7 +235,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -323,7 +321,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 106..113,
                     params: [],
-                    param_spans: [],
                     result: Int(
                         I64,
                     ),
@@ -333,7 +330,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {

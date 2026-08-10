@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::{Identifier, NameId, Span};
+use crate::{DUMMY_SPAN, Identifier, NameId, Span};
 
 mod display;
 mod subst;
@@ -82,8 +82,7 @@ pub enum IntWidth {
 pub struct FunctionType {
     pub kind: FunctionKind,
     pub name_span: Span,
-    pub params: Vec<Type>,
-    pub param_spans: Vec<Span>,
+    pub params: Vec<TypedFunctionParam>,
     pub result: Type,
     /// Optional statically-known callee. Otherwise it's a pointer.
     pub callee: Option<StaticFunction>,
@@ -101,6 +100,14 @@ pub enum FunctionKind {
     Raise,
     /// Functions requruing `runtime` keyword to call, generally imported host functions.
     Runtime,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TypedFunctionParam {
+    pub public: bool,
+    pub name: Identifier,
+    pub ty: Type,
+    pub ty_span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -182,15 +189,6 @@ pub struct TypedAbiMethodDecl {
     pub name: Identifier,
     pub id: NameId,
     pub ty: Arc<FunctionType>,
-}
-
-impl TypedAbiMethodDecl {
-    /// Get the stable hashable identity of this method type.
-    #[must_use]
-    pub fn identity(&self) -> &str {
-        // TODO: specify hashing for types and include real type signature here
-        self.name.as_str()
-    }
 }
 
 // ----------------------------------------------------------------------------
@@ -379,6 +377,25 @@ impl FunctionKind {
     }
 }
 
+impl TypedFunctionParam {
+    pub fn anon(name: impl Into<String>, ty: Type) -> TypedFunctionParam {
+        TypedFunctionParam {
+            public: false,
+            name: Identifier::anon(name),
+            ty,
+            ty_span: DUMMY_SPAN,
+        }
+    }
+
+    pub fn from_types(types: &[Type]) -> Vec<TypedFunctionParam> {
+        types
+            .iter()
+            .enumerate()
+            .map(|(i, ty)| TypedFunctionParam::anon(format!("p{}", i), ty.clone()))
+            .collect()
+    }
+}
+
 impl RecordFieldType {
     pub fn new(name: Identifier, ty: Type) -> Self {
         Self { name, ty }
@@ -411,6 +428,15 @@ impl EnumVariantType {
             name,
             kind: EnumVariantKind::Struct(fields),
         }
+    }
+}
+
+impl TypedAbiMethodDecl {
+    /// Get the stable hashable identity of this method type.
+    #[must_use]
+    pub fn identity(&self) -> &str {
+        // TODO: specify hashing for types and include real type signature here
+        self.name.as_str()
     }
 }
 

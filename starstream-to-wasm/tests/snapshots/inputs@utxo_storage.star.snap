@@ -231,7 +231,6 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 109..118,
                                 params: [],
-                                param_spans: [],
                                 result: Unit,
                                 callee: Some(
                                     Named(
@@ -239,7 +238,6 @@ TypedProgram {
                                     ),
                                 ),
                             },
-                            params: [],
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -311,7 +309,6 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 172..186,
                                 params: [],
-                                param_spans: [],
                                 result: Unit,
                                 callee: Some(
                                     Named(
@@ -319,7 +316,6 @@ TypedProgram {
                                     ),
                                 ),
                             },
-                            params: [],
                             body: TypedBlock {
                                 statements: [
                                     Assignment {

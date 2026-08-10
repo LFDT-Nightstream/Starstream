@@ -203,7 +203,6 @@ TypedProgram {
                                 kind: Runtime,
                                 name_span: 0..0,
                                 params: [],
-                                param_spans: [],
                                 result: Int(
                                     I64,
                                 ),
@@ -248,7 +247,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 63..71,
                     params: [],
-                    param_spans: [],
                     result: Int(
                         I64,
                     ),
@@ -258,7 +256,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -275,7 +272,6 @@ TypedProgram {
                                                         kind: Runtime,
                                                         name_span: 0..0,
                                                         params: [],
-                                                        param_spans: [],
                                                         result: Int(
                                                             I64,
                                                         ),
@@ -321,7 +317,6 @@ TypedProgram {
                                                     kind: Runtime,
                                                     name_span: 0..0,
                                                     params: [],
-                                                    param_spans: [],
                                                     result: Int(
                                                         I64,
                                                     ),
@@ -369,7 +364,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 149..155,
                     params: [],
-                    param_spans: [],
                     result: Int(
                         I64,
                     ),
@@ -379,7 +373,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -396,7 +389,6 @@ TypedProgram {
                                                     kind: Normal,
                                                     name_span: 63..71,
                                                     params: [],
-                                                    param_spans: [],
                                                     result: Int(
                                                         I64,
                                                     ),

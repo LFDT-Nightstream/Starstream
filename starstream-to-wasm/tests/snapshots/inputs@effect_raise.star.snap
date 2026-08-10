@@ -176,7 +176,6 @@ TypedProgram {
                             kind: Raise,
                             name_span: 21..26,
                             params: [],
-                            param_spans: [],
                             result: Unit,
                             callee: Some(
                                 Named(
@@ -195,7 +194,6 @@ TypedProgram {
                             kind: Emit,
                             name_span: 40..47,
                             params: [],
-                            param_spans: [],
                             result: Unit,
                             callee: Some(
                                 Named(
@@ -221,7 +219,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 64..68,
                     params: [],
-                    param_spans: [],
                     result: Unit,
                     callee: Some(
                         Named(
@@ -229,7 +226,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [
                         TryWith {
@@ -247,7 +243,6 @@ TypedProgram {
                                                                     kind: Raise,
                                                                     name_span: 21..26,
                                                                     params: [],
-                                                                    param_spans: [],
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
@@ -302,7 +297,6 @@ TypedProgram {
                                                                             kind: Emit,
                                                                             name_span: 40..47,
                                                                             params: [],
-                                                                            param_spans: [],
                                                                             result: Unit,
                                                                             callee: Some(
                                                                                 Named(

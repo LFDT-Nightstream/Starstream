@@ -289,7 +289,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 10..14,
                     params: [],
-                    param_spans: [],
                     result: Int(
                         I64,
                     ),
@@ -299,7 +298,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {

@@ -128,7 +128,6 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 19..24,
                                 params: [],
-                                param_spans: [],
                                 result: Int(
                                     I32,
                                 ),
@@ -152,7 +151,6 @@ TypedProgram {
                             kind: Normal,
                             name_span: 19..24,
                             params: [],
-                            param_spans: [],
                             result: Int(
                                 I32,
                             ),
@@ -191,7 +189,6 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 19..24,
                                         params: [],
-                                        param_spans: [],
                                         result: Int(
                                             I32,
                                         ),
@@ -216,7 +213,6 @@ TypedProgram {
                                     kind: Normal,
                                     name_span: 80..85,
                                     params: [],
-                                    param_spans: [],
                                     result: Int(
                                         I32,
                                     ),
@@ -226,7 +222,6 @@ TypedProgram {
                                         ),
                                     ),
                                 },
-                                params: [],
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: Some(
@@ -272,7 +267,6 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 19..24,
                                         params: [],
-                                        param_spans: [],
                                         result: Int(
                                             I32,
                                         ),

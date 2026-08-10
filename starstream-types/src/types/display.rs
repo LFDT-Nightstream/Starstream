@@ -65,7 +65,6 @@ impl Type {
             Type::Function(func) => {
                 let FunctionType {
                     params: fn_params,
-                    param_spans: _,
                     result,
                     kind,
                     name_span: _,
@@ -76,9 +75,11 @@ impl Type {
                 } else {
                     RcDoc::text("(")
                         .append(RcDoc::intersperse(
-                            fn_params
-                                .iter()
-                                .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
+                            fn_params.iter().map(|p| {
+                                RcDoc::as_string(&p.name)
+                                    .append(": ")
+                                    .append(p.ty.to_doc(TypeDocMode::Compact, params))
+                            }),
                             ", ",
                         ))
                         .append(RcDoc::text(")"))

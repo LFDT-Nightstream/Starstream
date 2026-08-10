@@ -20,14 +20,47 @@ Program {
                                     name: "Hello",
                                     span: 20..25,
                                 },
-                                params: [],
-                                span: 14..29,
+                                params: [
+                                    FunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "one",
+                                            span: 26..29,
+                                        },
+                                        ty: TypeAnnotation {
+                                            name: [
+                                                Identifier {
+                                                    name: "i32",
+                                                    span: 31..34,
+                                                },
+                                            ],
+                                            generics: [],
+                                        },
+                                    },
+                                    FunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "two",
+                                            span: 36..39,
+                                        },
+                                        ty: TypeAnnotation {
+                                            name: [
+                                                Identifier {
+                                                    name: "i32",
+                                                    span: 41..44,
+                                                },
+                                            ],
+                                            generics: [],
+                                        },
+                                    },
+                                ],
+                                span: 14..47,
                             },
                         ),
                     ],
                 },
             ),
-            span: 0..32,
+            span: 0..50,
         },
         Spanned {
             node: Function(
@@ -37,7 +70,7 @@ Program {
                     ),
                     name: Identifier {
                         name: "main",
-                        span: 42..46,
+                        span: 60..64,
                     },
                     params: [],
                     return_type: None,
@@ -52,35 +85,62 @@ Program {
                                                     [
                                                         Identifier {
                                                             name: "Hello",
-                                                            span: 60..65,
+                                                            span: 78..83,
                                                         },
                                                     ],
                                                 ),
-                                                span: 60..65,
+                                                span: 78..83,
                                             },
-                                            args: [],
+                                            args: [
+                                                Spanned {
+                                                    node: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "1",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                    span: 84..85,
+                                                },
+                                                Spanned {
+                                                    node: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "2",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                    span: 87..88,
+                                                },
+                                            ],
                                         },
-                                        span: 55..67,
+                                        span: 73..89,
                                     },
                                 ),
-                                span: 55..69,
+                                span: 73..91,
                             },
                         ],
                         tail_expression: None,
-                        span: 49..71,
+                        span: 67..93,
                     },
                 },
             ),
-            span: 32..71,
+            span: 50..93,
         },
     ],
 }
 
 ==== Inference trace ====
 T-Fn: main => ()
-  T-Expr: {main: fn() -> ()} ⊢ emit Hello(); ⇒ ()
-    T-Call: {main: fn() -> ()} ⊢ emit Hello() ⇒ ()
-      T-Var: {main: fn() -> ()} ⊢ Hello ⇒ event() -> ()
+  T-Expr: {main: fn() -> ()} ⊢ emit Hello(1, 2); ⇒ ()
+    T-Call: {main: fn() -> ()} ⊢ emit Hello(1, 2) ⇒ ()
+      T-Var: {main: fn() -> ()} ⊢ Hello ⇒ event(one: i32, two: i32) -> ()
+      T-Int: {main: fn() -> ()} ⊢ 1 ⇒ i64
+      Unify-Var: i64 ~ i32 => {i32/t3}
+      T-Int: {main: fn() -> ()} ⊢ 2 ⇒ i64
+      Unify-Var: i64 ~ i32 => {i32/t4}
 
 ==== Typed AST ====
 TypedProgram {
@@ -104,8 +164,30 @@ TypedProgram {
                         ty: FunctionType {
                             kind: Emit,
                             name_span: 20..25,
-                            params: [],
-                            param_spans: [],
+                            params: [
+                                TypedFunctionParam {
+                                    public: true,
+                                    name: Identifier {
+                                        name: "one",
+                                        span: 26..29,
+                                    },
+                                    ty: Int(
+                                        I32,
+                                    ),
+                                    ty_span: 31..34,
+                                },
+                                TypedFunctionParam {
+                                    public: true,
+                                    name: Identifier {
+                                        name: "two",
+                                        span: 36..39,
+                                    },
+                                    ty: Int(
+                                        I32,
+                                    ),
+                                    ty_span: 41..44,
+                                },
+                            ],
                             result: Unit,
                             callee: Some(
                                 Named(
@@ -124,14 +206,13 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "main",
-                    span: 42..46,
+                    span: 60..64,
                 },
                 id: NameId(5),
                 ty: FunctionType {
                     kind: Normal,
-                    name_span: 42..46,
+                    name_span: 60..64,
                     params: [],
-                    param_spans: [],
                     result: Unit,
                     callee: Some(
                         Named(
@@ -139,7 +220,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -153,8 +233,30 @@ TypedProgram {
                                                     FunctionType {
                                                         kind: Emit,
                                                         name_span: 20..25,
-                                                        params: [],
-                                                        param_spans: [],
+                                                        params: [
+                                                            TypedFunctionParam {
+                                                                public: true,
+                                                                name: Identifier {
+                                                                    name: "one",
+                                                                    span: 26..29,
+                                                                },
+                                                                ty: Int(
+                                                                    I32,
+                                                                ),
+                                                                ty_span: 31..34,
+                                                            },
+                                                            TypedFunctionParam {
+                                                                public: true,
+                                                                name: Identifier {
+                                                                    name: "two",
+                                                                    span: 36..39,
+                                                                },
+                                                                ty: Int(
+                                                                    I32,
+                                                                ),
+                                                                ty_span: 41..44,
+                                                            },
+                                                        ],
                                                         result: Unit,
                                                         callee: Some(
                                                             Named(
@@ -167,7 +269,7 @@ TypedProgram {
                                                     name: [
                                                         Identifier {
                                                             name: "Hello",
-                                                            span: 60..65,
+                                                            span: 78..83,
                                                         },
                                                     ],
                                                     constant: Some(
@@ -175,12 +277,45 @@ TypedProgram {
                                                     ),
                                                 },
                                             },
-                                            span: 60..65,
+                                            span: 78..83,
                                         },
-                                        args: [],
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        I32,
+                                                    ),
+                                                    kind: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "1",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 84..85,
+                                            },
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        I32,
+                                                    ),
+                                                    kind: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "2",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 87..88,
+                                            },
+                                        ],
                                     },
                                 },
-                                span: 60..65,
+                                span: 78..83,
                             },
                         ),
                     ],
@@ -193,11 +328,14 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func))
+  (type (;0;) (func (param i32 i32)))
+  (type (;1;) (func))
   (import "starstream:events/foo" "hello" (func (;0;) (type 0)))
   (export "main" (func 1))
-  (func (;1;) (type 0)
-    (call 0)
+  (func (;1;) (type 1)
+    (call 0
+      (i32.const 1)
+      (i32.const 2))
   )
   (@custom "component-type"
     (component
@@ -210,7 +348,7 @@ TypedProgram {
               (export (;0;) "main" (func (type 0)))
               (type (;1;)
                 (instance
-                  (type (;0;) (func))
+                  (type (;0;) (func (param "one" s32) (param "two" s32)))
                   (export (;0;) "hello" (func (type 0)))
                 )
               )
@@ -235,6 +373,6 @@ world root {
 }
 package starstream:events {
   interface foo {
-    hello: func();
+    hello: func(one: s32, two: s32);
   }
 }

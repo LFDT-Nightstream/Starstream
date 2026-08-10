@@ -128,9 +128,9 @@ Program {
 ==== Inference trace ====
 T-Utxo: MyUtxo => 
   T-Fn: hello_utxo => ()
-    T-Expr: {hello_utxo: fn(i32) -> (), x: i32} ⊢ yield(Foo); ⇒ ()
+    T-Expr: {hello_utxo: fn(x: i32) -> (), x: i32} ⊢ yield(Foo); ⇒ ()
   T-Fn: foo => ()
-    T-Resume: {foo: fn() -> (), hello_utxo: fn(i32) -> ()} ⊢ resume; ⇒ ()
+    T-Resume: {foo: fn() -> (), hello_utxo: fn(x: i32) -> ()} ⊢ resume; ⇒ ()
       Unify-Const: () ~ () => {}
 
 ==== Typed AST ====
@@ -154,7 +154,6 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 17..20,
                                 params: [],
-                                param_spans: [],
                                 result: Unit,
                                 callee: Some(
                                     Named(
@@ -176,7 +175,6 @@ TypedProgram {
                             kind: Normal,
                             name_span: 17..20,
                             params: [],
-                            param_spans: [],
                             result: Unit,
                             callee: Some(
                                 Named(
@@ -209,12 +207,17 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 53..63,
                                 params: [
-                                    Int(
-                                        I32,
-                                    ),
-                                ],
-                                param_spans: [
-                                    67..70,
+                                    TypedFunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "x",
+                                            span: 64..65,
+                                        },
+                                        ty: Int(
+                                            I32,
+                                        ),
+                                        ty_span: 67..70,
+                                    },
                                 ],
                                 result: Unit,
                                 callee: Some(
@@ -223,18 +226,6 @@ TypedProgram {
                                     ),
                                 ),
                             },
-                            params: [
-                                TypedFunctionParam {
-                                    public: false,
-                                    name: Identifier {
-                                        name: "x",
-                                        span: 64..65,
-                                    },
-                                    ty: Int(
-                                        I32,
-                                    ),
-                                },
-                            ],
                             body: TypedBlock {
                                 statements: [
                                     Expression(
@@ -259,7 +250,6 @@ TypedProgram {
                                                                         kind: Normal,
                                                                         name_span: 17..20,
                                                                         params: [],
-                                                                        param_spans: [],
                                                                         result: Unit,
                                                                         callee: Some(
                                                                             Named(
@@ -299,7 +289,6 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 17..20,
                                         params: [],
-                                        param_spans: [],
                                         result: Unit,
                                         callee: Some(
                                             Named(
@@ -322,7 +311,6 @@ TypedProgram {
                                     kind: Normal,
                                     name_span: 126..129,
                                     params: [],
-                                    param_spans: [],
                                     result: Unit,
                                     callee: Some(
                                         Named(
@@ -330,7 +318,6 @@ TypedProgram {
                                         ),
                                     ),
                                 },
-                                params: [],
                                 body: TypedBlock {
                                     statements: [
                                         Resume,
@@ -361,7 +348,6 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 17..20,
                                         params: [],
-                                        param_spans: [],
                                         result: Unit,
                                         callee: Some(
                                             Named(
@@ -390,7 +376,6 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 17..20,
                                         params: [],
-                                        param_spans: [],
                                         result: Unit,
                                         callee: Some(
                                             Named(

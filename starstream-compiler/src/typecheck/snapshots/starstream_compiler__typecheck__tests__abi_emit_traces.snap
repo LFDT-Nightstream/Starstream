@@ -3,17 +3,17 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nabi Events {\n    event Transfer(sender: i64, to: i64, amount: i64);\n    event Log(message: i64);\n}\n\nfn transfer(sender: i64, to: i64, amount: i64) {\n    emit Transfer(sender, to, amount);\n    emit Log(amount);\n}\n"
 ---
 T-Fn: transfer => ()
-  T-Expr: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ emit Transfer(sender, to, amount); ⇒ ()
-    T-Call: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ emit Transfer(sender, to, amount) ⇒ ()
-      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ Transfer ⇒ event(i64, i64, i64) -> ()
-      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ sender ⇒ i64
+  T-Expr: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ emit Transfer(sender, to, amount); ⇒ ()
+    T-Call: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ emit Transfer(sender, to, amount) ⇒ ()
+      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ Transfer ⇒ event(sender: i64, to: i64, amount: i64) -> ()
+      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ sender ⇒ i64
       Unify-Const: i64 ~ i64 => {}
-      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ to ⇒ i64
+      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ to ⇒ i64
       Unify-Const: i64 ~ i64 => {}
-      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ amount ⇒ i64
+      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ amount ⇒ i64
       Unify-Const: i64 ~ i64 => {}
-  T-Expr: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ emit Log(amount); ⇒ ()
-    T-Call: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ emit Log(amount) ⇒ ()
-      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ Log ⇒ event(i64) -> ()
-      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(i64, i64, i64) -> ()} ⊢ amount ⇒ i64
+  T-Expr: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ emit Log(amount); ⇒ ()
+    T-Call: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ emit Log(amount) ⇒ ()
+      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ Log ⇒ event(message: i64) -> ()
+      T-Var: {amount: i64, sender: i64, to: i64, transfer: fn(sender: i64, to: i64, amount: i64) -> ()} ⊢ amount ⇒ i64
       Unify-Const: i64 ~ i64 => {}

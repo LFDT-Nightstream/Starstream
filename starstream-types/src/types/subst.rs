@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     AbiType, EnumType, EnumVariantKind, EnumVariantType, FunctionType, RecordFieldType, RecordType,
-    TokenType, UtxoType,
+    TokenType, TypedFunctionParam, UtxoType,
 };
 
 use super::{Type, TypeVarId};
@@ -97,9 +97,7 @@ impl SubstituteType for Type {
     fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
         match self {
             Type::Var(id) if *id == var => true,
-            Type::Var(id) => subst
-                .get(id)
-                .is_some_and(|ty| ty.contains_var(var, subst)),
+            Type::Var(id) => subst.get(id).is_some_and(|ty| ty.contains_var(var, subst)),
             Type::Tuple(items) => items.iter().any(|ty| ty.contains_var(var, subst)),
             Type::Function(function_type) => function_type.contains_var(var, subst),
             Type::Record(record_type) => record_type.contains_var(var, subst),
@@ -198,11 +196,60 @@ impl SubstituteType for FunctionType {
         Cow::Owned(FunctionType {
             params: self.params.substitute_type(subst, int_vars).into_owned(),
             result: self.result.substitute_type(subst, int_vars).into_owned(),
-            param_spans: self.param_spans.clone(),
             kind: self.kind,
             name_span: self.name_span,
             callee: self.callee.clone(),
         })
+    }
+}
+
+impl SubstituteType for TypedFunctionParam {
+    fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
+        self.ty.contains_var(var, subst)
+    }
+
+    fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
+        self.ty.collect_free_type_vars(set);
+    }
+
+    fn substitute_type(
+        &self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) -> Cow<'_, Self> {
+        match self.ty.substitute_type(subst, int_vars) {
+            Cow::Borrowed(_) => Cow::Borrowed(self),
+            Cow::Owned(owned) => Cow::Owned(TypedFunctionParam {
+                public: self.public,
+                name: self.name.clone(),
+                ty: owned,
+                ty_span: self.ty_span,
+            }),
+        }
+    }
+}
+
+impl SubstituteType for Vec<TypedFunctionParam> {
+    fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
+        self.iter().any(|ty| ty.contains_var(var, subst))
+    }
+
+    fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
+        for ty in self.iter() {
+            ty.collect_free_type_vars(set);
+        }
+    }
+
+    fn substitute_type(
+        &self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) -> Cow<'_, Self> {
+        Cow::Owned(
+            self.iter()
+                .map(|ty| ty.substitute_type(subst, int_vars).into_owned())
+                .collect(),
+        )
     }
 }
 

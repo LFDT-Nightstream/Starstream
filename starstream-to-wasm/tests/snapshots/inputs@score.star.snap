@@ -632,38 +632,38 @@ T-Utxo: ScoreProgress =>
     T-Expr: {chips: u64, mult: u64, new: fn() -> ()} ⊢ yield(Score); ⇒ ()
     T-Expr: {chips: u64, mult: u64, new: fn() -> ()} ⊢ emit Finish(chips * mult); ⇒ ()
       T-Call: {chips: u64, mult: u64, new: fn() -> ()} ⊢ emit Finish(chips * mult) ⇒ ()
-        T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ Finish ⇒ event(u64) -> ()
+        T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ Finish ⇒ event(total: u64) -> ()
         T-Bin-Mul: {chips: u64, mult: u64, new: fn() -> ()} ⊢ chips * mult ⇒ u64
           T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ chips ⇒ u64
           T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ mult ⇒ u64
           Unify-Const: u64 ~ u64 => {}
         Unify-Const: u64 ~ u64 => {}
   T-Fn: plus_chips => ()
-    T-Assign: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips = chips + chips2; ⇒ u64
-      T-Bin-Add: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips + chips2 ⇒ u64
-        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips ⇒ u64
-        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips2 ⇒ u64
+    T-Assign: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> ()} ⊢ chips = chips + chips2; ⇒ u64
+      T-Bin-Add: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> ()} ⊢ chips + chips2 ⇒ u64
+        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> ()} ⊢ chips ⇒ u64
+        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> ()} ⊢ chips2 ⇒ u64
         Unify-Const: u64 ~ u64 => {}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: plus_mult => ()
-    T-Assign: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult = mult + mult2; ⇒ u64
-      T-Bin-Add: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult + mult2 ⇒ u64
-        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult ⇒ u64
-        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult2 ⇒ u64
+    T-Assign: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ mult = mult + mult2; ⇒ u64
+      T-Bin-Add: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ mult + mult2 ⇒ u64
+        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ mult ⇒ u64
+        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ mult2 ⇒ u64
         Unify-Const: u64 ~ u64 => {}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: mult_mult => ()
-    T-Assign: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult = mult * mult_pct / 100; ⇒ u64
-      T-Bin-Div: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult * mult_pct / 100 ⇒ u64
-        T-Bin-Mul: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult * mult_pct ⇒ u64
-          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult ⇒ u64
-          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult_pct ⇒ u64
+    T-Assign: {chips: u64, mult: u64, mult_mult: fn(mult_pct: u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ mult = mult * mult_pct / 100; ⇒ u64
+      T-Bin-Div: {chips: u64, mult: u64, mult_mult: fn(mult_pct: u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ mult * mult_pct / 100 ⇒ u64
+        T-Bin-Mul: {chips: u64, mult: u64, mult_mult: fn(mult_pct: u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ mult * mult_pct ⇒ u64
+          T-Var: {chips: u64, mult: u64, mult_mult: fn(mult_pct: u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ mult ⇒ u64
+          T-Var: {chips: u64, mult: u64, mult_mult: fn(mult_pct: u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ mult_pct ⇒ u64
           Unify-Const: u64 ~ u64 => {}
-        T-Int: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ 100 ⇒ i64
+        T-Int: {chips: u64, mult: u64, mult_mult: fn(mult_pct: u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ 100 ⇒ i64
         Unify-Var: u64 ~ i64 => {u64/t3}
       Unify-Const: u64 ~ u64 => {}
   T-Fn: finish => ()
-    T-Resume: {chips: u64, finish: fn() -> (), mult: u64, mult_mult: fn(u64) -> (), new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ resume; ⇒ ()
+    T-Resume: {chips: u64, finish: fn() -> (), mult: u64, mult_mult: fn(mult_pct: u64) -> (), new: fn() -> (), plus_chips: fn(chips2: u64) -> (), plus_mult: fn(mult2: u64) -> ()} ⊢ resume; ⇒ ()
       Unify-Const: () ~ () => {}
 
 T-Fn: example => ()
@@ -672,7 +672,7 @@ T-Fn: example => ()
       T-Var: {example: fn() -> ()} ⊢ ScoreProgress::new ⇒ fn() -> ScoreProgress
   T-Expr: {example: fn() -> (), prog: ScoreProgress} ⊢ prog.plus_chips(10); ⇒ ()
     T-Call: {example: fn() -> (), prog: ScoreProgress} ⊢ prog.plus_chips(10) ⇒ ()
-      T-FieldAccess: {example: fn() -> (), prog: ScoreProgress} ⊢ prog.plus_chips ⇒ fn(u64) -> ()
+      T-FieldAccess: {example: fn() -> (), prog: ScoreProgress} ⊢ prog.plus_chips ⇒ fn(chips: u64) -> ()
         T-Var: {example: fn() -> (), prog: ScoreProgress} ⊢ prog ⇒ ScoreProgress
       T-Int: {example: fn() -> (), prog: ScoreProgress} ⊢ 10 ⇒ i64
       Unify-Var: i64 ~ u64 => {u64/t4}
@@ -698,12 +698,17 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 19..29,
                                 params: [
-                                    Int(
-                                        U64,
-                                    ),
-                                ],
-                                param_spans: [
-                                    30..35,
+                                    TypedFunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "chips",
+                                            span: 30..35,
+                                        },
+                                        ty: Int(
+                                            U64,
+                                        ),
+                                        ty_span: 37..40,
+                                    },
                                 ],
                                 result: Unit,
                                 callee: Some(
@@ -723,12 +728,17 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 50..59,
                                 params: [
-                                    Int(
-                                        U64,
-                                    ),
-                                ],
-                                param_spans: [
-                                    60..64,
+                                    TypedFunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "mult",
+                                            span: 60..64,
+                                        },
+                                        ty: Int(
+                                            U64,
+                                        ),
+                                        ty_span: 66..69,
+                                    },
                                 ],
                                 result: Unit,
                                 callee: Some(
@@ -748,12 +758,17 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 79..88,
                                 params: [
-                                    Int(
-                                        U64,
-                                    ),
-                                ],
-                                param_spans: [
-                                    89..97,
+                                    TypedFunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "mult_pct",
+                                            span: 89..97,
+                                        },
+                                        ty: Int(
+                                            U64,
+                                        ),
+                                        ty_span: 99..102,
+                                    },
                                 ],
                                 result: Unit,
                                 callee: Some(
@@ -773,7 +788,6 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 112..118,
                                 params: [],
-                                param_spans: [],
                                 result: Unit,
                                 callee: Some(
                                     Named(
@@ -795,12 +809,17 @@ TypedProgram {
                             kind: Normal,
                             name_span: 19..29,
                             params: [
-                                Int(
-                                    U64,
-                                ),
-                            ],
-                            param_spans: [
-                                30..35,
+                                TypedFunctionParam {
+                                    public: false,
+                                    name: Identifier {
+                                        name: "chips",
+                                        span: 30..35,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                    ty_span: 37..40,
+                                },
                             ],
                             result: Unit,
                             callee: Some(
@@ -820,12 +839,17 @@ TypedProgram {
                             kind: Normal,
                             name_span: 50..59,
                             params: [
-                                Int(
-                                    U64,
-                                ),
-                            ],
-                            param_spans: [
-                                60..64,
+                                TypedFunctionParam {
+                                    public: false,
+                                    name: Identifier {
+                                        name: "mult",
+                                        span: 60..64,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                    ty_span: 66..69,
+                                },
                             ],
                             result: Unit,
                             callee: Some(
@@ -845,12 +869,17 @@ TypedProgram {
                             kind: Normal,
                             name_span: 79..88,
                             params: [
-                                Int(
-                                    U64,
-                                ),
-                            ],
-                            param_spans: [
-                                89..97,
+                                TypedFunctionParam {
+                                    public: false,
+                                    name: Identifier {
+                                        name: "mult_pct",
+                                        span: 89..97,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                    ty_span: 99..102,
+                                },
                             ],
                             result: Unit,
                             callee: Some(
@@ -870,7 +899,6 @@ TypedProgram {
                             kind: Normal,
                             name_span: 112..118,
                             params: [],
-                            param_spans: [],
                             result: Unit,
                             callee: Some(
                                 Named(
@@ -889,12 +917,17 @@ TypedProgram {
                             kind: Emit,
                             name_span: 132..138,
                             params: [
-                                Int(
-                                    U64,
-                                ),
-                            ],
-                            param_spans: [
-                                146..149,
+                                TypedFunctionParam {
+                                    public: true,
+                                    name: Identifier {
+                                        name: "total",
+                                        span: 139..144,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                    ty_span: 146..149,
+                                },
                             ],
                             result: Unit,
                             callee: Some(
@@ -950,7 +983,6 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 263..266,
                                 params: [],
-                                param_spans: [],
                                 result: Unit,
                                 callee: Some(
                                     Named(
@@ -958,7 +990,6 @@ TypedProgram {
                                     ),
                                 ),
                             },
-                            params: [],
                             body: TypedBlock {
                                 statements: [
                                     Expression(
@@ -983,12 +1014,17 @@ TypedProgram {
                                                                         kind: Normal,
                                                                         name_span: 19..29,
                                                                         params: [
-                                                                            Int(
-                                                                                U64,
-                                                                            ),
-                                                                        ],
-                                                                        param_spans: [
-                                                                            30..35,
+                                                                            TypedFunctionParam {
+                                                                                public: false,
+                                                                                name: Identifier {
+                                                                                    name: "chips",
+                                                                                    span: 30..35,
+                                                                                },
+                                                                                ty: Int(
+                                                                                    U64,
+                                                                                ),
+                                                                                ty_span: 37..40,
+                                                                            },
                                                                         ],
                                                                         result: Unit,
                                                                         callee: Some(
@@ -1008,12 +1044,17 @@ TypedProgram {
                                                                         kind: Normal,
                                                                         name_span: 50..59,
                                                                         params: [
-                                                                            Int(
-                                                                                U64,
-                                                                            ),
-                                                                        ],
-                                                                        param_spans: [
-                                                                            60..64,
+                                                                            TypedFunctionParam {
+                                                                                public: false,
+                                                                                name: Identifier {
+                                                                                    name: "mult",
+                                                                                    span: 60..64,
+                                                                                },
+                                                                                ty: Int(
+                                                                                    U64,
+                                                                                ),
+                                                                                ty_span: 66..69,
+                                                                            },
                                                                         ],
                                                                         result: Unit,
                                                                         callee: Some(
@@ -1033,12 +1074,17 @@ TypedProgram {
                                                                         kind: Normal,
                                                                         name_span: 79..88,
                                                                         params: [
-                                                                            Int(
-                                                                                U64,
-                                                                            ),
-                                                                        ],
-                                                                        param_spans: [
-                                                                            89..97,
+                                                                            TypedFunctionParam {
+                                                                                public: false,
+                                                                                name: Identifier {
+                                                                                    name: "mult_pct",
+                                                                                    span: 89..97,
+                                                                                },
+                                                                                ty: Int(
+                                                                                    U64,
+                                                                                ),
+                                                                                ty_span: 99..102,
+                                                                            },
                                                                         ],
                                                                         result: Unit,
                                                                         callee: Some(
@@ -1058,7 +1104,6 @@ TypedProgram {
                                                                         kind: Normal,
                                                                         name_span: 112..118,
                                                                         params: [],
-                                                                        param_spans: [],
                                                                         result: Unit,
                                                                         callee: Some(
                                                                             Named(
@@ -1087,12 +1132,17 @@ TypedProgram {
                                                                     kind: Emit,
                                                                     name_span: 132..138,
                                                                     params: [
-                                                                        Int(
-                                                                            U64,
-                                                                        ),
-                                                                    ],
-                                                                    param_spans: [
-                                                                        146..149,
+                                                                        TypedFunctionParam {
+                                                                            public: true,
+                                                                            name: Identifier {
+                                                                                name: "total",
+                                                                                span: 139..144,
+                                                                            },
+                                                                            ty: Int(
+                                                                                U64,
+                                                                            ),
+                                                                            ty_span: 146..149,
+                                                                        },
                                                                     ],
                                                                     result: Unit,
                                                                     callee: Some(
@@ -1191,12 +1241,17 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 19..29,
                                         params: [
-                                            Int(
-                                                U64,
-                                            ),
-                                        ],
-                                        param_spans: [
-                                            30..35,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "chips",
+                                                    span: 30..35,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                ty_span: 37..40,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -1216,12 +1271,17 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 50..59,
                                         params: [
-                                            Int(
-                                                U64,
-                                            ),
-                                        ],
-                                        param_spans: [
-                                            60..64,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "mult",
+                                                    span: 60..64,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                ty_span: 66..69,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -1241,12 +1301,17 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 79..88,
                                         params: [
-                                            Int(
-                                                U64,
-                                            ),
-                                        ],
-                                        param_spans: [
-                                            89..97,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "mult_pct",
+                                                    span: 89..97,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                ty_span: 99..102,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -1266,7 +1331,6 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 112..118,
                                         params: [],
-                                        param_spans: [],
                                         result: Unit,
                                         callee: Some(
                                             Named(
@@ -1289,12 +1353,17 @@ TypedProgram {
                                     kind: Normal,
                                     name_span: 362..372,
                                     params: [
-                                        Int(
-                                            U64,
-                                        ),
-                                    ],
-                                    param_spans: [
-                                        385..388,
+                                        TypedFunctionParam {
+                                            public: true,
+                                            name: Identifier {
+                                                name: "chips2",
+                                                span: 377..383,
+                                            },
+                                            ty: Int(
+                                                U64,
+                                            ),
+                                            ty_span: 385..388,
+                                        },
                                     ],
                                     result: Unit,
                                     callee: Some(
@@ -1303,18 +1372,6 @@ TypedProgram {
                                         ),
                                     ),
                                 },
-                                params: [
-                                    TypedFunctionParam {
-                                        public: true,
-                                        name: Identifier {
-                                            name: "chips2",
-                                            span: 377..383,
-                                        },
-                                        ty: Int(
-                                            U64,
-                                        ),
-                                    },
-                                ],
                                 body: TypedBlock {
                                     statements: [
                                         Assignment {
@@ -1383,12 +1440,17 @@ TypedProgram {
                                     kind: Normal,
                                     name_span: 449..458,
                                     params: [
-                                        Int(
-                                            U64,
-                                        ),
-                                    ],
-                                    param_spans: [
-                                        470..473,
+                                        TypedFunctionParam {
+                                            public: true,
+                                            name: Identifier {
+                                                name: "mult2",
+                                                span: 463..468,
+                                            },
+                                            ty: Int(
+                                                U64,
+                                            ),
+                                            ty_span: 470..473,
+                                        },
                                     ],
                                     result: Unit,
                                     callee: Some(
@@ -1397,18 +1459,6 @@ TypedProgram {
                                         ),
                                     ),
                                 },
-                                params: [
-                                    TypedFunctionParam {
-                                        public: true,
-                                        name: Identifier {
-                                            name: "mult2",
-                                            span: 463..468,
-                                        },
-                                        ty: Int(
-                                            U64,
-                                        ),
-                                    },
-                                ],
                                 body: TypedBlock {
                                     statements: [
                                         Assignment {
@@ -1477,12 +1527,17 @@ TypedProgram {
                                     kind: Normal,
                                     name_span: 531..540,
                                     params: [
-                                        Int(
-                                            U64,
-                                        ),
-                                    ],
-                                    param_spans: [
-                                        555..558,
+                                        TypedFunctionParam {
+                                            public: true,
+                                            name: Identifier {
+                                                name: "mult_pct",
+                                                span: 545..553,
+                                            },
+                                            ty: Int(
+                                                U64,
+                                            ),
+                                            ty_span: 555..558,
+                                        },
                                     ],
                                     result: Unit,
                                     callee: Some(
@@ -1491,18 +1546,6 @@ TypedProgram {
                                         ),
                                     ),
                                 },
-                                params: [
-                                    TypedFunctionParam {
-                                        public: true,
-                                        name: Identifier {
-                                            name: "mult_pct",
-                                            span: 545..553,
-                                        },
-                                        ty: Int(
-                                            U64,
-                                        ),
-                                    },
-                                ],
                                 body: TypedBlock {
                                     statements: [
                                         Assignment {
@@ -1598,7 +1641,6 @@ TypedProgram {
                                     kind: Normal,
                                     name_span: 625..631,
                                     params: [],
-                                    param_spans: [],
                                     result: Unit,
                                     callee: Some(
                                         Named(
@@ -1606,7 +1648,6 @@ TypedProgram {
                                         ),
                                     ),
                                 },
-                                params: [],
                                 body: TypedBlock {
                                     statements: [
                                         Resume,
@@ -1637,12 +1678,17 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 19..29,
                                         params: [
-                                            Int(
-                                                U64,
-                                            ),
-                                        ],
-                                        param_spans: [
-                                            30..35,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "chips",
+                                                    span: 30..35,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                ty_span: 37..40,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -1662,12 +1708,17 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 50..59,
                                         params: [
-                                            Int(
-                                                U64,
-                                            ),
-                                        ],
-                                        param_spans: [
-                                            60..64,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "mult",
+                                                    span: 60..64,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                ty_span: 66..69,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -1687,12 +1738,17 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 79..88,
                                         params: [
-                                            Int(
-                                                U64,
-                                            ),
-                                        ],
-                                        param_spans: [
-                                            89..97,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "mult_pct",
+                                                    span: 89..97,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                ty_span: 99..102,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -1712,7 +1768,6 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 112..118,
                                         params: [],
-                                        param_spans: [],
                                         result: Unit,
                                         callee: Some(
                                             Named(
@@ -1741,12 +1796,17 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 19..29,
                                         params: [
-                                            Int(
-                                                U64,
-                                            ),
-                                        ],
-                                        param_spans: [
-                                            30..35,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "chips",
+                                                    span: 30..35,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                ty_span: 37..40,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -1766,12 +1826,17 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 50..59,
                                         params: [
-                                            Int(
-                                                U64,
-                                            ),
-                                        ],
-                                        param_spans: [
-                                            60..64,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "mult",
+                                                    span: 60..64,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                ty_span: 66..69,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -1791,12 +1856,17 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 79..88,
                                         params: [
-                                            Int(
-                                                U64,
-                                            ),
-                                        ],
-                                        param_spans: [
-                                            89..97,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "mult_pct",
+                                                    span: 89..97,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                ty_span: 99..102,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -1816,7 +1886,6 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 112..118,
                                         params: [],
-                                        param_spans: [],
                                         result: Unit,
                                         callee: Some(
                                             Named(
@@ -1845,7 +1914,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 685..692,
                     params: [],
-                    param_spans: [],
                     result: Unit,
                     callee: Some(
                         Named(
@@ -1853,7 +1921,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -1886,12 +1953,17 @@ TypedProgram {
                                                                 kind: Normal,
                                                                 name_span: 19..29,
                                                                 params: [
-                                                                    Int(
-                                                                        U64,
-                                                                    ),
-                                                                ],
-                                                                param_spans: [
-                                                                    30..35,
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "chips",
+                                                                            span: 30..35,
+                                                                        },
+                                                                        ty: Int(
+                                                                            U64,
+                                                                        ),
+                                                                        ty_span: 37..40,
+                                                                    },
                                                                 ],
                                                                 result: Unit,
                                                                 callee: Some(
@@ -1911,12 +1983,17 @@ TypedProgram {
                                                                 kind: Normal,
                                                                 name_span: 50..59,
                                                                 params: [
-                                                                    Int(
-                                                                        U64,
-                                                                    ),
-                                                                ],
-                                                                param_spans: [
-                                                                    60..64,
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "mult",
+                                                                            span: 60..64,
+                                                                        },
+                                                                        ty: Int(
+                                                                            U64,
+                                                                        ),
+                                                                        ty_span: 66..69,
+                                                                    },
                                                                 ],
                                                                 result: Unit,
                                                                 callee: Some(
@@ -1936,12 +2013,17 @@ TypedProgram {
                                                                 kind: Normal,
                                                                 name_span: 79..88,
                                                                 params: [
-                                                                    Int(
-                                                                        U64,
-                                                                    ),
-                                                                ],
-                                                                param_spans: [
-                                                                    89..97,
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "mult_pct",
+                                                                            span: 89..97,
+                                                                        },
+                                                                        ty: Int(
+                                                                            U64,
+                                                                        ),
+                                                                        ty_span: 99..102,
+                                                                    },
                                                                 ],
                                                                 result: Unit,
                                                                 callee: Some(
@@ -1961,7 +2043,6 @@ TypedProgram {
                                                                 kind: Normal,
                                                                 name_span: 112..118,
                                                                 params: [],
-                                                                param_spans: [],
                                                                 result: Unit,
                                                                 callee: Some(
                                                                     Named(
@@ -1990,12 +2071,17 @@ TypedProgram {
                                                                 kind: Normal,
                                                                 name_span: 19..29,
                                                                 params: [
-                                                                    Int(
-                                                                        U64,
-                                                                    ),
-                                                                ],
-                                                                param_spans: [
-                                                                    30..35,
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "chips",
+                                                                            span: 30..35,
+                                                                        },
+                                                                        ty: Int(
+                                                                            U64,
+                                                                        ),
+                                                                        ty_span: 37..40,
+                                                                    },
                                                                 ],
                                                                 result: Unit,
                                                                 callee: Some(
@@ -2015,12 +2101,17 @@ TypedProgram {
                                                                 kind: Normal,
                                                                 name_span: 50..59,
                                                                 params: [
-                                                                    Int(
-                                                                        U64,
-                                                                    ),
-                                                                ],
-                                                                param_spans: [
-                                                                    60..64,
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "mult",
+                                                                            span: 60..64,
+                                                                        },
+                                                                        ty: Int(
+                                                                            U64,
+                                                                        ),
+                                                                        ty_span: 66..69,
+                                                                    },
                                                                 ],
                                                                 result: Unit,
                                                                 callee: Some(
@@ -2040,12 +2131,17 @@ TypedProgram {
                                                                 kind: Normal,
                                                                 name_span: 79..88,
                                                                 params: [
-                                                                    Int(
-                                                                        U64,
-                                                                    ),
-                                                                ],
-                                                                param_spans: [
-                                                                    89..97,
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "mult_pct",
+                                                                            span: 89..97,
+                                                                        },
+                                                                        ty: Int(
+                                                                            U64,
+                                                                        ),
+                                                                        ty_span: 99..102,
+                                                                    },
                                                                 ],
                                                                 result: Unit,
                                                                 callee: Some(
@@ -2065,7 +2161,6 @@ TypedProgram {
                                                                 kind: Normal,
                                                                 name_span: 112..118,
                                                                 params: [],
-                                                                param_spans: [],
                                                                 result: Unit,
                                                                 callee: Some(
                                                                     Named(
@@ -2087,7 +2182,6 @@ TypedProgram {
                                                         kind: Normal,
                                                         name_span: 263..266,
                                                         params: [],
-                                                        param_spans: [],
                                                         result: Utxo(
                                                             UtxoType {
                                                                 name: "ScoreProgress",
@@ -2109,12 +2203,17 @@ TypedProgram {
                                                                                     kind: Normal,
                                                                                     name_span: 19..29,
                                                                                     params: [
-                                                                                        Int(
-                                                                                            U64,
-                                                                                        ),
-                                                                                    ],
-                                                                                    param_spans: [
-                                                                                        30..35,
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "chips",
+                                                                                                span: 30..35,
+                                                                                            },
+                                                                                            ty: Int(
+                                                                                                U64,
+                                                                                            ),
+                                                                                            ty_span: 37..40,
+                                                                                        },
                                                                                     ],
                                                                                     result: Unit,
                                                                                     callee: Some(
@@ -2134,12 +2233,17 @@ TypedProgram {
                                                                                     kind: Normal,
                                                                                     name_span: 50..59,
                                                                                     params: [
-                                                                                        Int(
-                                                                                            U64,
-                                                                                        ),
-                                                                                    ],
-                                                                                    param_spans: [
-                                                                                        60..64,
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "mult",
+                                                                                                span: 60..64,
+                                                                                            },
+                                                                                            ty: Int(
+                                                                                                U64,
+                                                                                            ),
+                                                                                            ty_span: 66..69,
+                                                                                        },
                                                                                     ],
                                                                                     result: Unit,
                                                                                     callee: Some(
@@ -2159,12 +2263,17 @@ TypedProgram {
                                                                                     kind: Normal,
                                                                                     name_span: 79..88,
                                                                                     params: [
-                                                                                        Int(
-                                                                                            U64,
-                                                                                        ),
-                                                                                    ],
-                                                                                    param_spans: [
-                                                                                        89..97,
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "mult_pct",
+                                                                                                span: 89..97,
+                                                                                            },
+                                                                                            ty: Int(
+                                                                                                U64,
+                                                                                            ),
+                                                                                            ty_span: 99..102,
+                                                                                        },
                                                                                     ],
                                                                                     result: Unit,
                                                                                     callee: Some(
@@ -2184,7 +2293,6 @@ TypedProgram {
                                                                                     kind: Normal,
                                                                                     name_span: 112..118,
                                                                                     params: [],
-                                                                                    param_spans: [],
                                                                                     result: Unit,
                                                                                     callee: Some(
                                                                                         Named(
@@ -2213,12 +2321,17 @@ TypedProgram {
                                                                                     kind: Normal,
                                                                                     name_span: 19..29,
                                                                                     params: [
-                                                                                        Int(
-                                                                                            U64,
-                                                                                        ),
-                                                                                    ],
-                                                                                    param_spans: [
-                                                                                        30..35,
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "chips",
+                                                                                                span: 30..35,
+                                                                                            },
+                                                                                            ty: Int(
+                                                                                                U64,
+                                                                                            ),
+                                                                                            ty_span: 37..40,
+                                                                                        },
                                                                                     ],
                                                                                     result: Unit,
                                                                                     callee: Some(
@@ -2238,12 +2351,17 @@ TypedProgram {
                                                                                     kind: Normal,
                                                                                     name_span: 50..59,
                                                                                     params: [
-                                                                                        Int(
-                                                                                            U64,
-                                                                                        ),
-                                                                                    ],
-                                                                                    param_spans: [
-                                                                                        60..64,
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "mult",
+                                                                                                span: 60..64,
+                                                                                            },
+                                                                                            ty: Int(
+                                                                                                U64,
+                                                                                            ),
+                                                                                            ty_span: 66..69,
+                                                                                        },
                                                                                     ],
                                                                                     result: Unit,
                                                                                     callee: Some(
@@ -2263,12 +2381,17 @@ TypedProgram {
                                                                                     kind: Normal,
                                                                                     name_span: 79..88,
                                                                                     params: [
-                                                                                        Int(
-                                                                                            U64,
-                                                                                        ),
-                                                                                    ],
-                                                                                    param_spans: [
-                                                                                        89..97,
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "mult_pct",
+                                                                                                span: 89..97,
+                                                                                            },
+                                                                                            ty: Int(
+                                                                                                U64,
+                                                                                            ),
+                                                                                            ty_span: 99..102,
+                                                                                        },
                                                                                     ],
                                                                                     result: Unit,
                                                                                     callee: Some(
@@ -2288,7 +2411,6 @@ TypedProgram {
                                                                                     kind: Normal,
                                                                                     name_span: 112..118,
                                                                                     params: [],
-                                                                                    param_spans: [],
                                                                                     result: Unit,
                                                                                     callee: Some(
                                                                                         Named(
@@ -2345,12 +2467,17 @@ TypedProgram {
                                                         kind: Normal,
                                                         name_span: 19..29,
                                                         params: [
-                                                            Int(
-                                                                U64,
-                                                            ),
-                                                        ],
-                                                        param_spans: [
-                                                            30..35,
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "chips",
+                                                                    span: 30..35,
+                                                                },
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                ty_span: 37..40,
+                                                            },
                                                         ],
                                                         result: Unit,
                                                         callee: Some(
@@ -2384,12 +2511,17 @@ TypedProgram {
                                                                                         kind: Normal,
                                                                                         name_span: 19..29,
                                                                                         params: [
-                                                                                            Int(
-                                                                                                U64,
-                                                                                            ),
-                                                                                        ],
-                                                                                        param_spans: [
-                                                                                            30..35,
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "chips",
+                                                                                                    span: 30..35,
+                                                                                                },
+                                                                                                ty: Int(
+                                                                                                    U64,
+                                                                                                ),
+                                                                                                ty_span: 37..40,
+                                                                                            },
                                                                                         ],
                                                                                         result: Unit,
                                                                                         callee: Some(
@@ -2409,12 +2541,17 @@ TypedProgram {
                                                                                         kind: Normal,
                                                                                         name_span: 50..59,
                                                                                         params: [
-                                                                                            Int(
-                                                                                                U64,
-                                                                                            ),
-                                                                                        ],
-                                                                                        param_spans: [
-                                                                                            60..64,
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "mult",
+                                                                                                    span: 60..64,
+                                                                                                },
+                                                                                                ty: Int(
+                                                                                                    U64,
+                                                                                                ),
+                                                                                                ty_span: 66..69,
+                                                                                            },
                                                                                         ],
                                                                                         result: Unit,
                                                                                         callee: Some(
@@ -2434,12 +2571,17 @@ TypedProgram {
                                                                                         kind: Normal,
                                                                                         name_span: 79..88,
                                                                                         params: [
-                                                                                            Int(
-                                                                                                U64,
-                                                                                            ),
-                                                                                        ],
-                                                                                        param_spans: [
-                                                                                            89..97,
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "mult_pct",
+                                                                                                    span: 89..97,
+                                                                                                },
+                                                                                                ty: Int(
+                                                                                                    U64,
+                                                                                                ),
+                                                                                                ty_span: 99..102,
+                                                                                            },
                                                                                         ],
                                                                                         result: Unit,
                                                                                         callee: Some(
@@ -2459,7 +2601,6 @@ TypedProgram {
                                                                                         kind: Normal,
                                                                                         name_span: 112..118,
                                                                                         params: [],
-                                                                                        param_spans: [],
                                                                                         result: Unit,
                                                                                         callee: Some(
                                                                                             Named(
@@ -2488,12 +2629,17 @@ TypedProgram {
                                                                                         kind: Normal,
                                                                                         name_span: 19..29,
                                                                                         params: [
-                                                                                            Int(
-                                                                                                U64,
-                                                                                            ),
-                                                                                        ],
-                                                                                        param_spans: [
-                                                                                            30..35,
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "chips",
+                                                                                                    span: 30..35,
+                                                                                                },
+                                                                                                ty: Int(
+                                                                                                    U64,
+                                                                                                ),
+                                                                                                ty_span: 37..40,
+                                                                                            },
                                                                                         ],
                                                                                         result: Unit,
                                                                                         callee: Some(
@@ -2513,12 +2659,17 @@ TypedProgram {
                                                                                         kind: Normal,
                                                                                         name_span: 50..59,
                                                                                         params: [
-                                                                                            Int(
-                                                                                                U64,
-                                                                                            ),
-                                                                                        ],
-                                                                                        param_spans: [
-                                                                                            60..64,
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "mult",
+                                                                                                    span: 60..64,
+                                                                                                },
+                                                                                                ty: Int(
+                                                                                                    U64,
+                                                                                                ),
+                                                                                                ty_span: 66..69,
+                                                                                            },
                                                                                         ],
                                                                                         result: Unit,
                                                                                         callee: Some(
@@ -2538,12 +2689,17 @@ TypedProgram {
                                                                                         kind: Normal,
                                                                                         name_span: 79..88,
                                                                                         params: [
-                                                                                            Int(
-                                                                                                U64,
-                                                                                            ),
-                                                                                        ],
-                                                                                        param_spans: [
-                                                                                            89..97,
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "mult_pct",
+                                                                                                    span: 89..97,
+                                                                                                },
+                                                                                                ty: Int(
+                                                                                                    U64,
+                                                                                                ),
+                                                                                                ty_span: 99..102,
+                                                                                            },
                                                                                         ],
                                                                                         result: Unit,
                                                                                         callee: Some(
@@ -2563,7 +2719,6 @@ TypedProgram {
                                                                                         kind: Normal,
                                                                                         name_span: 112..118,
                                                                                         params: [],
-                                                                                        param_spans: [],
                                                                                         result: Unit,
                                                                                         callee: Some(
                                                                                             Named(
@@ -2887,7 +3042,7 @@ TypedProgram {
               (import "score-progress" (instance (;0;) (type 1)))
               (type (;2;)
                 (instance
-                  (type (;0;) (func (param "x" u64)))
+                  (type (;0;) (func (param "total" u64)))
                   (export (;0;) "finish" (func (type 0)))
                 )
               )
@@ -2974,7 +3129,7 @@ world root {
 }
 package starstream:events {
   interface score {
-    finish: func(x: u64);
+    finish: func(total: u64);
   }
 }
 

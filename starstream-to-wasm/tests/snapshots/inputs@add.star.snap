@@ -105,9 +105,9 @@ Program {
 ==== Inference trace ====
 T-Fn: add => i64
   T-ReturnTail: x + y => i64
-    T-Bin-Add: {add: fn(i64, i64) -> i64, x: i64, y: i64} ⊢ x + y ⇒ i64
-      T-Var: {add: fn(i64, i64) -> i64, x: i64, y: i64} ⊢ x ⇒ i64
-      T-Var: {add: fn(i64, i64) -> i64, x: i64, y: i64} ⊢ y ⇒ i64
+    T-Bin-Add: {add: fn(x: i64, y: i64) -> i64, x: i64, y: i64} ⊢ x + y ⇒ i64
+      T-Var: {add: fn(x: i64, y: i64) -> i64, x: i64, y: i64} ⊢ x ⇒ i64
+      T-Var: {add: fn(x: i64, y: i64) -> i64, x: i64, y: i64} ⊢ y ⇒ i64
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
 
@@ -128,16 +128,28 @@ TypedProgram {
                     kind: Normal,
                     name_span: 10..13,
                     params: [
-                        Int(
-                            I64,
-                        ),
-                        Int(
-                            I64,
-                        ),
-                    ],
-                    param_spans: [
-                        17..20,
-                        25..28,
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "x",
+                                span: 14..15,
+                            },
+                            ty: Int(
+                                I64,
+                            ),
+                            ty_span: 17..20,
+                        },
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "y",
+                                span: 22..23,
+                            },
+                            ty: Int(
+                                I64,
+                            ),
+                            ty_span: 25..28,
+                        },
                     ],
                     result: Int(
                         I64,
@@ -148,28 +160,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [
-                    TypedFunctionParam {
-                        public: false,
-                        name: Identifier {
-                            name: "x",
-                            span: 14..15,
-                        },
-                        ty: Int(
-                            I64,
-                        ),
-                    },
-                    TypedFunctionParam {
-                        public: false,
-                        name: Identifier {
-                            name: "y",
-                            span: 22..23,
-                        },
-                        ty: Int(
-                            I64,
-                        ),
-                    },
-                ],
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(

@@ -1317,8 +1317,11 @@ impl Compiler {
                 TypedDefinition::Function(func) => {
                     let core = self.visit_function(None, func, &());
                     if let Some(FunctionExport::Script) = func.export {
-                        let sig =
-                            self.star_to_component_signature(None, &func.params, &func.ty.result);
+                        let sig = self.star_to_component_signature(
+                            None,
+                            &func.ty.params,
+                            &func.ty.result,
+                        );
                         self.export_component_fn(
                             &to_kebab_case(func.name.as_str()),
                             func.name.span,
@@ -1351,7 +1354,7 @@ impl Compiler {
                         let mut core_results = Vec::with_capacity(1);
                         let span = item.local.span();
                         for p in &func_ty.params {
-                            _ = self.star_to_core_types(span, &mut core_params, p);
+                            _ = self.star_to_core_types(span, &mut core_params, &p.ty);
                         }
                         _ = self.star_to_core_types(span, &mut core_results, &func_ty.result);
 
@@ -1370,7 +1373,10 @@ impl Compiler {
                         let comp_params = func_ty
                             .params
                             .iter()
-                            .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
+                            .filter_map(|p| {
+                                self.star_to_component_type(&p.ty)
+                                    .map(|t| (p.name.as_str(), t))
+                            })
                             .collect::<Vec<_>>();
                         let comp_result = self.star_to_component_type(&func_ty.result);
                         let iface = self
@@ -1396,7 +1402,7 @@ impl Compiler {
                     let mut core_params = Vec::with_capacity(16);
                     let span = part.ty.name_span;
                     for p in &part.ty.params {
-                        _ = self.star_to_core_types(span, &mut core_params, p);
+                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
                     }
 
                     let interface =
@@ -1416,7 +1422,10 @@ impl Compiler {
                         .ty
                         .params
                         .iter()
-                        .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
+                        .filter_map(|p| {
+                            self.star_to_component_type(&p.ty)
+                                .map(|t| (p.name.as_str(), t))
+                        })
                         .collect::<Vec<_>>();
                     let comp_result = None;
                     let iface = self.imported_interfaces.entry(interface).or_default();
@@ -1430,7 +1439,7 @@ impl Compiler {
                     let mut core_params = Vec::with_capacity(16);
                     let span = part.name.span();
                     for p in &part.ty.params {
-                        _ = self.star_to_core_types(span, &mut core_params, p);
+                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
                     }
                     let mut core_results = Vec::new();
                     _ = self.star_to_core_types(span, &mut core_results, &part.ty.result);
@@ -1452,7 +1461,10 @@ impl Compiler {
                         .ty
                         .params
                         .iter()
-                        .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
+                        .filter_map(|p| {
+                            self.star_to_component_type(&p.ty)
+                                .map(|t| (p.name.as_str(), t))
+                        })
                         .collect::<Vec<_>>();
                     let comp_result = self.star_to_component_type(&part.ty.result);
                     let iface = self.imported_interfaces.entry(interface).or_default();
@@ -1482,7 +1494,7 @@ impl Compiler {
         if let Some(this) = this {
             _ = self.star_to_core_types(function.name.span(), &mut params, this);
         }
-        for p in &function.params {
+        for p in &function.ty.params {
             locals.insert(
                 p.name.name.clone(),
                 Var::Local(u32::try_from(params.len()).unwrap()),
@@ -1593,7 +1605,7 @@ impl Compiler {
                 TypedUtxoPart::Function(function) => {
                     if let Some(FunctionExport::UtxoMain) = function.export {
                         let mut params = Vec::with_capacity(16);
-                        for p in &function.params {
+                        for p in &function.ty.params {
                             _ = self.star_to_core_types(
                                 p.name.span_or(function.name.span()),
                                 &mut params,
@@ -1629,7 +1641,7 @@ impl Compiler {
                         for function in parts {
                             let mut params = Vec::with_capacity(16);
                             _ = self.star_to_core_types(function.name.span, &mut params, &this);
-                            for p in &function.params {
+                            for p in &function.ty.params {
                                 _ = self.star_to_core_types(
                                     p.name.span_or(function.name.span()),
                                     &mut params,
@@ -1722,7 +1734,7 @@ impl Compiler {
                     if let Some(FunctionExport::UtxoMain) = function.export {
                         let mut sig = self.star_to_component_signature(
                             None,
-                            &function.params,
+                            &function.ty.params,
                             &function.ty.result,
                         );
                         sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
@@ -1756,7 +1768,7 @@ impl Compiler {
                         );
                         let sig = self.star_to_component_signature(
                             Some(&this),
-                            &function.params,
+                            &function.ty.params,
                             &function.ty.result,
                         );
                         let wit_name = format!(
@@ -1873,7 +1885,7 @@ impl Compiler {
                         Some(FunctionExport::TokenMint) => {
                             let mut sig = self.star_to_component_signature(
                                 None,
-                                &function.params,
+                                &function.ty.params,
                                 &function.ty.result,
                             );
                             sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
@@ -1901,7 +1913,7 @@ impl Compiler {
                         Some(FunctionExport::TokenBurn) => {
                             let sig = self.star_to_component_signature(
                                 None,
-                                &function.params,
+                                &function.ty.params,
                                 &function.ty.result,
                             );
                             let wit_name = format!(
@@ -1943,7 +1955,7 @@ impl Compiler {
                         );
                         let sig = self.star_to_component_signature(
                             Some(&Type::Token(token.ty.clone())),
-                            &function.params,
+                            &function.ty.params,
                             &function.ty.result,
                         );
                         let wit_name = format!(

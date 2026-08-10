@@ -8,17 +8,17 @@ T-Fn: pick => A
 } else {
     b
 } => A
-    T-If: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A} ⊢ if (c) {
+    T-If: {a: A, b: B, c: bool, pick: fn(c: bool, a: A, b: B) -> A} ⊢ if (c) {
     a
 } else {
     b
 } ⇒ ()
-      T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A} ⊢ c ⇒ bool
+      T-Var: {a: A, b: B, c: bool, pick: fn(c: bool, a: A, b: B) -> A} ⊢ c ⇒ bool
       Check-Bool: bool => ok
       T-Tail: a => A
-        T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A} ⊢ a ⇒ A
+        T-Var: {a: A, b: B, c: bool, pick: fn(c: bool, a: A, b: B) -> A} ⊢ a ⇒ A
       T-Tail: b => B
-        T-Var: {a: A, b: B, c: bool, pick: fn(bool, A, B) -> A} ⊢ b ⇒ B
+        T-Var: {a: A, b: B, c: bool, pick: fn(c: bool, a: A, b: B) -> A} ⊢ b ⇒ B
       Unify-Record: A ~ B => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: bool ~ bool => {}

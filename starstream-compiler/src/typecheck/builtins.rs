@@ -8,6 +8,7 @@ use std::sync::Arc;
 use starstream_types::{
     AbiType, DUMMY_SPAN, EnumType, EnumVariantKind, EnumVariantType, FunctionKind, FunctionType,
     Identifier, IntWidth, NameId, StaticFunction, Type, TypeParam, TypeVarId, TypedAbiMethodDecl,
+    TypedFunctionParam,
 };
 
 use crate::typecheck::{
@@ -168,8 +169,7 @@ fn register_prelude(
             ty: Arc::new(FunctionType {
                 kind: FunctionKind::Normal,
                 name_span: DUMMY_SPAN,
-                params: vec![Type::UtxoAny],
-                param_spans: vec![DUMMY_SPAN],
+                params: vec![TypedFunctionParam::anon("utxo", Type::UtxoAny)],
                 result: Type::Unit,
                 callee: Some(StaticFunction::Named(id)),
             }),
@@ -246,8 +246,7 @@ fn register_prelude_enum(
                         ty: Type::from(FunctionType {
                             kind: FunctionKind::Normal,
                             name_span: DUMMY_SPAN,
-                            params: params.clone(),
-                            param_spans: vec![],
+                            params: TypedFunctionParam::from_types(params),
                             result: ty.clone(),
                             callee: Some(StaticFunction::Constructor { variant: i }),
                         }),
@@ -285,7 +284,6 @@ fn register_std_cardano(cardano: &mut Namespace, next_name_id: &mut NameId) {
                 kind: FunctionKind::Runtime,
                 name_span: DUMMY_SPAN,
                 params: vec![],
-                param_spans: vec![],
                 result: Type::int(),
                 callee: Some(StaticFunction::Named(next_name_id.fresh())),
             }),
@@ -301,7 +299,6 @@ fn register_std_cardano(cardano: &mut Namespace, next_name_id: &mut NameId) {
                 kind: FunctionKind::Runtime,
                 name_span: DUMMY_SPAN,
                 params: vec![],
-                param_spans: vec![],
                 result: Type::int(),
                 callee: Some(StaticFunction::Named(next_name_id.fresh())),
             }),

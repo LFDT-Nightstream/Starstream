@@ -994,6 +994,7 @@ impl DocumentState {
             // Use to_compact_string() to avoid expanding struct/enum definitions
             // Include effect prefix to match Type::Function display format
             let params = function
+                .ty
                 .params
                 .iter()
                 .map(|p| format!("{}: {}", p.name.name, p.ty.compact_display()))
@@ -1013,7 +1014,7 @@ impl DocumentState {
         scopes.push(HashMap::new());
 
         if let Some(scope) = scopes.last_mut() {
-            for param in &function.params {
+            for param in &function.ty.params {
                 if let Some(span) = param.name.opt_span() {
                     scope.insert(param.name.to_string(), span);
 
@@ -2277,21 +2278,12 @@ impl DocumentState {
             match part.ty.kind {
                 FunctionKind::Emit => {
                     if let Some(span) = part.name.opt_span() {
-                        // TODO: restore parameter names here
-                        let params = part
-                            .ty
-                            .params
-                            .iter()
-                            .map(|p| p.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-
-                        let detail = Some(format!("({params})"));
+                        let detail = Type::Function(part.ty.clone()).to_string();
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
                             name: part.name.to_string(),
-                            detail,
+                            detail: Some(detail),
                             kind: SymbolKind::EVENT,
                             tags: None,
                             deprecated: None,
@@ -2305,26 +2297,12 @@ impl DocumentState {
                 }
                 FunctionKind::Raise => {
                     if let Some(span) = part.name.opt_span() {
-                        // TODO: restore parameter names here
-                        let params = part
-                            .ty
-                            .params
-                            .iter()
-                            .map(|p| p.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-
-                        let ret = match &part.ty.result {
-                            Type::Unit => String::new(),
-                            ty => format!(" -> {ty}"),
-                        };
-
-                        let detail = Some(format!("({params}){ret}"));
+                        let detail = Type::Function(part.ty.clone()).to_string();
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
                             name: part.name.to_string(),
-                            detail,
+                            detail: Some(detail),
                             kind: SymbolKind::EVENT,
                             tags: None,
                             deprecated: None,

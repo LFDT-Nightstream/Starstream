@@ -152,11 +152,11 @@ Program {
 ==== Inference trace ====
 T-Fn: total_value => i64
   T-ReturnTail: item.amount * item.price => i64
-    T-Bin-Mul: {item: Item, total_value: fn(Item) -> i64} ⊢ item.amount * item.price ⇒ i64
-      T-FieldAccess: {item: Item, total_value: fn(Item) -> i64} ⊢ item.amount ⇒ i64
-        T-Var: {item: Item, total_value: fn(Item) -> i64} ⊢ item ⇒ Item
-      T-FieldAccess: {item: Item, total_value: fn(Item) -> i64} ⊢ item.price ⇒ i64
-        T-Var: {item: Item, total_value: fn(Item) -> i64} ⊢ item ⇒ Item
+    T-Bin-Mul: {item: Item, total_value: fn(item: Item) -> i64} ⊢ item.amount * item.price ⇒ i64
+      T-FieldAccess: {item: Item, total_value: fn(item: Item) -> i64} ⊢ item.amount ⇒ i64
+        T-Var: {item: Item, total_value: fn(item: Item) -> i64} ⊢ item ⇒ Item
+      T-FieldAccess: {item: Item, total_value: fn(item: Item) -> i64} ⊢ item.price ⇒ i64
+        T-Var: {item: Item, total_value: fn(item: Item) -> i64} ⊢ item ⇒ Item
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
 
@@ -207,37 +207,42 @@ TypedProgram {
                     kind: Normal,
                     name_span: 60..71,
                     params: [
-                        Record(
-                            RecordType {
-                                name: Identifier {
-                                    name: "Item",
-                                    span: 7..11,
-                                },
-                                fields: [
-                                    RecordFieldType {
-                                        name: Identifier {
-                                            name: "amount",
-                                            span: 18..24,
-                                        },
-                                        ty: Int(
-                                            I64,
-                                        ),
-                                    },
-                                    RecordFieldType {
-                                        name: Identifier {
-                                            name: "price",
-                                            span: 35..40,
-                                        },
-                                        ty: Int(
-                                            I64,
-                                        ),
-                                    },
-                                ],
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "item",
+                                span: 72..76,
                             },
-                        ),
-                    ],
-                    param_spans: [
-                        78..82,
+                            ty: Record(
+                                RecordType {
+                                    name: Identifier {
+                                        name: "Item",
+                                        span: 7..11,
+                                    },
+                                    fields: [
+                                        RecordFieldType {
+                                            name: Identifier {
+                                                name: "amount",
+                                                span: 18..24,
+                                            },
+                                            ty: Int(
+                                                I64,
+                                            ),
+                                        },
+                                        RecordFieldType {
+                                            name: Identifier {
+                                                name: "price",
+                                                span: 35..40,
+                                            },
+                                            ty: Int(
+                                                I64,
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                            ty_span: 78..82,
+                        },
                     ],
                     result: Int(
                         I64,
@@ -248,43 +253,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [
-                    TypedFunctionParam {
-                        public: false,
-                        name: Identifier {
-                            name: "item",
-                            span: 72..76,
-                        },
-                        ty: Record(
-                            RecordType {
-                                name: Identifier {
-                                    name: "Item",
-                                    span: 7..11,
-                                },
-                                fields: [
-                                    RecordFieldType {
-                                        name: Identifier {
-                                            name: "amount",
-                                            span: 18..24,
-                                        },
-                                        ty: Int(
-                                            I64,
-                                        ),
-                                    },
-                                    RecordFieldType {
-                                        name: Identifier {
-                                            name: "price",
-                                            span: 35..40,
-                                        },
-                                        ty: Int(
-                                            I64,
-                                        ),
-                                    },
-                                ],
-                            },
-                        ),
-                    },
-                ],
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(

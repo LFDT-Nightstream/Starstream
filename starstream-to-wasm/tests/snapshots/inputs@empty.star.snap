@@ -54,7 +54,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 22..26,
                     params: [],
-                    param_spans: [],
                     result: Unit,
                     callee: Some(
                         Named(
@@ -62,7 +61,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [],
                     tail_expression: None,

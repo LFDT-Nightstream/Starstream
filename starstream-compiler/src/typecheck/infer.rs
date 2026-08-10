@@ -10,9 +10,9 @@ use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
     FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
     Spanned, StaticFunction, SubstituteType, TokenDef, TokenGlobal, TokenPart, TokenType, Type,
-    TypeParam, TypeVarId, TypedAbiMethodDecl, TypedImportItem, TypedTokenDef, TypedTokenGlobal,
-    TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
-    UtxoType,
+    TypeParam, TypeVarId, TypedAbiMethodDecl, TypedFunctionParam, TypedImportItem, TypedTokenDef,
+    TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
+    UtxoGlobal, UtxoPart, UtxoType,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportItems, ImportSource, IntegerLiteral, Literal, Pattern, Program, Statement, StructDef,
@@ -20,8 +20,8 @@ use starstream_types::{
     },
     typed_ast::{
         TypedAbiDef, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
-        TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm,
-        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
+        TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedMatchArm, TypedPattern,
+        TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
         TypedStructPatternField,
     },
     types::{EnumType, EnumVariantKind, EnumVariantType, RecordFieldType, RecordType},
@@ -782,8 +782,7 @@ impl Inferencer {
                             Type::from(FunctionType {
                                 kind: FunctionKind::Normal,
                                 name_span: DUMMY_SPAN,
-                                params: params.clone(),
-                                param_spans: vec![],
+                                params: TypedFunctionParam::from_types(params),
                                 result: ty.clone(),
                                 callee: Some(StaticFunction::Constructor { variant: i }),
                             }),
@@ -838,9 +837,15 @@ impl Inferencer {
                         params: method
                             .params
                             .iter()
-                            .map(|p| self.type_from_annotation(env, &p.ty))
+                            .map(|p| {
+                                Ok(TypedFunctionParam {
+                                    ty: self.type_from_annotation(env, &p.ty)?,
+                                    public: p.public,
+                                    name: p.name.clone(),
+                                    ty_span: p.ty.name_span(),
+                                })
+                            })
                             .collect::<Result<Vec<_>, _>>()?,
-                        param_spans: method.params.iter().map(|p| p.name.span).collect(),
                         result: return_type,
                         callee: Some(StaticFunction::Named(id)),
                     });
@@ -871,20 +876,22 @@ impl Inferencer {
         env: &mut TypeEnv,
         event: &EventDef,
     ) -> Result<TypedAbiMethodDecl, TypeError> {
-        let mut param_types = Vec::with_capacity(event.params.len());
-        let mut param_spans = Vec::with_capacity(event.params.len());
+        let mut params = Vec::with_capacity(event.params.len());
         for param in &event.params {
-            let ty = self.type_from_annotation(env, &param.ty)?;
-            param_types.push(ty);
-            param_spans.push(param.ty.name_span());
+            params.push(TypedFunctionParam {
+                ty: self.type_from_annotation(env, &param.ty)?,
+                // NB: event parameters are always public
+                public: true,
+                name: param.name.clone(),
+                ty_span: param.ty.name_span(),
+            });
         }
         let id = self.next_name_id.fresh();
         self.function_names.insert(event, id);
         let func_ty = Arc::new(FunctionType {
             kind: FunctionKind::Emit,
             name_span: event.name.span,
-            params: param_types,
-            param_spans,
+            params,
             result: Type::Unit,
             callee: Some(StaticFunction::Named(id)),
         });
@@ -904,12 +911,14 @@ impl Inferencer {
         env: &mut TypeEnv,
         effect: &EffectDef,
     ) -> Result<TypedAbiMethodDecl, TypeError> {
-        let mut param_types = Vec::with_capacity(effect.params.len());
-        let mut param_spans = Vec::with_capacity(effect.params.len());
+        let mut params = Vec::with_capacity(effect.params.len());
         for param in &effect.params {
-            let ty = self.type_from_annotation(env, &param.ty)?;
-            param_types.push(ty);
-            param_spans.push(param.ty.name_span());
+            params.push(TypedFunctionParam {
+                ty: self.type_from_annotation(env, &param.ty)?,
+                public: param.public,
+                name: param.name.clone(),
+                ty_span: param.ty.name_span(),
+            });
         }
         let return_type = match &effect.return_type {
             Some(ann) => self.type_from_annotation(env, ann)?,
@@ -920,8 +929,7 @@ impl Inferencer {
         let func_ty = Arc::new(FunctionType {
             kind: FunctionKind::Raise,
             name_span: effect.name.span,
-            params: param_types,
-            param_spans,
+            params,
             result: return_type,
             callee: Some(StaticFunction::Named(id)),
         });
@@ -1369,18 +1377,18 @@ impl Inferencer {
         for impl_method in methods {
             if let Some(abi_method) = abi_methods.remove(impl_method.name.as_str()) {
                 // Method found, make sure the parameter counts match
-                if abi_method.ty.params.len() != impl_method.params.len() {
+                if abi_method.ty.params.len() != impl_method.ty.params.len() {
                     return Err(TypeError::new(
                         TypeErrorKind::ArityMismatch {
                             expected: abi_method.ty.params.len(),
-                            found: impl_method.params.len(),
+                            found: impl_method.ty.params.len(),
                         },
                         impl_method.name.span(),
                     )
                     .with_primary_message(format!(
                         "implemented with {} parameter{} here",
-                        impl_method.params.len(),
-                        if impl_method.params.len() == 1 {
+                        impl_method.ty.params.len(),
+                        if impl_method.ty.params.len() == 1 {
                             ""
                         } else {
                             "s"
@@ -1400,21 +1408,20 @@ impl Inferencer {
                     ));
                 }
                 // And that the parameter types match
-                for (i, ((abi_param, &abi_param_span), impl_param)) in abi_method
+                for (i, (abi_param, impl_param)) in abi_method
                     .ty
                     .params
                     .iter()
-                    .zip(abi_method.ty.param_spans.iter())
-                    .zip(impl_method.params.iter())
+                    .zip(impl_method.ty.params.iter())
                     .enumerate()
                 {
-                    if *abi_param != impl_param.ty {
+                    if abi_param.ty != impl_param.ty {
                         return Err(TypeError::new(
                             TypeErrorKind::ArgumentTypeMismatch {
-                                expected: abi_param.clone(),
+                                expected: abi_param.ty.clone(),
                                 found: impl_param.ty.clone(),
                                 position: i,
-                                param_span: Some(abi_param_span),
+                                param_span: Some(abi_param.ty_span),
                             },
                             impl_param.name.span(),
                         ));
@@ -1761,9 +1768,9 @@ impl Inferencer {
                 )?;
                 let mut traces = vec![unify_trace];
                 let mut typed = Vec::with_capacity(fields.len());
-                for (pattern, ty) in fields.iter().zip(&func.params) {
+                for (pattern, param) in fields.iter().zip(&func.params) {
                     let (typed_pattern, mut pattern_traces) =
-                        self.infer_pattern(env, pattern, ty, value_span)?;
+                        self.infer_pattern(env, pattern, &param.ty, value_span)?;
                     traces.append(&mut pattern_traces);
                     typed.push(typed_pattern);
                 }
@@ -1784,27 +1791,28 @@ impl Inferencer {
         function: &FunctionDef,
     ) -> Result<FunctionType, TypeError> {
         // Visit param & return types.
-        let param_types = function
+        let params = function
             .params
             .iter()
-            .map(|param| self.type_from_annotation(env, &param.ty))
+            .map(|param| {
+                Ok(TypedFunctionParam {
+                    ty: self.type_from_annotation(env, &param.ty)?,
+                    public: param.public,
+                    name: param.name.clone(),
+                    ty_span: param.ty.name_span(),
+                })
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let expected_return = match &function.return_type {
             Some(annotation) => self.type_from_annotation(env, annotation)?,
             None => Type::unit(),
         };
-        let param_spans = function
-            .params
-            .iter()
-            .map(|param| param.ty.name_span())
-            .collect::<Vec<_>>();
         let id = *self
             .function_names
             .entry(function)
             .or_insert_with(|| self.next_name_id.fresh());
         Ok(FunctionType {
-            params: param_types.clone(),
-            param_spans,
+            params,
             result: expected_return.clone(),
             kind: FunctionKind::Normal,
             name_span: function.name.span,
@@ -1833,9 +1841,8 @@ impl Inferencer {
         );
 
         env.push_scope();
-        let mut typed_params = Vec::with_capacity(function.params.len());
         let mut private_param_decl_spans = Vec::new();
-        for (param, ty) in function.params.iter().zip(&func_ty.params) {
+        for param in &func_ty.params {
             let decl_span = param.name.span_or(function.name.span());
             if !param.public {
                 private_param_decl_spans.push(decl_span);
@@ -1845,7 +1852,7 @@ impl Inferencer {
                 Binding {
                     decl_span,
                     mutable: false,
-                    scheme: Scheme::monomorphic(ty.clone()),
+                    scheme: Scheme::monomorphic(param.ty.clone()),
                     class: BindingClass::Local,
                     visibility: if param.public {
                         BindingVisibility::Public
@@ -1854,11 +1861,6 @@ impl Inferencer {
                     },
                 },
             );
-            typed_params.push(TypedFunctionParam {
-                public: param.public,
-                name: param.name.clone(),
-                ty: ty.clone(),
-            });
         }
 
         let mut ctx = FunctionCtx {
@@ -1894,7 +1896,6 @@ impl Inferencer {
                 name: function.name.clone(),
                 id: *self.function_names.get(function).unwrap(),
                 ty: func_ty,
-                params: typed_params,
                 body: typed_body,
             },
             trace,
@@ -2247,8 +2248,8 @@ impl Inferencer {
                     }
 
                     let mut typed_patterns = Vec::with_capacity(patterns.len());
-                    for (ty, pat) in func.params.iter().zip(patterns) {
-                        let (tp, trace) = self.infer_pattern(env, pat, ty, DUMMY_SPAN)?;
+                    for (param, pat) in func.params.iter().zip(patterns) {
+                        let (tp, trace) = self.infer_pattern(env, pat, &param.ty, DUMMY_SPAN)?;
                         typed_patterns.push(tp);
                         children.extend(trace);
                     }
@@ -3329,22 +3330,20 @@ impl Inferencer {
         let mut children = vec![callee_trace];
         let mut typed_args = Vec::with_capacity(args.len());
 
-        for (index, (arg, expected_ty)) in args.iter().zip(func.params.iter()).enumerate() {
+        for (index, (arg, param)) in args.iter().zip(func.params.iter()).enumerate() {
             let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
             let actual_ty = typed_arg.node.ty.clone();
 
-            let param_span = func.param_spans.get(index).copied();
-
             let (_, unify_trace) = self.unify(
                 actual_ty.clone(),
-                expected_ty.clone(),
+                param.ty.clone(),
                 arg.span,
                 arg.span,
                 TypeErrorKind::ArgumentTypeMismatch {
-                    expected: expected_ty.clone(),
+                    expected: param.ty.clone(),
                     found: self.apply_for_display(&actual_ty),
                     position: index + 1,
-                    param_span,
+                    param_span: Some(param.ty_span),
                 },
             )?;
 
@@ -3748,9 +3747,6 @@ impl Inferencer {
 
     fn apply_function(&self, function: &mut TypedFunctionDef) {
         function.ty.substitute_in_place(&self.subst, &self.int_vars);
-        for param in &mut function.params {
-            param.ty.substitute_in_place(&self.subst, &self.int_vars);
-        }
         self.apply_block(&mut function.body);
     }
 
@@ -4110,7 +4106,7 @@ impl Inferencer {
             {
                 let mut children = Vec::new();
                 for (l, r) in left.params.iter().zip(right.params.iter()) {
-                    let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
+                    let (_, child, _) = self.unify_inner(l.ty.clone(), r.ty.clone())?;
                     children.extend(child);
                 }
                 let (_, ret_child, _) =
@@ -4119,7 +4115,6 @@ impl Inferencer {
                 Ok((
                     Type::from(FunctionType {
                         params: left.params.clone(),
-                        param_spans: left.param_spans.clone(),
                         result: left.result.clone(),
                         kind: left.kind,
                         name_span: left.name_span,
@@ -4313,13 +4308,13 @@ impl Inferencer {
                 let mut arrow_children = Vec::new();
                 for (l, r) in left.params.iter().zip(right.params.iter()) {
                     let (_, child) = self.unify(
-                        l.clone(),
-                        r.clone(),
+                        l.ty.clone(),
+                        r.ty.clone(),
                         left_span,
                         right_span,
                         TypeErrorKind::GeneralMismatch {
-                            expected: l.clone(),
-                            found: r.clone(),
+                            expected: l.ty.clone(),
+                            found: r.ty.clone(),
                         },
                     )?;
                     arrow_children.push(child);
@@ -4340,7 +4335,6 @@ impl Inferencer {
                 (
                     Type::from(FunctionType {
                         params: left.params.clone(),
-                        param_spans: left.param_spans.clone(),
                         result: left.result.clone(),
                         kind: left.kind,
                         name_span: left.name_span,

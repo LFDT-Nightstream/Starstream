@@ -255,24 +255,24 @@ Program {
 T-Fn: accepts_foo => ()
 
 T-Fn: get_bar => ()
-  T-Expr: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo(Foo::Bar(true)); ⇒ ()
-    T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo(Foo::Bar(true)) ⇒ ()
-      T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo ⇒ fn(Foo) -> ()
-      T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ Foo::Bar(true) ⇒ Foo
-        T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ Foo::Bar ⇒ fn(bool) -> Foo
-        T-Bool: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> ()} ⊢ true ⇒ bool
+  T-Expr: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo(Foo::Bar(true)); ⇒ ()
+    T-Call: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo(Foo::Bar(true)) ⇒ ()
+      T-Var: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> ()} ⊢ accepts_foo ⇒ fn(foo: Foo) -> ()
+      T-Call: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> ()} ⊢ Foo::Bar(true) ⇒ Foo
+        T-Var: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> ()} ⊢ Foo::Bar ⇒ fn(p0: bool) -> Foo
+        T-Bool: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> ()} ⊢ true ⇒ bool
         Unify-Const: bool ~ bool => {}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
 
 T-Fn: get_baz => ()
-  T-Expr: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo(Foo::Baz(2)); ⇒ ()
-    T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo(Foo::Baz(2)) ⇒ ()
-      T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo ⇒ fn(Foo) -> ()
-      T-Call: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ Foo::Baz(2) ⇒ Foo
-        T-Var: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ Foo::Baz ⇒ fn(i64) -> Foo
-        T-Int: {accepts_foo: fn(Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ 2 ⇒ i64
+  T-Expr: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo(Foo::Baz(2)); ⇒ ()
+    T-Call: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo(Foo::Baz(2)) ⇒ ()
+      T-Var: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ accepts_foo ⇒ fn(foo: Foo) -> ()
+      T-Call: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ Foo::Baz(2) ⇒ Foo
+        T-Var: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ Foo::Baz ⇒ fn(p0: i64) -> Foo
+        T-Int: {accepts_foo: fn(foo: Foo) -> (), get_bar: fn() -> (), get_baz: fn() -> ()} ⊢ 2 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t3}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
@@ -330,44 +330,49 @@ TypedProgram {
                     kind: Normal,
                     name_span: 46..57,
                     params: [
-                        Enum(
-                            EnumType {
-                                name: Identifier {
-                                    name: "Foo",
-                                    span: 5..8,
-                                },
-                                variants: [
-                                    EnumVariantType {
-                                        name: Identifier {
-                                            name: "Bar",
-                                            span: 15..18,
-                                        },
-                                        kind: Tuple(
-                                            [
-                                                Bool,
-                                            ],
-                                        ),
-                                    },
-                                    EnumVariantType {
-                                        name: Identifier {
-                                            name: "Baz",
-                                            span: 30..33,
-                                        },
-                                        kind: Tuple(
-                                            [
-                                                Int(
-                                                    I64,
-                                                ),
-                                            ],
-                                        ),
-                                    },
-                                ],
-                                type_args: [],
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "foo",
+                                span: 58..61,
                             },
-                        ),
-                    ],
-                    param_spans: [
-                        63..66,
+                            ty: Enum(
+                                EnumType {
+                                    name: Identifier {
+                                        name: "Foo",
+                                        span: 5..8,
+                                    },
+                                    variants: [
+                                        EnumVariantType {
+                                            name: Identifier {
+                                                name: "Bar",
+                                                span: 15..18,
+                                            },
+                                            kind: Tuple(
+                                                [
+                                                    Bool,
+                                                ],
+                                            ),
+                                        },
+                                        EnumVariantType {
+                                            name: Identifier {
+                                                name: "Baz",
+                                                span: 30..33,
+                                            },
+                                            kind: Tuple(
+                                                [
+                                                    Int(
+                                                        I64,
+                                                    ),
+                                                ],
+                                            ),
+                                        },
+                                    ],
+                                    type_args: [],
+                                },
+                            ),
+                            ty_span: 63..66,
+                        },
                     ],
                     result: Unit,
                     callee: Some(
@@ -376,50 +381,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [
-                    TypedFunctionParam {
-                        public: false,
-                        name: Identifier {
-                            name: "foo",
-                            span: 58..61,
-                        },
-                        ty: Enum(
-                            EnumType {
-                                name: Identifier {
-                                    name: "Foo",
-                                    span: 5..8,
-                                },
-                                variants: [
-                                    EnumVariantType {
-                                        name: Identifier {
-                                            name: "Bar",
-                                            span: 15..18,
-                                        },
-                                        kind: Tuple(
-                                            [
-                                                Bool,
-                                            ],
-                                        ),
-                                    },
-                                    EnumVariantType {
-                                        name: Identifier {
-                                            name: "Baz",
-                                            span: 30..33,
-                                        },
-                                        kind: Tuple(
-                                            [
-                                                Int(
-                                                    I64,
-                                                ),
-                                            ],
-                                        ),
-                                    },
-                                ],
-                                type_args: [],
-                            },
-                        ),
-                    },
-                ],
                 body: TypedBlock {
                     statements: [],
                     tail_expression: None,
@@ -440,7 +401,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 83..90,
                     params: [],
-                    param_spans: [],
                     result: Unit,
                     callee: Some(
                         Named(
@@ -448,7 +408,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -463,44 +422,49 @@ TypedProgram {
                                                         kind: Normal,
                                                         name_span: 46..57,
                                                         params: [
-                                                            Enum(
-                                                                EnumType {
-                                                                    name: Identifier {
-                                                                        name: "Foo",
-                                                                        span: 5..8,
-                                                                    },
-                                                                    variants: [
-                                                                        EnumVariantType {
-                                                                            name: Identifier {
-                                                                                name: "Bar",
-                                                                                span: 15..18,
-                                                                            },
-                                                                            kind: Tuple(
-                                                                                [
-                                                                                    Bool,
-                                                                                ],
-                                                                            ),
-                                                                        },
-                                                                        EnumVariantType {
-                                                                            name: Identifier {
-                                                                                name: "Baz",
-                                                                                span: 30..33,
-                                                                            },
-                                                                            kind: Tuple(
-                                                                                [
-                                                                                    Int(
-                                                                                        I64,
-                                                                                    ),
-                                                                                ],
-                                                                            ),
-                                                                        },
-                                                                    ],
-                                                                    type_args: [],
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "foo",
+                                                                    span: 58..61,
                                                                 },
-                                                            ),
-                                                        ],
-                                                        param_spans: [
-                                                            63..66,
+                                                                ty: Enum(
+                                                                    EnumType {
+                                                                        name: Identifier {
+                                                                            name: "Foo",
+                                                                            span: 5..8,
+                                                                        },
+                                                                        variants: [
+                                                                            EnumVariantType {
+                                                                                name: Identifier {
+                                                                                    name: "Bar",
+                                                                                    span: 15..18,
+                                                                                },
+                                                                                kind: Tuple(
+                                                                                    [
+                                                                                        Bool,
+                                                                                    ],
+                                                                                ),
+                                                                            },
+                                                                            EnumVariantType {
+                                                                                name: Identifier {
+                                                                                    name: "Baz",
+                                                                                    span: 30..33,
+                                                                                },
+                                                                                kind: Tuple(
+                                                                                    [
+                                                                                        Int(
+                                                                                            I64,
+                                                                                        ),
+                                                                                    ],
+                                                                                ),
+                                                                            },
+                                                                        ],
+                                                                        type_args: [],
+                                                                    },
+                                                                ),
+                                                                ty_span: 63..66,
+                                                            },
                                                         ],
                                                         result: Unit,
                                                         callee: Some(
@@ -568,9 +532,16 @@ TypedProgram {
                                                                         kind: Normal,
                                                                         name_span: 0..0,
                                                                         params: [
-                                                                            Bool,
+                                                                            TypedFunctionParam {
+                                                                                public: false,
+                                                                                name: Identifier {
+                                                                                    name: "p0",
+                                                                                    span: 0..0,
+                                                                                },
+                                                                                ty: Bool,
+                                                                                ty_span: 0..0,
+                                                                            },
                                                                         ],
-                                                                        param_spans: [],
                                                                         result: Enum(
                                                                             EnumType {
                                                                                 name: Identifier {
@@ -673,7 +644,6 @@ TypedProgram {
                     kind: Normal,
                     name_span: 141..148,
                     params: [],
-                    param_spans: [],
                     result: Unit,
                     callee: Some(
                         Named(
@@ -681,7 +651,6 @@ TypedProgram {
                         ),
                     ),
                 },
-                params: [],
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -696,44 +665,49 @@ TypedProgram {
                                                         kind: Normal,
                                                         name_span: 46..57,
                                                         params: [
-                                                            Enum(
-                                                                EnumType {
-                                                                    name: Identifier {
-                                                                        name: "Foo",
-                                                                        span: 5..8,
-                                                                    },
-                                                                    variants: [
-                                                                        EnumVariantType {
-                                                                            name: Identifier {
-                                                                                name: "Bar",
-                                                                                span: 15..18,
-                                                                            },
-                                                                            kind: Tuple(
-                                                                                [
-                                                                                    Bool,
-                                                                                ],
-                                                                            ),
-                                                                        },
-                                                                        EnumVariantType {
-                                                                            name: Identifier {
-                                                                                name: "Baz",
-                                                                                span: 30..33,
-                                                                            },
-                                                                            kind: Tuple(
-                                                                                [
-                                                                                    Int(
-                                                                                        I64,
-                                                                                    ),
-                                                                                ],
-                                                                            ),
-                                                                        },
-                                                                    ],
-                                                                    type_args: [],
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "foo",
+                                                                    span: 58..61,
                                                                 },
-                                                            ),
-                                                        ],
-                                                        param_spans: [
-                                                            63..66,
+                                                                ty: Enum(
+                                                                    EnumType {
+                                                                        name: Identifier {
+                                                                            name: "Foo",
+                                                                            span: 5..8,
+                                                                        },
+                                                                        variants: [
+                                                                            EnumVariantType {
+                                                                                name: Identifier {
+                                                                                    name: "Bar",
+                                                                                    span: 15..18,
+                                                                                },
+                                                                                kind: Tuple(
+                                                                                    [
+                                                                                        Bool,
+                                                                                    ],
+                                                                                ),
+                                                                            },
+                                                                            EnumVariantType {
+                                                                                name: Identifier {
+                                                                                    name: "Baz",
+                                                                                    span: 30..33,
+                                                                                },
+                                                                                kind: Tuple(
+                                                                                    [
+                                                                                        Int(
+                                                                                            I64,
+                                                                                        ),
+                                                                                    ],
+                                                                                ),
+                                                                            },
+                                                                        ],
+                                                                        type_args: [],
+                                                                    },
+                                                                ),
+                                                                ty_span: 63..66,
+                                                            },
                                                         ],
                                                         result: Unit,
                                                         callee: Some(
@@ -801,11 +775,18 @@ TypedProgram {
                                                                         kind: Normal,
                                                                         name_span: 0..0,
                                                                         params: [
-                                                                            Int(
-                                                                                I64,
-                                                                            ),
+                                                                            TypedFunctionParam {
+                                                                                public: false,
+                                                                                name: Identifier {
+                                                                                    name: "p0",
+                                                                                    span: 0..0,
+                                                                                },
+                                                                                ty: Int(
+                                                                                    I64,
+                                                                                ),
+                                                                                ty_span: 0..0,
+                                                                            },
                                                                         ],
-                                                                        param_spans: [],
                                                                         result: Enum(
                                                                             EnumType {
                                                                                 name: Identifier {

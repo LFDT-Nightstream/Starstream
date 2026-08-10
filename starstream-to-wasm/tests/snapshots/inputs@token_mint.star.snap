@@ -198,7 +198,6 @@ TypedProgram {
                                 kind: Normal,
                                 name_span: 85..89,
                                 params: [],
-                                param_spans: [],
                                 result: Unit,
                                 callee: Some(
                                     Named(
@@ -206,7 +205,6 @@ TypedProgram {
                                     ),
                                 ),
                             },
-                            params: [],
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -254,10 +252,15 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 0..0,
                                         params: [
-                                            UtxoAny,
-                                        ],
-                                        param_spans: [
-                                            0..0,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -277,10 +280,15 @@ TypedProgram {
                                         kind: Normal,
                                         name_span: 0..0,
                                         params: [
-                                            UtxoAny,
-                                        ],
-                                        param_spans: [
-                                            0..0,
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
                                         ],
                                         result: Unit,
                                         callee: Some(
@@ -304,10 +312,15 @@ TypedProgram {
                                     kind: Normal,
                                     name_span: 148..154,
                                     params: [
-                                        UtxoAny,
-                                    ],
-                                    param_spans: [
-                                        159..163,
+                                        TypedFunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "to",
+                                                span: 155..157,
+                                            },
+                                            ty: UtxoAny,
+                                            ty_span: 159..163,
+                                        },
                                     ],
                                     result: Unit,
                                     callee: Some(
@@ -316,16 +329,6 @@ TypedProgram {
                                         ),
                                     ),
                                 },
-                                params: [
-                                    TypedFunctionParam {
-                                        public: false,
-                                        name: Identifier {
-                                            name: "to",
-                                            span: 155..157,
-                                        },
-                                        ty: UtxoAny,
-                                    },
-                                ],
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,
@@ -342,10 +345,15 @@ TypedProgram {
                                     kind: Normal,
                                     name_span: 180..186,
                                     params: [
-                                        UtxoAny,
-                                    ],
-                                    param_spans: [
-                                        195..199,
+                                        TypedFunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "source",
+                                                span: 187..193,
+                                            },
+                                            ty: UtxoAny,
+                                            ty_span: 195..199,
+                                        },
                                     ],
                                     result: Unit,
                                     callee: Some(
@@ -354,16 +362,6 @@ TypedProgram {
                                         ),
                                     ),
                                 },
-                                params: [
-                                    TypedFunctionParam {
-                                        public: false,
-                                        name: Identifier {
-                                            name: "source",
-                                            span: 187..193,
-                                        },
-                                        ty: UtxoAny,
-                                    },
-                                ],
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,

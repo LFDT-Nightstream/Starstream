@@ -5,7 +5,7 @@ description: "Source:\n\nfn test() {\n    let x: Option<i64> = Option::Some(42);
 T-Fn: test => ()
   T-Let: {test: fn() -> ()} ⊢ let x: Option<i64> = Option::Some(42); ⇒ Option<i64>
     T-Call: {test: fn() -> ()} ⊢ Option::Some(42) ⇒ Option
-      T-Var: {test: fn() -> ()} ⊢ Option::Some ⇒ fn(t3) -> Option
+      T-Var: {test: fn() -> ()} ⊢ Option::Some ⇒ fn(p0: t3) -> Option
       T-Int: {test: fn() -> ()} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t3 => {i64/t4}
     Unify-Enum: Option<i64> ~ Option => {i64/t3}

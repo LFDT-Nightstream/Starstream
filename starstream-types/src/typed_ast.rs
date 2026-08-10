@@ -56,15 +56,7 @@ pub struct TypedFunctionDef {
     pub name: Identifier,
     pub id: NameId,
     pub ty: Arc<FunctionType>,
-    pub params: Vec<TypedFunctionParam>,
     pub body: TypedBlock,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct TypedFunctionParam {
-    pub public: bool,
-    pub name: Identifier,
-    pub ty: Type,
 }
 
 #[derive(Clone, Debug)]
