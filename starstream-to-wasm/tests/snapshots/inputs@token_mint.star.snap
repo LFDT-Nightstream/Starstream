@@ -194,6 +194,18 @@ TypedProgram {
                                 span: 85..89,
                             },
                             id: NameId(5),
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 85..89,
+                                params: [],
+                                param_spans: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(5),
+                                    ),
+                                ),
+                            },
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -291,6 +303,22 @@ TypedProgram {
                                     span: 148..154,
                                 },
                                 id: NameId(6),
+                                ty: FunctionType {
+                                    kind: Normal,
+                                    name_span: 148..154,
+                                    params: [
+                                        UtxoAny,
+                                    ],
+                                    param_spans: [
+                                        159..163,
+                                    ],
+                                    result: Unit,
+                                    callee: Some(
+                                        Named(
+                                            NameId(6),
+                                        ),
+                                    ),
+                                },
                                 params: [
                                     TypedFunctionParam {
                                         public: false,
@@ -314,6 +342,22 @@ TypedProgram {
                                     span: 180..186,
                                 },
                                 id: NameId(7),
+                                ty: FunctionType {
+                                    kind: Normal,
+                                    name_span: 180..186,
+                                    params: [
+                                        UtxoAny,
+                                    ],
+                                    param_spans: [
+                                        195..199,
+                                    ],
+                                    result: Unit,
+                                    callee: Some(
+                                        Named(
+                                            NameId(7),
+                                        ),
+                                    ),
+                                },
                                 params: [
                                     TypedFunctionParam {
                                         public: false,

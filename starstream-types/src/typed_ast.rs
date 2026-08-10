@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use crate::{
-    AbiType, DUMMY_SPAN, EnumType, FunctionExport, ImportSource, RecordType, ScopedName, Span,
-    Spanned, TypedAbiMethodDecl, UtxoType,
+    AbiType, DUMMY_SPAN, EnumType, FunctionExport, FunctionType, ImportSource, RecordType,
+    ScopedName, Span, Spanned, TypedAbiMethodDecl, UtxoType,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -55,6 +55,7 @@ pub struct TypedFunctionDef {
     pub export: Option<FunctionExport>,
     pub name: Identifier,
     pub id: NameId,
+    pub ty: Arc<FunctionType>,
     pub params: Vec<TypedFunctionParam>,
     pub return_type: Type,
     pub body: TypedBlock,

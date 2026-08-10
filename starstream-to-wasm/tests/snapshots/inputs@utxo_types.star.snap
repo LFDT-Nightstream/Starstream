@@ -108,6 +108,31 @@ TypedProgram {
                     span: 28..48,
                 },
                 id: NameId(5),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 28..48,
+                    params: [
+                        UtxoAny,
+                        Utxo(
+                            UtxoType {
+                                name: "MyUtxo",
+                                id: NameId(4),
+                                possible_abis: [],
+                                always_abis: [],
+                            },
+                        ),
+                    ],
+                    param_spans: [
+                        55..59,
+                        70..76,
+                    ],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(5),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,

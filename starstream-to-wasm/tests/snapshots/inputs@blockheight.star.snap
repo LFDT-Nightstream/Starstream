@@ -244,6 +244,20 @@ TypedProgram {
                     span: 63..71,
                 },
                 id: NameId(4),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 63..71,
+                    params: [],
+                    param_spans: [],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 params: [],
                 return_type: Int(
                     I64,
@@ -354,6 +368,20 @@ TypedProgram {
                     span: 149..155,
                 },
                 id: NameId(5),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 149..155,
+                    params: [],
+                    param_spans: [],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(5),
+                        ),
+                    ),
+                },
                 params: [],
                 return_type: Int(
                     I64,

@@ -592,7 +592,7 @@ impl Inferencer {
                     Err(e) => errors.push(e),
                 },
                 Definition::Function(def) => match self.infer_function(env, def) {
-                    Ok((def2, _ty, trace)) => {
+                    Ok((def2, trace)) => {
                         self.typed_definitions
                             .insert(&definition.node, TypedDefinition::Function(def2));
                         traces.push(trace);
@@ -1156,7 +1156,7 @@ impl Inferencer {
                             function.name.span(),
                         ));
                     }
-                    let (func, _, trace) = self.infer_function(env, function)?;
+                    let (func, trace) = self.infer_function(env, function)?;
                     traces.push(trace);
                     TypedUtxoPart::Function(func.into())
                 }
@@ -1166,7 +1166,7 @@ impl Inferencer {
                     let parts = parts
                         .iter()
                         .map(|function| {
-                            let (func, _, trace) = self.infer_function(env, function)?;
+                            let (func, trace) = self.infer_function(env, function)?;
                             traces.push(trace);
                             Ok(func)
                         })
@@ -1282,7 +1282,7 @@ impl Inferencer {
                             function.name.span(),
                         ));
                     }
-                    let (func, _, trace) = self.infer_function(env, function)?;
+                    let (func, trace) = self.infer_function(env, function)?;
                     traces.push(trace);
                     TypedTokenPart::Function(func.into())
                 }
@@ -1292,7 +1292,7 @@ impl Inferencer {
                     let parts = parts
                         .iter()
                         .map(|function| {
-                            let (func, _, trace) = self.infer_function(env, function)?;
+                            let (func, trace) = self.infer_function(env, function)?;
                             traces.push(trace);
                             Ok(func)
                         })
@@ -1809,7 +1809,7 @@ impl Inferencer {
         &mut self,
         env: &mut TypeEnv,
         function: &FunctionDef,
-    ) -> Result<(TypedFunctionDef, Arc<FunctionType>, InferenceTree), TypeError> {
+    ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
         let func_ty = Arc::new(self.function_def_to_type(env, function)?);
         let return_span = function.return_span();
 
@@ -1886,11 +1886,11 @@ impl Inferencer {
                 export: function.export.clone(),
                 name: function.name.clone(),
                 id: *self.function_names.get(function).unwrap(),
+                ty: func_ty,
                 params: typed_params,
                 return_type: ctx.expected_return,
                 body: typed_body,
             },
-            func_ty,
             trace,
         ))
     }

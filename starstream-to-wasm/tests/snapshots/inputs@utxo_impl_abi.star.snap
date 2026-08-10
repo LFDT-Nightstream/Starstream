@@ -212,6 +212,20 @@ TypedProgram {
                                     span: 80..85,
                                 },
                                 id: NameId(6),
+                                ty: FunctionType {
+                                    kind: Normal,
+                                    name_span: 80..85,
+                                    params: [],
+                                    param_spans: [],
+                                    result: Int(
+                                        I32,
+                                    ),
+                                    callee: Some(
+                                        Named(
+                                            NameId(6),
+                                        ),
+                                    ),
+                                },
                                 params: [],
                                 return_type: Int(
                                     I32,

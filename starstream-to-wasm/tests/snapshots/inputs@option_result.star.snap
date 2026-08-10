@@ -932,6 +932,52 @@ TypedProgram {
                     span: 3..12,
                 },
                 id: NameId(4),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 3..12,
+                    params: [],
+                    param_spans: [],
+                    result: Enum(
+                        EnumType {
+                            name: Identifier {
+                                name: "Option",
+                                span: 0..0,
+                            },
+                            variants: [
+                                EnumVariantType {
+                                    name: Identifier {
+                                        name: "None",
+                                        span: 0..0,
+                                    },
+                                    kind: Unit,
+                                },
+                                EnumVariantType {
+                                    name: Identifier {
+                                        name: "Some",
+                                        span: 0..0,
+                                    },
+                                    kind: Tuple(
+                                        [
+                                            Int(
+                                                I64,
+                                            ),
+                                        ],
+                                    ),
+                                },
+                            ],
+                            type_args: [
+                                Int(
+                                    I64,
+                                ),
+                            ],
+                        },
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1107,6 +1153,52 @@ TypedProgram {
                     span: 59..68,
                 },
                 id: NameId(5),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 59..68,
+                    params: [],
+                    param_spans: [],
+                    result: Enum(
+                        EnumType {
+                            name: Identifier {
+                                name: "Option",
+                                span: 0..0,
+                            },
+                            variants: [
+                                EnumVariantType {
+                                    name: Identifier {
+                                        name: "None",
+                                        span: 0..0,
+                                    },
+                                    kind: Unit,
+                                },
+                                EnumVariantType {
+                                    name: Identifier {
+                                        name: "Some",
+                                        span: 0..0,
+                                    },
+                                    kind: Tuple(
+                                        [
+                                            Int(
+                                                I64,
+                                            ),
+                                        ],
+                                    ),
+                                },
+                            ],
+                            type_args: [
+                                Int(
+                                    I64,
+                                ),
+                            ],
+                        },
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(5),
+                        ),
+                    ),
+                },
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1213,6 +1305,58 @@ TypedProgram {
                     span: 111..124,
                 },
                 id: NameId(6),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 111..124,
+                    params: [
+                        Enum(
+                            EnumType {
+                                name: Identifier {
+                                    name: "Option",
+                                    span: 0..0,
+                                },
+                                variants: [
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "None",
+                                            span: 0..0,
+                                        },
+                                        kind: Unit,
+                                    },
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Some",
+                                            span: 0..0,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Int(
+                                                    I64,
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [
+                                    Int(
+                                        I64,
+                                    ),
+                                ],
+                            },
+                        ),
+                    ],
+                    param_spans: [
+                        130..136,
+                    ],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(6),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -1416,6 +1560,57 @@ TypedProgram {
                     span: 285..292,
                 },
                 id: NameId(7),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 285..292,
+                    params: [],
+                    param_spans: [],
+                    result: Enum(
+                        EnumType {
+                            name: Identifier {
+                                name: "Result",
+                                span: 0..0,
+                            },
+                            variants: [
+                                EnumVariantType {
+                                    name: Identifier {
+                                        name: "Ok",
+                                        span: 0..0,
+                                    },
+                                    kind: Tuple(
+                                        [
+                                            Int(
+                                                I64,
+                                            ),
+                                        ],
+                                    ),
+                                },
+                                EnumVariantType {
+                                    name: Identifier {
+                                        name: "Err",
+                                        span: 0..0,
+                                    },
+                                    kind: Tuple(
+                                        [
+                                            Bool,
+                                        ],
+                                    ),
+                                },
+                            ],
+                            type_args: [
+                                Int(
+                                    I64,
+                                ),
+                                Bool,
+                            ],
+                        },
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(7),
+                        ),
+                    ),
+                },
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1604,6 +1799,57 @@ TypedProgram {
                     span: 343..351,
                 },
                 id: NameId(8),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 343..351,
+                    params: [],
+                    param_spans: [],
+                    result: Enum(
+                        EnumType {
+                            name: Identifier {
+                                name: "Result",
+                                span: 0..0,
+                            },
+                            variants: [
+                                EnumVariantType {
+                                    name: Identifier {
+                                        name: "Ok",
+                                        span: 0..0,
+                                    },
+                                    kind: Tuple(
+                                        [
+                                            Int(
+                                                I64,
+                                            ),
+                                        ],
+                                    ),
+                                },
+                                EnumVariantType {
+                                    name: Identifier {
+                                        name: "Err",
+                                        span: 0..0,
+                                    },
+                                    kind: Tuple(
+                                        [
+                                            Bool,
+                                        ],
+                                    ),
+                                },
+                            ],
+                            type_args: [
+                                Int(
+                                    I64,
+                                ),
+                                Bool,
+                            ],
+                        },
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(8),
+                        ),
+                    ),
+                },
                 params: [],
                 return_type: Enum(
                     EnumType {
@@ -1785,6 +2031,63 @@ TypedProgram {
                     span: 406..419,
                 },
                 id: NameId(9),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 406..419,
+                    params: [
+                        Enum(
+                            EnumType {
+                                name: Identifier {
+                                    name: "Result",
+                                    span: 0..0,
+                                },
+                                variants: [
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Ok",
+                                            span: 0..0,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Int(
+                                                    I64,
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Err",
+                                            span: 0..0,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Bool,
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [
+                                    Int(
+                                        I64,
+                                    ),
+                                    Bool,
+                                ],
+                            },
+                        ),
+                    ],
+                    param_spans: [
+                        425..431,
+                    ],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(9),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2060,6 +2363,113 @@ TypedProgram {
                     span: 631..634,
                 },
                 id: NameId(10),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 631..634,
+                    params: [
+                        Record(
+                            RecordType {
+                                name: Identifier {
+                                    name: "Thing",
+                                    span: 590..595,
+                                },
+                                fields: [
+                                    RecordFieldType {
+                                        name: Identifier {
+                                            name: "x",
+                                            span: 602..603,
+                                        },
+                                        ty: Enum(
+                                            EnumType {
+                                                name: Identifier {
+                                                    name: "Option",
+                                                    span: 0..0,
+                                                },
+                                                variants: [
+                                                    EnumVariantType {
+                                                        name: Identifier {
+                                                            name: "None",
+                                                            span: 0..0,
+                                                        },
+                                                        kind: Unit,
+                                                    },
+                                                    EnumVariantType {
+                                                        name: Identifier {
+                                                            name: "Some",
+                                                            span: 0..0,
+                                                        },
+                                                        kind: Tuple(
+                                                            [
+                                                                Int(
+                                                                    I64,
+                                                                ),
+                                                            ],
+                                                        ),
+                                                    },
+                                                ],
+                                                type_args: [
+                                                    Int(
+                                                        I64,
+                                                    ),
+                                                ],
+                                            },
+                                        ),
+                                    },
+                                ],
+                            },
+                        ),
+                        Enum(
+                            EnumType {
+                                name: Identifier {
+                                    name: "Result",
+                                    span: 0..0,
+                                },
+                                variants: [
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Ok",
+                                            span: 0..0,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Int(
+                                                    I64,
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Err",
+                                            span: 0..0,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Bool,
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [
+                                    Int(
+                                        I64,
+                                    ),
+                                    Bool,
+                                ],
+                            },
+                        ),
+                    ],
+                    param_spans: [
+                        638..643,
+                        648..654,
+                    ],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(10),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,

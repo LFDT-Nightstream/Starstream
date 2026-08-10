@@ -203,6 +203,51 @@ TypedProgram {
                     span: 60..71,
                 },
                 id: NameId(4),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 60..71,
+                    params: [
+                        Record(
+                            RecordType {
+                                name: Identifier {
+                                    name: "Item",
+                                    span: 7..11,
+                                },
+                                fields: [
+                                    RecordFieldType {
+                                        name: Identifier {
+                                            name: "amount",
+                                            span: 18..24,
+                                        },
+                                        ty: Int(
+                                            I64,
+                                        ),
+                                    },
+                                    RecordFieldType {
+                                        name: Identifier {
+                                            name: "price",
+                                            span: 35..40,
+                                        },
+                                        ty: Int(
+                                            I64,
+                                        ),
+                                    },
+                                ],
+                            },
+                        ),
+                    ],
+                    param_spans: [
+                        78..82,
+                    ],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,

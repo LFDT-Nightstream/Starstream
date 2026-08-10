@@ -124,6 +124,30 @@ TypedProgram {
                     span: 10..13,
                 },
                 id: NameId(4),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 10..13,
+                    params: [
+                        Int(
+                            I64,
+                        ),
+                        Int(
+                            I64,
+                        ),
+                    ],
+                    param_spans: [
+                        17..20,
+                        25..28,
+                    ],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,

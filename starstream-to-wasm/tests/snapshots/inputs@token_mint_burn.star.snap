@@ -277,6 +277,18 @@ TypedProgram {
                                 span: 76..80,
                             },
                             id: NameId(5),
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 76..80,
+                                params: [],
+                                param_spans: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(5),
+                                    ),
+                                ),
+                            },
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -346,6 +358,18 @@ TypedProgram {
                                 span: 130..134,
                             },
                             id: NameId(6),
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 130..134,
+                                params: [],
+                                param_spans: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(6),
+                                    ),
+                                ),
+                            },
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -471,6 +495,22 @@ TypedProgram {
                                     span: 200..206,
                                 },
                                 id: NameId(7),
+                                ty: FunctionType {
+                                    kind: Normal,
+                                    name_span: 200..206,
+                                    params: [
+                                        UtxoAny,
+                                    ],
+                                    param_spans: [
+                                        211..215,
+                                    ],
+                                    result: Unit,
+                                    callee: Some(
+                                        Named(
+                                            NameId(7),
+                                        ),
+                                    ),
+                                },
                                 params: [
                                     TypedFunctionParam {
                                         public: false,
@@ -494,6 +534,22 @@ TypedProgram {
                                     span: 232..238,
                                 },
                                 id: NameId(8),
+                                ty: FunctionType {
+                                    kind: Normal,
+                                    name_span: 232..238,
+                                    params: [
+                                        UtxoAny,
+                                    ],
+                                    param_spans: [
+                                        247..251,
+                                    ],
+                                    result: Unit,
+                                    callee: Some(
+                                        Named(
+                                            NameId(8),
+                                        ),
+                                    ),
+                                },
                                 params: [
                                     TypedFunctionParam {
                                         public: false,

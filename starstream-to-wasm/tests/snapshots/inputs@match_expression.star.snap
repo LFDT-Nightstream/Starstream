@@ -1286,6 +1286,115 @@ TypedProgram {
                     span: 131..140,
                 },
                 id: NameId(4),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 131..140,
+                    params: [
+                        Enum(
+                            EnumType {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 72..75,
+                                },
+                                variants: [
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Bar",
+                                            span: 82..85,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Bool,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Baz",
+                                            span: 97..100,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Int(
+                                                    I64,
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Thing",
+                                            span: 111..116,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Enum(
+                                                    EnumType {
+                                                        name: Identifier {
+                                                            name: "Thing",
+                                                            span: 33..38,
+                                                        },
+                                                        variants: [
+                                                            EnumVariantType {
+                                                                name: Identifier {
+                                                                    name: "Wow",
+                                                                    span: 45..48,
+                                                                },
+                                                                kind: Tuple(
+                                                                    [
+                                                                        Record(
+                                                                            RecordType {
+                                                                                name: Identifier {
+                                                                                    name: "Ctx",
+                                                                                    span: 7..10,
+                                                                                },
+                                                                                fields: [
+                                                                                    RecordFieldType {
+                                                                                        name: Identifier {
+                                                                                            name: "x",
+                                                                                            span: 17..18,
+                                                                                        },
+                                                                                        ty: Int(
+                                                                                            I64,
+                                                                                        ),
+                                                                                    },
+                                                                                ],
+                                                                            },
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                            },
+                                                            EnumVariantType {
+                                                                name: Identifier {
+                                                                    name: "Who",
+                                                                    span: 59..62,
+                                                                },
+                                                                kind: Unit,
+                                                            },
+                                                        ],
+                                                        type_args: [],
+                                                    },
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [],
+                            },
+                        ),
+                    ],
+                    param_spans: [
+                        146..149,
+                    ],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -1722,6 +1831,115 @@ TypedProgram {
                     span: 398..417,
                 },
                 id: NameId(5),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 398..417,
+                    params: [
+                        Enum(
+                            EnumType {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 72..75,
+                                },
+                                variants: [
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Bar",
+                                            span: 82..85,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Bool,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Baz",
+                                            span: 97..100,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Int(
+                                                    I64,
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Thing",
+                                            span: 111..116,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Enum(
+                                                    EnumType {
+                                                        name: Identifier {
+                                                            name: "Thing",
+                                                            span: 33..38,
+                                                        },
+                                                        variants: [
+                                                            EnumVariantType {
+                                                                name: Identifier {
+                                                                    name: "Wow",
+                                                                    span: 45..48,
+                                                                },
+                                                                kind: Tuple(
+                                                                    [
+                                                                        Record(
+                                                                            RecordType {
+                                                                                name: Identifier {
+                                                                                    name: "Ctx",
+                                                                                    span: 7..10,
+                                                                                },
+                                                                                fields: [
+                                                                                    RecordFieldType {
+                                                                                        name: Identifier {
+                                                                                            name: "x",
+                                                                                            span: 17..18,
+                                                                                        },
+                                                                                        ty: Int(
+                                                                                            I64,
+                                                                                        ),
+                                                                                    },
+                                                                                ],
+                                                                            },
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                            },
+                                                            EnumVariantType {
+                                                                name: Identifier {
+                                                                    name: "Who",
+                                                                    span: 59..62,
+                                                                },
+                                                                kind: Unit,
+                                                            },
+                                                        ],
+                                                        type_args: [],
+                                                    },
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [],
+                            },
+                        ),
+                    ],
+                    param_spans: [
+                        423..426,
+                    ],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(5),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2026,6 +2244,26 @@ TypedProgram {
                     span: 555..568,
                 },
                 id: NameId(6),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 555..568,
+                    params: [
+                        Int(
+                            I64,
+                        ),
+                    ],
+                    param_spans: [
+                        572..575,
+                    ],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(6),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2188,6 +2426,69 @@ TypedProgram {
                     span: 751..762,
                 },
                 id: NameId(7),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 751..762,
+                    params: [
+                        Enum(
+                            EnumType {
+                                name: Identifier {
+                                    name: "Message",
+                                    span: 695..702,
+                                },
+                                variants: [
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Ping",
+                                            span: 709..713,
+                                        },
+                                        kind: Unit,
+                                    },
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Point",
+                                            span: 719..724,
+                                        },
+                                        kind: Struct(
+                                            [
+                                                RecordFieldType {
+                                                    name: Identifier {
+                                                        name: "x",
+                                                        span: 727..728,
+                                                    },
+                                                    ty: Int(
+                                                        I64,
+                                                    ),
+                                                },
+                                                RecordFieldType {
+                                                    name: Identifier {
+                                                        name: "y",
+                                                        span: 735..736,
+                                                    },
+                                                    ty: Int(
+                                                        I64,
+                                                    ),
+                                                },
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [],
+                            },
+                        ),
+                    ],
+                    param_spans: [
+                        768..775,
+                    ],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(7),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -2449,6 +2750,18 @@ TypedProgram {
                     span: 927..934,
                 },
                 id: NameId(8),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 927..934,
+                    params: [],
+                    param_spans: [],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(8),
+                        ),
+                    ),
+                },
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {

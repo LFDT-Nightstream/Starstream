@@ -186,6 +186,18 @@ TypedProgram {
                                 span: 61..71,
                             },
                             id: NameId(7),
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 61..71,
+                                params: [],
+                                param_spans: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(7),
+                                    ),
+                                ),
+                            },
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -246,6 +258,18 @@ TypedProgram {
                                 span: 121..131,
                             },
                             id: NameId(6),
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 121..131,
+                                params: [],
+                                param_spans: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(6),
+                                    ),
+                                ),
+                            },
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {

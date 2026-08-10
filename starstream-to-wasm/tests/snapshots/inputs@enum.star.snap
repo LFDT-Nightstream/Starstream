@@ -326,6 +326,56 @@ TypedProgram {
                     span: 46..57,
                 },
                 id: NameId(4),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 46..57,
+                    params: [
+                        Enum(
+                            EnumType {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 5..8,
+                                },
+                                variants: [
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Bar",
+                                            span: 15..18,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Bool,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: Identifier {
+                                            name: "Baz",
+                                            span: 30..33,
+                                        },
+                                        kind: Tuple(
+                                            [
+                                                Int(
+                                                    I64,
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [],
+                            },
+                        ),
+                    ],
+                    param_spans: [
+                        63..66,
+                    ],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -387,6 +437,18 @@ TypedProgram {
                     span: 83..90,
                 },
                 id: NameId(5),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 83..90,
+                    params: [],
+                    param_spans: [],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(5),
+                        ),
+                    ),
+                },
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
@@ -609,6 +671,18 @@ TypedProgram {
                     span: 141..148,
                 },
                 id: NameId(6),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 141..148,
+                    params: [],
+                    param_spans: [],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(6),
+                        ),
+                    ),
+                },
                 params: [],
                 return_type: Unit,
                 body: TypedBlock {
