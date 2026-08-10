@@ -3135,12 +3135,8 @@ impl Inferencer {
                         .unwrap_or(expr.span);
 
                     result_ty = if let Some((first_ty, first_span)) = result_ty {
-                        let (merged, unify_trace) = self.unify_match_arms(
-                            arm_ty.clone(),
-                            first_ty.clone(),
-                            arm_span,
-                            first_span,
-                        )?;
+                        let (merged, unify_trace) =
+                            self.unify_match_arms(&arm_ty, &first_ty, arm_span, first_span)?;
                         children.push(unify_trace);
                         Some((merged, first_span))
                     } else {
@@ -3699,15 +3695,12 @@ impl Inferencer {
     }
 
     fn apply_token(&self, token: &mut TypedTokenDef) {
-        let Type::Token(new_ty) = self.apply(&Type::Token(token.ty.clone())) else {
-            unreachable!()
-        };
-        token.ty = new_ty;
+        token.ty.substitute_in_place(&self.subst, &self.int_vars);
         for part in &mut token.parts {
             match part {
                 TypedTokenPart::Storage(vars) => {
                     for var in vars {
-                        var.ty = self.apply(&var.ty);
+                        var.ty.substitute_in_place(&self.subst, &self.int_vars);
                     }
                 }
                 TypedTokenPart::Function(func) => {
@@ -3718,10 +3711,7 @@ impl Inferencer {
                     span: _,
                     parts,
                 } => {
-                    let Type::Abi(new_ty) = self.apply(&Type::Abi(abi.clone())) else {
-                        unreachable!()
-                    };
-                    *abi = new_ty;
+                    abi.substitute_in_place(&self.subst, &self.int_vars);
                     for part in parts {
                         self.apply_function(part);
                     }
@@ -3731,11 +3721,12 @@ impl Inferencer {
     }
 
     fn apply_utxo(&self, utxo: &mut TypedUtxoDef) {
+        utxo.ty.substitute_in_place(&self.subst, &self.int_vars);
         for part in &mut utxo.parts {
             match part {
                 TypedUtxoPart::Storage(vars) => {
                     for var in vars {
-                        var.ty = self.apply(&var.ty);
+                        var.ty.substitute_in_place(&self.subst, &self.int_vars);
                     }
                 }
                 TypedUtxoPart::Function(func) => {
@@ -3746,10 +3737,7 @@ impl Inferencer {
                     span: _,
                     parts,
                 } => {
-                    let Type::Abi(new_abi) = self.apply(&Type::Abi(abi.clone())) else {
-                        unreachable!()
-                    };
-                    *abi = new_abi;
+                    abi.substitute_in_place(&self.subst, &self.int_vars);
                     for part in parts {
                         self.apply_function(part);
                     }
@@ -3759,12 +3747,9 @@ impl Inferencer {
     }
 
     fn apply_function(&self, function: &mut TypedFunctionDef) {
-        let Type::Function(func) = self.apply(&Type::Function(function.ty.clone())) else {
-            unreachable!()
-        };
-        function.ty = func;
+        function.ty.substitute_in_place(&self.subst, &self.int_vars);
         for param in &mut function.params {
-            param.ty = self.apply(&param.ty);
+            param.ty.substitute_in_place(&self.subst, &self.int_vars);
         }
         self.apply_block(&mut function.body);
     }
@@ -3807,7 +3792,9 @@ impl Inferencer {
 
     /// Normalize the type attached to an expression and recursively visit its children.
     fn apply_expr(&self, expr: &mut Spanned<TypedExpr>) {
-        expr.node.ty = self.apply(&expr.node.ty);
+        expr.node
+            .ty
+            .substitute_in_place(&self.subst, &self.int_vars);
         match &mut expr.node.kind {
             TypedExprKind::Literal(_) | TypedExprKind::ScopedName { .. } => {}
             TypedExprKind::Unary { expr: inner, .. } => self.apply_expr(inner),
@@ -3831,7 +3818,7 @@ impl Inferencer {
                     match condition {
                         TypedIfCondition::Bool(expr) => self.apply_expr(expr),
                         TypedIfCondition::Is { original_type, .. } => {
-                            *original_type = self.apply(original_type);
+                            original_type.substitute_in_place(&self.subst, &self.int_vars);
                         }
                     }
                     self.apply_block(then_branch);
@@ -3926,6 +3913,7 @@ impl Inferencer {
                 self.subst.insert(id, Type::int());
             }
         }
+        self.int_vars.clear();
     }
 
     /// Check that all integer literals fit within the range of their resolved type.
@@ -4059,13 +4047,13 @@ impl Inferencer {
     /// current arm, and the secondary label explains that the first arm set the expectation.
     fn unify_match_arms(
         &mut self,
-        current_arm_ty: Type,
-        first_arm_ty: Type,
+        current_arm_ty: &Type,
+        first_arm_ty: &Type,
         current_arm_span: Span,
         first_arm_span: Span,
     ) -> Result<(Type, InferenceTree), TypeError> {
-        let current_ty = self.apply(&current_arm_ty);
-        let first_ty = self.apply(&first_arm_ty);
+        let current_ty = self.apply(current_arm_ty);
+        let first_ty = self.apply(first_arm_ty);
 
         match self.unify_inner(current_ty.clone(), first_ty.clone()) {
             Ok((result_ty, children, rule)) => {
