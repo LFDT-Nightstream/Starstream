@@ -16,6 +16,11 @@ impl<V> Default for PointerMap<V> {
 
 impl<V> PointerMap<V> {
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    #[inline]
     pub fn insert<T>(&mut self, k: *const T, v: V) -> Option<V> {
         self.inner.insert(k as usize, v)
     }

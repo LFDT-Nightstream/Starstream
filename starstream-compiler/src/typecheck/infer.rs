@@ -524,7 +524,6 @@ impl Inferencer {
         env: &mut TypeEnv,
         definitions: &[Spanned<Definition>],
     ) -> Result<(TypedProgram, Vec<InferenceTree>), Vec<TypeError>> {
-        let mut typed_definitions = Vec::with_capacity(definitions.len());
         let mut traces = Vec::with_capacity(definitions.len());
         let mut errors = Vec::new();
 
@@ -536,7 +535,10 @@ impl Inferencer {
         // Register definitions.
         for definition in definitions {
             match &definition.node {
-                Definition::Contract => {}
+                Definition::Contract => {
+                    self.typed_definitions
+                        .insert(&definition.node, TypedDefinition::Contract);
+                }
                 Definition::Import(_) => {}
                 Definition::Struct(def) => match self.register_struct(env, def) {
                     Ok(def2) => {
@@ -600,12 +602,17 @@ impl Inferencer {
             }
         }
 
-        // Collect typed AST.
-        for definition in definitions {
-            typed_definitions.extend(self.typed_definitions.remove(&definition.node));
-        }
-
         if errors.is_empty() {
+            // Collect typed AST.
+            let mut typed_definitions = Vec::with_capacity(definitions.len());
+            for definition in definitions {
+                match self.typed_definitions.remove(&definition.node) {
+                    Some(def) => typed_definitions.push(def),
+                    None => panic!("missing TypedDefinition for {:?}", definition.node),
+                }
+            }
+            assert!(self.typed_definitions.is_empty());
+
             Ok((
                 TypedProgram {
                     definitions: typed_definitions,
