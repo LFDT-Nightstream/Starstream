@@ -99,7 +99,7 @@ impl SubstituteType for Type {
             Type::Var(id) if *id == var => true,
             Type::Var(id) => subst
                 .get(id)
-                .map_or(false, |ty| ty.contains_var(var, subst)),
+                .is_some_and(|ty| ty.contains_var(var, subst)),
             Type::Tuple(items) => items.iter().any(|ty| ty.contains_var(var, subst)),
             Type::Function(function_type) => function_type.contains_var(var, subst),
             Type::Record(record_type) => record_type.contains_var(var, subst),
