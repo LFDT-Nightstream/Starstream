@@ -833,7 +833,6 @@ impl Inferencer {
                     let ty = Arc::new(FunctionType {
                         kind: FunctionKind::Normal,
                         name_span: method.name.span,
-                        // TODO: recapture `pub` keyword here
                         params: method
                             .params
                             .iter()
