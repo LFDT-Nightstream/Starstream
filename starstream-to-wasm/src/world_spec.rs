@@ -6,7 +6,7 @@
 //! [wit-worlds]: https://starstream.nightstream.dev/wit-worlds
 
 use starstream_types::{Identifier, Type, TypedFunctionParam};
-use wasm_encoder::{ComponentTypeRef, FuncType};
+use wasm_encoder::FuncType;
 
 use crate::{Compiler, to_kebab_case};
 
@@ -23,14 +23,14 @@ impl Compiler {
         }
 
         let interface = format!("starstream:events/{}", to_kebab_case(abi_name.as_str()));
-        let func = to_kebab_case(event_name.as_str());
+        let kebab = to_kebab_case(event_name.as_str());
 
         // Core import
         let core_fn_ty = self.add_core_func_type(&FuncType::new(
             core_params.iter().copied(),
             std::iter::empty(),
         ));
-        let func_idx = self.import_function(&interface, &func, core_fn_ty);
+        let func_idx = self.import_function(&interface, &kebab, core_fn_ty);
 
         // Component import
         let comp_params = params
@@ -42,10 +42,7 @@ impl Compiler {
             .collect::<Vec<_>>();
         let comp_result = None;
         let iface = self.imported_interfaces.entry(interface).or_default();
-        let comp_fn_ty = iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
-        iface
-            .inner
-            .export(&func, ComponentTypeRef::Func(comp_fn_ty));
+        iface.export_fn_2(&kebab, comp_params.into_iter(), comp_result.as_ref());
 
         func_idx
     }
@@ -70,7 +67,7 @@ impl Compiler {
         // Core import
         let core_fn_ty =
             self.add_core_func_type(&FuncType::new(core_params.iter().copied(), core_results));
-        let func = self.import_function(&interface, &kebab, core_fn_ty);
+        let func_idx = self.import_function(&interface, &kebab, core_fn_ty);
 
         // Component import
         let comp_params = params
@@ -82,11 +79,8 @@ impl Compiler {
             .collect::<Vec<_>>();
         let comp_result = self.star_to_component_type(result);
         let iface = self.imported_interfaces.entry(interface).or_default();
-        let comp_fn_ty = iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
-        iface
-            .inner
-            .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
+        iface.export_fn_2(&kebab, comp_params.into_iter(), comp_result.as_ref());
 
-        func
+        func_idx
     }
 }

@@ -15,8 +15,7 @@ pub struct TypeBuilder<T: ?Sized> {
 
 impl<T: TypeRegistry> TypeBuilder<T> {
     pub fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
-        let idx = self.inner.type_count();
-        (idx, self.inner.ty())
+        (self.inner.type_count(), self.inner.ty())
     }
 
     pub fn encode_func<'a>(
@@ -141,6 +140,16 @@ impl<T: TypeRegistry> TypeBuilder<T> {
 
     pub fn export_fn(&mut self, name: &str, signature: &ComponentAbiFunctionSignature) {
         let type_idx = self.encode_func_sig(signature);
+        self.inner.export(name, ComponentTypeRef::Func(type_idx));
+    }
+
+    pub fn export_fn_2<'a>(
+        &mut self,
+        name: &str,
+        params: impl Iterator<Item = (&'a str, Rc<ComponentAbiType>)>,
+        result: Option<&Rc<ComponentAbiType>>,
+    ) {
+        let type_idx = self.encode_func(params, result);
         self.inner.export(name, ComponentTypeRef::Func(type_idx));
     }
 }

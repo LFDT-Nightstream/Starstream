@@ -1295,11 +1295,7 @@ impl Compiler {
             let tuple = Rc::new(ComponentAbiType::Tuple {
                 fields: vec![u64_ty; 4],
             });
-            let implements_method_ty = builtin.encode_func([("hash", tuple)].into_iter(), None);
-            builtin.inner.export(
-                "implements-method",
-                ComponentTypeRef::Func(implements_method_ty),
-            );
+            builtin.export_fn_2("implements-method", [("hash", tuple)].into_iter(), None);
 
             self.yield_global = Some(self.add_globals([ValType::I32], "yield"));
         }
@@ -1393,11 +1389,7 @@ impl Compiler {
                             .imported_interfaces
                             .entry(def.from.to_string())
                             .or_default();
-                        let comp_fn_ty =
-                            iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
-                        iface
-                            .inner
-                            .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
+                        iface.export_fn_2(&kebab, comp_params.into_iter(), comp_result.as_ref());
                     }
                 }
                 _ => todo!(),
@@ -1409,6 +1401,7 @@ impl Compiler {
         for part in &def.functions {
             match part.ty.kind {
                 FunctionKind::Emit => {
+                    assert_eq!(part.ty.result, Type::Unit);
                     let func = self.declare_event(&def.ty.name, &part.name, &part.ty.params);
                     self.callables.insert(part.id, func);
                 }
