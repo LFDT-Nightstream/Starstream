@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::sync::Arc;
 
-use crate::{Identifier, NameId, Span, TypedAbiMethodDecl};
+use crate::{Identifier, NameId, Span};
 
 // ----------------------------------------------------------------------------
 // Core `Type` data structure and its parts.
@@ -38,11 +38,11 @@ pub enum Type {
     /// The built-in `Utxo` type.
     UtxoAny,
     /// The type created by a `utxo` definition.
-    UtxoNamed(String),
+    Utxo(Arc<UtxoType>),
     /// The built-in `Token` type.
     TokenAny,
     /// The type created by a `token` definition.
-    TokenNamed(String),
+    Token(Arc<TokenType>),
     /// The type created by an `abi` definition. Also the type of a Utxo
     /// narrowed via `if x is AbiName`.
     Abi(Arc<AbiType>),
@@ -108,9 +108,10 @@ pub enum StaticFunction {
 }
 
 /// Type of a `struct`.
+/// Structural: interchangeable with other `struct`s and tuples with the same field type order.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordType {
-    pub name: String,
+    pub name: Identifier,
     pub fields: Vec<RecordFieldType>,
 }
 
@@ -121,9 +122,10 @@ pub struct RecordFieldType {
 }
 
 /// Type of an `enum`.
+/// Structural: interchangeable with other `enum`s with the same variant counts and types.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EnumType {
-    pub name: String,
+    pub name: Identifier,
     pub variants: Vec<EnumVariantType>,
     /// Instantiated type arguments for generic enums (e.g., `[i64]` for `Option<i64>`).
     /// Empty for non-generic enums.
@@ -132,7 +134,7 @@ pub struct EnumType {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EnumVariantType {
-    pub name: String,
+    pub name: Identifier,
     pub kind: EnumVariantKind,
 }
 
@@ -143,11 +145,48 @@ pub enum EnumVariantKind {
     Struct(Vec<RecordFieldType>),
 }
 
+/// Type of a `utxo`.
+/// Nominal: encodes the source contract hash.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UtxoType {
+    pub name: String,
+    pub id: NameId,
+    /// All [AbiType]s that this Utxo sometimes implements.
+    pub possible_abis: Vec<Arc<AbiType>>,
+    /// [AbiType]s that this Utxo implements at all of its yield points.
+    pub always_abis: Vec<Arc<AbiType>>,
+}
+
+/// Type of a `token`.
+/// Nominal: encodes the source contract hash.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TokenType {
+    pub name: String,
+    pub id: NameId,
+}
+
 /// Type of an `abi`.
+/// Structural: compatible with similar interfaces.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AbiType {
     pub name: Identifier,
     pub methods: Vec<TypedAbiMethodDecl>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TypedAbiMethodDecl {
+    pub name: Identifier,
+    pub id: NameId,
+    pub ty: Arc<FunctionType>,
+}
+
+impl TypedAbiMethodDecl {
+    /// Get the stable hashable identity of this method type.
+    #[must_use]
+    pub fn identity(&self) -> &str {
+        // TODO: specify hashing for types and include real type signature here
+        self.name.as_str()
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -335,24 +374,30 @@ impl RecordFieldType {
     }
 }
 
+impl EnumType {
+    pub fn get_variant(&self, name: &str) -> Option<&EnumVariantType> {
+        self.variants.iter().find(|v| v.name.as_str() == name)
+    }
+}
+
 impl EnumVariantType {
-    pub fn unit(name: impl Into<String>) -> Self {
+    pub fn unit(name: Identifier) -> Self {
         Self {
-            name: name.into(),
+            name,
             kind: EnumVariantKind::Unit,
         }
     }
 
-    pub fn tuple(name: impl Into<String>, payload: Vec<Type>) -> Self {
+    pub fn tuple(name: Identifier, payload: Vec<Type>) -> Self {
         Self {
-            name: name.into(),
+            name,
             kind: EnumVariantKind::Tuple(payload),
         }
     }
 
-    pub fn struct_variant(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
+    pub fn struct_variant(name: Identifier, fields: Vec<RecordFieldType>) -> Self {
         Self {
-            name: name.into(),
+            name,
             kind: EnumVariantKind::Struct(fields),
         }
     }
@@ -528,9 +573,9 @@ impl Type {
                 TypeDocMode::Expanded => enum_doc(enum_type, params),
             },
             Type::UtxoAny => RcDoc::text("Utxo"),
-            Type::UtxoNamed(id) => RcDoc::text(id.to_owned()),
+            Type::Utxo(utxo) => RcDoc::text(utxo.name.to_owned()),
             Type::TokenAny => RcDoc::text("Token"),
-            Type::TokenNamed(id) => RcDoc::text(id.to_owned()),
+            Type::Token(token) => RcDoc::text(token.name.to_owned()),
             Type::Abi(abi) => RcDoc::text(abi.name.to_string()),
         }
     }
@@ -553,7 +598,7 @@ enum TypeDocMode {
 
 fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
     if record.fields.is_empty() {
-        RcDoc::text("struct ").append(RcDoc::text(record.name.clone()))
+        RcDoc::text("struct ").append(RcDoc::as_string(&record.name))
     } else {
         let fields = RcDoc::intersperse(
             record.fields.iter().map(|field| {
@@ -566,7 +611,7 @@ fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc
         );
 
         RcDoc::text("struct ")
-            .append(RcDoc::text(record.name.clone()))
+            .append(RcDoc::as_string(&record.name))
             .append(RcDoc::space())
             .append("{")
             .append(RcDoc::hardline().append(fields).nest(4))
@@ -576,7 +621,7 @@ fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc
 }
 
 fn enum_name_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
-    let name = RcDoc::text(enum_type.name.clone());
+    let name = RcDoc::as_string(&enum_type.name);
     if enum_type.type_args.is_empty() {
         name
     } else {
@@ -602,8 +647,8 @@ fn enum_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<
                 .variants
                 .iter()
                 .map(|variant| match &variant.kind {
-                    EnumVariantKind::Unit => RcDoc::text(variant.name.clone()).append(","),
-                    EnumVariantKind::Tuple(payload) => RcDoc::text(variant.name.clone())
+                    EnumVariantKind::Unit => RcDoc::as_string(&variant.name).append(","),
+                    EnumVariantKind::Tuple(payload) => RcDoc::as_string(&variant.name)
                         .append("(")
                         .append(RcDoc::intersperse(
                             payload
@@ -613,7 +658,7 @@ fn enum_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<
                         ))
                         .append("),"),
                     EnumVariantKind::Struct(fields) => {
-                        enum_variant_struct_doc(&variant.name, fields, params)
+                        enum_variant_struct_doc(variant.name.as_str(), fields, params)
                     }
                 }),
             RcDoc::hardline(),

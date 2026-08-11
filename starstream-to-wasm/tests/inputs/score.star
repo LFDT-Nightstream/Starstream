@@ -33,4 +33,5 @@ utxo ScoreProgress {
 
 script fn example() {
     let prog = ScoreProgress::new();
+    prog.plus_chips(10);
 }

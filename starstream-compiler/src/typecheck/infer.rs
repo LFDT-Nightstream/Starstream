@@ -9,20 +9,20 @@ use std::{
 use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
     FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
-    Spanned, StaticFunction, TokenDef, TokenGlobal, TokenPart, Type, TypeParam, TypeVarId,
-    TypedEffectDef, TypedImportItem, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef,
-    TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    Spanned, StaticFunction, TokenDef, TokenGlobal, TokenPart, TokenType, Type, TypeParam,
+    TypeVarId, TypedAbiMethodDecl, TypedImportItem, TypedTokenDef, TypedTokenGlobal,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    UtxoType,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
-        ImportDef, ImportItems, ImportSource, IntegerLiteral, Literal, Pattern, Program, Statement,
-        StructDef, TypeAnnotation, UnaryOp,
+        ImportItems, ImportSource, IntegerLiteral, Literal, Pattern, Program, Statement, StructDef,
+        TypeAnnotation, UnaryOp,
     },
     typed_ast::{
-        TypedAbiDef, TypedAbiMethodDecl, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
-        TypedEnumVariant, TypedEnumVariantPayload, TypedEventDef, TypedExpr, TypedExprKind,
+        TypedAbiDef, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
         TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm,
-        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructField,
-        TypedStructFieldInitializer, TypedStructPatternField,
+        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
+        TypedStructPatternField,
     },
     types::{EnumType, EnumVariantKind, EnumVariantType, RecordFieldType, RecordType},
 };
@@ -34,7 +34,7 @@ use super::{
     tree::InferenceTree,
     warnings::{TypeWarning, TypeWarningKind},
 };
-use crate::{ModuleId, formatter};
+use crate::{ModuleId, formatter, pointer_map::PointerMap};
 
 /// Optional settings that control type-checker behavior.
 #[derive(Clone, Debug, Default)]
@@ -101,36 +101,17 @@ pub fn typecheck_program(
         });
     }
 
-    // Pass 2: register definition names
-    if let Err(error) = inferencer.register_definitions(&mut env, &program.definitions) {
-        return Err(TypecheckFailure {
-            errors: vec![error],
-            warnings: inferencer.warnings,
-        });
-    }
-
-    // Pass 3: infer definitions
-    let mut typed_definitions = Vec::with_capacity(program.definitions.len());
-    let mut definition_traces = Vec::with_capacity(program.definitions.len());
-
-    let mut errors = Vec::new();
-    for definition in &program.definitions {
-        match inferencer.infer_definition(&mut env, &definition.node) {
-            Ok((typed_definition, trace)) => {
-                typed_definitions.push(typed_definition);
-                definition_traces.push(trace);
-            }
-            Err(error) => {
-                errors.push(error);
-            }
+    // Pass 2: process definitions
+    let (mut program, traces) = match inferencer.process_definitions(&mut env, &program.definitions)
+    {
+        Ok(x) => x,
+        Err(errors) => {
+            return Err(TypecheckFailure {
+                errors,
+                warnings: inferencer.warnings,
+            });
         }
-    }
-    if !errors.is_empty() {
-        return Err(TypecheckFailure {
-            errors,
-            warnings: inferencer.warnings,
-        });
-    }
+    };
 
     // Default any unresolved integer type variables to i64.
     inferencer.default_int_vars();
@@ -143,13 +124,10 @@ pub fn typecheck_program(
         });
     }
 
-    let mut typed_program = TypedProgram {
-        definitions: typed_definitions,
-    };
-    inferencer.apply_substitutions_program(&mut typed_program);
+    inferencer.apply_substitutions_program(&mut program);
 
     let traces = if options.capture_traces {
-        definition_traces
+        traces
     } else {
         Vec::new()
     };
@@ -158,7 +136,7 @@ pub fn typecheck_program(
     let warnings = inferencer.warnings;
 
     Ok(TypecheckSuccess {
-        program: typed_program,
+        program,
         traces,
         generic_types,
         warnings,
@@ -239,42 +217,26 @@ pub fn typecheck_modules(
             continue;
         }
 
-        // Pass 2: register definition names
-        if let Err(error) = inferencer.register_definitions(&mut env, &module.program.definitions) {
-            all_errors.push((module_id, error));
-            continue;
-        }
-
-        // Pass 3: infer definitions
-        let mut typed_definitions = Vec::with_capacity(module.program.definitions.len());
-        let mut module_failed = false;
-        for definition in module.program.definitions.iter() {
-            match inferencer.infer_definition(&mut env, &definition.node) {
-                Ok((typed_def, _trace)) => typed_definitions.push(typed_def),
-                Err(error) => {
-                    all_errors.push((module_id, error));
-                    module_failed = true;
+        // Pass 2: process definitions
+        let (program, _) =
+            match inferencer.process_definitions(&mut env, &module.program.definitions) {
+                Ok(x) => x,
+                Err(errors) => {
+                    // Capture a (possibly partial) export table so other modules can
+                    // continue — they may still produce useful diagnostics. But we
+                    // flag the run as failed.
+                    all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
+                    module_exports.insert(module_id, Namespace::default());
+                    continue;
                 }
-            }
-        }
-
-        if module_failed {
-            // Capture a (possibly partial) export table so other modules can
-            // continue — they may still produce useful diagnostics. But we
-            // flag the run as failed.
-            module_exports.insert(module_id, Namespace::default());
-            continue;
-        }
+            };
 
         // Capture this module's exports for downstream modules.
         // TODO: exclude private items.
         let exports = env.root;
         module_exports.insert(module_id, exports);
 
-        let typed_program = TypedProgram {
-            definitions: typed_definitions,
-        };
-        typed_modules.insert(module_id, typed_program);
+        typed_modules.insert(module_id, program);
 
         // Drain warnings emitted during this module's pass.
         for warning in inferencer.warnings.drain(..) {
@@ -393,8 +355,8 @@ struct Inferencer {
 
     /// Name ID assignment.
     next_name_id: NameId,
-    function_names: HashMap<usize, NameId>,
-    import_lists: HashMap<usize, Vec<TypedImportItem>>,
+    function_names: PointerMap<NameId>,
+    typed_definitions: PointerMap<TypedDefinition>,
 
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
     abi_call_trackers: Vec<AbiCallTracker>,
@@ -429,7 +391,7 @@ impl Inferencer {
             builtins,
             next_name_id,
             function_names: Default::default(),
-            import_lists: Default::default(),
+            typed_definitions: Default::default(),
             warnings: Default::default(),
             abi_call_trackers: Default::default(),
         }
@@ -542,148 +504,131 @@ impl Inferencer {
                 }
 
                 // Memorize the [TypedImportItem]s for later.
-                self.import_lists
-                    .insert(import as *const _ as usize, typed_items);
+                self.typed_definitions.insert(
+                    &def.node,
+                    TypedDefinition::Import(TypedImportDef {
+                        items: typed_items,
+                        from: import.from.clone(),
+                    }),
+                );
             }
         }
         Ok(())
     }
 
     // ------------------------------------------------------------------------
-    // Second pass: register definitions
+    // Second pass: register definition names, mainly type names
 
-    fn register_definitions(
+    fn process_definitions(
         &mut self,
         env: &mut TypeEnv,
         definitions: &[Spanned<Definition>],
-    ) -> Result<(), TypeError> {
+    ) -> Result<(TypedProgram, Vec<InferenceTree>), Vec<TypeError>> {
+        let mut traces = Vec::with_capacity(definitions.len());
+        let mut errors = Vec::new();
+
+        // TODO: Allow types to refer to later types by splitting this into three passes:
+        // 1. Preregister everything by name as a type var.
+        // 2. Register struct, enum, and ABI definitions (they only need each other's names).
+        // 3. Register function, utxo, and token definitions (they need to know ABI innards).
+
+        // Register definitions.
+        for definition in definitions {
+            match &definition.node {
+                Definition::Contract => {
+                    self.typed_definitions
+                        .insert(&definition.node, TypedDefinition::Contract);
+                }
+                Definition::Import(_) => {}
+                Definition::Struct(def) => match self.register_struct(env, def) {
+                    Ok(def2) => {
+                        self.typed_definitions
+                            .insert(&definition.node, TypedDefinition::Struct(def2));
+                    }
+                    Err(e) => errors.push(e),
+                },
+                Definition::Enum(def) => match self.register_enum(env, def) {
+                    Ok(def2) => {
+                        self.typed_definitions
+                            .insert(&definition.node, TypedDefinition::Enum(def2));
+                    }
+                    Err(e) => errors.push(e),
+                },
+                Definition::Abi(def) => match self.register_abi(env, def) {
+                    Ok(def2) => {
+                        self.typed_definitions
+                            .insert(&definition.node, TypedDefinition::Abi(def2));
+                    }
+                    Err(e) => errors.push(e),
+                },
+                Definition::Utxo(def) => errors.extend(self.register_utxo(env, def).err()),
+                Definition::Token(def) => errors.extend(self.register_token(env, def).err()),
+                Definition::Function(def) => errors.extend(self.register_function(env, def).err()),
+            }
+        }
+
+        // Typecheck function bodies.
         for definition in definitions {
             match &definition.node {
                 Definition::Contract => {}
                 Definition::Import(_) => {}
-                Definition::Struct(def) => self.register_struct(env, def)?,
-                Definition::Enum(def) => self.register_enum(env, def)?,
-                Definition::Function(def) => self.register_function(env, def)?,
-                Definition::Utxo(def) => self.register_utxo(env, def)?,
-                Definition::Token(def) => self.register_token(env, def)?,
-                Definition::Abi(def) => self.register_abi(env, def)?,
+                Definition::Struct(_) => {}
+                Definition::Enum(_) => {}
+                Definition::Abi(_) => {}
+                Definition::Utxo(def) => match self.infer_utxo(env, def) {
+                    Ok((def2, trace)) => {
+                        self.typed_definitions
+                            .insert(&definition.node, TypedDefinition::Utxo(def2));
+                        traces.push(trace);
+                    }
+                    Err(e) => errors.push(e),
+                },
+                Definition::Token(def) => match self.infer_token(env, def) {
+                    Ok((def2, trace)) => {
+                        self.typed_definitions
+                            .insert(&definition.node, TypedDefinition::Token(def2));
+                        traces.push(trace);
+                    }
+                    Err(e) => errors.push(e),
+                },
+                Definition::Function(def) => match self.infer_function(env, def) {
+                    Ok((def2, _ty, trace)) => {
+                        self.typed_definitions
+                            .insert(&definition.node, TypedDefinition::Function(def2));
+                        traces.push(trace);
+                    }
+                    Err(e) => errors.push(e),
+                },
             }
         }
-        Ok(())
-    }
 
-    fn register_abi(&mut self, env: &mut TypeEnv, def: &AbiDef) -> Result<(), TypeError> {
-        if def.name.name == "Token" {
-            return Err(TypeError::new(
-                TypeErrorKind::ReservedAbiName {
-                    name: def.name.name.clone(),
-                },
-                def.name.span(),
-            ));
-        }
-
-        let mut methods = Vec::new();
-        for part in &def.parts {
-            match part {
-                AbiPart::Event(event) => self.register_event(env, event)?,
-                AbiPart::Effect(effect) => self.register_effect(env, effect)?,
-                AbiPart::FnDecl(method) => {
-                    let return_type = match &method.return_type {
-                        Some(ann) => self.type_from_annotation(env, ann)?,
-                        None => Type::Unit,
-                    };
-                    let id = self.next_name_id.fresh();
-                    self.function_names.insert(method as *const _ as usize, id);
-                    let ty = Arc::new(FunctionType {
-                        kind: FunctionKind::Normal,
-                        name_span: method.name.span,
-                        // TODO: recapture `pub` keyword here
-                        params: method
-                            .params
-                            .iter()
-                            .map(|p| self.type_from_annotation(env, &p.ty))
-                            .collect::<Result<Vec<_>, _>>()?,
-                        param_spans: method.params.iter().map(|p| p.name.span).collect(),
-                        result: return_type,
-                        callee: Some(StaticFunction::Named(id)),
-                    });
-                    methods.push(TypedAbiMethodDecl {
-                        name: method.name.clone(),
-                        span: method.name.span(),
-                        ty,
-                    });
+        if errors.is_empty() {
+            // Collect typed AST.
+            let mut typed_definitions = Vec::with_capacity(definitions.len());
+            for definition in definitions {
+                match self.typed_definitions.remove(&definition.node) {
+                    Some(def) => typed_definitions.push(def),
+                    None => panic!("missing TypedDefinition for {:?}", definition.node),
                 }
             }
+            assert!(self.typed_definitions.is_empty());
+
+            Ok((
+                TypedProgram {
+                    definitions: typed_definitions,
+                },
+                traces,
+            ))
+        } else {
+            Err(errors)
         }
-        env.root.insert_type(
-            &def.name,
-            TypeEntry::from(Type::from(AbiType {
-                name: def.name.clone(),
-                methods,
-            })),
-        )?;
-        Ok(())
     }
 
-    fn register_event(&mut self, env: &mut TypeEnv, event: &EventDef) -> Result<(), TypeError> {
-        let mut param_types = Vec::with_capacity(event.params.len());
-        let mut param_spans = Vec::with_capacity(event.params.len());
-        for param in &event.params {
-            let ty = self.type_from_annotation(env, &param.ty)?;
-            param_types.push(ty);
-            param_spans.push(param.ty.name_span());
-        }
-        let id = self.next_name_id.fresh();
-        self.function_names.insert(event as *const _ as usize, id);
-        env.root.insert_constant(
-            &event.name,
-            ConstantInfo::new(
-                event.name.span,
-                Type::from(FunctionType {
-                    kind: FunctionKind::Emit,
-                    name_span: event.name.span,
-                    params: param_types,
-                    param_spans,
-                    result: Type::Unit,
-                    callee: Some(StaticFunction::Named(id)),
-                }),
-            ),
-        )?;
-        Ok(())
-    }
-
-    fn register_effect(&mut self, env: &mut TypeEnv, effect: &EffectDef) -> Result<(), TypeError> {
-        let mut param_types = Vec::with_capacity(effect.params.len());
-        let mut param_spans = Vec::with_capacity(effect.params.len());
-        for param in &effect.params {
-            let ty = self.type_from_annotation(env, &param.ty)?;
-            param_types.push(ty);
-            param_spans.push(param.ty.name_span());
-        }
-        let return_type = match &effect.return_type {
-            Some(ann) => self.type_from_annotation(env, ann)?,
-            None => Type::Unit,
-        };
-        let id = self.next_name_id.fresh();
-        self.function_names.insert(effect as *const _ as usize, id);
-        env.root.insert_constant(
-            &effect.name,
-            ConstantInfo::new(
-                effect.name.span,
-                Type::from(FunctionType {
-                    kind: FunctionKind::Raise,
-                    name_span: effect.name.span,
-                    params: param_types,
-                    param_spans,
-                    result: return_type,
-                    callee: Some(StaticFunction::Named(id)),
-                }),
-            ),
-        )?;
-        Ok(())
-    }
-
-    fn register_struct(&mut self, env: &mut TypeEnv, def: &StructDef) -> Result<(), TypeError> {
+    fn register_struct(
+        &mut self,
+        env: &mut TypeEnv,
+        def: &StructDef,
+    ) -> Result<TypedStructDef, TypeError> {
         let mut seen = HashMap::new();
         let mut fields = Vec::with_capacity(def.fields.len());
         for field in &def.fields {
@@ -700,20 +645,16 @@ impl Inferencer {
             }
             seen.insert(field.name.name.clone(), field.name.span());
             let ty = self.type_from_annotation(env, &field.ty)?;
-            fields.push(TypedStructField {
+            fields.push(RecordFieldType {
                 name: field.name.clone(),
                 ty,
             });
         }
-
-        let type_fields = fields
-            .iter()
-            .map(|field| RecordFieldType::new(field.name.clone(), field.ty.clone()))
-            .collect();
-        let ty = Type::from(RecordType {
-            name: def.name.to_string(),
-            fields: type_fields,
+        let record_ty = Arc::new(RecordType {
+            name: def.name.clone(),
+            fields,
         });
+        let ty = Type::from(record_ty.clone());
         env.root.insert_type(
             &def.name,
             TypeEntry {
@@ -733,10 +674,14 @@ impl Inferencer {
                 enum_variant: 0,
             },
         )?;
-        Ok(())
+        Ok(TypedStructDef { ty: record_ty })
     }
 
-    fn register_enum(&mut self, env: &mut TypeEnv, def: &EnumDef) -> Result<(), TypeError> {
+    fn register_enum(
+        &mut self,
+        env: &mut TypeEnv,
+        def: &EnumDef,
+    ) -> Result<TypedEnumDef, TypeError> {
         let mut seen = HashMap::new();
         let mut variants = Vec::with_capacity(def.variants.len());
         for variant in &def.variants {
@@ -791,13 +736,13 @@ impl Inferencer {
             };
 
             variants.push(EnumVariantType {
-                name: variant.name.to_string(),
+                name: variant.name.clone(),
                 kind,
             });
         }
 
         let enum_type = Arc::new(EnumType {
-            name: def.name.to_string(),
+            name: def.name.clone(),
             variants,
             type_args: vec![],
         });
@@ -860,11 +805,175 @@ impl Inferencer {
             }
         }
 
-        Ok(())
+        Ok(TypedEnumDef { ty: enum_type })
+    }
+
+    fn register_abi(&mut self, env: &mut TypeEnv, def: &AbiDef) -> Result<TypedAbiDef, TypeError> {
+        if def.name.name == "Token" {
+            return Err(TypeError::new(
+                TypeErrorKind::ReservedAbiName {
+                    name: def.name.name.clone(),
+                },
+                def.name.span(),
+            ));
+        }
+
+        let mut functions = Vec::new();
+        let mut methods = Vec::new();
+        for part in &def.parts {
+            match part {
+                AbiPart::Event(event) => functions.push(self.register_event(env, event)?),
+                AbiPart::Effect(effect) => functions.push(self.register_effect(env, effect)?),
+                AbiPart::FnDecl(method) => {
+                    let return_type = match &method.return_type {
+                        Some(ann) => self.type_from_annotation(env, ann)?,
+                        None => Type::Unit,
+                    };
+                    let id = self.next_name_id.fresh();
+                    self.function_names.insert(method, id);
+                    let ty = Arc::new(FunctionType {
+                        kind: FunctionKind::Normal,
+                        name_span: method.name.span,
+                        // TODO: recapture `pub` keyword here
+                        params: method
+                            .params
+                            .iter()
+                            .map(|p| self.type_from_annotation(env, &p.ty))
+                            .collect::<Result<Vec<_>, _>>()?,
+                        param_spans: method.params.iter().map(|p| p.name.span).collect(),
+                        result: return_type,
+                        callee: Some(StaticFunction::Named(id)),
+                    });
+                    let m = TypedAbiMethodDecl {
+                        name: method.name.clone(),
+                        id,
+                        ty,
+                    };
+                    functions.push(m.clone());
+                    methods.push(m);
+                }
+            }
+        }
+        let abi_ty = Arc::new(AbiType {
+            name: def.name.clone(),
+            methods,
+        });
+        env.root
+            .insert_type(&def.name, TypeEntry::from(Type::Abi(abi_ty.clone())))?;
+        Ok(TypedAbiDef {
+            ty: abi_ty,
+            functions,
+        })
+    }
+
+    fn register_event(
+        &mut self,
+        env: &mut TypeEnv,
+        event: &EventDef,
+    ) -> Result<TypedAbiMethodDecl, TypeError> {
+        let mut param_types = Vec::with_capacity(event.params.len());
+        let mut param_spans = Vec::with_capacity(event.params.len());
+        for param in &event.params {
+            let ty = self.type_from_annotation(env, &param.ty)?;
+            param_types.push(ty);
+            param_spans.push(param.ty.name_span());
+        }
+        let id = self.next_name_id.fresh();
+        self.function_names.insert(event, id);
+        let func_ty = Arc::new(FunctionType {
+            kind: FunctionKind::Emit,
+            name_span: event.name.span,
+            params: param_types,
+            param_spans,
+            result: Type::Unit,
+            callee: Some(StaticFunction::Named(id)),
+        });
+        env.root.insert_constant(
+            &event.name,
+            ConstantInfo::new(event.name.span, Type::from(func_ty.clone())),
+        )?;
+        Ok(TypedAbiMethodDecl {
+            name: event.name.clone(),
+            id,
+            ty: func_ty,
+        })
+    }
+
+    fn register_effect(
+        &mut self,
+        env: &mut TypeEnv,
+        effect: &EffectDef,
+    ) -> Result<TypedAbiMethodDecl, TypeError> {
+        let mut param_types = Vec::with_capacity(effect.params.len());
+        let mut param_spans = Vec::with_capacity(effect.params.len());
+        for param in &effect.params {
+            let ty = self.type_from_annotation(env, &param.ty)?;
+            param_types.push(ty);
+            param_spans.push(param.ty.name_span());
+        }
+        let return_type = match &effect.return_type {
+            Some(ann) => self.type_from_annotation(env, ann)?,
+            None => Type::Unit,
+        };
+        let id = self.next_name_id.fresh();
+        self.function_names.insert(effect, id);
+        let func_ty = Arc::new(FunctionType {
+            kind: FunctionKind::Raise,
+            name_span: effect.name.span,
+            params: param_types,
+            param_spans,
+            result: return_type,
+            callee: Some(StaticFunction::Named(id)),
+        });
+        env.root.insert_constant(
+            &effect.name,
+            ConstantInfo::new(effect.name.span, Type::from(func_ty.clone())),
+        )?;
+        Ok(TypedAbiMethodDecl {
+            name: effect.name.clone(),
+            id,
+            ty: func_ty,
+        })
     }
 
     fn register_utxo(&mut self, env: &mut TypeEnv, def: &UtxoDef) -> Result<(), TypeError> {
-        let ty = Type::UtxoNamed(def.name.to_string());
+        let mut yields = Vec::new();
+        let mut possible_abis = Vec::new();
+        for part in &def.parts {
+            match part {
+                UtxoPart::Function(def) => {
+                    Self::collect_yields(&mut yields, &def.body);
+                }
+                UtxoPart::AbiImpl { abi, parts } => {
+                    possible_abis.push(env.root.get_abi(abi)?.clone());
+                    for part in parts {
+                        Self::collect_yields(&mut yields, &part.body);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut always_abis = Vec::new();
+        if let Some((first, rest)) = yields.split_first() {
+            for abi in first.iter() {
+                always_abis.push(env.root.get_abi(abi)?.clone());
+            }
+            for &expr in rest {
+                let mut abis = Vec::new();
+                for abi in expr.iter() {
+                    abis.push(env.root.get_abi(abi)?.clone());
+                }
+                always_abis.retain(|a| abis.contains(a));
+            }
+        }
+
+        let ty = Type::Utxo(Arc::new(UtxoType {
+            name: def.name.to_string(),
+            id: self.next_name_id.fresh(),
+            possible_abis,
+            always_abis,
+        }));
         env.root.insert_type(
             &def.name,
             TypeEntry {
@@ -891,10 +1000,7 @@ impl Inferencer {
                     }
                 }
                 UtxoPart::Storage(_) => {}
-                UtxoPart::AbiImpl { .. } => {
-                    // TODO: expose ABI impl functions in the namespace?
-                    // (not actually sure if we want to do this)
-                }
+                UtxoPart::AbiImpl { .. } => {}
             }
         }
 
@@ -906,8 +1012,102 @@ impl Inferencer {
         Ok(())
     }
 
+    fn collect_yields<'a>(dest: &mut Vec<&'a Vec<Identifier>>, block: &'a Block) {
+        for stmt in &block.statements {
+            match &stmt.node {
+                Statement::VariableDeclaration { value, .. } => {
+                    Self::collect_yields_expr(dest, &value.node);
+                }
+                Statement::Assignment { value, .. } => {
+                    Self::collect_yields_expr(dest, &value.node);
+                }
+                Statement::While { condition, body } => {
+                    Self::collect_yields_expr(dest, &condition.node);
+                    Self::collect_yields(dest, body);
+                }
+                Statement::Expression(spanned) => {
+                    Self::collect_yields_expr(dest, &spanned.node);
+                }
+                Statement::Return(spanned) => {
+                    if let Some(expr) = spanned {
+                        Self::collect_yields_expr(dest, &expr.node);
+                    }
+                }
+                Statement::Resume => {}
+                Statement::TryWith { subject, effects } => {
+                    Self::collect_yields(dest, subject);
+                    for (_, _, body) in effects {
+                        Self::collect_yields(dest, body);
+                    }
+                }
+            }
+        }
+        if let Some(tail) = &block.tail_expression {
+            Self::collect_yields_expr(dest, &tail.node);
+        }
+    }
+
+    fn collect_yields_expr<'a>(dest: &mut Vec<&'a Vec<Identifier>>, expr: &'a Expr) {
+        match expr {
+            Expr::Yield { abis } => {
+                dest.push(abis);
+            }
+            Expr::Grouping(spanned) => Self::collect_yields_expr(dest, &spanned.node),
+            Expr::ScopedName(_) => {}
+            Expr::Literal(_) => {}
+            Expr::StructConstructor { fields, .. } => {
+                for each in fields {
+                    Self::collect_yields_expr(dest, &each.value.node);
+                }
+            }
+            Expr::Emit { callee, args }
+            | Expr::Raise { callee, args }
+            | Expr::Runtime { callee, args }
+            | Expr::Call { callee, args } => {
+                Self::collect_yields_expr(dest, &callee.node);
+                for each in args {
+                    Self::collect_yields_expr(dest, &each.node);
+                }
+            }
+            Expr::Block(block) => Self::collect_yields(dest, block),
+            Expr::If {
+                branches,
+                else_branch,
+            } => {
+                for (condition, block) in branches {
+                    if let IfCondition::Bool(expr) = condition {
+                        Self::collect_yields_expr(dest, &expr.node);
+                    }
+                    Self::collect_yields(dest, block);
+                }
+                if let Some(block) = else_branch {
+                    Self::collect_yields(dest, block);
+                }
+            }
+            Expr::Match { scrutinee, arms } => {
+                Self::collect_yields_expr(dest, &scrutinee.node);
+                for arm in arms {
+                    Self::collect_yields(dest, &arm.body);
+                }
+            }
+            Expr::FieldAccess { target, .. } => {
+                Self::collect_yields_expr(dest, &target.node);
+            }
+            Expr::Disclose { expr } | Expr::Unary { expr, .. } => {
+                Self::collect_yields_expr(dest, &expr.node);
+            }
+            Expr::Binary { left, right, .. } => {
+                Self::collect_yields_expr(dest, &left.node);
+                Self::collect_yields_expr(dest, &right.node);
+            }
+        }
+    }
+
     fn register_token(&mut self, env: &mut TypeEnv, def: &TokenDef) -> Result<(), TypeError> {
-        let ty = Type::TokenNamed(def.name.to_string());
+        let ty = Type::Token(Arc::new(TokenType {
+            name: def.name.to_string(),
+            id: self.next_name_id.fresh(),
+        }));
         env.root.insert_type(
             &def.name,
             TypeEntry {
@@ -921,188 +1121,14 @@ impl Inferencer {
         Ok(())
     }
 
-    fn register_function(
-        &mut self,
-        _env: &mut TypeEnv,
-        _def: &FunctionDef,
-    ) -> Result<(), TypeError> {
-        // TODO: hoist function type discovery back here, out of `infer_function`,
-        // so that code can call functions declared later in the file.
+    fn register_function(&mut self, env: &mut TypeEnv, def: &FunctionDef) -> Result<(), TypeError> {
+        let ty = Type::Function(Arc::new(self.function_def_to_type(env, def)?));
+        env.root
+            .insert_constant(&def.name, ConstantInfo::new(def.name.span, ty))?;
         Ok(())
     }
 
     // ------------------------------------------------------------------------
-
-    fn build_typed_struct(
-        &self,
-        env: &TypeEnv,
-        def: &StructDef,
-    ) -> Result<TypedStructDef, TypeError> {
-        let info = self.lookup_struct_info(env, std::slice::from_ref(&def.name))?;
-
-        let fields = info
-            .fields()
-            .iter()
-            .map(|field| TypedStructField {
-                name: field.name.clone(),
-                ty: field.ty.clone(),
-            })
-            .collect();
-
-        Ok(TypedStructDef {
-            name: def.name.clone(),
-            fields,
-            ty: info.ty.clone(),
-        })
-    }
-
-    fn build_typed_enum(&self, env: &TypeEnv, def: &EnumDef) -> Result<TypedEnumDef, TypeError> {
-        let info = env.root.types.get(&def.name.name).unwrap();
-        let Type::Enum(enum_ty) = &info.ty else {
-            unreachable!()
-        };
-        let variants = &enum_ty.variants;
-
-        let variants = variants
-            .iter()
-            .zip(&def.variants)
-            .map(|(variant, ast_variant)| TypedEnumVariant {
-                name: ast_variant.name.clone(),
-                payload: match &variant.kind {
-                    EnumVariantKind::Unit => TypedEnumVariantPayload::Unit,
-                    EnumVariantKind::Tuple(payload) => {
-                        TypedEnumVariantPayload::Tuple(payload.clone())
-                    }
-                    EnumVariantKind::Struct(fields) => TypedEnumVariantPayload::Struct(
-                        fields
-                            .iter()
-                            .map(|field| TypedStructField {
-                                name: field.name.clone(),
-                                ty: field.ty.clone(),
-                            })
-                            .collect(),
-                    ),
-                },
-            })
-            .collect();
-
-        Ok(TypedEnumDef {
-            name: def.name.clone(),
-            variants,
-            ty: info.ty.clone(),
-        })
-    }
-
-    fn build_typed_import(&mut self, def: &ImportDef) -> TypedImportDef {
-        TypedImportDef {
-            items: self
-                .import_lists
-                .remove(&(def as *const _ as usize))
-                .unwrap(),
-            from: def.from.clone(),
-        }
-    }
-
-    fn build_typed_abi(&self, env: &TypeEnv, def: &AbiDef) -> Result<TypedAbiDef, TypeError> {
-        let mut typed_parts = Vec::with_capacity(def.parts.len());
-
-        for part in &def.parts {
-            match part {
-                AbiPart::Event(event) => {
-                    let event_info = env.root.constants.get(&event.name.name).ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::UnknownEvent {
-                                name: event.name.name.clone(),
-                            },
-                            event.name.span(),
-                        )
-                    })?;
-
-                    let Type::Function(func_ty) = &event_info.ty else {
-                        unreachable!()
-                    };
-
-                    let params = func_ty
-                        .params
-                        .iter()
-                        .zip(&event.params)
-                        .map(|(ty, param)| TypedFunctionParam {
-                            public: param.public,
-                            name: param.name.clone(),
-                            ty: ty.clone(),
-                        })
-                        .collect();
-
-                    typed_parts.push(TypedAbiPart::Event(TypedEventDef {
-                        name: event.name.clone(),
-                        id: *self
-                            .function_names
-                            .get(&(event as *const _ as usize))
-                            .unwrap(),
-                        params,
-                    }));
-                }
-                AbiPart::Effect(effect) => {
-                    let info = env.root.constants.get(&effect.name.name).ok_or_else(|| {
-                        TypeError::new(
-                            TypeErrorKind::UnknownEvent {
-                                name: effect.name.name.clone(),
-                            },
-                            effect.name.span(),
-                        )
-                    })?;
-
-                    let Type::Function(func) = &info.ty else {
-                        unreachable!()
-                    };
-
-                    let params = func
-                        .params
-                        .iter()
-                        .zip(&effect.params)
-                        .map(|(ty, param)| TypedFunctionParam {
-                            public: param.public,
-                            name: param.name.clone(),
-                            ty: ty.clone(),
-                        })
-                        .collect();
-
-                    typed_parts.push(TypedAbiPart::Effect(TypedEffectDef {
-                        name: effect.name.clone(),
-                        id: *self
-                            .function_names
-                            .get(&(effect as *const _ as usize))
-                            .unwrap(),
-                        params,
-                        return_type: func.result.clone(),
-                    }));
-                }
-                AbiPart::FnDecl(method) => {
-                    let Type::Abi(abi_info) = &env
-                        .root
-                        .types
-                        .get(&def.name.name)
-                        .expect("abi registered")
-                        .ty
-                    else {
-                        unreachable!()
-                    };
-                    let method_info = abi_info
-                        .methods
-                        .iter()
-                        .find(|m| m.name.as_str() == method.name.as_str())
-                        .expect("method registered");
-
-                    typed_parts.push(TypedAbiPart::FnDecl(method_info.clone()));
-                }
-            }
-        }
-
-        Ok(TypedAbiDef {
-            name: def.name.clone(),
-            parts: typed_parts,
-        })
-    }
 
     fn infer_utxo(
         &mut self,
@@ -1149,9 +1175,11 @@ impl Inferencer {
                     // Assert that the signature sets match
                     let abi_info = env.root.get_abi(abi)?;
                     self.check_abi_impl(abi, abi_info, &parts)?;
-
-                    let abi = Type::Abi(abi_info.clone());
-                    TypedUtxoPart::AbiImpl { abi, span, parts }
+                    TypedUtxoPart::AbiImpl {
+                        abi: abi_info.clone(),
+                        span,
+                        parts,
+                    }
                 }
             });
         }
@@ -1161,12 +1189,14 @@ impl Inferencer {
         let Some(ty) = env.root.types.get(def.name.as_str()) else {
             unreachable!()
         };
-        assert!(matches!(ty.ty, Type::UtxoNamed(_)));
+        let Type::Utxo(utxo_ty) = &ty.ty else {
+            unreachable!()
+        };
         Ok((
             TypedUtxoDef {
                 name: def.name.clone(),
                 parts,
-                ty: ty.ty.clone(),
+                ty: utxo_ty.clone(),
             },
             self.make_trace("T-Utxo", None, Some(def.name.to_string()), None, || traces),
         ))
@@ -1284,7 +1314,7 @@ impl Inferencer {
         let Some(ty) = env.root.types.get(def.name.as_str()) else {
             unreachable!()
         };
-        assert!(matches!(ty.ty, Type::TokenNamed(_)));
+        assert!(matches!(ty.ty, Type::Token(_)));
         Ok((
             TypedTokenDef {
                 name: def.name.clone(),
@@ -1741,56 +1771,6 @@ impl Inferencer {
         }
     }
 
-    /// Type-check a top-level definition.
-    fn infer_definition(
-        &mut self,
-        env: &mut TypeEnv,
-        definition: &Definition,
-    ) -> Result<(TypedDefinition, InferenceTree), TypeError> {
-        match definition {
-            Definition::Contract => Ok((TypedDefinition::Contract, InferenceTree::default())),
-            Definition::Import(import) => {
-                let typed = self.build_typed_import(import);
-                Ok((TypedDefinition::Import(typed), InferenceTree::default()))
-            }
-            Definition::Function(function) => {
-                let (typed_function, ty, trace) = self.infer_function(env, function)?;
-
-                env.root.insert_constant(
-                    &function.name,
-                    ConstantInfo::new(function.name.span, Type::from(ty)),
-                )?;
-
-                Ok((TypedDefinition::Function(typed_function), trace))
-            }
-            Definition::Struct(def) => {
-                let typed = self.build_typed_struct(env, def)?;
-
-                Ok((TypedDefinition::Struct(typed), InferenceTree::default()))
-            }
-            Definition::Enum(def) => {
-                let typed = self.build_typed_enum(env, def)?;
-
-                Ok((TypedDefinition::Enum(typed), InferenceTree::default()))
-            }
-            Definition::Utxo(def) => {
-                let (utxo, trace) = self.infer_utxo(env, def)?;
-
-                Ok((TypedDefinition::Utxo(utxo), trace))
-            }
-            Definition::Token(def) => {
-                let (token, trace) = self.infer_token(env, def)?;
-
-                Ok((TypedDefinition::Token(token), trace))
-            }
-            Definition::Abi(def) => {
-                let typed = self.build_typed_abi(env, def)?;
-
-                Ok((TypedDefinition::Abi(typed), InferenceTree::default()))
-            }
-        }
-    }
-
     fn function_def_to_type(
         &mut self,
         env: &TypeEnv,
@@ -1813,7 +1793,7 @@ impl Inferencer {
             .collect::<Vec<_>>();
         let id = *self
             .function_names
-            .entry(function as *const _ as usize)
+            .entry(function)
             .or_insert_with(|| self.next_name_id.fresh());
         Ok(FunctionType {
             params: param_types.clone(),
@@ -1834,15 +1814,6 @@ impl Inferencer {
         let return_span = function.return_span();
 
         // Insert function into environment. Happens before code so that recursion is allowed.
-        if let Some(existing) = env.get_in_current_scope(function.name.as_str()) {
-            return Err(TypeError::new(
-                TypeErrorKind::FunctionAlreadyDefined {
-                    name: function.name.to_string(),
-                },
-                function.name.span,
-            )
-            .with_secondary(existing.decl_span, "previously defined here"));
-        }
         env.insert(
             function.name.to_string(),
             Binding {
@@ -1914,10 +1885,7 @@ impl Inferencer {
             TypedFunctionDef {
                 export: function.export.clone(),
                 name: function.name.clone(),
-                id: *self
-                    .function_names
-                    .get(&(function as *const _ as usize))
-                    .unwrap(),
+                id: *self.function_names.get(function).unwrap(),
                 params: typed_params,
                 return_type: ctx.expected_return,
                 body: typed_body,
@@ -2855,6 +2823,22 @@ impl Inferencer {
                             })?;
                         Type::Function(method.ty.clone())
                     }
+                    Type::Utxo(utxo) => 'method: {
+                        for abi in &utxo.always_abis {
+                            if let Some(method) =
+                                abi.methods.iter().find(|m| m.name.as_str() == field.name)
+                            {
+                                break 'method Type::Function(method.ty.clone());
+                            }
+                        }
+                        return Err(TypeError::new(
+                            TypeErrorKind::AbiMethodNotFound {
+                                abi_name: utxo.name.to_string(),
+                                method_name: field.name.clone(),
+                            },
+                            field.span(),
+                        ));
+                    }
                     _ => {
                         return Err(TypeError::new(
                             TypeErrorKind::FieldAccessNotStruct {
@@ -2941,7 +2925,7 @@ impl Inferencer {
                             let var_ty = self.apply(&binding.scheme.ty);
 
                             match &var_ty {
-                                Type::UtxoAny | Type::UtxoNamed(_) => {}
+                                Type::UtxoAny | Type::Utxo(_) => {}
                                 _ => {
                                     return Err(TypeError::new(
                                         TypeErrorKind::IsCheckRequiresUtxo {
@@ -3749,7 +3733,10 @@ impl Inferencer {
                     span: _,
                     parts,
                 } => {
-                    *abi = self.apply(abi);
+                    let Type::Abi(new_abi) = self.apply(&Type::Abi(abi.clone())) else {
+                        unreachable!()
+                    };
+                    *abi = new_abi;
                     for part in parts {
                         self.apply_function(part);
                     }
@@ -4101,28 +4088,15 @@ impl Inferencer {
         right: Type,
     ) -> Result<(Type, Vec<InferenceTree>, &'static str), ()> {
         match (left, right) {
+            (Type::Unit, Type::Unit) => Ok((Type::Unit, Vec::new(), "Unify-Const")),
+            (Type::Bool, Type::Bool) => Ok((Type::Bool, Vec::new(), "Unify-Const")),
             (Type::Int(w1), Type::Int(w2)) if w1 == w2 => {
                 Ok((Type::Int(w1), Vec::new(), "Unify-Const"))
-            }
-            (Type::Bool, Type::Bool) => Ok((Type::Bool, Vec::new(), "Unify-Const")),
-            (Type::Unit, Type::Unit) => Ok((Type::Unit, Vec::new(), "Unify-Const")),
-            (Type::Tuple(left), Type::Tuple(right))
-                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
-            {
-                Ok((Type::Tuple(left), vec![], "Unify-Tuple-Identity"))
-            }
-            (Type::Tuple(ls), Type::Tuple(rs)) if ls.len() == rs.len() => {
-                let mut children = Vec::new();
-                for (l, r) in ls.iter().zip(rs.iter()) {
-                    let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
-                    children.extend(child);
-                }
-                Ok((Type::Tuple(ls), children, "Unify-Tuple"))
             }
             (Type::Function(left), Type::Function(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
-                Ok((Type::Function(left), vec![], "Unify-Arrow-Identity"))
+                Ok((Type::Function(left), vec![], "Unify-Const"))
             }
             (Type::Function(left), Type::Function(right))
                 if left.params.len() == right.params.len() && left.kind == right.kind =>
@@ -4152,12 +4126,25 @@ impl Inferencer {
                     "Unify-Arrow",
                 ))
             }
+            (Type::Tuple(left), Type::Tuple(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                Ok((Type::Tuple(left), vec![], "Unify-Const"))
+            }
+            (Type::Tuple(ls), Type::Tuple(rs)) if ls.len() == rs.len() => {
+                let mut children = Vec::new();
+                for (l, r) in ls.iter().zip(rs.iter()) {
+                    let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
+                    children.extend(child);
+                }
+                Ok((Type::Tuple(ls), children, "Unify-Tuple"))
+            }
             // Records unify structurally: names are aliases, but fields must
             // line up in declaration order, matching `unify` below.
             (Type::Record(left), Type::Record(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
-                Ok((Type::Record(left), vec![], "Unify-Record-Identity"))
+                Ok((Type::Record(left), vec![], "Unify-Const"))
             }
             (Type::Record(ls), Type::Record(rs)) if ls.fields.len() == rs.fields.len() => {
                 let mut children = Vec::new();
@@ -4173,7 +4160,7 @@ impl Inferencer {
             // Enums likewise unify by shape, not name, with variants compared
             // in declaration order.
             (Type::Enum(left), Type::Enum(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
-                Ok((Type::Enum(left), vec![], "Unify-Enum-Identity"))
+                Ok((Type::Enum(left), vec![], "Unify-Const"))
             }
             (Type::Enum(ls), Type::Enum(rs)) if ls.variants.len() == rs.variants.len() => {
                 let mut children = Vec::new();
@@ -4206,6 +4193,21 @@ impl Inferencer {
                     }
                 }
                 Ok((Type::Enum(ls), children, "Unify-Enum"))
+            }
+            // Utxo and Token types are nominal and only unify with themselves.
+            (Type::UtxoAny, Type::UtxoAny) => Ok((Type::UtxoAny, Vec::new(), "Unify-Const")),
+            (Type::Utxo(left), Type::Utxo(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                Ok((Type::Utxo(left), Vec::new(), "Unify-Const"))
+            }
+            (Type::TokenAny, Type::TokenAny) => Ok((Type::TokenAny, Vec::new(), "Unify-Const")),
+            (Type::Token(left), Type::Token(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                Ok((Type::Token(left), Vec::new(), "Unify-Const"))
+            }
+            // TODO: structural unification for Abi types
+            (Type::Abi(left), Type::Abi(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                Ok((Type::Abi(left), Vec::new(), "Unify-Const"))
             }
             (Type::Var(id), ty) => {
                 if ty == Type::Var(id) {
@@ -4257,7 +4259,6 @@ impl Inferencer {
                 self.subst.insert(id, ty.clone());
                 Ok((ty, Vec::new(), "Unify-Var"))
             }
-            (Type::Abi(l), Type::Abi(r)) if l == r => Ok((Type::Abi(l), Vec::new(), "Unify-Const")),
             _ => Err(()),
         }
     }
@@ -4282,37 +4283,15 @@ impl Inferencer {
         };
 
         let (result_ty, children, rule) = match (left, right) {
+            (Type::Unit, Type::Unit) => (Type::Unit, Vec::new(), "Unify-Const"),
+            (Type::Bool, Type::Bool) => (Type::Bool, Vec::new(), "Unify-Const"),
             (Type::Int(w1), Type::Int(w2)) if w1 == w2 => {
                 (Type::Int(w1), Vec::new(), "Unify-Const")
-            }
-            (Type::Bool, Type::Bool) => (Type::Bool, Vec::new(), "Unify-Const"),
-            (Type::Unit, Type::Unit) => (Type::Unit, Vec::new(), "Unify-Const"),
-            (Type::Tuple(ls), Type::Tuple(rs)) => {
-                if ls.len() != rs.len() {
-                    return Err(TypeError::new(error_kind, left_span)
-                        .with_secondary(right_span, "type mismatch"));
-                }
-
-                let mut tuple_children = Vec::new();
-                for (l, r) in ls.iter().zip(rs.iter()) {
-                    let (_, child) = self.unify(
-                        l.clone(),
-                        r.clone(),
-                        left_span,
-                        right_span,
-                        TypeErrorKind::GeneralMismatch {
-                            expected: l.clone(),
-                            found: r.clone(),
-                        },
-                    )?;
-                    tuple_children.push(child);
-                }
-                (Type::Tuple(ls), tuple_children, "Unify-Tuple")
             }
             (Type::Function(left), Type::Function(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
-                (Type::Function(left), Vec::new(), "Unify-Arrow-Identity")
+                (Type::Function(left), Vec::new(), "Unify-Const")
             }
             (Type::Function(left), Type::Function(right)) => {
                 if left.params.len() != right.params.len() {
@@ -4368,10 +4347,37 @@ impl Inferencer {
                     "Unify-Arrow",
                 )
             }
+            (Type::Tuple(left), Type::Tuple(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                (Type::Tuple(left), Vec::new(), "Unify-Const")
+            }
+            (Type::Tuple(ls), Type::Tuple(rs)) => {
+                if ls.len() != rs.len() {
+                    return Err(TypeError::new(error_kind, left_span)
+                        .with_secondary(right_span, "type mismatch"));
+                }
+
+                let mut tuple_children = Vec::new();
+                for (l, r) in ls.iter().zip(rs.iter()) {
+                    let (_, child) = self.unify(
+                        l.clone(),
+                        r.clone(),
+                        left_span,
+                        right_span,
+                        TypeErrorKind::GeneralMismatch {
+                            expected: l.clone(),
+                            found: r.clone(),
+                        },
+                    )?;
+                    tuple_children.push(child);
+                }
+                (Type::Tuple(ls), tuple_children, "Unify-Tuple")
+            }
             (Type::Record(left), Type::Record(right))
                 if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
             {
-                (Type::Record(left), Vec::new(), "Unify-Record-Identity")
+                (Type::Record(left), Vec::new(), "Unify-Const")
             }
             (Type::Record(ls), Type::Record(rs)) => {
                 if ls.fields.len() != rs.fields.len()
@@ -4402,7 +4408,7 @@ impl Inferencer {
                 (Type::Record(ls), record_children, "Unify-Record")
             }
             (Type::Enum(left), Type::Enum(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
-                (Type::Enum(left), Vec::new(), "Unify-Enum-Identity")
+                (Type::Enum(left), Vec::new(), "Unify-Const")
             }
             (Type::Enum(ls), Type::Enum(rs)) => {
                 if ls.variants.len() != rs.variants.len()
@@ -4480,6 +4486,19 @@ impl Inferencer {
                     }
                 }
                 (Type::Enum(ls), enum_children, "Unify-Enum")
+            }
+            (Type::UtxoAny, Type::UtxoAny) => (Type::UtxoAny, Vec::new(), "Unify-Const"),
+            (Type::Utxo(left), Type::Utxo(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                (Type::Utxo(left), Vec::new(), "Unify-Const")
+            }
+            (Type::TokenAny, Type::TokenAny) => (Type::TokenAny, Vec::new(), "Unify-Const"),
+            (Type::Token(left), Type::Token(right))
+                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+            {
+                (Type::Token(left), Vec::new(), "Unify-Const")
+            }
+            (Type::Abi(left), Type::Abi(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
+                (Type::Abi(left), Vec::new(), "Unify-Const")
             }
             (Type::Var(id), ty) => {
                 self.bind(id, ty.clone(), left_span, right_span, error_kind.clone())?;
@@ -4642,9 +4661,9 @@ fn substitute_type(
         Type::Bool => Type::Bool,
         Type::Unit => Type::Unit,
         Type::UtxoAny => Type::UtxoAny,
-        Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
+        Type::Utxo(id) => Type::Utxo(id.clone()),
         Type::TokenAny => Type::TokenAny,
-        Type::TokenNamed(id) => Type::TokenNamed(id.clone()),
+        Type::Token(id) => Type::Token(id.clone()),
         Type::Abi(name) => Type::Abi(name.clone()),
     }
 }
@@ -4687,9 +4706,9 @@ fn occurs_in(var: TypeVarId, ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> b
         | Type::Bool
         | Type::Unit
         | Type::UtxoAny
-        | Type::UtxoNamed(_)
+        | Type::Utxo(_)
         | Type::TokenAny
-        | Type::TokenNamed(_)
+        | Type::Token(_)
         | Type::Abi(_) => false,
     }
 }
@@ -4744,9 +4763,9 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
         | Type::Bool
         | Type::Unit
         | Type::UtxoAny
-        | Type::UtxoNamed(_)
+        | Type::Utxo(_)
         | Type::TokenAny
-        | Type::TokenNamed(_)
+        | Type::Token(_)
         | Type::Abi(_) => {}
     }
 }

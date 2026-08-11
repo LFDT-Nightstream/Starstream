@@ -252,7 +252,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Fn: accepts_foo => ()
 
 T-Fn: get_bar => ()
@@ -284,62 +283,39 @@ TypedProgram {
     definitions: [
         Enum(
             TypedEnumDef {
-                name: Identifier {
-                    name: "Foo",
-                    span: 5..8,
-                },
-                variants: [
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Bar",
-                            span: 15..18,
-                        },
-                        payload: Tuple(
-                            [
-                                Bool,
-                            ],
-                        ),
-                    },
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Baz",
-                            span: 30..33,
-                        },
-                        payload: Tuple(
-                            [
-                                Int(
-                                    I64,
-                                ),
-                            ],
-                        ),
-                    },
-                ],
-                ty: Enum(
-                    EnumType {
+                ty: EnumType {
+                    name: Identifier {
                         name: "Foo",
-                        variants: [
-                            EnumVariantType {
-                                name: "Bar",
-                                kind: Tuple(
-                                    [
-                                        Bool,
-                                    ],
-                                ),
-                            },
-                            EnumVariantType {
-                                name: "Baz",
-                                kind: Tuple(
-                                    [
-                                        Int(
-                                            I64,
-                                        ),
-                                    ],
-                                ),
-                            },
-                        ],
-                        type_args: [],
+                        span: 5..8,
                     },
-                ),
+                    variants: [
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Bar",
+                                span: 15..18,
+                            },
+                            kind: Tuple(
+                                [
+                                    Bool,
+                                ],
+                            ),
+                        },
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Baz",
+                                span: 30..33,
+                            },
+                            kind: Tuple(
+                                [
+                                    Int(
+                                        I64,
+                                    ),
+                                ],
+                            ),
+                        },
+                    ],
+                    type_args: [],
+                },
             },
         ),
         Function(
@@ -359,10 +335,16 @@ TypedProgram {
                         },
                         ty: Enum(
                             EnumType {
-                                name: "Foo",
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 5..8,
+                                },
                                 variants: [
                                     EnumVariantType {
-                                        name: "Bar",
+                                        name: Identifier {
+                                            name: "Bar",
+                                            span: 15..18,
+                                        },
                                         kind: Tuple(
                                             [
                                                 Bool,
@@ -370,7 +352,10 @@ TypedProgram {
                                         ),
                                     },
                                     EnumVariantType {
-                                        name: "Baz",
+                                        name: Identifier {
+                                            name: "Baz",
+                                            span: 30..33,
+                                        },
                                         kind: Tuple(
                                             [
                                                 Int(
@@ -420,10 +405,16 @@ TypedProgram {
                                                         params: [
                                                             Enum(
                                                                 EnumType {
-                                                                    name: "Foo",
+                                                                    name: Identifier {
+                                                                        name: "Foo",
+                                                                        span: 5..8,
+                                                                    },
                                                                     variants: [
                                                                         EnumVariantType {
-                                                                            name: "Bar",
+                                                                            name: Identifier {
+                                                                                name: "Bar",
+                                                                                span: 15..18,
+                                                                            },
                                                                             kind: Tuple(
                                                                                 [
                                                                                     Bool,
@@ -431,7 +422,10 @@ TypedProgram {
                                                                             ),
                                                                         },
                                                                         EnumVariantType {
-                                                                            name: "Baz",
+                                                                            name: Identifier {
+                                                                                name: "Baz",
+                                                                                span: 30..33,
+                                                                            },
                                                                             kind: Tuple(
                                                                                 [
                                                                                     Int(
@@ -473,10 +467,16 @@ TypedProgram {
                                                 node: TypedExpr {
                                                     ty: Enum(
                                                         EnumType {
-                                                            name: "Foo",
+                                                            name: Identifier {
+                                                                name: "Foo",
+                                                                span: 5..8,
+                                                            },
                                                             variants: [
                                                                 EnumVariantType {
-                                                                    name: "Bar",
+                                                                    name: Identifier {
+                                                                        name: "Bar",
+                                                                        span: 15..18,
+                                                                    },
                                                                     kind: Tuple(
                                                                         [
                                                                             Bool,
@@ -484,7 +484,10 @@ TypedProgram {
                                                                     ),
                                                                 },
                                                                 EnumVariantType {
-                                                                    name: "Baz",
+                                                                    name: Identifier {
+                                                                        name: "Baz",
+                                                                        span: 30..33,
+                                                                    },
                                                                     kind: Tuple(
                                                                         [
                                                                             Int(
@@ -510,10 +513,16 @@ TypedProgram {
                                                                         param_spans: [],
                                                                         result: Enum(
                                                                             EnumType {
-                                                                                name: "Foo",
+                                                                                name: Identifier {
+                                                                                    name: "Foo",
+                                                                                    span: 5..8,
+                                                                                },
                                                                                 variants: [
                                                                                     EnumVariantType {
-                                                                                        name: "Bar",
+                                                                                        name: Identifier {
+                                                                                            name: "Bar",
+                                                                                            span: 15..18,
+                                                                                        },
                                                                                         kind: Tuple(
                                                                                             [
                                                                                                 Bool,
@@ -521,7 +530,10 @@ TypedProgram {
                                                                                         ),
                                                                                     },
                                                                                     EnumVariantType {
-                                                                                        name: "Baz",
+                                                                                        name: Identifier {
+                                                                                            name: "Baz",
+                                                                                            span: 30..33,
+                                                                                        },
                                                                                         kind: Tuple(
                                                                                             [
                                                                                                 Int(
@@ -615,10 +627,16 @@ TypedProgram {
                                                         params: [
                                                             Enum(
                                                                 EnumType {
-                                                                    name: "Foo",
+                                                                    name: Identifier {
+                                                                        name: "Foo",
+                                                                        span: 5..8,
+                                                                    },
                                                                     variants: [
                                                                         EnumVariantType {
-                                                                            name: "Bar",
+                                                                            name: Identifier {
+                                                                                name: "Bar",
+                                                                                span: 15..18,
+                                                                            },
                                                                             kind: Tuple(
                                                                                 [
                                                                                     Bool,
@@ -626,7 +644,10 @@ TypedProgram {
                                                                             ),
                                                                         },
                                                                         EnumVariantType {
-                                                                            name: "Baz",
+                                                                            name: Identifier {
+                                                                                name: "Baz",
+                                                                                span: 30..33,
+                                                                            },
                                                                             kind: Tuple(
                                                                                 [
                                                                                     Int(
@@ -668,10 +689,16 @@ TypedProgram {
                                                 node: TypedExpr {
                                                     ty: Enum(
                                                         EnumType {
-                                                            name: "Foo",
+                                                            name: Identifier {
+                                                                name: "Foo",
+                                                                span: 5..8,
+                                                            },
                                                             variants: [
                                                                 EnumVariantType {
-                                                                    name: "Bar",
+                                                                    name: Identifier {
+                                                                        name: "Bar",
+                                                                        span: 15..18,
+                                                                    },
                                                                     kind: Tuple(
                                                                         [
                                                                             Bool,
@@ -679,7 +706,10 @@ TypedProgram {
                                                                     ),
                                                                 },
                                                                 EnumVariantType {
-                                                                    name: "Baz",
+                                                                    name: Identifier {
+                                                                        name: "Baz",
+                                                                        span: 30..33,
+                                                                    },
                                                                     kind: Tuple(
                                                                         [
                                                                             Int(
@@ -707,10 +737,16 @@ TypedProgram {
                                                                         param_spans: [],
                                                                         result: Enum(
                                                                             EnumType {
-                                                                                name: "Foo",
+                                                                                name: Identifier {
+                                                                                    name: "Foo",
+                                                                                    span: 5..8,
+                                                                                },
                                                                                 variants: [
                                                                                     EnumVariantType {
-                                                                                        name: "Bar",
+                                                                                        name: Identifier {
+                                                                                            name: "Bar",
+                                                                                            span: 15..18,
+                                                                                        },
                                                                                         kind: Tuple(
                                                                                             [
                                                                                                 Bool,
@@ -718,7 +754,10 @@ TypedProgram {
                                                                                         ),
                                                                                     },
                                                                                     EnumVariantType {
-                                                                                        name: "Baz",
+                                                                                        name: Identifier {
+                                                                                            name: "Baz",
+                                                                                            span: 30..33,
+                                                                                        },
                                                                                         kind: Tuple(
                                                                                             [
                                                                                                 Int(

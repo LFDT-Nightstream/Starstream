@@ -943,9 +943,6 @@ Program {
 }
 
 ==== Inference trace ====
-
-
-
 T-Fn: match_foo => i64
   T-ReturnTail: match foo {
     Foo::Thing(Thing::Wow(ctx)) => {
@@ -1068,7 +1065,6 @@ T-Fn: match_literal => i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Var: i64 ~ i64 => {i64/t7}
 
-
 T-Fn: match_point => i64
   T-ReturnTail: match msg {
     Message::Point { x, y } => {
@@ -1120,262 +1116,166 @@ TypedProgram {
     definitions: [
         Struct(
             TypedStructDef {
-                name: Identifier {
-                    name: "Ctx",
-                    span: 7..10,
-                },
-                fields: [
-                    TypedStructField {
-                        name: Identifier {
-                            name: "x",
-                            span: 17..18,
-                        },
-                        ty: Int(
-                            I64,
-                        ),
-                    },
-                ],
-                ty: Record(
-                    RecordType {
+                ty: RecordType {
+                    name: Identifier {
                         name: "Ctx",
-                        fields: [
-                            RecordFieldType {
-                                name: Identifier {
-                                    name: "x",
-                                    span: 17..18,
-                                },
-                                ty: Int(
-                                    I64,
-                                ),
-                            },
-                        ],
+                        span: 7..10,
                     },
-                ),
+                    fields: [
+                        RecordFieldType {
+                            name: Identifier {
+                                name: "x",
+                                span: 17..18,
+                            },
+                            ty: Int(
+                                I64,
+                            ),
+                        },
+                    ],
+                },
             },
         ),
         Enum(
             TypedEnumDef {
-                name: Identifier {
-                    name: "Thing",
-                    span: 33..38,
-                },
-                variants: [
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Wow",
-                            span: 45..48,
-                        },
-                        payload: Tuple(
-                            [
-                                Record(
-                                    RecordType {
-                                        name: "Ctx",
-                                        fields: [
-                                            RecordFieldType {
-                                                name: Identifier {
-                                                    name: "x",
-                                                    span: 17..18,
-                                                },
-                                                ty: Int(
-                                                    I64,
-                                                ),
-                                            },
-                                        ],
-                                    },
-                                ),
-                            ],
-                        ),
-                    },
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Who",
-                            span: 59..62,
-                        },
-                        payload: Unit,
-                    },
-                ],
-                ty: Enum(
-                    EnumType {
+                ty: EnumType {
+                    name: Identifier {
                         name: "Thing",
-                        variants: [
-                            EnumVariantType {
-                                name: "Wow",
-                                kind: Tuple(
-                                    [
-                                        Record(
-                                            RecordType {
-                                                name: "Ctx",
-                                                fields: [
-                                                    RecordFieldType {
-                                                        name: Identifier {
-                                                            name: "x",
-                                                            span: 17..18,
-                                                        },
-                                                        ty: Int(
-                                                            I64,
-                                                        ),
-                                                    },
-                                                ],
-                                            },
-                                        ),
-                                    ],
-                                ),
-                            },
-                            EnumVariantType {
-                                name: "Who",
-                                kind: Unit,
-                            },
-                        ],
-                        type_args: [],
+                        span: 33..38,
                     },
-                ),
+                    variants: [
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Wow",
+                                span: 45..48,
+                            },
+                            kind: Tuple(
+                                [
+                                    Record(
+                                        RecordType {
+                                            name: Identifier {
+                                                name: "Ctx",
+                                                span: 7..10,
+                                            },
+                                            fields: [
+                                                RecordFieldType {
+                                                    name: Identifier {
+                                                        name: "x",
+                                                        span: 17..18,
+                                                    },
+                                                    ty: Int(
+                                                        I64,
+                                                    ),
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                ],
+                            ),
+                        },
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Who",
+                                span: 59..62,
+                            },
+                            kind: Unit,
+                        },
+                    ],
+                    type_args: [],
+                },
             },
         ),
         Enum(
             TypedEnumDef {
-                name: Identifier {
-                    name: "Foo",
-                    span: 72..75,
-                },
-                variants: [
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Bar",
-                            span: 82..85,
-                        },
-                        payload: Tuple(
-                            [
-                                Bool,
-                            ],
-                        ),
-                    },
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Baz",
-                            span: 97..100,
-                        },
-                        payload: Tuple(
-                            [
-                                Int(
-                                    I64,
-                                ),
-                            ],
-                        ),
-                    },
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Thing",
-                            span: 111..116,
-                        },
-                        payload: Tuple(
-                            [
-                                Enum(
-                                    EnumType {
-                                        name: "Thing",
-                                        variants: [
-                                            EnumVariantType {
-                                                name: "Wow",
-                                                kind: Tuple(
-                                                    [
-                                                        Record(
-                                                            RecordType {
-                                                                name: "Ctx",
-                                                                fields: [
-                                                                    RecordFieldType {
-                                                                        name: Identifier {
-                                                                            name: "x",
-                                                                            span: 17..18,
-                                                                        },
-                                                                        ty: Int(
-                                                                            I64,
-                                                                        ),
-                                                                    },
-                                                                ],
-                                                            },
-                                                        ),
-                                                    ],
-                                                ),
-                                            },
-                                            EnumVariantType {
-                                                name: "Who",
-                                                kind: Unit,
-                                            },
-                                        ],
-                                        type_args: [],
-                                    },
-                                ),
-                            ],
-                        ),
-                    },
-                ],
-                ty: Enum(
-                    EnumType {
+                ty: EnumType {
+                    name: Identifier {
                         name: "Foo",
-                        variants: [
-                            EnumVariantType {
-                                name: "Bar",
-                                kind: Tuple(
-                                    [
-                                        Bool,
-                                    ],
-                                ),
-                            },
-                            EnumVariantType {
-                                name: "Baz",
-                                kind: Tuple(
-                                    [
-                                        Int(
-                                            I64,
-                                        ),
-                                    ],
-                                ),
-                            },
-                            EnumVariantType {
-                                name: "Thing",
-                                kind: Tuple(
-                                    [
-                                        Enum(
-                                            EnumType {
-                                                name: "Thing",
-                                                variants: [
-                                                    EnumVariantType {
-                                                        name: "Wow",
-                                                        kind: Tuple(
-                                                            [
-                                                                Record(
-                                                                    RecordType {
-                                                                        name: "Ctx",
-                                                                        fields: [
-                                                                            RecordFieldType {
-                                                                                name: Identifier {
-                                                                                    name: "x",
-                                                                                    span: 17..18,
-                                                                                },
-                                                                                ty: Int(
-                                                                                    I64,
-                                                                                ),
-                                                                            },
-                                                                        ],
-                                                                    },
-                                                                ),
-                                                            ],
-                                                        ),
-                                                    },
-                                                    EnumVariantType {
-                                                        name: "Who",
-                                                        kind: Unit,
-                                                    },
-                                                ],
-                                                type_args: [],
-                                            },
-                                        ),
-                                    ],
-                                ),
-                            },
-                        ],
-                        type_args: [],
+                        span: 72..75,
                     },
-                ),
+                    variants: [
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Bar",
+                                span: 82..85,
+                            },
+                            kind: Tuple(
+                                [
+                                    Bool,
+                                ],
+                            ),
+                        },
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Baz",
+                                span: 97..100,
+                            },
+                            kind: Tuple(
+                                [
+                                    Int(
+                                        I64,
+                                    ),
+                                ],
+                            ),
+                        },
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Thing",
+                                span: 111..116,
+                            },
+                            kind: Tuple(
+                                [
+                                    Enum(
+                                        EnumType {
+                                            name: Identifier {
+                                                name: "Thing",
+                                                span: 33..38,
+                                            },
+                                            variants: [
+                                                EnumVariantType {
+                                                    name: Identifier {
+                                                        name: "Wow",
+                                                        span: 45..48,
+                                                    },
+                                                    kind: Tuple(
+                                                        [
+                                                            Record(
+                                                                RecordType {
+                                                                    name: Identifier {
+                                                                        name: "Ctx",
+                                                                        span: 7..10,
+                                                                    },
+                                                                    fields: [
+                                                                        RecordFieldType {
+                                                                            name: Identifier {
+                                                                                name: "x",
+                                                                                span: 17..18,
+                                                                            },
+                                                                            ty: Int(
+                                                                                I64,
+                                                                            ),
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                        ],
+                                                    ),
+                                                },
+                                                EnumVariantType {
+                                                    name: Identifier {
+                                                        name: "Who",
+                                                        span: 59..62,
+                                                    },
+                                                    kind: Unit,
+                                                },
+                                            ],
+                                            type_args: [],
+                                        },
+                                    ),
+                                ],
+                            ),
+                        },
+                    ],
+                    type_args: [],
+                },
             },
         ),
         Function(
@@ -1395,10 +1295,16 @@ TypedProgram {
                         },
                         ty: Enum(
                             EnumType {
-                                name: "Foo",
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 72..75,
+                                },
                                 variants: [
                                     EnumVariantType {
-                                        name: "Bar",
+                                        name: Identifier {
+                                            name: "Bar",
+                                            span: 82..85,
+                                        },
                                         kind: Tuple(
                                             [
                                                 Bool,
@@ -1406,7 +1312,10 @@ TypedProgram {
                                         ),
                                     },
                                     EnumVariantType {
-                                        name: "Baz",
+                                        name: Identifier {
+                                            name: "Baz",
+                                            span: 97..100,
+                                        },
                                         kind: Tuple(
                                             [
                                                 Int(
@@ -1416,20 +1325,32 @@ TypedProgram {
                                         ),
                                     },
                                     EnumVariantType {
-                                        name: "Thing",
+                                        name: Identifier {
+                                            name: "Thing",
+                                            span: 111..116,
+                                        },
                                         kind: Tuple(
                                             [
                                                 Enum(
                                                     EnumType {
-                                                        name: "Thing",
+                                                        name: Identifier {
+                                                            name: "Thing",
+                                                            span: 33..38,
+                                                        },
                                                         variants: [
                                                             EnumVariantType {
-                                                                name: "Wow",
+                                                                name: Identifier {
+                                                                    name: "Wow",
+                                                                    span: 45..48,
+                                                                },
                                                                 kind: Tuple(
                                                                     [
                                                                         Record(
                                                                             RecordType {
-                                                                                name: "Ctx",
+                                                                                name: Identifier {
+                                                                                    name: "Ctx",
+                                                                                    span: 7..10,
+                                                                                },
                                                                                 fields: [
                                                                                     RecordFieldType {
                                                                                         name: Identifier {
@@ -1447,7 +1368,10 @@ TypedProgram {
                                                                 ),
                                                             },
                                                             EnumVariantType {
-                                                                name: "Who",
+                                                                name: Identifier {
+                                                                    name: "Who",
+                                                                    span: 59..62,
+                                                                },
                                                                 kind: Unit,
                                                             },
                                                         ],
@@ -1479,10 +1403,16 @@ TypedProgram {
                                         node: TypedExpr {
                                             ty: Enum(
                                                 EnumType {
-                                                    name: "Foo",
+                                                    name: Identifier {
+                                                        name: "Foo",
+                                                        span: 72..75,
+                                                    },
                                                     variants: [
                                                         EnumVariantType {
-                                                            name: "Bar",
+                                                            name: Identifier {
+                                                                name: "Bar",
+                                                                span: 82..85,
+                                                            },
                                                             kind: Tuple(
                                                                 [
                                                                     Bool,
@@ -1490,7 +1420,10 @@ TypedProgram {
                                                             ),
                                                         },
                                                         EnumVariantType {
-                                                            name: "Baz",
+                                                            name: Identifier {
+                                                                name: "Baz",
+                                                                span: 97..100,
+                                                            },
                                                             kind: Tuple(
                                                                 [
                                                                     Int(
@@ -1500,20 +1433,32 @@ TypedProgram {
                                                             ),
                                                         },
                                                         EnumVariantType {
-                                                            name: "Thing",
+                                                            name: Identifier {
+                                                                name: "Thing",
+                                                                span: 111..116,
+                                                            },
                                                             kind: Tuple(
                                                                 [
                                                                     Enum(
                                                                         EnumType {
-                                                                            name: "Thing",
+                                                                            name: Identifier {
+                                                                                name: "Thing",
+                                                                                span: 33..38,
+                                                                            },
                                                                             variants: [
                                                                                 EnumVariantType {
-                                                                                    name: "Wow",
+                                                                                    name: Identifier {
+                                                                                        name: "Wow",
+                                                                                        span: 45..48,
+                                                                                    },
                                                                                     kind: Tuple(
                                                                                         [
                                                                                             Record(
                                                                                                 RecordType {
-                                                                                                    name: "Ctx",
+                                                                                                    name: Identifier {
+                                                                                                        name: "Ctx",
+                                                                                                        span: 7..10,
+                                                                                                    },
                                                                                                     fields: [
                                                                                                         RecordFieldType {
                                                                                                             name: Identifier {
@@ -1531,7 +1476,10 @@ TypedProgram {
                                                                                     ),
                                                                                 },
                                                                                 EnumVariantType {
-                                                                                    name: "Who",
+                                                                                    name: Identifier {
+                                                                                        name: "Who",
+                                                                                        span: 59..62,
+                                                                                    },
                                                                                     kind: Unit,
                                                                                 },
                                                                             ],
@@ -1606,7 +1554,10 @@ TypedProgram {
                                                                     node: TypedExpr {
                                                                         ty: Record(
                                                                             RecordType {
-                                                                                name: "Ctx",
+                                                                                name: Identifier {
+                                                                                    name: "Ctx",
+                                                                                    span: 7..10,
+                                                                                },
                                                                                 fields: [
                                                                                     RecordFieldType {
                                                                                         name: Identifier {
@@ -1780,10 +1731,16 @@ TypedProgram {
                         },
                         ty: Enum(
                             EnumType {
-                                name: "Foo",
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 72..75,
+                                },
                                 variants: [
                                     EnumVariantType {
-                                        name: "Bar",
+                                        name: Identifier {
+                                            name: "Bar",
+                                            span: 82..85,
+                                        },
                                         kind: Tuple(
                                             [
                                                 Bool,
@@ -1791,7 +1748,10 @@ TypedProgram {
                                         ),
                                     },
                                     EnumVariantType {
-                                        name: "Baz",
+                                        name: Identifier {
+                                            name: "Baz",
+                                            span: 97..100,
+                                        },
                                         kind: Tuple(
                                             [
                                                 Int(
@@ -1801,20 +1761,32 @@ TypedProgram {
                                         ),
                                     },
                                     EnumVariantType {
-                                        name: "Thing",
+                                        name: Identifier {
+                                            name: "Thing",
+                                            span: 111..116,
+                                        },
                                         kind: Tuple(
                                             [
                                                 Enum(
                                                     EnumType {
-                                                        name: "Thing",
+                                                        name: Identifier {
+                                                            name: "Thing",
+                                                            span: 33..38,
+                                                        },
                                                         variants: [
                                                             EnumVariantType {
-                                                                name: "Wow",
+                                                                name: Identifier {
+                                                                    name: "Wow",
+                                                                    span: 45..48,
+                                                                },
                                                                 kind: Tuple(
                                                                     [
                                                                         Record(
                                                                             RecordType {
-                                                                                name: "Ctx",
+                                                                                name: Identifier {
+                                                                                    name: "Ctx",
+                                                                                    span: 7..10,
+                                                                                },
                                                                                 fields: [
                                                                                     RecordFieldType {
                                                                                         name: Identifier {
@@ -1832,7 +1804,10 @@ TypedProgram {
                                                                 ),
                                                             },
                                                             EnumVariantType {
-                                                                name: "Who",
+                                                                name: Identifier {
+                                                                    name: "Who",
+                                                                    span: 59..62,
+                                                                },
                                                                 kind: Unit,
                                                             },
                                                         ],
@@ -1864,10 +1839,16 @@ TypedProgram {
                                         node: TypedExpr {
                                             ty: Enum(
                                                 EnumType {
-                                                    name: "Foo",
+                                                    name: Identifier {
+                                                        name: "Foo",
+                                                        span: 72..75,
+                                                    },
                                                     variants: [
                                                         EnumVariantType {
-                                                            name: "Bar",
+                                                            name: Identifier {
+                                                                name: "Bar",
+                                                                span: 82..85,
+                                                            },
                                                             kind: Tuple(
                                                                 [
                                                                     Bool,
@@ -1875,7 +1856,10 @@ TypedProgram {
                                                             ),
                                                         },
                                                         EnumVariantType {
-                                                            name: "Baz",
+                                                            name: Identifier {
+                                                                name: "Baz",
+                                                                span: 97..100,
+                                                            },
                                                             kind: Tuple(
                                                                 [
                                                                     Int(
@@ -1885,20 +1869,32 @@ TypedProgram {
                                                             ),
                                                         },
                                                         EnumVariantType {
-                                                            name: "Thing",
+                                                            name: Identifier {
+                                                                name: "Thing",
+                                                                span: 111..116,
+                                                            },
                                                             kind: Tuple(
                                                                 [
                                                                     Enum(
                                                                         EnumType {
-                                                                            name: "Thing",
+                                                                            name: Identifier {
+                                                                                name: "Thing",
+                                                                                span: 33..38,
+                                                                            },
                                                                             variants: [
                                                                                 EnumVariantType {
-                                                                                    name: "Wow",
+                                                                                    name: Identifier {
+                                                                                        name: "Wow",
+                                                                                        span: 45..48,
+                                                                                    },
                                                                                     kind: Tuple(
                                                                                         [
                                                                                             Record(
                                                                                                 RecordType {
-                                                                                                    name: "Ctx",
+                                                                                                    name: Identifier {
+                                                                                                        name: "Ctx",
+                                                                                                        span: 7..10,
+                                                                                                    },
                                                                                                     fields: [
                                                                                                         RecordFieldType {
                                                                                                             name: Identifier {
@@ -1916,7 +1912,10 @@ TypedProgram {
                                                                                     ),
                                                                                 },
                                                                                 EnumVariantType {
-                                                                                    name: "Who",
+                                                                                    name: Identifier {
+                                                                                        name: "Who",
+                                                                                        span: 59..62,
+                                                                                    },
                                                                                     kind: Unit,
                                                                                 },
                                                                             ],
@@ -2135,84 +2134,50 @@ TypedProgram {
         ),
         Enum(
             TypedEnumDef {
-                name: Identifier {
-                    name: "Message",
-                    span: 695..702,
-                },
-                variants: [
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Ping",
-                            span: 709..713,
-                        },
-                        payload: Unit,
-                    },
-                    TypedEnumVariant {
-                        name: Identifier {
-                            name: "Point",
-                            span: 719..724,
-                        },
-                        payload: Struct(
-                            [
-                                TypedStructField {
-                                    name: Identifier {
-                                        name: "x",
-                                        span: 727..728,
-                                    },
-                                    ty: Int(
-                                        I64,
-                                    ),
-                                },
-                                TypedStructField {
-                                    name: Identifier {
-                                        name: "y",
-                                        span: 735..736,
-                                    },
-                                    ty: Int(
-                                        I64,
-                                    ),
-                                },
-                            ],
-                        ),
-                    },
-                ],
-                ty: Enum(
-                    EnumType {
+                ty: EnumType {
+                    name: Identifier {
                         name: "Message",
-                        variants: [
-                            EnumVariantType {
-                                name: "Ping",
-                                kind: Unit,
-                            },
-                            EnumVariantType {
-                                name: "Point",
-                                kind: Struct(
-                                    [
-                                        RecordFieldType {
-                                            name: Identifier {
-                                                name: "x",
-                                                span: 727..728,
-                                            },
-                                            ty: Int(
-                                                I64,
-                                            ),
-                                        },
-                                        RecordFieldType {
-                                            name: Identifier {
-                                                name: "y",
-                                                span: 735..736,
-                                            },
-                                            ty: Int(
-                                                I64,
-                                            ),
-                                        },
-                                    ],
-                                ),
-                            },
-                        ],
-                        type_args: [],
+                        span: 695..702,
                     },
-                ),
+                    variants: [
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Ping",
+                                span: 709..713,
+                            },
+                            kind: Unit,
+                        },
+                        EnumVariantType {
+                            name: Identifier {
+                                name: "Point",
+                                span: 719..724,
+                            },
+                            kind: Struct(
+                                [
+                                    RecordFieldType {
+                                        name: Identifier {
+                                            name: "x",
+                                            span: 727..728,
+                                        },
+                                        ty: Int(
+                                            I64,
+                                        ),
+                                    },
+                                    RecordFieldType {
+                                        name: Identifier {
+                                            name: "y",
+                                            span: 735..736,
+                                        },
+                                        ty: Int(
+                                            I64,
+                                        ),
+                                    },
+                                ],
+                            ),
+                        },
+                    ],
+                    type_args: [],
+                },
             },
         ),
         Function(
@@ -2232,14 +2197,23 @@ TypedProgram {
                         },
                         ty: Enum(
                             EnumType {
-                                name: "Message",
+                                name: Identifier {
+                                    name: "Message",
+                                    span: 695..702,
+                                },
                                 variants: [
                                     EnumVariantType {
-                                        name: "Ping",
+                                        name: Identifier {
+                                            name: "Ping",
+                                            span: 709..713,
+                                        },
                                         kind: Unit,
                                     },
                                     EnumVariantType {
-                                        name: "Point",
+                                        name: Identifier {
+                                            name: "Point",
+                                            span: 719..724,
+                                        },
                                         kind: Struct(
                                             [
                                                 RecordFieldType {
@@ -2285,14 +2259,23 @@ TypedProgram {
                                         node: TypedExpr {
                                             ty: Enum(
                                                 EnumType {
-                                                    name: "Message",
+                                                    name: Identifier {
+                                                        name: "Message",
+                                                        span: 695..702,
+                                                    },
                                                     variants: [
                                                         EnumVariantType {
-                                                            name: "Ping",
+                                                            name: Identifier {
+                                                                name: "Ping",
+                                                                span: 709..713,
+                                                            },
                                                             kind: Unit,
                                                         },
                                                         EnumVariantType {
-                                                            name: "Point",
+                                                            name: Identifier {
+                                                                name: "Point",
+                                                                span: 719..724,
+                                                            },
                                                             kind: Struct(
                                                                 [
                                                                     RecordFieldType {
@@ -2486,10 +2469,16 @@ TypedProgram {
                                                         params: [
                                                             Enum(
                                                                 EnumType {
-                                                                    name: "Foo",
+                                                                    name: Identifier {
+                                                                        name: "Foo",
+                                                                        span: 72..75,
+                                                                    },
                                                                     variants: [
                                                                         EnumVariantType {
-                                                                            name: "Bar",
+                                                                            name: Identifier {
+                                                                                name: "Bar",
+                                                                                span: 82..85,
+                                                                            },
                                                                             kind: Tuple(
                                                                                 [
                                                                                     Bool,
@@ -2497,7 +2486,10 @@ TypedProgram {
                                                                             ),
                                                                         },
                                                                         EnumVariantType {
-                                                                            name: "Baz",
+                                                                            name: Identifier {
+                                                                                name: "Baz",
+                                                                                span: 97..100,
+                                                                            },
                                                                             kind: Tuple(
                                                                                 [
                                                                                     Int(
@@ -2507,20 +2499,32 @@ TypedProgram {
                                                                             ),
                                                                         },
                                                                         EnumVariantType {
-                                                                            name: "Thing",
+                                                                            name: Identifier {
+                                                                                name: "Thing",
+                                                                                span: 111..116,
+                                                                            },
                                                                             kind: Tuple(
                                                                                 [
                                                                                     Enum(
                                                                                         EnumType {
-                                                                                            name: "Thing",
+                                                                                            name: Identifier {
+                                                                                                name: "Thing",
+                                                                                                span: 33..38,
+                                                                                            },
                                                                                             variants: [
                                                                                                 EnumVariantType {
-                                                                                                    name: "Wow",
+                                                                                                    name: Identifier {
+                                                                                                        name: "Wow",
+                                                                                                        span: 45..48,
+                                                                                                    },
                                                                                                     kind: Tuple(
                                                                                                         [
                                                                                                             Record(
                                                                                                                 RecordType {
-                                                                                                                    name: "Ctx",
+                                                                                                                    name: Identifier {
+                                                                                                                        name: "Ctx",
+                                                                                                                        span: 7..10,
+                                                                                                                    },
                                                                                                                     fields: [
                                                                                                                         RecordFieldType {
                                                                                                                             name: Identifier {
@@ -2538,7 +2542,10 @@ TypedProgram {
                                                                                                     ),
                                                                                                 },
                                                                                                 EnumVariantType {
-                                                                                                    name: "Who",
+                                                                                                    name: Identifier {
+                                                                                                        name: "Who",
+                                                                                                        span: 59..62,
+                                                                                                    },
                                                                                                     kind: Unit,
                                                                                                 },
                                                                                             ],
@@ -2583,10 +2590,16 @@ TypedProgram {
                                                 node: TypedExpr {
                                                     ty: Enum(
                                                         EnumType {
-                                                            name: "Foo",
+                                                            name: Identifier {
+                                                                name: "Foo",
+                                                                span: 72..75,
+                                                            },
                                                             variants: [
                                                                 EnumVariantType {
-                                                                    name: "Bar",
+                                                                    name: Identifier {
+                                                                        name: "Bar",
+                                                                        span: 82..85,
+                                                                    },
                                                                     kind: Tuple(
                                                                         [
                                                                             Bool,
@@ -2594,7 +2607,10 @@ TypedProgram {
                                                                     ),
                                                                 },
                                                                 EnumVariantType {
-                                                                    name: "Baz",
+                                                                    name: Identifier {
+                                                                        name: "Baz",
+                                                                        span: 97..100,
+                                                                    },
                                                                     kind: Tuple(
                                                                         [
                                                                             Int(
@@ -2604,20 +2620,32 @@ TypedProgram {
                                                                     ),
                                                                 },
                                                                 EnumVariantType {
-                                                                    name: "Thing",
+                                                                    name: Identifier {
+                                                                        name: "Thing",
+                                                                        span: 111..116,
+                                                                    },
                                                                     kind: Tuple(
                                                                         [
                                                                             Enum(
                                                                                 EnumType {
-                                                                                    name: "Thing",
+                                                                                    name: Identifier {
+                                                                                        name: "Thing",
+                                                                                        span: 33..38,
+                                                                                    },
                                                                                     variants: [
                                                                                         EnumVariantType {
-                                                                                            name: "Wow",
+                                                                                            name: Identifier {
+                                                                                                name: "Wow",
+                                                                                                span: 45..48,
+                                                                                            },
                                                                                             kind: Tuple(
                                                                                                 [
                                                                                                     Record(
                                                                                                         RecordType {
-                                                                                                            name: "Ctx",
+                                                                                                            name: Identifier {
+                                                                                                                name: "Ctx",
+                                                                                                                span: 7..10,
+                                                                                                            },
                                                                                                             fields: [
                                                                                                                 RecordFieldType {
                                                                                                                     name: Identifier {
@@ -2635,7 +2663,10 @@ TypedProgram {
                                                                                             ),
                                                                                         },
                                                                                         EnumVariantType {
-                                                                                            name: "Who",
+                                                                                            name: Identifier {
+                                                                                                name: "Who",
+                                                                                                span: 59..62,
+                                                                                            },
                                                                                             kind: Unit,
                                                                                         },
                                                                                     ],
@@ -2662,10 +2693,16 @@ TypedProgram {
                                                                         param_spans: [],
                                                                         result: Enum(
                                                                             EnumType {
-                                                                                name: "Foo",
+                                                                                name: Identifier {
+                                                                                    name: "Foo",
+                                                                                    span: 72..75,
+                                                                                },
                                                                                 variants: [
                                                                                     EnumVariantType {
-                                                                                        name: "Bar",
+                                                                                        name: Identifier {
+                                                                                            name: "Bar",
+                                                                                            span: 82..85,
+                                                                                        },
                                                                                         kind: Tuple(
                                                                                             [
                                                                                                 Bool,
@@ -2673,7 +2710,10 @@ TypedProgram {
                                                                                         ),
                                                                                     },
                                                                                     EnumVariantType {
-                                                                                        name: "Baz",
+                                                                                        name: Identifier {
+                                                                                            name: "Baz",
+                                                                                            span: 97..100,
+                                                                                        },
                                                                                         kind: Tuple(
                                                                                             [
                                                                                                 Int(
@@ -2683,20 +2723,32 @@ TypedProgram {
                                                                                         ),
                                                                                     },
                                                                                     EnumVariantType {
-                                                                                        name: "Thing",
+                                                                                        name: Identifier {
+                                                                                            name: "Thing",
+                                                                                            span: 111..116,
+                                                                                        },
                                                                                         kind: Tuple(
                                                                                             [
                                                                                                 Enum(
                                                                                                     EnumType {
-                                                                                                        name: "Thing",
+                                                                                                        name: Identifier {
+                                                                                                            name: "Thing",
+                                                                                                            span: 33..38,
+                                                                                                        },
                                                                                                         variants: [
                                                                                                             EnumVariantType {
-                                                                                                                name: "Wow",
+                                                                                                                name: Identifier {
+                                                                                                                    name: "Wow",
+                                                                                                                    span: 45..48,
+                                                                                                                },
                                                                                                                 kind: Tuple(
                                                                                                                     [
                                                                                                                         Record(
                                                                                                                             RecordType {
-                                                                                                                                name: "Ctx",
+                                                                                                                                name: Identifier {
+                                                                                                                                    name: "Ctx",
+                                                                                                                                    span: 7..10,
+                                                                                                                                },
                                                                                                                                 fields: [
                                                                                                                                     RecordFieldType {
                                                                                                                                         name: Identifier {
@@ -2714,7 +2766,10 @@ TypedProgram {
                                                                                                                 ),
                                                                                                             },
                                                                                                             EnumVariantType {
-                                                                                                                name: "Who",
+                                                                                                                name: Identifier {
+                                                                                                                    name: "Who",
+                                                                                                                    span: 59..62,
+                                                                                                                },
                                                                                                                 kind: Unit,
                                                                                                             },
                                                                                                         ],

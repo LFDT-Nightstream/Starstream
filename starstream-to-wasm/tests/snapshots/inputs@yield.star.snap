@@ -126,7 +126,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Utxo: MyUtxo => 
   T-Fn: hello_utxo => ()
     T-Expr: {hello_utxo: fn(i32) -> (), x: i32} ⊢ yield(Foo); ⇒ ()
@@ -139,18 +138,18 @@ TypedProgram {
     definitions: [
         Abi(
             TypedAbiDef {
-                name: Identifier {
-                    name: "Foo",
-                    span: 4..7,
-                },
-                parts: [
-                    FnDecl(
+                ty: AbiType {
+                    name: Identifier {
+                        name: "Foo",
+                        span: 4..7,
+                    },
+                    methods: [
                         TypedAbiMethodDecl {
                             name: Identifier {
                                 name: "foo",
                                 span: 17..20,
                             },
-                            span: 17..20,
+                            id: NameId(4),
                             ty: FunctionType {
                                 kind: Normal,
                                 name_span: 17..20,
@@ -164,7 +163,28 @@ TypedProgram {
                                 ),
                             },
                         },
-                    ),
+                    ],
+                },
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "foo",
+                            span: 17..20,
+                        },
+                        id: NameId(4),
+                        ty: FunctionType {
+                            kind: Normal,
+                            name_span: 17..20,
+                            params: [],
+                            param_spans: [],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(4),
+                                ),
+                            ),
+                        },
+                    },
                 ],
             },
         ),
@@ -184,7 +204,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 53..63,
                             },
-                            id: NameId(5),
+                            id: NameId(6),
                             params: [
                                 TypedFunctionParam {
                                     public: false,
@@ -217,7 +237,7 @@ TypedProgram {
                                                                         name: "foo",
                                                                         span: 17..20,
                                                                     },
-                                                                    span: 17..20,
+                                                                    id: NameId(4),
                                                                     ty: FunctionType {
                                                                         kind: Normal,
                                                                         name_span: 17..20,
@@ -246,35 +266,33 @@ TypedProgram {
                     ),
                     AbiImpl {
                         span: 109..112,
-                        abi: Abi(
-                            AbiType {
-                                name: Identifier {
-                                    name: "Foo",
-                                    span: 4..7,
-                                },
-                                methods: [
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "foo",
-                                            span: 17..20,
-                                        },
-                                        span: 17..20,
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 17..20,
-                                            params: [],
-                                            param_spans: [],
-                                            result: Unit,
-                                            callee: Some(
-                                                Named(
-                                                    NameId(4),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                ],
+                        abi: AbiType {
+                            name: Identifier {
+                                name: "Foo",
+                                span: 4..7,
                             },
-                        ),
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "foo",
+                                        span: 17..20,
+                                    },
+                                    id: NameId(4),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 17..20,
+                                        params: [],
+                                        param_spans: [],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(4),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
                         parts: [
                             TypedFunctionDef {
                                 export: None,
@@ -282,7 +300,7 @@ TypedProgram {
                                     name: "foo",
                                     span: 126..129,
                                 },
-                                id: NameId(6),
+                                id: NameId(7),
                                 params: [],
                                 return_type: Unit,
                                 body: TypedBlock {
@@ -295,9 +313,68 @@ TypedProgram {
                         ],
                     },
                 ],
-                ty: UtxoNamed(
-                    "MyUtxo",
-                ),
+                ty: UtxoType {
+                    name: "MyUtxo",
+                    id: NameId(5),
+                    possible_abis: [
+                        AbiType {
+                            name: Identifier {
+                                name: "Foo",
+                                span: 4..7,
+                            },
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "foo",
+                                        span: 17..20,
+                                    },
+                                    id: NameId(4),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 17..20,
+                                        params: [],
+                                        param_spans: [],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(4),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                    always_abis: [
+                        AbiType {
+                            name: Identifier {
+                                name: "Foo",
+                                span: 4..7,
+                            },
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "foo",
+                                        span: 17..20,
+                                    },
+                                    id: NameId(4),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 17..20,
+                                        params: [],
+                                        param_spans: [],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(4),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
             },
         ),
     ],
@@ -315,25 +392,26 @@ TypedProgram {
   (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
   (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
   (import "my-utxo" "[static]utxo.hello-utxo" (func (;3;) (type 1)))
+  (import "my-utxo" "[method]utxo.foo" (func (;4;) (type 2)))
   (memory (;0;) 1)
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
   (global (;2;) (mut i32) (i32.const 0))
-  (export "my-utxo#[static]utxo.hello-utxo" (func 5))
-  (export "my-utxo#[method]utxo.foo" (func 7))
-  (export "my-utxo#get-storage" (func 9))
-  (export "my-utxo#set-storage" (func 10))
+  (export "my-utxo#[static]utxo.hello-utxo" (func 6))
+  (export "my-utxo#[method]utxo.foo" (func 8))
+  (export "my-utxo#get-storage" (func 10))
+  (export "my-utxo#set-storage" (func 11))
   (export "memory" (memory 0))
-  (func (;4;) (type 3)
+  (func (;5;) (type 3)
     (block ;; label = @1
       (br_if 0 (;@1;)
         (i32.ne
           (global.get 0)
           (i32.const 1)))
-      (return_call 6))
+      (return_call 7))
     (unreachable)
   )
-  (func (;5;) (type 1) (param i32) (result i32)
+  (func (;6;) (type 1) (param i32) (result i32)
     (local i32)
     (local.set 1
       (call 1
@@ -351,7 +429,7 @@ TypedProgram {
       (i64.const -5843589418109203719))
     (local.get 1)
   )
-  (func (;6;) (type 3)
+  (func (;7;) (type 3)
     (local i32 i32)
     (local.set 0
       (global.get 1))
@@ -362,19 +440,19 @@ TypedProgram {
     (global.set 2
       (i32.const 0))
   )
-  (func (;7;) (type 2) (param i32)
-    (return_call 4)
+  (func (;8;) (type 2) (param i32)
+    (return_call 5)
   )
-  (func (;8;) (type 4) (param i32) (result i32 i32 i32)
+  (func (;9;) (type 4) (param i32) (result i32 i32 i32)
     (local i32)
     (global.get 0)
     (global.get 1)
     (global.get 2)
   )
-  (func (;9;) (type 1) (param i32) (result i32)
+  (func (;10;) (type 1) (param i32) (result i32)
     (local i32 i32 i32 i32)
     (i32.const 4)
-    (call 8
+    (call 9
       (local.get 0))
     (local.set 4)
     (local.set 3)
@@ -391,7 +469,7 @@ TypedProgram {
       (local.get 4))
     (i32.const 4)
   )
-  (func (;10;) (type 5) (param i32 i32 i32) (result i32)
+  (func (;11;) (type 5) (param i32 i32 i32) (result i32)
     (local i32 i32 i32)
     (global.set 0
       (local.get 0))
@@ -470,6 +548,7 @@ world root {
   import my-utxo: interface {
     resource utxo {
       hello-utxo: static func(x: s32) -> utxo;
+      foo: func();
     }
   }
   import starstream:std/builtin;

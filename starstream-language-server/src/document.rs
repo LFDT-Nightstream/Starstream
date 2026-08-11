@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ropey::Rope;
-use starstream_types::TypedEnumVariantPayload;
+use starstream_types::FunctionKind;
 use tower_lsp_server::lsp_types::{
     DocumentSymbol, DocumentSymbolResponse, Hover, HoverContents, Location, MarkupContent,
     MarkupKind, Position, Range, SymbolKind, TextEdit, Uri,
@@ -24,9 +24,9 @@ use starstream_types::{
     TypedTokenPart, TypedUtxoDef, TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
-        TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
-        TypedExprKind, TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedMatchArm,
-        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
+        TypedAbiDef, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
+        TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedMatchArm, TypedPattern,
+        TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
     },
     types::{EnumType, EnumVariantKind, Type},
 };
@@ -585,7 +585,7 @@ impl DocumentState {
                 for variant in &e.variants {
                     if matches!(variant.kind, EnumVariantKind::Unit) {
                         self.enum_variant_infos.insert(
-                            EnumVariantKey::new(name, &variant.name),
+                            EnumVariantKey::new(name, variant.name.as_str()),
                             EnumVariantPayloadInfo::Unit,
                         );
                     }
@@ -662,51 +662,54 @@ impl DocumentState {
         source: &str,
         doc: Option<String>,
     ) {
-        if let Some(span) = definition.name.opt_span() {
+        if let Some(span) = definition.ty.name.opt_span() {
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
                 target: span,
             });
 
             self.type_definitions
-                .insert(definition.name.name.clone(), span);
+                .insert(definition.ty.name.to_string(), span);
 
-            self.add_hover_span_with_doc(span, &definition.ty, doc.clone());
+            let ty = Type::Record(definition.ty.clone());
+            self.add_hover_span_with_doc(span, &ty, doc.clone());
 
             self.struct_type_index.push(StructTypeEntry {
-                name: definition.name.name.clone(),
-                ty: definition.ty.clone(),
+                name: definition.ty.name.to_string(),
+                ty,
             });
         }
 
         // Store doc comment for type annotation hover
         if let Some(d) = doc {
-            self.struct_docs.insert(definition.name.name.clone(), d);
+            self.struct_docs.insert(definition.ty.name.to_string(), d);
         }
 
-        self.struct_types
-            .insert(definition.name.name.clone(), definition.ty.clone());
+        self.struct_types.insert(
+            definition.ty.name.to_string(),
+            Type::Record(definition.ty.clone()),
+        );
 
         {
             let entry = self
                 .struct_field_definitions
-                .entry(definition.name.name.clone())
+                .entry(definition.ty.name.to_string())
                 .or_default();
             let type_entry = self
                 .struct_field_types
-                .entry(definition.name.name.clone())
+                .entry(definition.ty.name.to_string())
                 .or_default();
-            for field in &definition.fields {
+            for field in &definition.ty.fields {
                 if let Some(span) = field.name.opt_span() {
-                    entry.insert(field.name.name.clone(), span);
+                    entry.insert(field.name.to_string(), span);
                 }
-                type_entry.insert(field.name.name.clone(), field.ty.clone());
+                type_entry.insert(field.name.to_string(), field.ty.clone());
             }
         }
 
         // Extract field-level doc comments using untyped AST spans
         let untyped_fields = untyped.map(|u| &u.fields[..]).unwrap_or(&[]);
-        for (field, untyped_field) in definition.fields.iter().zip(untyped_fields.iter()) {
+        for (field, untyped_field) in definition.ty.fields.iter().zip(untyped_fields.iter()) {
             let field_doc = self.comment_map.doc_comments(untyped_field.span, source);
             if let Some(span) = field.name.opt_span() {
                 self.add_hover_span_with_doc(span, &field.ty, field_doc.clone());
@@ -714,9 +717,9 @@ impl DocumentState {
                 // Store field doc for use at field access sites
                 if let Some(doc) = field_doc {
                     self.struct_field_docs
-                        .entry(definition.name.name.clone())
+                        .entry(definition.ty.name.to_string())
                         .or_default()
-                        .insert(field.name.name.clone(), doc);
+                        .insert(field.name.to_string(), doc);
                 }
             }
         }
@@ -729,66 +732,69 @@ impl DocumentState {
         source: &str,
         doc: Option<String>,
     ) {
-        if let Some(span) = definition.name.opt_span() {
+        if let Some(span) = definition.ty.name.opt_span() {
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
                 target: span,
             });
 
             self.type_definitions
-                .insert(definition.name.name.clone(), span);
+                .insert(definition.ty.name.to_string(), span);
 
-            self.add_hover_span_with_doc(span, &definition.ty, doc.clone());
+            self.add_hover_span_with_doc(span, &Type::Enum(definition.ty.clone()), doc.clone());
         }
 
         // Store doc comment for type annotation hover
         if let Some(d) = doc {
-            self.enum_docs.insert(definition.name.name.clone(), d);
+            self.enum_docs.insert(definition.ty.name.to_string(), d);
         }
 
-        self.enum_types
-            .insert(definition.name.name.clone(), definition.ty.clone());
+        self.enum_types.insert(
+            definition.ty.name.to_string(),
+            Type::Enum(definition.ty.clone()),
+        );
 
         {
             let entry = self
                 .enum_variant_definitions
-                .entry(definition.name.name.clone())
+                .entry(definition.ty.name.to_string())
                 .or_default();
 
             entry.clear();
 
-            for variant in &definition.variants {
+            for variant in &definition.ty.variants {
                 if let Some(span) = variant.name.opt_span() {
                     self.definition_entries.push(DefinitionEntry {
                         usage: span,
                         target: span,
                     });
 
-                    entry.insert(variant.name.name.clone(), span);
+                    entry.insert(variant.name.to_string(), span);
                 }
             }
         }
 
         // Extract variant-level doc comments using untyped AST spans
         let untyped_variants = untyped.map(|u| &u.variants[..]).unwrap_or(&[]);
-        for (variant, untyped_variant) in definition.variants.iter().zip(untyped_variants.iter()) {
+        for (variant, untyped_variant) in definition.ty.variants.iter().zip(untyped_variants.iter())
+        {
             let variant_doc = self.comment_map.doc_comments(untyped_variant.span, source);
-            let key = EnumVariantKey::new(&definition.name.name, &variant.name.name);
+            let key = EnumVariantKey::new(definition.ty.name.as_str(), variant.name.as_str());
 
-            let info = match &variant.payload {
-                TypedEnumVariantPayload::Unit => {
+            let info = match &variant.kind {
+                EnumVariantKind::Unit => {
                     self.enum_variant_field_definitions.remove(&key);
                     EnumVariantPayloadInfo::Unit
                 }
-                TypedEnumVariantPayload::Tuple(types) => {
+                EnumVariantKind::Tuple(types) => {
                     self.enum_variant_field_definitions.remove(&key);
                     EnumVariantPayloadInfo::Tuple(types.clone())
                 }
-                TypedEnumVariantPayload::Struct(fields) => {
+                EnumVariantKind::Struct(fields) => {
                     let info = EnumVariantPayloadInfo::Struct(
                         fields
                             .iter()
-                            .map(|field| (field.name.name.clone(), field.ty.clone()))
+                            .map(|field| (field.name.to_string(), field.ty.clone()))
                             .collect(),
                     );
                     let mut field_hovers = Vec::new();
@@ -800,7 +806,7 @@ impl DocumentState {
                         def_entry.clear();
                         for field in fields {
                             if let Some(span) = field.name.opt_span() {
-                                def_entry.insert(field.name.name.clone(), span);
+                                def_entry.insert(field.name.to_string(), span);
                                 field_hovers.push((span, field.ty.clone()));
                             }
                         }
@@ -823,7 +829,7 @@ impl DocumentState {
                 self.add_hover_label_with_doc(
                     span,
                     format_enum_variant_hover_from_info(
-                        &definition.name.name,
+                        definition.ty.name.as_str(),
                         &variant.name.name,
                         &info,
                     ),
@@ -840,7 +846,7 @@ impl DocumentState {
                     let global = scopes.first_mut().unwrap();
                     for var in vars {
                         if let Some(span) = var.name.opt_span() {
-                            global.insert(var.name.name.clone(), span);
+                            global.insert(var.name.to_string(), span);
                             self.definition_entries.push(DefinitionEntry {
                                 usage: span,
                                 target: span,
@@ -876,7 +882,7 @@ impl DocumentState {
                     let global = scopes.first_mut().unwrap();
                     for var in vars {
                         if let Some(span) = var.name.opt_span() {
-                            global.insert(var.name.name.clone(), span);
+                            global.insert(var.name.to_string(), span);
                             self.definition_entries.push(DefinitionEntry {
                                 usage: span,
                                 target: span,
@@ -908,54 +914,54 @@ impl DocumentState {
         source: &str,
         doc: Option<String>,
     ) {
-        if let Some(span) = definition.name.opt_span() {
+        if let Some(span) = definition.ty.name.opt_span() {
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
                 target: span,
             });
 
             // Add hover for ABI name with doc comment
-            self.add_hover_label_with_doc(span, format!("abi {}", definition.name.name), doc);
+            self.add_hover_label_with_doc(span, format!("abi {}", definition.ty.name), doc);
         }
 
-        for part in &definition.parts {
-            match part {
-                TypedAbiPart::Event(event) => {
-                    if let Some(span) = event.name.opt_span() {
+        for part in &definition.functions {
+            match part.ty.kind {
+                FunctionKind::Emit => {
+                    if let Some(span) = part.name.opt_span() {
                         self.definition_entries.push(DefinitionEntry {
                             usage: span,
                             target: span,
                         });
 
-                        self.add_hover_label(span, format!("event {}", event.name.name));
+                        self.add_hover_label(span, format!("event {}", part.name));
                     }
                 }
-                TypedAbiPart::Effect(effect) => {
-                    if let Some(span) = effect.name.opt_span() {
+                FunctionKind::Raise => {
+                    if let Some(span) = part.name.opt_span() {
                         self.definition_entries.push(DefinitionEntry {
                             usage: span,
                             target: span,
                         });
 
-                        self.add_hover_label(span, format!("effect {}", effect.name.name));
+                        self.add_hover_label(span, format!("effect {}", part.name));
                     }
                 }
-                TypedAbiPart::FnDecl(decl) => {
-                    let method_doc = self.comment_map.doc_comments(decl.span, source);
+                FunctionKind::Normal => {
+                    let method_doc = self.comment_map.doc_comments(part.name.span, source);
 
                     let label = format!(
                         "fn {}{}",
-                        decl.name,
-                        Type::Function(decl.ty.clone()).compact_display()
+                        part.name,
+                        Type::Function(part.ty.clone()).compact_display()
                     );
 
                     // Store for field access hover on narrowed ABI variables
                     self.abi_method_info
-                        .entry(definition.name.name.clone())
+                        .entry(definition.ty.name.to_string())
                         .or_default()
-                        .insert(decl.name.name.clone(), (label.clone(), method_doc.clone()));
+                        .insert(part.name.to_string(), (label.clone(), method_doc.clone()));
 
-                    if let Some(span) = decl.name.opt_span() {
+                    if let Some(span) = part.name.opt_span() {
                         self.definition_entries.push(DefinitionEntry {
                             usage: span,
                             target: span,
@@ -964,6 +970,7 @@ impl DocumentState {
                         self.add_hover_label_with_doc(span, label, method_doc);
                     }
                 }
+                FunctionKind::Runtime => unreachable!(),
             }
         }
     }
@@ -976,7 +983,7 @@ impl DocumentState {
     ) {
         if let Some(span) = function.name.opt_span() {
             self.function_definitions
-                .insert(function.name.name.clone(), span);
+                .insert(function.name.to_string(), span);
 
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
@@ -999,7 +1006,7 @@ impl DocumentState {
             // Store the doc for call-site lookups
             if let Some(d) = doc {
                 self.function_docs
-                    .insert(function.name.name.clone(), (signature, d));
+                    .insert(function.name.to_string(), (signature, d));
             }
         }
 
@@ -1008,7 +1015,7 @@ impl DocumentState {
         if let Some(scope) = scopes.last_mut() {
             for param in &function.params {
                 if let Some(span) = param.name.opt_span() {
-                    scope.insert(param.name.name.clone(), span);
+                    scope.insert(param.name.to_string(), span);
 
                     self.definition_entries.push(DefinitionEntry {
                         usage: span,
@@ -1046,7 +1053,7 @@ impl DocumentState {
                     });
 
                     if let Some(scope) = scopes.last_mut() {
-                        scope.insert(name.name.clone(), span);
+                        scope.insert(name.to_string(), span);
                     }
                 }
 
@@ -1882,7 +1889,7 @@ impl DocumentState {
         let Type::Enum(enum_type) = &def.ty else {
             return None;
         };
-        format_variant_with_params(&enum_type.name, enum_type, variant_name, &params)
+        format_variant_with_params(enum_type.name.as_str(), enum_type, variant_name, &params)
     }
 
     /// Extract variant label from a concrete `Type::Enum` value.
@@ -1890,7 +1897,10 @@ impl DocumentState {
         let Type::Enum(enum_type) = ty else {
             return None;
         };
-        let variant = enum_type.variants.iter().find(|v| v.name == variant_name)?;
+        let variant = enum_type
+            .variants
+            .iter()
+            .find(|v| v.name.as_str() == variant_name)?;
         let info = match &variant.kind {
             EnumVariantKind::Unit => EnumVariantPayloadInfo::Unit,
             EnumVariantKind::Tuple(types) => EnumVariantPayloadInfo::Tuple(types.clone()),
@@ -1902,7 +1912,7 @@ impl DocumentState {
             ),
         };
         Some(format_enum_variant_hover_from_info(
-            &enum_type.name,
+            enum_type.name.as_str(),
             variant_name,
             &info,
         ))
@@ -1913,7 +1923,10 @@ impl DocumentState {
         let Type::Enum(enum_type) = ty else {
             return None;
         };
-        let variant = enum_type.variants.iter().find(|v| v.name == variant_name)?;
+        let variant = enum_type
+            .variants
+            .iter()
+            .find(|v| v.name.as_str() == variant_name)?;
         match &variant.kind {
             EnumVariantKind::Tuple(types) => Some(types.clone()),
             _ => None,
@@ -2006,7 +2019,7 @@ impl DocumentState {
 
         #[allow(deprecated)]
         let symbol = DocumentSymbol {
-            name: function.name.name.clone(),
+            name: function.name.to_string(),
             detail: None,
             kind: SymbolKind::FUNCTION,
             tags: None,
@@ -2020,13 +2033,13 @@ impl DocumentState {
     }
 
     fn struct_symbol(&self, definition: &TypedStructDef) -> Option<DocumentSymbol> {
-        let name_span = definition.name.opt_span()?;
+        let name_span = definition.ty.name.opt_span()?;
         let mut children = Vec::new();
-        for field in &definition.fields {
+        for field in &definition.ty.fields {
             if let Some(span) = field.name.opt_span() {
                 #[allow(deprecated)]
                 let child = DocumentSymbol {
-                    name: field.name.name.clone(),
+                    name: field.name.to_string(),
                     detail: Some(field.ty.to_string()),
                     kind: SymbolKind::FIELD,
                     tags: None,
@@ -2041,8 +2054,8 @@ impl DocumentState {
 
         #[allow(deprecated)]
         let symbol = DocumentSymbol {
-            name: definition.name.name.clone(),
-            detail: Some(definition.ty.to_string()),
+            name: definition.ty.name.to_string(),
+            detail: Some(Type::Record(definition.ty.clone()).to_string()),
             kind: SymbolKind::STRUCT,
             tags: None,
             deprecated: None,
@@ -2059,13 +2072,13 @@ impl DocumentState {
     }
 
     fn enum_symbol(&self, definition: &TypedEnumDef) -> Option<DocumentSymbol> {
-        let name_span = definition.name.opt_span()?;
+        let name_span = definition.ty.name.opt_span()?;
         let mut children = Vec::new();
-        for variant in &definition.variants {
+        for variant in &definition.ty.variants {
             if let Some(span) = variant.name.opt_span() {
-                let detail = match &variant.payload {
-                    TypedEnumVariantPayload::Unit => None,
-                    TypedEnumVariantPayload::Tuple(types) => {
+                let detail = match &variant.kind {
+                    EnumVariantKind::Unit => None,
+                    EnumVariantKind::Tuple(types) => {
                         if types.is_empty() {
                             Some("()".to_string())
                         } else {
@@ -2078,7 +2091,7 @@ impl DocumentState {
                             )
                         }
                     }
-                    TypedEnumVariantPayload::Struct(fields) => {
+                    EnumVariantKind::Struct(fields) => {
                         if fields.is_empty() {
                             Some("{ }".to_string())
                         } else {
@@ -2094,7 +2107,7 @@ impl DocumentState {
                 };
                 #[allow(deprecated)]
                 let child = DocumentSymbol {
-                    name: variant.name.name.clone(),
+                    name: variant.name.to_string(),
                     detail,
                     kind: SymbolKind::ENUM_MEMBER,
                     tags: None,
@@ -2109,8 +2122,8 @@ impl DocumentState {
 
         #[allow(deprecated)]
         let symbol = DocumentSymbol {
-            name: definition.name.name.clone(),
-            detail: Some(definition.ty.to_string()),
+            name: definition.ty.name.to_string(),
+            detail: Some(Type::Enum(definition.ty.clone()).to_string()),
             kind: SymbolKind::ENUM,
             tags: None,
             deprecated: None,
@@ -2136,7 +2149,7 @@ impl DocumentState {
                         if let Some(span) = var.name.opt_span() {
                             #[allow(deprecated)]
                             let child = DocumentSymbol {
-                                name: var.name.name.clone(),
+                                name: var.name.to_string(),
                                 detail: Some(var.ty.to_string()),
                                 kind: SymbolKind::ENUM_MEMBER,
                                 tags: None,
@@ -2158,8 +2171,8 @@ impl DocumentState {
                         .filter_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
-                        name: abi.compact_display().to_string(),
-                        detail: Some(abi.to_string()),
+                        name: Type::Abi(abi.clone()).compact_display().to_string(),
+                        detail: Some(Type::Abi(abi.clone()).to_string()),
                         kind: SymbolKind::INTERFACE,
                         tags: None,
                         #[allow(deprecated)]
@@ -2174,7 +2187,7 @@ impl DocumentState {
 
         #[allow(deprecated)]
         let symbol = DocumentSymbol {
-            name: definition.name.name.clone(),
+            name: definition.name.to_string(),
             detail: None,
             kind: SymbolKind::CLASS,
             tags: None,
@@ -2201,7 +2214,7 @@ impl DocumentState {
                         if let Some(span) = var.name.opt_span() {
                             #[allow(deprecated)]
                             let child = DocumentSymbol {
-                                name: var.name.name.clone(),
+                                name: var.name.to_string(),
                                 detail: Some(var.ty.to_string()),
                                 kind: SymbolKind::ENUM_MEMBER,
                                 tags: None,
@@ -2239,7 +2252,7 @@ impl DocumentState {
 
         #[allow(deprecated)]
         let symbol = DocumentSymbol {
-            name: definition.name.name.clone(),
+            name: definition.name.to_string(),
             detail: None,
             kind: SymbolKind::CLASS,
             tags: None,
@@ -2257,17 +2270,19 @@ impl DocumentState {
     }
 
     fn abi_symbol(&self, definition: &TypedAbiDef) -> Option<DocumentSymbol> {
-        let name_span = definition.name.opt_span()?;
+        let name_span = definition.ty.name.opt_span()?;
         let mut children = Vec::new();
 
-        for part in &definition.parts {
-            match part {
-                TypedAbiPart::Event(event) => {
-                    if let Some(span) = event.name.opt_span() {
-                        let params = event
+        for part in &definition.functions {
+            match part.ty.kind {
+                FunctionKind::Emit => {
+                    if let Some(span) = part.name.opt_span() {
+                        // TODO: restore parameter names here
+                        let params = part
+                            .ty
                             .params
                             .iter()
-                            .map(|p| format!("{}: {}", p.name.name, p.ty))
+                            .map(|p| p.to_string())
                             .collect::<Vec<_>>()
                             .join(", ");
 
@@ -2275,7 +2290,7 @@ impl DocumentState {
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
-                            name: event.name.name.clone(),
+                            name: part.name.to_string(),
                             detail,
                             kind: SymbolKind::EVENT,
                             tags: None,
@@ -2288,16 +2303,18 @@ impl DocumentState {
                         children.push(child);
                     }
                 }
-                TypedAbiPart::Effect(effect) => {
-                    if let Some(span) = effect.name.opt_span() {
-                        let params = effect
+                FunctionKind::Raise => {
+                    if let Some(span) = part.name.opt_span() {
+                        // TODO: restore parameter names here
+                        let params = part
+                            .ty
                             .params
                             .iter()
-                            .map(|p| format!("{}: {}", p.name.name, p.ty))
+                            .map(|p| p.to_string())
                             .collect::<Vec<_>>()
                             .join(", ");
 
-                        let ret = match &effect.return_type {
+                        let ret = match &part.ty.result {
                             Type::Unit => String::new(),
                             ty => format!(" -> {ty}"),
                         };
@@ -2306,7 +2323,7 @@ impl DocumentState {
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
-                            name: effect.name.name.clone(),
+                            name: part.name.to_string(),
                             detail,
                             kind: SymbolKind::EVENT,
                             tags: None,
@@ -2319,17 +2336,17 @@ impl DocumentState {
                         children.push(child);
                     }
                 }
-                TypedAbiPart::FnDecl(decl) => {
-                    if let Some(span) = decl.name.opt_span() {
+                FunctionKind::Normal => {
+                    if let Some(span) = part.name.opt_span() {
                         let detail = Some(
-                            Type::Function(decl.ty.clone())
+                            Type::Function(part.ty.clone())
                                 .compact_display()
                                 .to_string(),
                         );
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
-                            name: decl.name.name.clone(),
+                            name: part.name.to_string(),
                             detail,
                             kind: SymbolKind::METHOD,
                             tags: None,
@@ -2342,12 +2359,13 @@ impl DocumentState {
                         children.push(child);
                     }
                 }
+                FunctionKind::Runtime => unreachable!(),
             }
         }
 
         #[allow(deprecated)]
         let symbol = DocumentSymbol {
-            name: definition.name.name.clone(),
+            name: definition.ty.name.to_string(),
             detail: None,
             kind: SymbolKind::INTERFACE,
             tags: None,
@@ -2479,7 +2497,7 @@ fn format_variant_with_params(
     variant_name: &str,
     params: &HashMap<TypeVarId, String>,
 ) -> Option<String> {
-    let variant = enum_type.variants.iter().find(|v| v.name == variant_name)?;
+    let variant = enum_type.get_variant(variant_name)?;
     Some(match &variant.kind {
         EnumVariantKind::Unit => format!("{enum_name}::{variant_name}"),
         EnumVariantKind::Tuple(types) => {

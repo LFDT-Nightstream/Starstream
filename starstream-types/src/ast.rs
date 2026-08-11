@@ -132,6 +132,12 @@ impl std::cmp::PartialEq for Identifier {
     }
 }
 
+impl std::cmp::PartialEq<&str> for Identifier {
+    fn eq(&self, other: &&str) -> bool {
+        self.name == *other
+    }
+}
+
 impl std::hash::Hash for Identifier {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);

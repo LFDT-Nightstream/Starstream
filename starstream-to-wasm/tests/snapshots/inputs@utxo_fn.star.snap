@@ -126,7 +126,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Utxo: MyUtxo => 
   T-Fn: private_fn => ()
     T-Expr: {private_fn: fn() -> ()} ⊢ emit HelloEvent(); ⇒ ()
@@ -142,21 +141,33 @@ TypedProgram {
     definitions: [
         Abi(
             TypedAbiDef {
-                name: Identifier {
-                    name: "FooAbi",
-                    span: 4..10,
+                ty: AbiType {
+                    name: Identifier {
+                        name: "FooAbi",
+                        span: 4..10,
+                    },
+                    methods: [],
                 },
-                parts: [
-                    Event(
-                        TypedEventDef {
-                            name: Identifier {
-                                name: "HelloEvent",
-                                span: 23..33,
-                            },
-                            id: NameId(4),
-                            params: [],
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "HelloEvent",
+                            span: 23..33,
                         },
-                    ),
+                        id: NameId(4),
+                        ty: FunctionType {
+                            kind: Emit,
+                            name_span: 23..33,
+                            params: [],
+                            param_spans: [],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(4),
+                                ),
+                            ),
+                        },
+                    },
                 ],
             },
         ),
@@ -174,7 +185,7 @@ TypedProgram {
                                 name: "private_fn",
                                 span: 61..71,
                             },
-                            id: NameId(6),
+                            id: NameId(7),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -234,7 +245,7 @@ TypedProgram {
                                 name: "hello_utxo",
                                 span: 121..131,
                             },
-                            id: NameId(5),
+                            id: NameId(6),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -255,7 +266,7 @@ TypedProgram {
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
-                                                                            NameId(6),
+                                                                            NameId(7),
                                                                         ),
                                                                     ),
                                                                 },
@@ -284,9 +295,12 @@ TypedProgram {
                         },
                     ),
                 ],
-                ty: UtxoNamed(
-                    "MyUtxo",
-                ),
+                ty: UtxoType {
+                    name: "MyUtxo",
+                    id: NameId(5),
+                    possible_abis: [],
+                    always_abis: [],
+                },
             },
         ),
     ],

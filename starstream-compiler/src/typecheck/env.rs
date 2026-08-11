@@ -187,7 +187,7 @@ impl Namespace {
 
     pub fn insert_constant(&mut self, name: &Identifier, v: ConstantInfo) -> Result<(), TypeError> {
         if let Some(old) = self.constants.insert(name.to_string(), v) {
-            return Err(collision(name.as_str(), name.span, old.span));
+            return Err(collision2(name.as_str(), name.span, old.span));
         }
         Ok(())
     }
@@ -264,7 +264,7 @@ impl Namespace {
         }
         for (k, v) in &other.constants {
             if let Some(old) = self.constants.insert(k.to_owned(), v.clone()) {
-                return Err(collision(k, v.span, old.span));
+                return Err(collision2(k, v.span, old.span));
             }
         }
         for (k, v) in &other.struct_constructors {
@@ -323,6 +323,16 @@ fn collision(name: &str, span: Span, prev: Span) -> TypeError {
     .with_secondary(prev, "previously defined here")
 }
 
+fn collision2(name: &str, span: Span, prev: Span) -> TypeError {
+    TypeError::new(
+        TypeErrorKind::FunctionAlreadyDefined {
+            name: name.to_string(),
+        },
+        span,
+    )
+    .with_secondary(prev, "previously defined here")
+}
+
 fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
     match ty {
         Type::Var(id) => {
@@ -365,9 +375,9 @@ fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
         | Type::Bool
         | Type::Unit
         | Type::UtxoAny
-        | Type::UtxoNamed(_)
+        | Type::Utxo(_)
         | Type::TokenAny
-        | Type::TokenNamed(_)
+        | Type::Token(_)
         | Type::Abi(_) => {}
     }
 }

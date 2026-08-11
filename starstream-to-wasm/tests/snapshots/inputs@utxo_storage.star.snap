@@ -226,7 +226,7 @@ TypedProgram {
                                 name: "increment",
                                 span: 109..118,
                             },
-                            id: NameId(4),
+                            id: NameId(5),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -295,7 +295,7 @@ TypedProgram {
                                 name: "increment_mult",
                                 span: 172..186,
                             },
-                            id: NameId(5),
+                            id: NameId(6),
                             params: [],
                             return_type: Unit,
                             body: TypedBlock {
@@ -356,9 +356,12 @@ TypedProgram {
                         },
                     ),
                 ],
-                ty: UtxoNamed(
-                    "MyUtxo",
-                ),
+                ty: UtxoType {
+                    name: "MyUtxo",
+                    id: NameId(4),
+                    possible_abis: [],
+                    always_abis: [],
+                },
             },
         ),
     ],

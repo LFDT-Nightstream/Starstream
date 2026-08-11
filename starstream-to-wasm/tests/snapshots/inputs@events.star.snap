@@ -77,7 +77,6 @@ Program {
 }
 
 ==== Inference trace ====
-
 T-Fn: main => ()
   T-Expr: {main: fn() -> ()} ⊢ emit Hello(); ⇒ ()
     T-Call: {main: fn() -> ()} ⊢ emit Hello() ⇒ ()
@@ -88,21 +87,33 @@ TypedProgram {
     definitions: [
         Abi(
             TypedAbiDef {
-                name: Identifier {
-                    name: "Foo",
-                    span: 4..7,
+                ty: AbiType {
+                    name: Identifier {
+                        name: "Foo",
+                        span: 4..7,
+                    },
+                    methods: [],
                 },
-                parts: [
-                    Event(
-                        TypedEventDef {
-                            name: Identifier {
-                                name: "Hello",
-                                span: 20..25,
-                            },
-                            id: NameId(4),
-                            params: [],
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "Hello",
+                            span: 20..25,
                         },
-                    ),
+                        id: NameId(4),
+                        ty: FunctionType {
+                            kind: Emit,
+                            name_span: 20..25,
+                            params: [],
+                            param_spans: [],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(4),
+                                ),
+                            ),
+                        },
+                    },
                 ],
             },
         ),

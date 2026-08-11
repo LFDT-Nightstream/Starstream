@@ -90,9 +90,12 @@ TypedProgram {
                     span: 5..11,
                 },
                 parts: [],
-                ty: UtxoNamed(
-                    "MyUtxo",
-                ),
+                ty: UtxoType {
+                    name: "MyUtxo",
+                    id: NameId(4),
+                    possible_abis: [],
+                    always_abis: [],
+                },
             },
         ),
         Function(
@@ -104,7 +107,7 @@ TypedProgram {
                     name: "script_accepts_utxos",
                     span: 28..48,
                 },
-                id: NameId(4),
+                id: NameId(5),
                 params: [
                     TypedFunctionParam {
                         public: false,
@@ -120,8 +123,13 @@ TypedProgram {
                             name: "my_utxo",
                             span: 61..68,
                         },
-                        ty: UtxoNamed(
-                            "MyUtxo",
+                        ty: Utxo(
+                            UtxoType {
+                                name: "MyUtxo",
+                                id: NameId(4),
+                                possible_abis: [],
+                                always_abis: [],
+                            },
                         ),
                     },
                 ],

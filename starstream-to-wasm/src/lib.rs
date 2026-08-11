@@ -9,12 +9,12 @@ use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
     BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned,
-    StaticFunction, Type, TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumDef,
-    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
-    TypedImportDef, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
-    TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    StaticFunction, Type, TypedAbiDef, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
+    TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef,
+    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
-use starstream_types::{ImportSource, NameId};
+use starstream_types::{FunctionKind, ImportSource, NameId};
 use thiserror::Error;
 use wasm_encoder::{
     BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
@@ -218,10 +218,12 @@ struct Compiler {
     core_func_type_cache: HashMap<FuncType, u32>,
     /// Map from name to function index.
     callables: HashMap<NameId, u32>,
+    /// Map from (this type, name) to function index, for calling ABI methods on concrete UTXOs.
+    method_callables: HashMap<(Type, NameId), u32>,
     builtin_starstream_i64_add_checked: Option<u32>,
     builtin_starstream_i64_sub_checked: Option<u32>,
     builtin_starstream_i64_mul_checked: Option<u32>,
-    /// Map from name to resource index.
+    /// Map from resource full name to resource index.
     resources: HashMap<String, u32>,
     /// Function bodies.
     code_bytes: Vec<Vec<u8>>,
@@ -952,9 +954,9 @@ impl Compiler {
                     ComponentAbiType::Borrow { resource: idx }
                 }
             }
-            Type::UtxoNamed(name) => {
-                if let Some(idx) = self.resources.get(name) {
-                    ComponentAbiType::Borrow { resource: *idx }
+            Type::Utxo(utxo) => {
+                if let Some(&idx) = self.resources.get(&utxo.name) {
+                    ComponentAbiType::Borrow { resource: idx }
                 } else {
                     return None;
                 }
@@ -972,9 +974,9 @@ impl Compiler {
                     ComponentAbiType::Borrow { resource: idx }
                 }
             }
-            Type::TokenNamed(name) => {
-                if let Some(idx) = self.resources.get(name) {
-                    ComponentAbiType::Borrow { resource: *idx }
+            Type::Token(token) => {
+                if let Some(&idx) = self.resources.get(&token.name) {
+                    ComponentAbiType::Borrow { resource: idx }
                 } else {
                     return None;
                 }
@@ -1039,7 +1041,7 @@ impl Compiler {
                     .iter()
                     .map(|v| {
                         (
-                            to_kebab_case(&v.name),
+                            to_kebab_case(v.name.as_str()),
                             match &v.kind {
                                 EnumVariantKind::Unit => None,
                                 EnumVariantKind::Tuple(fields) => {
@@ -1142,7 +1144,7 @@ impl Compiler {
                     .and(ok);
                 dest.extend(flat);
             }
-            Type::UtxoAny | Type::UtxoNamed(_) | Type::TokenAny | Type::TokenNamed(_) => {
+            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) => {
                 dest.push(ValType::I32)
             }
             _ => ok = Err(self.push_error(span, format!("unknown core lowering for {ty:?}"))),
@@ -1227,7 +1229,7 @@ impl Compiler {
             Type::Unit => 0,
             Type::Bool => 1,
             Type::Int(_) => 1,
-            Type::UtxoAny | Type::UtxoNamed(_) | Type::TokenAny | Type::TokenNamed(_) => 1,
+            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) => 1,
             Type::Tuple(items) => items.iter().map(|t| self.star_count_core_types(t)).sum(),
             Type::Record(record) => record
                 .fields
@@ -1388,18 +1390,18 @@ impl Compiler {
     }
 
     fn visit_abi(&mut self, def: &TypedAbiDef) {
-        for part in &def.parts {
-            match part {
-                TypedAbiPart::Event(event) => {
+        for part in &def.functions {
+            match part.ty.kind {
+                FunctionKind::Emit => {
                     let mut core_params = Vec::with_capacity(16);
-                    let span = event.name.span();
-                    for p in &event.params {
-                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
+                    let span = part.ty.name_span;
+                    for p in &part.ty.params {
+                        _ = self.star_to_core_types(span, &mut core_params, p);
                     }
 
                     let interface =
-                        format!("starstream:events/{}", to_kebab_case(def.name.as_str()));
-                    let kebab = to_kebab_case(event.name.as_str());
+                        format!("starstream:events/{}", to_kebab_case(def.ty.name.as_str()));
+                    let kebab = to_kebab_case(part.name.as_str());
 
                     // Core import
                     let core_fn_ty = self.add_core_func_type(&FuncType::new(
@@ -1407,13 +1409,14 @@ impl Compiler {
                         std::iter::empty(),
                     ));
                     let func = self.import_function(&interface, &kebab, core_fn_ty);
-                    self.callables.insert(event.id, func);
+                    self.callables.insert(part.id, func);
 
                     // Component import
-                    let comp_params = event
+                    let comp_params = part
+                        .ty
                         .params
                         .iter()
-                        .filter_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
+                        .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
                     let comp_result = None;
                     let iface = self.imported_interfaces.entry(interface).or_default();
@@ -1423,18 +1426,18 @@ impl Compiler {
                         .inner
                         .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
-                TypedAbiPart::Effect(effect) => {
+                FunctionKind::Raise => {
                     let mut core_params = Vec::with_capacity(16);
-                    let span = effect.name.span();
-                    for p in &effect.params {
-                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
+                    let span = part.name.span();
+                    for p in &part.ty.params {
+                        _ = self.star_to_core_types(span, &mut core_params, p);
                     }
                     let mut core_results = Vec::new();
-                    _ = self.star_to_core_types(span, &mut core_results, &effect.return_type);
+                    _ = self.star_to_core_types(span, &mut core_results, &part.ty.result);
 
                     let interface =
-                        format!("starstream:effects/{}", to_kebab_case(def.name.as_str()));
-                    let kebab = to_kebab_case(effect.name.as_str());
+                        format!("starstream:effects/{}", to_kebab_case(def.ty.name.as_str()));
+                    let kebab = to_kebab_case(part.name.as_str());
 
                     // Core import
                     let core_fn_ty = self.add_core_func_type(&FuncType::new(
@@ -1442,15 +1445,16 @@ impl Compiler {
                         core_results,
                     ));
                     let func = self.import_function(&interface, &kebab, core_fn_ty);
-                    self.callables.insert(effect.id, func);
+                    self.callables.insert(part.id, func);
 
                     // Component import
-                    let comp_params = effect
+                    let comp_params = part
+                        .ty
                         .params
                         .iter()
-                        .filter_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
+                        .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
-                    let comp_result = self.star_to_component_type(&effect.return_type);
+                    let comp_result = self.star_to_component_type(&part.ty.result);
                     let iface = self.imported_interfaces.entry(interface).or_default();
                     let comp_fn_ty =
                         iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
@@ -1458,9 +1462,10 @@ impl Compiler {
                         .inner
                         .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
-                TypedAbiPart::FnDecl(_) => {
+                FunctionKind::Normal => {
                     // ABI method codegen not yet implemented.
                 }
+                FunctionKind::Runtime => unreachable!(),
             }
         }
     }
@@ -1554,11 +1559,11 @@ impl Compiler {
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
-        self.export_component_ty(struct_.name.as_str(), &struct_.ty);
+        self.export_component_ty(struct_.ty.name.as_str(), &Type::Record(struct_.ty.clone()));
     }
 
     fn visit_enum(&mut self, enum_: &TypedEnumDef) {
-        self.export_component_ty(enum_.name.as_str(), &enum_.ty);
+        self.export_component_ty(enum_.ty.name.as_str(), &Type::Enum(enum_.ty.clone()));
     }
 
     fn pre_visit_utxo(&mut self, utxo: &TypedUtxoDef) {
@@ -1579,34 +1584,84 @@ impl Compiler {
             ty,
         );
         self.resource_abi_fns
-            .insert(utxo.ty.clone(), (new_fn, drop_fn));
+            .insert(Type::Utxo(utxo.ty.clone()), (new_fn, drop_fn));
 
         // Utxos declared in a file have an "exported" half and an "imported" half
         // since calls need to go through the runtime.
         for part in &utxo.parts {
-            if let TypedUtxoPart::Function(function) = part
-                && let Some(FunctionExport::UtxoMain) = function.export
-            {
-                let mut params = Vec::with_capacity(16);
-                for p in &function.params {
-                    _ = self.star_to_core_types(
-                        p.name.span_or(function.name.span()),
-                        &mut params,
-                        &p.ty,
-                    );
+            match part {
+                TypedUtxoPart::Function(function) => {
+                    if let Some(FunctionExport::UtxoMain) = function.export {
+                        let mut params = Vec::with_capacity(16);
+                        for p in &function.params {
+                            _ = self.star_to_core_types(
+                                p.name.span_or(function.name.span()),
+                                &mut params,
+                                &p.ty,
+                            );
+                        }
+
+                        // Don't use declared result (always Unit). The imported version returns a handle.
+                        let mut results = Vec::with_capacity(1);
+                        _ = self.star_to_core_types(
+                            function.name.span(),
+                            &mut results,
+                            &Type::Utxo(utxo.ty.clone()),
+                        );
+
+                        let wit_name = format!(
+                            "[static]{resource_name}.{}",
+                            to_kebab_case(function.name.as_str())
+                        );
+                        let ty = self.add_core_func_type(&FuncType::new(params, results));
+                        let idx = self.import_function(&interface_name, &wit_name, ty);
+                        self.callables.insert(function.id, idx);
+                    }
                 }
+                TypedUtxoPart::AbiImpl {
+                    span: _,
+                    abi,
+                    parts,
+                } => {
+                    let always_on = utxo.ty.always_abis.iter().any(|a| a == abi);
+                    if always_on {
+                        let this = Type::Utxo(utxo.ty.clone());
+                        for function in parts {
+                            let mut params = Vec::with_capacity(16);
+                            _ = self.star_to_core_types(function.name.span, &mut params, &this);
+                            for p in &function.params {
+                                _ = self.star_to_core_types(
+                                    p.name.span_or(function.name.span()),
+                                    &mut params,
+                                    &p.ty,
+                                );
+                            }
 
-                // Don't use declared result (always Unit). The imported version returns a handle.
-                let mut results = Vec::with_capacity(1);
-                _ = self.star_to_core_types(function.name.span(), &mut results, &utxo.ty);
+                            let mut results = Vec::with_capacity(1);
+                            _ = self.star_to_core_types(
+                                function.name.span(),
+                                &mut results,
+                                &function.return_type,
+                            );
 
-                let wit_name = format!(
-                    "[static]{resource_name}.{}",
-                    to_kebab_case(function.name.as_str())
-                );
-                let ty = self.add_core_func_type(&FuncType::new(params, results));
-                let idx = self.import_function(&interface_name, &wit_name, ty);
-                self.callables.insert(function.id, idx);
+                            let wit_name = format!(
+                                "[method]{resource_name}.{}",
+                                to_kebab_case(function.name.as_str())
+                            );
+                            let ty = self.add_core_func_type(&FuncType::new(params, results));
+                            let idx = self.import_function(&interface_name, &wit_name, ty);
+                            let abi_function_id = abi
+                                .methods
+                                .iter()
+                                .find(|m| m.name == function.name)
+                                .unwrap()
+                                .id;
+                            self.method_callables
+                                .insert((this.clone(), abi_function_id), idx);
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -1624,7 +1679,10 @@ impl Compiler {
         );
         self.resources.insert(utxo.name.to_string(), resource);
 
-        let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&utxo.ty).unwrap();
+        let (resource_new_fn, _resource_drop_fn) = *self
+            .resource_abi_fns
+            .get(&Type::Utxo(utxo.ty.clone()))
+            .unwrap();
 
         // Reserve the ID for the `resume;` function for this Utxo.
         let yield_start = self.yield_id;
@@ -1685,18 +1743,19 @@ impl Compiler {
                 }
                 TypedUtxoPart::AbiImpl {
                     span: _,
-                    abi,
+                    abi: _,
                     parts,
                 } => {
-                    _ = abi; // TODO: generate cast functions
+                    // TODO: generate cast functions
+                    let this = Type::Utxo(utxo.ty.clone());
                     for function in parts {
                         let core = self.visit_function(
-                            Some(&utxo.ty),
+                            Some(&this),
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
                         let sig = self.star_to_component_signature(
-                            Some(&utxo.ty),
+                            Some(&this),
                             &function.params,
                             &function.return_type,
                         );
@@ -1725,7 +1784,7 @@ impl Compiler {
         let end_global = self.globals.len();
         self.generate_storage_exports(
             &utxo.name,
-            &utxo.ty,
+            &Type::Utxo(utxo.ty.clone()),
             &mut iface,
             &interface_name,
             self.yield_global
@@ -2366,7 +2425,7 @@ impl Compiler {
                         func.instructions(bb).i64_const(value as i64);
                         Ok(())
                     }
-                    Type::Int(_) | Type::UtxoNamed(_) => {
+                    Type::Int(_) | Type::Utxo(_) => {
                         func.instructions(bb).i32_const(value as i32);
                         Ok(())
                     }
@@ -3049,12 +3108,31 @@ impl Compiler {
                 };
                 match &func_ty.callee {
                     Some(StaticFunction::Named(name)) => {
-                        let Some(&target) = self.callables.get(name) else {
-                            return Err(
-                                self.push_error(callee_span, "no callable found for identifier")
-                            );
-                        };
-                        self.visit_call(func, bb, locals, span, target, args)
+                        if let TypedExprKind::FieldAccess { target, .. } = &callee.node.kind {
+                            if let Some(&core_fn_idx) =
+                                self.method_callables.get(&(target.node.ty.clone(), *name))
+                            {
+                                self.visit_expr_stack(func, bb, locals, target.span, &target.node)?;
+                                self.visit_call(func, bb, locals, span, core_fn_idx, args)
+                            } else if let Some(&core_fn_idx) = self.callables.get(name) {
+                                self.visit_call(func, bb, locals, span, core_fn_idx, args)
+                            } else {
+                                Err(self.push_error(
+                                    callee_span,
+                                    format!(
+                                        "no callable found for method {name} on type {}",
+                                        target.node.ty
+                                    ),
+                                ))
+                            }
+                        } else if let Some(&core_fn_idx) = self.callables.get(name) {
+                            self.visit_call(func, bb, locals, span, core_fn_idx, args)
+                        } else {
+                            Err(self.push_error(
+                                callee_span,
+                                format!("no callable found for function {name}"),
+                            ))
+                        }
                     }
                     Some(StaticFunction::Constructor { variant }) => {
                         // Enum tuple variant constructor.

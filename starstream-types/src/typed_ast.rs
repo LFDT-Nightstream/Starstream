@@ -8,7 +8,8 @@
 use std::sync::Arc;
 
 use crate::{
-    AbiType, DUMMY_SPAN, FunctionExport, FunctionType, ImportSource, ScopedName, Span, Spanned,
+    AbiType, DUMMY_SPAN, EnumType, FunctionExport, ImportSource, RecordType, ScopedName, Span,
+    Spanned, TypedAbiMethodDecl, UtxoType,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -68,35 +69,19 @@ pub struct TypedFunctionParam {
 
 #[derive(Clone, Debug)]
 pub struct TypedStructDef {
-    pub name: Identifier,
-    pub fields: Vec<TypedStructField>,
-    pub ty: Type,
-}
-
-#[derive(Clone, Debug)]
-pub struct TypedStructField {
-    pub name: Identifier,
-    pub ty: Type,
+    pub ty: Arc<RecordType>,
 }
 
 #[derive(Clone, Debug)]
 pub struct TypedEnumDef {
-    pub name: Identifier,
-    pub variants: Vec<TypedEnumVariant>,
-    pub ty: Type,
-}
-
-#[derive(Clone, Debug)]
-pub struct TypedEnumVariant {
-    pub name: Identifier,
-    pub payload: TypedEnumVariantPayload,
+    pub ty: Arc<EnumType>,
 }
 
 #[derive(Clone, Debug)]
 pub struct TypedUtxoDef {
     pub name: Identifier,
     pub parts: Vec<TypedUtxoPart>,
-    pub ty: Type,
+    pub ty: Arc<UtxoType>,
 }
 
 #[derive(Clone, Debug)]
@@ -105,7 +90,7 @@ pub enum TypedUtxoPart {
     Function(Box<TypedFunctionDef>),
     AbiImpl {
         span: Span,
-        abi: Type,
+        abi: Arc<AbiType>,
         parts: Vec<TypedFunctionDef>,
     },
 }
@@ -144,46 +129,9 @@ pub struct TypedTokenGlobal {
 
 #[derive(Clone, Debug)]
 pub struct TypedAbiDef {
-    pub name: Identifier,
-    pub parts: Vec<TypedAbiPart>,
-}
-
-#[derive(Clone, Debug)]
-pub enum TypedAbiPart {
-    Event(TypedEventDef),
-    Effect(TypedEffectDef),
-    FnDecl(TypedAbiMethodDecl),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct TypedAbiMethodDecl {
-    pub name: Identifier,
-    pub span: Span,
-    pub ty: Arc<FunctionType>,
-}
-
-impl TypedAbiMethodDecl {
-    /// Get the stable hashable identity of this method type.
-    #[must_use]
-    pub fn identity(&self) -> &str {
-        // TODO: specify hashing for types and include real type signature here
-        self.name.as_str()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct TypedEventDef {
-    pub name: Identifier,
-    pub id: NameId,
-    pub params: Vec<TypedFunctionParam>,
-}
-
-#[derive(Clone, Debug)]
-pub struct TypedEffectDef {
-    pub name: Identifier,
-    pub id: NameId,
-    pub params: Vec<TypedFunctionParam>,
-    pub return_type: Type,
+    pub ty: Arc<AbiType>,
+    /// All functions. If you only want methods, use [AbiType::methods].
+    pub functions: Vec<TypedAbiMethodDecl>,
 }
 
 /// Typed statements.
@@ -394,13 +342,6 @@ pub enum TypedPattern {
     },
     /// `Enum::UnitVariant` constant.
     Constant { name: ScopedName, variant: usize },
-}
-
-#[derive(Clone, Debug)]
-pub enum TypedEnumVariantPayload {
-    Unit,
-    Tuple(Vec<Type>),
-    Struct(Vec<TypedStructField>),
 }
 
 #[derive(Clone, Debug)]
