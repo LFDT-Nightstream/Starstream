@@ -356,20 +356,22 @@ TypedProgram {
               )
               (import "starstream:std/builtin" (instance (;0;) (type 0)))
               (alias export 0 "utxo" (type (;1;)))
-              (type (;2;) (borrow 1))
-              (type (;3;) (own 1))
-              (alias export 0 "token" (type (;4;)))
-              (type (;5;) (borrow 4))
-              (type (;6;) (own 4))
-              (type (;7;)
+              (import "s-utxo" (type (;2;) (eq 1)))
+              (type (;3;) (borrow 2))
+              (type (;4;) (own 2))
+              (alias export 0 "token" (type (;5;)))
+              (import "s-token" (type (;6;) (eq 5)))
+              (type (;7;) (borrow 6))
+              (type (;8;) (own 6))
+              (type (;9;)
                 (instance
                   (type (;0;) (func (param "one" s32) (param "two" s32)))
                   (export (;0;) "hello" (func (type 0)))
                 )
               )
-              (import "starstream:events/foo" (instance (;1;) (type 7)))
-              (type (;8;) (func))
-              (export (;0;) "main" (func (type 8)))
+              (import "starstream:events/foo" (instance (;1;) (type 9)))
+              (type (;10;) (func))
+              (export (;0;) "main" (func (type 10)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -384,10 +386,21 @@ TypedProgram {
 package root:component;
 
 world root {
+  import starstream:std/builtin;
   import starstream:events/foo;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
 
   export main: func();
 }
+package starstream:std {
+  interface builtin {
+    resource utxo;
+
+    resource token;
+  }
+}
+
+
 package starstream:events {
   interface foo {
     hello: func(one: s32, two: s32);

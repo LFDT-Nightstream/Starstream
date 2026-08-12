@@ -3040,26 +3040,28 @@ TypedProgram {
               )
               (import "starstream:std/builtin" (instance (;0;) (type 0)))
               (alias export 0 "utxo" (type (;1;)))
-              (type (;2;) (borrow 1))
-              (type (;3;) (own 1))
-              (alias export 0 "token" (type (;4;)))
-              (type (;5;) (borrow 4))
-              (type (;6;) (own 4))
-              (type (;7;) (record (field "x" s64)))
-              (import "ctx" (type (;8;) (eq 7)))
-              (type (;9;) (tuple 8))
-              (type (;10;) (variant (case "wow" 9) (case "who")))
-              (import "thing" (type (;11;) (eq 10)))
-              (type (;12;) (tuple bool))
-              (type (;13;) (tuple s64))
-              (type (;14;) (tuple 11))
-              (type (;15;) (variant (case "bar" 12) (case "baz" 13) (case "thing" 14)))
-              (import "foo" (type (;16;) (eq 15)))
-              (type (;17;) (tuple s64 s64))
-              (type (;18;) (variant (case "ping") (case "point" 17)))
-              (import "message" (type (;19;) (eq 18)))
-              (type (;20;) (func))
-              (export (;0;) "get-bar" (func (type 20)))
+              (import "s-utxo" (type (;2;) (eq 1)))
+              (type (;3;) (borrow 2))
+              (type (;4;) (own 2))
+              (alias export 0 "token" (type (;5;)))
+              (import "s-token" (type (;6;) (eq 5)))
+              (type (;7;) (borrow 6))
+              (type (;8;) (own 6))
+              (type (;9;) (record (field "x" s64)))
+              (import "ctx" (type (;10;) (eq 9)))
+              (type (;11;) (tuple 10))
+              (type (;12;) (variant (case "wow" 11) (case "who")))
+              (import "thing" (type (;13;) (eq 12)))
+              (type (;14;) (tuple bool))
+              (type (;15;) (tuple s64))
+              (type (;16;) (tuple 13))
+              (type (;17;) (variant (case "bar" 14) (case "baz" 15) (case "thing" 16)))
+              (import "foo" (type (;18;) (eq 17)))
+              (type (;19;) (tuple s64 s64))
+              (type (;20;) (variant (case "ping") (case "point" 19)))
+              (import "message" (type (;21;) (eq 20)))
+              (type (;22;) (func))
+              (export (;0;) "get-bar" (func (type 22)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -3074,6 +3076,9 @@ TypedProgram {
 package root:component;
 
 world root {
+  import starstream:std/builtin;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
   record ctx {
     x: s64,
   }
@@ -3095,4 +3100,11 @@ world root {
   }
 
   export get-bar: func();
+}
+package starstream:std {
+  interface builtin {
+    resource utxo;
+
+    resource token;
+  }
 }

@@ -229,7 +229,15 @@ impl TypeBuilder<ComponentType> {
                 name: &resource.name,
             });
 
-            self.register_resource(resource, alias_idx);
+            // "equality" amounts to a `use` statement (mandatory).
+            let equality_idx = self.inner.type_count();
+            self.inner.import(
+                // The name to `use` as.
+                &resource.full_name,
+                ComponentTypeRef::Type(TypeBounds::Eq(alias_idx)),
+            );
+
+            self.register_resource(resource, equality_idx);
             // Following must use alias_idx or else wit-parser hits an unreachable!(), nice.
             self.resources.push((resource.clone(), alias_idx));
         }

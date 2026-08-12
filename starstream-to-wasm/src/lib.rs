@@ -1512,19 +1512,20 @@ impl Compiler {
     }
 
     fn pre_visit_utxo(&mut self, utxo: &TypedUtxoDef) {
-        let interface_name = to_kebab_case(utxo.name.as_str());
+        let export_interface_name = to_kebab_case(utxo.name.as_str());
+        let import_interface_name = format!("starstream:self/{}", export_interface_name);
         let resource_name = "utxo";
 
         // Allocate the synthetic `resource.new` and `resource.drop` imports.
         let ty = self.add_core_func_type(&FuncType::new([ValType::I32], [ValType::I32]));
         let new_fn = self.import_function(
-            &format!("[export]{interface_name}"),
+            &format!("[export]{export_interface_name}"),
             &format!("[resource-new]{resource_name}"),
             ty,
         );
         let ty = self.add_core_func_type(&FuncType::new([ValType::I32], []));
         let drop_fn = self.import_function(
-            &format!("[export]{interface_name}"),
+            &format!("[export]{export_interface_name}"),
             &format!("[resource-drop]{resource_name}"),
             ty,
         );
@@ -1559,7 +1560,7 @@ impl Compiler {
                             to_kebab_case(function.name.as_str())
                         );
                         let ty = self.add_core_func_type(&FuncType::new(params, results));
-                        let idx = self.import_function(&interface_name, &wit_name, ty);
+                        let idx = self.import_function(&import_interface_name, &wit_name, ty);
                         self.callables.insert(function.id, idx);
                     }
                 }
@@ -1594,7 +1595,7 @@ impl Compiler {
                                 to_kebab_case(function.name.as_str())
                             );
                             let ty = self.add_core_func_type(&FuncType::new(params, results));
-                            let idx = self.import_function(&interface_name, &wit_name, ty);
+                            let idx = self.import_function(&import_interface_name, &wit_name, ty);
                             let abi_function_id = abi
                                 .methods
                                 .iter()
@@ -1616,7 +1617,8 @@ impl Compiler {
         iface.inherit_parent(&self.world_type);
 
         // Declare the resource type.
-        let interface_name = to_kebab_case(utxo.name.as_str());
+        let export_interface_name = to_kebab_case(utxo.name.as_str());
+        let import_interface_name = format!("starstream:self/{}", export_interface_name);
         let resource_name = "utxo";
         let resource = iface.fresh_resource(resource_name, &format!("u-{}", utxo.name));
         self.star_to_component.insert(
@@ -1685,7 +1687,10 @@ impl Compiler {
                             core.idx,
                             &core.ty,
                         ) {
-                            self.export_core_fn(&format!("{interface_name}#{wit_name}"), func_idx);
+                            self.export_core_fn(
+                                &format!("{export_interface_name}#{wit_name}"),
+                                func_idx,
+                            );
                             iface.export_fn(&wit_name, &sig);
                         }
                     }
@@ -1718,7 +1723,10 @@ impl Compiler {
                             core.idx,
                             &core.ty,
                         ) {
-                            self.export_core_fn(&format!("{interface_name}#{wit_name}"), func_idx);
+                            self.export_core_fn(
+                                &format!("{export_interface_name}#{wit_name}"),
+                                func_idx,
+                            );
                             iface.export_fn(&wit_name, &sig);
                         }
                     }
@@ -1735,14 +1743,18 @@ impl Compiler {
             &utxo.name,
             &Type::Utxo(utxo.ty.clone()),
             &mut iface,
-            &interface_name,
+            &export_interface_name,
             self.yield_global
                 .into_iter()
                 .chain(start_global..end_global),
         );
 
-        self.world_type.export_interface(&interface_name, &iface);
-        self.world_type.import_interface(&interface_name, &iface);
+        self.world_type
+            .export_interface(&export_interface_name, &iface);
+        // It's illegal in WIT to `use` from an anonymous interface, which is
+        // necessary to refer to resources from it in exported functions.
+        self.world_type
+            .import_interface(&import_interface_name, &iface);
         self.current_resource = None;
 
         self.callables.extend(coordination_script_callables);
