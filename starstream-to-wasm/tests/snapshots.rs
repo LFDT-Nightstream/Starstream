@@ -134,7 +134,7 @@ fn inputs() {
                                 .validate(true)
                                 .module(&wasm)
                                 .unwrap_or_else(|err| {
-                                    panic!("{output}ComponentEncoder::module failed: {err:?}")
+                                    panic!("ComponentEncoder::module failed: {err:?}")
                                 })
                                 .encode()
                                 .expect("ComponentEncoder::encode failed");
@@ -160,7 +160,7 @@ fn inputs() {
             Ok(()) => {}
             Err(_) => {
                 panic!(
-                    "==== Panic processing a file ====\nPath: {path:?}\nCause: see above\n{output}"
+                    "==== Partial output for {path:?} ====\n{output}==== End partial output for {path:?} ===="
                 );
             }
         }

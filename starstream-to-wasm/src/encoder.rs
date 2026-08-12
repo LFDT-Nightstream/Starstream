@@ -1,16 +1,24 @@
-use std::{collections::HashMap, rc::Rc};
-
-use wasm_encoder::{
-    Alias, ComponentType, ComponentTypeEncoder, ComponentTypeRef, ComponentValType, InstanceType,
-    PrimitiveValType, TypeBounds,
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
 };
 
-use crate::component_abi::{ComponentAbiFunctionSignature, ComponentAbiType};
+use wasm_encoder::{
+    Alias, ComponentExportKind, ComponentOuterAliasKind, ComponentType, ComponentTypeEncoder,
+    ComponentTypeRef, ComponentValType, InstanceType, PrimitiveValType, TypeBounds,
+};
+
+use crate::{
+    component_abi::{ComponentAbiFunctionSignature, ComponentAbiType, Resource},
+    to_kebab_case,
+};
 
 #[derive(Default, Clone)]
-pub struct TypeBuilder<T: ?Sized> {
-    pub component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
+pub struct TypeBuilder<T> {
     pub inner: T,
+    imported_interfaces: HashSet<String>,
+    component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
+    resources: Vec<(Rc<Resource>, u32)>,
 }
 
 impl<T: TypeRegistry> TypeBuilder<T> {
@@ -107,15 +115,9 @@ impl<T: TypeRegistry> TypeBuilder<T> {
                 ComponentValType::Type(idx)
             }
             ComponentAbiType::Flags { .. } => todo!(),
-            ComponentAbiType::Own { resource } => {
-                let (idx, ty) = self.ty();
-                ty.defined_type().own(*resource);
-                ComponentValType::Type(idx)
-            }
-            ComponentAbiType::Borrow { resource } => {
-                let (idx, ty) = self.ty();
-                ty.defined_type().borrow(*resource);
-                ComponentValType::Type(idx)
+            ComponentAbiType::Own { resource } | ComponentAbiType::Borrow { resource } => {
+                // Handled separately by register_resource.
+                panic!("referencing unimported resource {resource:?}")
             }
             ComponentAbiType::Stream => todo!(),
             ComponentAbiType::Future => todo!(),
@@ -151,6 +153,106 @@ impl<T: TypeRegistry> TypeBuilder<T> {
     ) {
         let type_idx = self.encode_func(params, result);
         self.inner.export(name, ComponentTypeRef::Func(type_idx));
+    }
+
+    pub fn fresh_resource(&mut self, name: &str, debug: String) -> Rc<Resource> {
+        let rc = Rc::new(Resource {
+            name: to_kebab_case(name),
+            debug,
+        });
+        let idx = self.inner.type_count();
+        self.inner
+            .import_or_export(&rc.name, ComponentTypeRef::Type(TypeBounds::SubResource));
+        self.register_resource(&rc, idx);
+        self.resources.push((rc.clone(), idx));
+        rc
+    }
+
+    fn register_resource(&mut self, resource: &Rc<Resource>, resource_ty: u32) {
+        {
+            let (idx, ty) = (self.inner.type_count(), self.inner.ty());
+            ty.defined_type().borrow(resource_ty);
+            self.component_to_encoded.insert(
+                Rc::new(ComponentAbiType::Borrow {
+                    resource: resource.clone(),
+                }),
+                ComponentValType::Type(idx),
+            );
+        }
+        {
+            let (idx, ty) = (self.inner.type_count(), self.inner.ty());
+            ty.defined_type().own(resource_ty);
+            self.component_to_encoded.insert(
+                Rc::new(ComponentAbiType::Own {
+                    resource: resource.clone(),
+                }),
+                ComponentValType::Type(idx),
+            );
+        }
+    }
+
+    pub fn export_interface(&mut self, name: &str, child: &TypeBuilder<InstanceType>) -> u32 {
+        let (idx, ty) = self.ty();
+        ty.instance(&child.inner);
+
+        let instance_idx = self.inner.instance_count();
+        self.inner.export(name, ComponentTypeRef::Instance(idx));
+        self.lift_resources(child, instance_idx);
+        idx
+    }
+
+    fn lift_resources(&mut self, child: &TypeBuilder<InstanceType>, instance: u32) {
+        // Lift resources declared in the child interface.
+        for (resource, _) in &child.resources {
+            let alias_idx = self.inner.type_count();
+            self.inner.alias(Alias::InstanceExport {
+                instance,
+                kind: ComponentExportKind::Type,
+                name: &resource.name,
+            });
+            self.register_resource(resource, alias_idx);
+            self.resources.push((resource.clone(), alias_idx));
+        }
+    }
+}
+
+impl TypeBuilder<ComponentType> {
+    pub fn has_imported(&self, name: &str) -> bool {
+        self.imported_interfaces.contains(name)
+    }
+
+    pub fn import_interface(&mut self, name: &str, child: &TypeBuilder<InstanceType>) -> u32 {
+        assert!(self.imported_interfaces.insert(name.to_owned()));
+
+        let (idx, ty) = self.ty();
+        ty.instance(&child.inner);
+
+        let instance_idx = self.inner.instance_count();
+        self.inner
+            .import_or_export(name, ComponentTypeRef::Instance(idx));
+        self.lift_resources(child, instance_idx);
+
+        idx
+    }
+}
+
+impl TypeBuilder<InstanceType> {
+    pub fn new_interface() -> Self {
+        Self::default()
+    }
+
+    pub fn inherit_parent(&mut self, parent: &TypeBuilder<ComponentType>) {
+        // Lower resources declared in the parent interface.
+        for (resource, instance) in &parent.resources {
+            let alias_idx = self.inner.type_count();
+            self.inner.alias(Alias::Outer {
+                kind: ComponentOuterAliasKind::Type,
+                count: 1,
+                index: *instance,
+            });
+            self.register_resource(resource, alias_idx);
+            // no self.resources.push so as to not double-export
+        }
     }
 }
 

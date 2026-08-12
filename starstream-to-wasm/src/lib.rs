@@ -21,7 +21,7 @@ use wasm_encoder::{
     ComponentTypeRef, ComponentTypeSection, ConstExpr, CustomSection, DataSection, EntityType,
     ExportKind, ExportSection, FuncType, Function, FunctionSection, GlobalSection, GlobalType,
     Ieee32, Ieee64, ImportSection, InstanceType, InstructionSink, MemorySection, MemoryType,
-    Module, TypeBounds, TypeSection, ValType,
+    Module, TypeSection, ValType,
 };
 
 use crate::component_abi::{
@@ -203,8 +203,6 @@ struct Compiler {
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
-    imported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>>,
-    exported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>>,
     resource_abi_fns: HashMap<Type, (u32, u32)>,
 
     // Diagnostics.
@@ -224,8 +222,6 @@ struct Compiler {
     builtin_starstream_i64_add_checked: Option<u32>,
     builtin_starstream_i64_sub_checked: Option<u32>,
     builtin_starstream_i64_mul_checked: Option<u32>,
-    /// Map from resource full name to resource index.
-    resources: HashMap<String, u32>,
     /// Function bodies.
     code_bytes: Vec<Vec<u8>>,
 
@@ -318,21 +314,6 @@ impl Compiler {
             )
         )
         */
-
-        for (interface_name, instance) in self.imported_interfaces {
-            let (i, ty) = self.world_type.ty();
-            ty.instance(&instance.inner);
-            self.world_type
-                .inner
-                .import(&interface_name, ComponentTypeRef::Instance(i));
-        }
-        for (interface_name, instance) in self.exported_interfaces {
-            let (i, ty) = self.world_type.ty();
-            ty.instance(&instance.inner);
-            self.world_type
-                .inner
-                .export(&interface_name, ComponentTypeRef::Instance(i));
-        }
 
         // The package type must always have 0 imports and 1 export which is the world.
         // Export must be named namespace:package/world, but @version is optional.
@@ -951,46 +932,11 @@ impl Compiler {
                 ComponentAbiType::Tuple { fields }
             }
             // Utxo handles are always borrowed for now. The ledger is the "owner".
-            Type::UtxoAny => {
-                if let Some(idx) = self.resources.get("Utxo") {
-                    ComponentAbiType::Borrow { resource: *idx }
-                } else {
-                    let idx = self.world_type.inner.type_count();
-                    // TODO: this should properly be an import from some starstream/std, not our own export.
-                    self.world_type
-                        .inner
-                        .import("utxo", ComponentTypeRef::Type(TypeBounds::SubResource));
-                    self.resources.insert("Utxo".to_owned(), idx);
-                    ComponentAbiType::Borrow { resource: idx }
-                }
-            }
-            Type::Utxo(utxo) => {
-                if let Some(&idx) = self.resources.get(&utxo.name) {
-                    ComponentAbiType::Borrow { resource: idx }
-                } else {
-                    return None;
-                }
-            }
+            Type::UtxoAny => unreachable!(),
+            Type::Utxo(utxo) => panic!("referencing unregistered utxo {utxo:?}"),
             // Token handles mirror Utxo: always borrowed, the ledger owns them.
-            Type::TokenAny => {
-                if let Some(idx) = self.resources.get("Token") {
-                    ComponentAbiType::Borrow { resource: *idx }
-                } else {
-                    let idx = self.world_type.inner.type_count();
-                    self.world_type
-                        .inner
-                        .import("token", ComponentTypeRef::Type(TypeBounds::SubResource));
-                    self.resources.insert("Token".to_owned(), idx);
-                    ComponentAbiType::Borrow { resource: idx }
-                }
-            }
-            Type::Token(token) => {
-                if let Some(&idx) = self.resources.get(&token.name) {
-                    ComponentAbiType::Borrow { resource: idx }
-                } else {
-                    return None;
-                }
-            }
+            Type::TokenAny => unreachable!(),
+            Type::Token(token) => panic!("referencing unregistered token {token:?}"),
             Type::Record(record) => {
                 let fields = record
                     .fields
@@ -1277,35 +1223,70 @@ impl Compiler {
     /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &TypedProgram) {
         // First, import builtins.
+        if !self.world_type.has_imported("starstream:std/builtin") {
+            let mut builtin = TypeBuilder::new_interface();
+            self.star_to_component.insert(
+                Type::UtxoAny,
+                Rc::new(ComponentAbiType::Borrow {
+                    resource: builtin.fresh_resource("utxo", "builtin/utxo".to_owned()),
+                }),
+            );
+            self.star_to_component.insert(
+                Type::TokenAny,
+                Rc::new(ComponentAbiType::Borrow {
+                    resource: builtin.fresh_resource("token", "builtin/token".to_owned()),
+                }),
+            );
+            self.world_type
+                .import_interface("starstream:std/builtin", &builtin);
+        }
+
         // Utxo context methods needed if the program contains any UTXOs.
         if program
             .definitions
             .iter()
             .any(|d| matches!(d, TypedDefinition::Utxo(_)))
+            && !self.world_type.has_imported("starstream:std/utxo-context")
         {
-            let core_fn_ty = self.add_core_func_type(&FuncType::new([ValType::I64; 4], []));
-            self.builtin_implements_method =
-                self.import_function("starstream:std/builtin", "implements-method", core_fn_ty);
+            let mut utxo_context = TypeBuilder::new_interface();
 
-            let builtin = self
-                .imported_interfaces
-                .entry("starstream:std/builtin".to_owned())
-                .or_default();
+            let core_fn_ty = self.add_core_func_type(&FuncType::new([ValType::I64; 4], []));
+            self.builtin_implements_method = self.import_function(
+                "starstream:std/utxo-context",
+                "implements-method",
+                core_fn_ty,
+            );
+
             let u64_ty = Rc::new(ComponentAbiType::U64);
             let tuple = Rc::new(ComponentAbiType::Tuple {
                 fields: vec![u64_ty; 4],
             });
-            builtin.export_fn_2("implements-method", [("hash", tuple)].into_iter(), None);
+            utxo_context.export_fn_2("implements-method", [("hash", tuple)].into_iter(), None);
 
             self.yield_global = Some(self.add_globals([ValType::I32], "yield"));
+
+            self.world_type
+                .import_interface("starstream:std/utxo-context", &utxo_context);
+        }
+
+        // Import anything the source file explicitly imports.
+        let mut imported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>> = BTreeMap::new();
+        for definition in &program.definitions {
+            match definition {
+                TypedDefinition::Import(def) => self.visit_import(def, &mut imported_interfaces),
+                TypedDefinition::Abi(def) => self.visit_abi(def, &mut imported_interfaces),
+                // All others handled below.
+                _ => {}
+            }
+        }
+        for (interface_name, instance) in imported_interfaces {
+            self.world_type.import_interface(&interface_name, &instance);
         }
 
         // In the Wasm output, imported functions must precede defined
         // functions, so take care of them now.
         for definition in &program.definitions {
             match definition {
-                TypedDefinition::Import(def) => self.visit_import(def),
-                TypedDefinition::Abi(def) => self.visit_abi(def),
                 TypedDefinition::Utxo(def) => self.pre_visit_utxo(def),
                 TypedDefinition::Token(def) => self.pre_visit_token(def),
                 // All others handled below.
@@ -1313,6 +1294,7 @@ impl Compiler {
             }
         }
 
+        // Function body compilation.
         for definition in &program.definitions {
             match definition {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
@@ -1343,7 +1325,11 @@ impl Compiler {
         }
     }
 
-    fn visit_import(&mut self, def: &TypedImportDef) {
+    fn visit_import(
+        &mut self,
+        def: &TypedImportDef,
+        imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
+    ) {
         if matches!(&def.from, ImportSource::Path { .. }) {
             // For now, path imports have been visited in topological order,
             // and visit_function already called for them, so we don't need to
@@ -1385,10 +1371,7 @@ impl Compiler {
                             })
                             .collect::<Vec<_>>();
                         let comp_result = self.star_to_component_type(&func_ty.result);
-                        let iface = self
-                            .imported_interfaces
-                            .entry(def.from.to_string())
-                            .or_default();
+                        let iface = imported_interfaces.entry(def.from.to_string()).or_default();
                         iface.export_fn_2(&kebab, comp_params.into_iter(), comp_result.as_ref());
                     }
                 }
@@ -1397,16 +1380,26 @@ impl Compiler {
         }
     }
 
-    fn visit_abi(&mut self, def: &TypedAbiDef) {
+    fn visit_abi(
+        &mut self,
+        def: &TypedAbiDef,
+        imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
+    ) {
         for part in &def.functions {
             match part.ty.kind {
                 FunctionKind::Emit => {
                     assert_eq!(part.ty.result, Type::Unit);
-                    let func = self.declare_event(&def.ty.name, &part.name, &part.ty.params);
+                    let func = self.declare_event(
+                        imported_interfaces,
+                        &def.ty.name,
+                        &part.name,
+                        &part.ty.params,
+                    );
                     self.callables.insert(part.id, func);
                 }
                 FunctionKind::Raise => {
                     let func = self.declare_effect(
+                        imported_interfaces,
                         &def.ty.name,
                         &part.name,
                         &part.ty.params,
@@ -1619,17 +1612,19 @@ impl Compiler {
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
-        let mut iface = TypeBuilder::<InstanceType>::default();
+        let mut iface = TypeBuilder::new_interface();
+        iface.inherit_parent(&self.world_type);
 
         // Declare the resource type.
         let interface_name = to_kebab_case(utxo.name.as_str());
         let resource_name = "utxo";
-        let resource = self.world_type.inner.type_count();
-        iface.inner.export(
-            resource_name,
-            ComponentTypeRef::Type(TypeBounds::SubResource),
+        let resource = iface.fresh_resource(resource_name, utxo.name.to_string());
+        self.star_to_component.insert(
+            Type::Utxo(utxo.ty.clone()),
+            Rc::new(ComponentAbiType::Borrow {
+                resource: resource.clone(),
+            }),
         );
-        self.resources.insert(utxo.name.to_string(), resource);
 
         let (resource_new_fn, _resource_drop_fn) = *self
             .resource_abi_fns
@@ -1677,7 +1672,9 @@ impl Compiler {
                             &function.ty.params,
                             &function.ty.result,
                         );
-                        sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
+                        sig.result = Some(Rc::new(ComponentAbiType::Own {
+                            resource: resource.clone(),
+                        }));
                         let wit_name = format!(
                             "[static]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())
@@ -1744,9 +1741,8 @@ impl Compiler {
                 .chain(start_global..end_global),
         );
 
-        self.imported_interfaces
-            .insert(interface_name.clone(), iface.clone());
-        self.exported_interfaces.insert(interface_name, iface);
+        self.world_type.export_interface(&interface_name, &iface);
+        self.world_type.import_interface(&interface_name, &iface);
         self.current_resource = None;
 
         self.callables.extend(coordination_script_callables);
@@ -1774,17 +1770,19 @@ impl Compiler {
     }
 
     fn visit_token(&mut self, token: &TypedTokenDef) {
-        let mut iface = TypeBuilder::<InstanceType>::default();
+        let mut iface = TypeBuilder::new_interface();
+        iface.inherit_parent(&self.world_type);
 
         // Declare the resource type.
         let interface_name = to_kebab_case(token.name.as_str());
         let resource_name = "token";
-        let resource = self.world_type.inner.type_count();
-        iface.inner.export(
-            resource_name,
-            ComponentTypeRef::Type(TypeBounds::SubResource),
+        let resource = iface.fresh_resource(resource_name, token.name.to_string());
+        self.star_to_component.insert(
+            Type::Token(token.ty.clone()),
+            Rc::new(ComponentAbiType::Borrow {
+                resource: resource.clone(),
+            }),
         );
-        self.resources.insert(token.name.to_string(), resource);
 
         let (resource_new_fn, _resource_drop_fn) = *self
             .resource_abi_fns
@@ -1828,7 +1826,9 @@ impl Compiler {
                                 &function.ty.params,
                                 &function.ty.result,
                             );
-                            sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
+                            sig.result = Some(Rc::new(ComponentAbiType::Own {
+                                resource: resource.clone(),
+                            }));
                             let wit_name = format!(
                                 "[static]{resource_name}.{}",
                                 to_kebab_case(function.name.as_str())
@@ -1927,7 +1927,7 @@ impl Compiler {
             start_global..end_global,
         );
 
-        self.exported_interfaces.insert(interface_name, iface);
+        self.world_type.export_interface(&interface_name, &iface);
         self.current_resource = None;
     }
 

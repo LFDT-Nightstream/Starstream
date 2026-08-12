@@ -61,19 +61,28 @@ pub enum ComponentAbiType {
         labels: Vec<String>,
     },
     Own {
-        resource: u32,
+        resource: Rc<Resource>,
     },
     Borrow {
-        resource: u32,
+        resource: Rc<Resource>,
     },
     Stream,
     Future,
 }
 
+/// Resource type.
+#[derive(Hash, PartialEq, Eq, Debug)]
+pub struct Resource {
+    pub name: String,
+    pub debug: String,
+}
+
 impl ComponentAbiType {
     pub fn convert_resource_to_owned(self: &Rc<Self>) -> Rc<ComponentAbiType> {
-        match **self {
-            ComponentAbiType::Borrow { resource } => Rc::new(ComponentAbiType::Own { resource }),
+        match &**self {
+            ComponentAbiType::Borrow { resource } => Rc::new(ComponentAbiType::Own {
+                resource: resource.clone(),
+            }),
             _ => self.clone(),
         }
     }

@@ -5,14 +5,17 @@
 //!
 //! [wit-worlds]: https://starstream.nightstream.dev/wit-worlds
 
-use starstream_types::{Identifier, Type, TypedFunctionParam};
-use wasm_encoder::FuncType;
+use std::collections::BTreeMap;
 
-use crate::{Compiler, to_kebab_case};
+use starstream_types::{Identifier, Type, TypedFunctionParam};
+use wasm_encoder::{FuncType, InstanceType};
+
+use crate::{Compiler, encoder::TypeBuilder, to_kebab_case};
 
 impl Compiler {
     pub fn declare_event(
         &mut self,
+        imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
         abi_name: &Identifier,
         event_name: &Identifier,
         params: &[TypedFunctionParam],
@@ -41,7 +44,7 @@ impl Compiler {
             })
             .collect::<Vec<_>>();
         let comp_result = None;
-        let iface = self.imported_interfaces.entry(interface).or_default();
+        let iface = imported_interfaces.entry(interface).or_default();
         iface.export_fn_2(&kebab, comp_params.into_iter(), comp_result.as_ref());
 
         func_idx
@@ -49,6 +52,7 @@ impl Compiler {
 
     pub fn declare_effect(
         &mut self,
+        imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
         abi_name: &Identifier,
         effect_name: &Identifier,
         params: &[TypedFunctionParam],
@@ -78,7 +82,7 @@ impl Compiler {
             })
             .collect::<Vec<_>>();
         let comp_result = self.star_to_component_type(result);
-        let iface = self.imported_interfaces.entry(interface).or_default();
+        let iface = imported_interfaces.entry(interface).or_default();
         iface.export_fn_2(&kebab, comp_params.into_iter(), comp_result.as_ref());
 
         func_idx
