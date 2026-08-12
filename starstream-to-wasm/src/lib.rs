@@ -906,7 +906,9 @@ impl Compiler {
         }
 
         let cat = match ty {
-            Type::Var(_) => todo!(),
+            Type::Var(_) => unreachable!(),
+            Type::Unit => return None,
+            Type::Bool => ComponentAbiType::Bool,
             Type::Int(w) => match w {
                 IntWidth::I8 => ComponentAbiType::S8,
                 IntWidth::I16 => ComponentAbiType::S16,
@@ -917,10 +919,6 @@ impl Compiler {
                 IntWidth::U32 => ComponentAbiType::U32,
                 IntWidth::U64 => ComponentAbiType::U64,
             },
-            Type::Bool => ComponentAbiType::Bool,
-            Type::Unit => {
-                return None;
-            }
             Type::Function { .. } => todo!(),
             Type::Tuple(items) => {
                 let fields: Vec<_> = items
@@ -932,12 +930,6 @@ impl Compiler {
                 }
                 ComponentAbiType::Tuple { fields }
             }
-            // Utxo handles are always borrowed for now. The ledger is the "owner".
-            Type::UtxoAny => unreachable!(),
-            Type::Utxo(utxo) => panic!("referencing unregistered utxo {utxo:?}"),
-            // Token handles mirror Utxo: always borrowed, the ledger owns them.
-            Type::TokenAny => unreachable!(),
-            Type::Token(token) => panic!("referencing unregistered token {token:?}"),
             Type::Record(record) => {
                 let fields = record
                     .fields
@@ -1029,10 +1021,14 @@ impl Compiler {
                     .collect();
                 ComponentAbiType::Variant { cases }
             }
-            Type::Abi(_) => {
-                // ABI narrowing is a type-checker-only concept; no codegen yet.
-                return None;
-            }
+            // Utxo and tuple handles are manually inserted on creation,
+            // not handled here.
+            Type::UtxoAny => unreachable!(), // Always preregistered.
+            Type::Utxo(utxo) => panic!("referencing unregistered utxo {utxo:?}"),
+            Type::TokenAny => unreachable!(), // Always preregistered.
+            Type::Token(token) => panic!("referencing unregistered token {token:?}"),
+            // ABI handle types aren't implemented yet.
+            Type::Abi(_) => todo!(),
         };
 
         let cat = Rc::new(cat);
