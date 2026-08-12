@@ -155,10 +155,10 @@ impl<T: TypeRegistry> TypeBuilder<T> {
         self.inner.export(name, ComponentTypeRef::Func(type_idx));
     }
 
-    pub fn fresh_resource(&mut self, name: &str, debug: String) -> Rc<Resource> {
+    pub fn fresh_resource(&mut self, name: &str, full_name: &str) -> Rc<Resource> {
         let rc = Rc::new(Resource {
             name: to_kebab_case(name),
-            debug,
+            full_name: to_kebab_case(full_name),
         });
         let idx = self.inner.type_count();
         self.inner
@@ -194,25 +194,9 @@ impl<T: TypeRegistry> TypeBuilder<T> {
     pub fn export_interface(&mut self, name: &str, child: &TypeBuilder<InstanceType>) -> u32 {
         let (idx, ty) = self.ty();
         ty.instance(&child.inner);
-
-        let instance_idx = self.inner.instance_count();
         self.inner.export(name, ComponentTypeRef::Instance(idx));
-        self.lift_resources(child, instance_idx);
+        // No lift_resources here as it isn't legal binary WIT.
         idx
-    }
-
-    fn lift_resources(&mut self, child: &TypeBuilder<InstanceType>, instance: u32) {
-        // Lift resources declared in the child interface.
-        for (resource, _) in &child.resources {
-            let alias_idx = self.inner.type_count();
-            self.inner.alias(Alias::InstanceExport {
-                instance,
-                kind: ComponentExportKind::Type,
-                name: &resource.name,
-            });
-            self.register_resource(resource, alias_idx);
-            self.resources.push((resource.clone(), alias_idx));
-        }
     }
 }
 
@@ -234,6 +218,22 @@ impl TypeBuilder<ComponentType> {
 
         idx
     }
+
+    fn lift_resources(&mut self, child: &TypeBuilder<InstanceType>, instance: u32) {
+        // Lift resources declared in the child interface.
+        for (resource, _) in &child.resources {
+            let alias_idx = self.inner.type_count();
+            self.inner.alias(Alias::InstanceExport {
+                instance,
+                kind: ComponentExportKind::Type,
+                name: &resource.name,
+            });
+
+            self.register_resource(resource, alias_idx);
+            // Following must use alias_idx or else wit-parser hits an unreachable!(), nice.
+            self.resources.push((resource.clone(), alias_idx));
+        }
+    }
 }
 
 impl TypeBuilder<InstanceType> {
@@ -244,13 +244,23 @@ impl TypeBuilder<InstanceType> {
     pub fn inherit_parent(&mut self, parent: &TypeBuilder<ComponentType>) {
         // Lower resources declared in the parent interface.
         for (resource, instance) in &parent.resources {
+            // "alias" makes the type available on a binary level.
             let alias_idx = self.inner.type_count();
             self.inner.alias(Alias::Outer {
                 kind: ComponentOuterAliasKind::Type,
                 count: 1,
                 index: *instance,
             });
-            self.register_resource(resource, alias_idx);
+
+            // "equality" amounts to a `use` statement (mandatory).
+            let equality_idx = self.inner.type_count();
+            self.inner.export(
+                // The name to `use` as.
+                &resource.full_name,
+                ComponentTypeRef::Type(TypeBounds::Eq(alias_idx)),
+            );
+
+            self.register_resource(resource, equality_idx);
             // no self.resources.push so as to not double-export
         }
     }

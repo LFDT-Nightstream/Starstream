@@ -73,8 +73,11 @@ pub enum ComponentAbiType {
 /// Resource type.
 #[derive(Hash, PartialEq, Eq, Debug)]
 pub struct Resource {
+    /// The true name of the resource. How it will be exported. Like `utxo`.
     pub name: String,
-    pub debug: String,
+    /// A globally unambiguous name, like `builtin-utxo` or `u-my-utxo`,
+    /// for WIT `use` statements.
+    pub full_name: String,
 }
 
 impl ComponentAbiType {

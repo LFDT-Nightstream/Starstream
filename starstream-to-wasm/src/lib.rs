@@ -1228,13 +1228,13 @@ impl Compiler {
             self.star_to_component.insert(
                 Type::UtxoAny,
                 Rc::new(ComponentAbiType::Borrow {
-                    resource: builtin.fresh_resource("utxo", "builtin/utxo".to_owned()),
+                    resource: builtin.fresh_resource("utxo", "s-utxo"),
                 }),
             );
             self.star_to_component.insert(
                 Type::TokenAny,
                 Rc::new(ComponentAbiType::Borrow {
-                    resource: builtin.fresh_resource("token", "builtin/token".to_owned()),
+                    resource: builtin.fresh_resource("token", "s-token"),
                 }),
             );
             self.world_type
@@ -1618,7 +1618,7 @@ impl Compiler {
         // Declare the resource type.
         let interface_name = to_kebab_case(utxo.name.as_str());
         let resource_name = "utxo";
-        let resource = iface.fresh_resource(resource_name, utxo.name.to_string());
+        let resource = iface.fresh_resource(resource_name, &format!("u-{}", utxo.name));
         self.star_to_component.insert(
             Type::Utxo(utxo.ty.clone()),
             Rc::new(ComponentAbiType::Borrow {
@@ -1776,7 +1776,7 @@ impl Compiler {
         // Declare the resource type.
         let interface_name = to_kebab_case(token.name.as_str());
         let resource_name = "token";
-        let resource = iface.fresh_resource(resource_name, token.name.to_string());
+        let resource = iface.fresh_resource(resource_name, &format!("t-{}", token.name));
         self.star_to_component.insert(
             Type::Token(token.ty.clone()),
             Rc::new(ComponentAbiType::Borrow {
@@ -4089,7 +4089,7 @@ fn to_kebab_case(name: &str) -> String {
                 }
             }
             out.push(ch);
-        } else if (ch == '_' || ch == ':')
+        } else if (ch == '_' || ch == ':' || ch == '-')
             && let Some(l) = out.chars().last()
             && l != '-'
         {
