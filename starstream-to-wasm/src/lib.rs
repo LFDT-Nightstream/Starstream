@@ -27,14 +27,15 @@ use wasm_encoder::{
 use crate::component_abi::{
     ComponentAbiFunctionSignature, ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS,
 };
+use crate::component_encoder::TypeBuilder;
 use crate::decision_tree::{Ctor, DecisionTree, Matrix, Pat, Row};
-use crate::encoder::TypeBuilder;
 use crate::ir::{ControlFlowGraph, Out};
 use crate::stackifier::stackify;
 
 mod component_abi;
+mod component_encoder;
 mod decision_tree;
-mod encoder;
+mod intrinsics;
 mod ir;
 mod stackifier;
 mod world_spec;
@@ -197,9 +198,6 @@ struct Compiler {
     code: CodeSection,
     data: DataSection,
 
-    imported_functions: u32,
-    builtin_implements_method: u32,
-
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
@@ -215,13 +213,13 @@ struct Compiler {
 
     // Function building.
     core_func_type_cache: HashMap<FuncType, u32>,
+    imported_functions: u32,
     /// Map from name to function index.
     callables: HashMap<NameId, u32>,
     /// Map from (this type, name) to function index, for calling ABI methods on concrete UTXOs.
     method_callables: HashMap<(Type, NameId), u32>,
-    builtin_starstream_i64_add_checked: Option<u32>,
-    builtin_starstream_i64_sub_checked: Option<u32>,
-    builtin_starstream_i64_mul_checked: Option<u32>,
+    intrinsics: intrinsics::Intrinsics,
+    builtins: world_spec::Builtins,
     /// Function bodies.
     code_bytes: Vec<Vec<u8>>,
 
@@ -541,220 +539,6 @@ impl Compiler {
 
     fn export_core_fn(&mut self, name: &str, idx: u32) {
         self.exports.export(name, ExportKind::Func, idx);
-    }
-
-    /// Get or create the `__starstream_i64_add_checked` function for overflow-checked addition.
-    /// Returns the function index.
-    fn get_or_create_i64_add_checked(&mut self) -> u32 {
-        if let Some(checked_sum) = self.builtin_starstream_i64_add_checked {
-            return checked_sum;
-        }
-
-        let params = [ValType::I64, ValType::I64];
-        let result = [ValType::I64];
-        let mut code = wasm_encoder::Function::new_with_locals_types([
-            // 0-1 are params, 2+ are here
-            ValType::I64,
-        ]);
-        let sum_local = 2;
-
-        code.instructions().local_get(0); //  [x]
-        code.instructions().local_get(1); //  [x, y]
-        code.instructions().i64_add();
-        code.instructions().local_tee(sum_local); //  [sum]
-
-        // Check for overflow.
-
-        // (x^y)>=0
-        code.instructions().local_get(0); //  [sum, x]
-        code.instructions().local_get(1); //  [sum, x, y]
-        code.instructions().i64_xor(); //  [sum, x^y]
-        code.instructions().i64_const(0); //  [sum, x^y, 0]
-        code.instructions().i64_ge_s(); //  [sum, (x^y)>=0]
-
-        // (sum^x)<0
-        code.instructions().local_get(sum_local); //  [sum, (x^y)>=0, sum]
-        code.instructions().local_get(0); //  [sum, (x^y)>=0, sum, x]
-        code.instructions().i64_xor(); //  [sum, (x^y)>=0, sum^x]
-        code.instructions().i64_const(0); //  [sum, (x^y)>=0, sum^x, 0]
-        code.instructions().i64_lt_s(); //  [sum, (x^y)>=0, (sum^x)<0]
-        code.instructions().i32_and(); //  [sum, overflow_flag]
-
-        // If overflow_flag != 0, trap.
-        code.instructions().i32_const(0); //  [sum, overflow_flag, 0]
-        code.instructions().i32_ne(); //  [sum, overflowed?]
-        code.instructions().if_(BlockType::Empty); //  [sum]
-        code.instructions().unreachable();
-        code.instructions().end();
-
-        // Sum is already on stack, add function body end
-        code.instructions().end();
-
-        let idx = self.add_function(&FuncType::new(params, result), code.into_raw_body());
-        self.builtin_starstream_i64_add_checked = Some(idx);
-        idx
-    }
-
-    /// Get or create the `__starstream_i64_sub_checked` function for overflow-checked subtraction.
-    /// Returns the function index.
-    fn get_or_create_i64_sub_checked(&mut self) -> u32 {
-        if let Some(checked_sub) = self.builtin_starstream_i64_sub_checked {
-            return checked_sub;
-        }
-
-        let params = [ValType::I64, ValType::I64];
-        let result = [ValType::I64];
-        let mut code = wasm_encoder::Function::new_with_locals_types([
-            // 0-1 are params, 2+ are here
-            ValType::I64,
-        ]);
-        let diff_local = 2;
-
-        code.instructions().local_get(0); //  [x]
-        code.instructions().local_get(1); //  [x, y]
-        code.instructions().i64_sub();
-        code.instructions().local_tee(diff_local); //  [diff]
-
-        // Check for overflow.
-        // Overflow occurs when subtracting a negative from a positive yields negative,
-        // or subtracting a positive from a negative yields positive.
-        // In other words: (x^y)<0 && (diff^x)<0
-
-        // (x^y)<0
-        code.instructions().local_get(0); //  [diff, x]
-        code.instructions().local_get(1); //  [diff, x, y]
-        code.instructions().i64_xor(); //  [diff, x^y]
-        code.instructions().i64_const(0); //  [diff, x^y, 0]
-        code.instructions().i64_lt_s(); //  [diff, (x^y)<0]
-
-        // (diff^x)<0
-        code.instructions().local_get(diff_local); //  [diff, (x^y)<0, diff]
-        code.instructions().local_get(0); //  [diff, (x^y)<0, diff, x]
-        code.instructions().i64_xor(); //  [diff, (x^y)<0, diff^x]
-        code.instructions().i64_const(0); //  [diff, (x^y)<0, diff^x, 0]
-        code.instructions().i64_lt_s(); //  [diff, (x^y)<0, (diff^x)<0]
-        code.instructions().i32_and(); //  [diff, overflow_flag]
-
-        // If overflow_flag != 0, trap.
-        code.instructions().i32_const(0); //  [diff, overflow_flag, 0]
-        code.instructions().i32_ne(); //  [diff, overflowed?]
-        code.instructions().if_(BlockType::Empty); //  [diff]
-        code.instructions().unreachable();
-        code.instructions().end();
-
-        // Diff is already on stack, add function body end
-        code.instructions().end();
-
-        let idx = self.add_function(&FuncType::new(params, result), code.into_raw_body());
-        self.builtin_starstream_i64_sub_checked = Some(idx);
-        idx
-    }
-
-    /// Get or create the `__starstream_i64_mul_checked` function for overflow-checked multiplication.
-    /// Returns the function index.
-    fn get_or_create_i64_mul_checked(&mut self) -> u32 {
-        if let Some(checked_mul) = self.builtin_starstream_i64_mul_checked {
-            return checked_mul;
-        }
-
-        let params = [ValType::I64, ValType::I64];
-        let result = [ValType::I64];
-        let mut code = wasm_encoder::Function::new_with_locals_types([
-            // 0-1 are params, 2+ are here
-            ValType::I64,
-            ValType::I64,
-            ValType::I64,
-        ]);
-        let product_local = 2;
-        let x_local = 3;
-        let y_local = 4;
-
-        // Store parameters in locals for reuse
-        code.instructions().local_get(0); //  [x]
-        code.instructions().local_tee(x_local); //  [x]
-        code.instructions().local_get(1); //  [x, y]
-        code.instructions().local_tee(y_local); //  [x, y]
-        code.instructions().i64_mul();
-        code.instructions().local_tee(product_local); //  [product]
-
-        // Check for overflow.
-        // For multiplication overflow detection, we check:
-        // 1. If y == 0, no overflow
-        // 2. If product / y != x, then overflow occurred
-        // Special case: MIN * -1 overflows (since -MIN doesn't fit in i64)
-
-        // Special case: check if x == MIN && y == -1
-        code.instructions().local_get(x_local); //  [product, x]
-        code.instructions().i64_const(i64::MIN); //  [product, x, MIN]
-        code.instructions().i64_eq(); //  [product, x==MIN]
-        code.instructions().local_get(y_local); //  [product, x==MIN, y]
-        code.instructions().i64_const(-1); //  [product, x==MIN, y, -1]
-        code.instructions().i64_eq(); //  [product, x==MIN, y==-1]
-        code.instructions().i32_and(); //  [product, (x==MIN && y==-1)]
-
-        // Also check y == MIN && x == -1
-        code.instructions().local_get(y_local); //  [product, (x==MIN && y==-1), y]
-        code.instructions().i64_const(i64::MIN); //  [product, (x==MIN && y==-1), y, MIN]
-        code.instructions().i64_eq(); //  [product, (x==MIN && y==-1), y==MIN]
-        code.instructions().local_get(x_local); //  [product, (x==MIN && y==-1), y==MIN, x]
-        code.instructions().i64_const(-1); //  [product, (x==MIN && y==-1), y==MIN, x, -1]
-        code.instructions().i64_eq(); //  [product, (x==MIN && y==-1), y==MIN, x==-1]
-        code.instructions().i32_and(); //  [product, (x==MIN && y==-1), (y==MIN && x==-1)]
-        code.instructions().i32_or(); //  [product, overflow_special]
-
-        code.instructions().if_(BlockType::Empty); //  [product]
-        code.instructions().unreachable();
-        code.instructions().end();
-
-        // Check regular overflow: if y != 0 and product / y != x
-        code.instructions().local_get(y_local); //  [product, y]
-        code.instructions().i64_const(0); //  [product, y, 0]
-        code.instructions().i64_ne(); //  [product, y!=0]
-        code.instructions().if_(BlockType::Empty); //  [product]
-        // y != 0, so check if product / y == x
-        code.instructions().local_get(product_local); //  [product, product]
-        code.instructions().local_get(y_local); //  [product, product, y]
-        code.instructions().i64_div_s(); //  [product, product/y]
-        code.instructions().local_get(x_local); //  [product, product/y, x]
-        code.instructions().i64_ne(); //  [product, (product/y)!=x]
-        code.instructions().if_(BlockType::Empty); //  [product]
-        code.instructions().unreachable();
-        code.instructions().end();
-        code.instructions().end();
-
-        // Product is already on stack, add function body end
-        code.instructions().end();
-
-        let idx = self.add_function(&FuncType::new(params, result), code.into_raw_body());
-        self.builtin_starstream_i64_mul_checked = Some(idx);
-        idx
-    }
-
-    /// Emit truncation/masking after an i32 operation for sub-32-bit types.
-    fn emit_truncate(&self, func: &mut StFunction, bb: &mut usize, w: IntWidth) {
-        match w {
-            IntWidth::I8 => {
-                func.instructions(bb).i32_const(24);
-                func.instructions(bb).i32_shl();
-                func.instructions(bb).i32_const(24);
-                func.instructions(bb).i32_shr_s();
-            }
-            IntWidth::I16 => {
-                func.instructions(bb).i32_const(16);
-                func.instructions(bb).i32_shl();
-                func.instructions(bb).i32_const(16);
-                func.instructions(bb).i32_shr_s();
-            }
-            IntWidth::U8 => {
-                func.instructions(bb).i32_const(0xFF);
-                func.instructions(bb).i32_and();
-            }
-            IntWidth::U16 => {
-                func.instructions(bb).i32_const(0xFFFF);
-                func.instructions(bb).i32_and();
-            }
-            _ => {} // i32, u32, i64, u64 don't need truncation
-        }
     }
 
     // ------------------------------------------------------------------------
@@ -1251,7 +1035,7 @@ impl Compiler {
                 resource: utxo_context.fresh_resource("utxo-context", "s-utxo-context"),
             });
 
-            self.builtin_implements_method = self.import_function(
+            self.builtins.implements_method = self.import_function(
                 "starstream:std/utxo-context",
                 "[method]utxo-context.implements-method",
                 &FuncType::new(
@@ -3201,7 +2985,7 @@ impl Compiler {
                             func.instructions(bb)
                                 .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
                         }
-                        func.instructions(bb).call(self.builtin_implements_method);
+                        func.instructions(bb).call(self.builtins.implements_method);
                     }
                 }
 

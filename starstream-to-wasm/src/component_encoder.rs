@@ -1,3 +1,5 @@
+//! Helpers to encode [ComponentAbiType] to binary WIT output.
+
 use std::{
     collections::{HashMap, HashSet},
     rc::Rc,

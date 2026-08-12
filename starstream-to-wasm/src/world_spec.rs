@@ -10,7 +10,13 @@ use std::collections::BTreeMap;
 use starstream_types::{Identifier, Type, TypedFunctionParam};
 use wasm_encoder::{FuncType, InstanceType};
 
-use crate::{Compiler, encoder::TypeBuilder, to_kebab_case};
+use crate::{Compiler, component_encoder::TypeBuilder, to_kebab_case};
+
+/// Builtins imported from `starstream:std/builtins` and friends.
+#[derive(Default)]
+pub struct Builtins {
+    pub implements_method: u32,
+}
 
 impl Compiler {
     pub fn declare_event(
