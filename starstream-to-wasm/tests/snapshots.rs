@@ -42,6 +42,7 @@ impl<T: Print> Print for CustomPrinter<T> {
 
 #[test]
 fn inputs() {
+    let mut panicked = Vec::new();
     let test_file = |path: &Path| {
         let mut output = String::new();
 
@@ -65,7 +66,7 @@ fn inputs() {
                         .expect("formatter error");
                 assert!(
                     source == formatted_source,
-                    "==== Formatted source differs from original, replace with: ====\n{formatted_source}"
+                    "Formatted source differs from original, replace with:\n----\n{formatted_source}\n----"
                 );
 
                 match starstream_compiler::typecheck_program(
@@ -158,10 +159,12 @@ fn inputs() {
             }
         })) {
             Ok(()) => {}
-            Err(_) => {
-                panic!(
+            Err(e) => {
+                eprintln!(
                     "==== Partial output for {path:?} ====\n{output}==== End partial output for {path:?} ===="
                 );
+                panicked.push((path.to_owned(), e));
+                return;
             }
         }
 
@@ -173,4 +176,28 @@ fn inputs() {
         });
     };
     insta::glob!("inputs/*.star", test_file);
+
+    if !panicked.is_empty() {
+        let mut message = String::new();
+        writeln!(message, "==== {} snapshots panicked ====", panicked.len()).unwrap();
+        for (path, error) in panicked {
+            writeln!(message, "---- {path:?}").unwrap();
+            if let Some(str) = error.downcast_ref::<String>() {
+                if let Some((before, _)) = str.split_once("Stack backtrace:") {
+                    // Truncate anyhow stack traces for the summary.
+                    writeln!(message, "{}", before.trim()).unwrap();
+                } else {
+                    writeln!(message, "{}", str.trim()).unwrap();
+                }
+            } else if let Some(str) = error.downcast_ref::<&'static str>() {
+                writeln!(message, "{}", str.trim()).unwrap();
+            }
+        }
+        writeln!(
+            message,
+            "==== See above for backtraces and partial output ===="
+        )
+        .unwrap();
+        panic!("{}", message);
+    }
 }
