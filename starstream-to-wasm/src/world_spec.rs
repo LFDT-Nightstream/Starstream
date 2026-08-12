@@ -29,11 +29,11 @@ impl Compiler {
         let kebab = to_kebab_case(event_name.as_str());
 
         // Core import
-        let core_fn_ty = self.add_core_func_type(&FuncType::new(
-            core_params.iter().copied(),
-            std::iter::empty(),
-        ));
-        let func_idx = self.import_function(&interface, &kebab, core_fn_ty);
+        let func_idx = self.import_function(
+            &interface,
+            &kebab,
+            &FuncType::new(core_params.iter().copied(), std::iter::empty()),
+        );
 
         // Component import
         let comp_params = params
@@ -69,9 +69,11 @@ impl Compiler {
         let kebab = to_kebab_case(effect_name.as_str());
 
         // Core import
-        let core_fn_ty =
-            self.add_core_func_type(&FuncType::new(core_params.iter().copied(), core_results));
-        let func_idx = self.import_function(&interface, &kebab, core_fn_ty);
+        let func_idx = self.import_function(
+            &interface,
+            &kebab,
+            &FuncType::new(core_params.iter().copied(), core_results),
+        );
 
         // Component import
         let comp_params = params

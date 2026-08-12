@@ -495,7 +495,8 @@ impl Compiler {
         }
     }
 
-    fn import_function(&mut self, module: &str, field: &str, ty: u32) -> u32 {
+    fn import_function(&mut self, module: &str, field: &str, ty: &FuncType) -> u32 {
+        let ty = self.add_core_func_type(ty);
         assert_eq!(self.functions.len(), 0); // Imports must precede functions per Wasm spec.
         let idx = self.imported_functions;
         self.imports.import(module, field, EntityType::Function(ty));
@@ -1254,20 +1255,19 @@ impl Compiler {
                 resource: utxo_context.fresh_resource("utxo-context", "s-utxo-context"),
             });
 
-            let core_fn_ty = self.add_core_func_type(&FuncType::new(
-                [
-                    ValType::I32,
-                    ValType::I64,
-                    ValType::I64,
-                    ValType::I64,
-                    ValType::I64,
-                ],
-                [],
-            ));
             self.builtin_implements_method = self.import_function(
                 "starstream:std/utxo-context",
                 "[method]utxo-context.implements-method",
-                core_fn_ty,
+                &FuncType::new(
+                    [
+                        ValType::I32,
+                        ValType::I64,
+                        ValType::I64,
+                        ValType::I64,
+                        ValType::I64,
+                    ],
+                    [],
+                ),
             );
 
             let u64_ty = Rc::new(ComponentAbiType::U64);
@@ -1370,12 +1370,14 @@ impl Compiler {
                         let kebab = to_kebab_case(&item.imported.name);
 
                         // Core import
-                        let core_fn_ty = self.add_core_func_type(&FuncType::new(
-                            core_params.iter().copied(),
-                            core_results.iter().copied(),
-                        ));
-                        let func_idx =
-                            self.import_function(&def.from.to_string(), &kebab, core_fn_ty);
+                        let func_idx = self.import_function(
+                            &def.from.to_string(),
+                            &kebab,
+                            &FuncType::new(
+                                core_params.iter().copied(),
+                                core_results.iter().copied(),
+                            ),
+                        );
                         self.callables.insert(id, func_idx);
 
                         // Component import
@@ -1534,17 +1536,15 @@ impl Compiler {
         let resource_name = "utxo";
 
         // Allocate the synthetic `resource.new` and `resource.drop` imports.
-        let ty = self.add_core_func_type(&FuncType::new([ValType::I32], [ValType::I32]));
         let new_fn = self.import_function(
             &format!("[export]{export_interface_name}"),
             &format!("[resource-new]{resource_name}"),
-            ty,
+            &FuncType::new([ValType::I32], [ValType::I32]),
         );
-        let ty = self.add_core_func_type(&FuncType::new([ValType::I32], []));
         let drop_fn = self.import_function(
             &format!("[export]{export_interface_name}"),
             &format!("[resource-drop]{resource_name}"),
-            ty,
+            &FuncType::new([ValType::I32], []),
         );
         self.resource_abi_fns
             .insert(Type::Utxo(utxo.ty.clone()), (new_fn, drop_fn));
@@ -1576,8 +1576,11 @@ impl Compiler {
                             "[static]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())
                         );
-                        let ty = self.add_core_func_type(&FuncType::new(params, results));
-                        let idx = self.import_function(&import_interface_name, &wit_name, ty);
+                        let idx = self.import_function(
+                            &import_interface_name,
+                            &wit_name,
+                            &FuncType::new(params, results),
+                        );
                         self.callables.insert(function.id, idx);
                     }
                 }
@@ -1611,8 +1614,11 @@ impl Compiler {
                                 "[method]{resource_name}.{}",
                                 to_kebab_case(function.name.as_str())
                             );
-                            let ty = self.add_core_func_type(&FuncType::new(params, results));
-                            let idx = self.import_function(&import_interface_name, &wit_name, ty);
+                            let idx = self.import_function(
+                                &import_interface_name,
+                                &wit_name,
+                                &FuncType::new(params, results),
+                            );
                             let abi_function_id = abi
                                 .methods
                                 .iter()
@@ -1782,17 +1788,15 @@ impl Compiler {
         let resource_name = "token";
 
         // Allocate the synthetic `resource.new` and `resource.drop` imports.
-        let ty = self.add_core_func_type(&FuncType::new([ValType::I32], [ValType::I32]));
         let new_fn = self.import_function(
             &format!("[export]{interface_name}"),
             &format!("[resource-new]{resource_name}"),
-            ty,
+            &FuncType::new([ValType::I32], [ValType::I32]),
         );
-        let ty = self.add_core_func_type(&FuncType::new([ValType::I32], []));
         let drop_fn = self.import_function(
             &format!("[export]{interface_name}"),
             &format!("[resource-drop]{resource_name}"),
-            ty,
+            &FuncType::new([ValType::I32], []),
         );
         self.resource_abi_fns
             .insert(Type::Token(token.ty.clone()), (new_fn, drop_fn));
