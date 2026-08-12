@@ -1250,10 +1250,23 @@ impl Compiler {
         {
             let mut utxo_context = TypeBuilder::new_interface();
 
-            let core_fn_ty = self.add_core_func_type(&FuncType::new([ValType::I64; 4], []));
+            let ctx_resource = Rc::new(ComponentAbiType::Borrow {
+                resource: utxo_context.fresh_resource("utxo-context", "s-utxo-context"),
+            });
+
+            let core_fn_ty = self.add_core_func_type(&FuncType::new(
+                [
+                    ValType::I32,
+                    ValType::I64,
+                    ValType::I64,
+                    ValType::I64,
+                    ValType::I64,
+                ],
+                [],
+            ));
             self.builtin_implements_method = self.import_function(
                 "starstream:std/utxo-context",
-                "implements-method",
+                "[method]utxo-context.implements-method",
                 core_fn_ty,
             );
 
@@ -1261,7 +1274,11 @@ impl Compiler {
             let tuple = Rc::new(ComponentAbiType::Tuple {
                 fields: vec![u64_ty; 4],
             });
-            utxo_context.export_fn_2("implements-method", [("hash", tuple)].into_iter(), None);
+            utxo_context.export_fn_2(
+                "[method]utxo-context.implements-method",
+                [("self", ctx_resource), ("hash", tuple)].into_iter(),
+                None,
+            );
 
             self.yield_global = Some(self.add_globals([ValType::I32], "yield"));
 
@@ -3178,6 +3195,8 @@ impl Compiler {
                     for method in &abi.methods {
                         let digest = sha2::Sha256::digest(method.identity());
                         assert_eq!(digest.len(), 32);
+                        // utxo-context handle value currently hardcoded to 0
+                        func.instructions(bb).i32_const(0);
                         for chunk in digest.chunks_exact(8) {
                             func.instructions(bb)
                                 .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
