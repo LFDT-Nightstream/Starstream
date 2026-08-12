@@ -18,7 +18,7 @@ Program {
                     },
                     params: [],
                     return_type: Some(
-                        TypeAnnotation {
+                        Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -39,7 +39,7 @@ Program {
                                         span: 34..37,
                                     },
                                     ty: Some(
-                                        TypeAnnotation {
+                                        Named {
                                             name: [
                                                 Identifier {
                                                     name: "i64",
@@ -72,7 +72,7 @@ Program {
                                         span: 59..64,
                                     },
                                     ty: Some(
-                                        TypeAnnotation {
+                                        Named {
                                             name: [
                                                 Identifier {
                                                     name: "u8",
@@ -105,7 +105,7 @@ Program {
                                         span: 85..91,
                                     },
                                     ty: Some(
-                                        TypeAnnotation {
+                                        Named {
                                             name: [
                                                 Identifier {
                                                     name: "u16",

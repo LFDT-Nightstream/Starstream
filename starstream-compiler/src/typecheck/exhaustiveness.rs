@@ -51,6 +51,8 @@ pub enum Ctor {
     },
     /// A record/struct constructor (records have exactly one constructor)
     Record { record_name: String },
+    /// An anonymous tuple constructor (tuples have exactly one constructor)
+    Tuple { arity: usize },
 }
 
 /// Information about the set of constructors for a type
@@ -80,7 +82,15 @@ impl CtorSet {
             // A wildcard pattern always covers these types completely.
             // We represent this as an empty constructor set.
             Type::Int(_) | Type::Unit | Type::Var(_) => Some(Self::infinite()),
-            Type::Function { .. } | Type::Tuple(_) => Some(Self::infinite()),
+            // Tuples have exactly one constructor, like records.
+            Type::Tuple(items) => Some(Self {
+                ctors: vec![CtorInfo {
+                    ctor: Ctor::Tuple { arity: items.len() },
+                    arity: items.len(),
+                    field_types: items.as_ref().clone(),
+                }],
+            }),
+            Type::Function { .. } => Some(Self::infinite()),
             Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) | Type::Abi(_) => {
                 Some(Self::infinite())
             }
@@ -692,6 +702,22 @@ pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
                 _ => panic!(),
             }
         }
+        TypedPattern::AnonTuple { fields } => match ty {
+            Type::Tuple(items) => {
+                let args = fields
+                    .iter()
+                    .zip(items.iter())
+                    .map(|(p, t)| lower_pattern(p, t))
+                    .collect();
+                SimplePat::Ctor {
+                    ctor: Ctor::Tuple {
+                        arity: fields.len(),
+                    },
+                    args,
+                }
+            }
+            _ => panic!(),
+        },
         TypedPattern::Constant { name, variant } => {
             let last_name = name.last().unwrap();
             match ty {
@@ -734,6 +760,10 @@ pub fn pattern_to_string(pattern: &SimplePat) -> String {
                     let args_str: Vec<_> = args.iter().map(pattern_to_string).collect();
                     format!("{} {{ {} }}", record_name, args_str.join(", "))
                 }
+            }
+            Ctor::Tuple { .. } => {
+                let args_str: Vec<_> = args.iter().map(pattern_to_string).collect();
+                format!("({})", args_str.join(", "))
             }
         },
     }
@@ -827,6 +857,11 @@ fn pattern_span(pattern: &TypedPattern) -> Option<Span> {
         }
         TypedPattern::Tuple { name, fields } => {
             let start = name.first().unwrap().span();
+            let end = fields.last().and_then(pattern_span).unwrap_or(start);
+            Some(merge_spans(start, end))
+        }
+        TypedPattern::AnonTuple { fields } => {
+            let start = fields.first().and_then(pattern_span)?;
             let end = fields.last().and_then(pattern_span).unwrap_or(start);
             Some(merge_spans(start, end))
         }

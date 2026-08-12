@@ -21,7 +21,7 @@ AbiDef {
                             name: "sender",
                             span: 36..42,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -37,7 +37,7 @@ AbiDef {
                             name: "to",
                             span: 49..51,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",

@@ -46,6 +46,19 @@ pub fn parser<'a>(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn match_anonymous_tuple_pattern() {
+        assert_expression_snapshot!(
+            r#"
+            match pair {
+                (a, (b, _)) => {
+                    a
+                },
+            }
+            "#
+        );
+    }
+
+    #[test]
     fn match_expression() {
         assert_expression_snapshot!(
             r#"

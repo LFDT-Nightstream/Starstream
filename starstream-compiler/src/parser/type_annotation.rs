@@ -8,13 +8,14 @@ use super::{context::Extra, primitives};
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, TypeAnnotation, Extra<'a>> {
     recursive(|annotation| {
-        type_name()
+        let named = type_name()
             .boxed()
             .then(
                 just('<')
                     .padded()
                     .ignore_then(
                         annotation
+                            .clone()
                             .separated_by(just(',').padded())
                             .allow_trailing()
                             .collect::<Vec<_>>(),
@@ -22,11 +23,25 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, TypeAnnotation, Extra<'a>> {
                     .then_ignore(just('>').padded())
                     .or_not(),
             )
-            .map(|(name, generics)| TypeAnnotation {
+            .map(|(name, generics)| TypeAnnotation::Named {
                 name,
                 generics: generics.unwrap_or_default(),
-            })
-            .padded()
+            });
+
+        // Anonymous tuple type: `(A, B)`. At least two elements, so `()`
+        // stays the unit type below and `(A)` is not valid syntax.
+        let tuple = annotation
+            .separated_by(just(',').padded())
+            .at_least(2)
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just('(').padded(), just(')').padded())
+            .map_with(|items, extra| TypeAnnotation::Tuple {
+                items,
+                span: extra.span(),
+            });
+
+        choice((tuple, named)).padded()
     })
 }
 

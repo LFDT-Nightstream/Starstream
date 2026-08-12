@@ -21,7 +21,7 @@ AbiDef {
                             name: "sender",
                             span: 34..40,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -37,7 +37,7 @@ AbiDef {
                             name: "to",
                             span: 47..49,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -53,7 +53,7 @@ AbiDef {
                             name: "amount",
                             span: 56..62,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -80,7 +80,7 @@ AbiDef {
                             name: "amount",
                             span: 86..92,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -92,7 +92,7 @@ AbiDef {
                     },
                 ],
                 return_type: Some(
-                    TypeAnnotation {
+                    Named {
                         name: [
                             Identifier {
                                 name: "bool",
@@ -113,7 +113,7 @@ AbiDef {
                 },
                 params: [],
                 return_type: Some(
-                    TypeAnnotation {
+                    Named {
                         name: [
                             Identifier {
                                 name: "i64",

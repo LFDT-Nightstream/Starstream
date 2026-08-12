@@ -235,6 +235,8 @@ pub enum TypedExprKind {
         constant: Option<usize>,
     },
     Literal(Literal),
+    /// An anonymous tuple: `(a, b)`. Always at least two elements.
+    Tuple(Vec<Spanned<TypedExpr>>),
     StructConstructor {
         name: ScopedName,
         fields: Vec<TypedStructFieldInitializer>,
@@ -340,6 +342,8 @@ pub enum TypedPattern {
         name: ScopedName,
         fields: Vec<TypedPattern>,
     },
+    /// An anonymous tuple pattern: `(a, b)`. Always at least two elements.
+    AnonTuple { fields: Vec<TypedPattern> },
     /// `Enum::UnitVariant` constant.
     Constant { name: ScopedName, variant: usize },
 }

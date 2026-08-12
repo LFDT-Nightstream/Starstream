@@ -212,6 +212,7 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
             }
         }
         TypedExprKind::StructConstructor { .. }
+        | TypedExprKind::Tuple(_)
         | TypedExprKind::FieldAccess { .. }
         | TypedExprKind::Call { .. }
         | TypedExprKind::Match { .. }

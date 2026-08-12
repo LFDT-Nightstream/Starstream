@@ -27,7 +27,7 @@ TokenDef {
                                 name: "to",
                                 span: 51..53,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Utxo",
@@ -58,7 +58,7 @@ TokenDef {
                                 name: "source",
                                 span: 82..88,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Utxo",

@@ -54,7 +54,7 @@ Program {
                                             name: "x",
                                             span: 64..65,
                                         },
-                                        ty: TypeAnnotation {
+                                        ty: Named {
                                             name: [
                                                 Identifier {
                                                     name: "i32",

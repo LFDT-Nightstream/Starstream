@@ -23,7 +23,7 @@ Program {
                                 name: "x",
                                 span: 14..15,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "i64",
@@ -39,7 +39,7 @@ Program {
                                 name: "y",
                                 span: 22..23,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "i64",
@@ -51,7 +51,7 @@ Program {
                         },
                     ],
                     return_type: Some(
-                        TypeAnnotation {
+                        Named {
                             name: [
                                 Identifier {
                                     name: "i64",

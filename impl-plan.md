@@ -92,6 +92,12 @@ Language features:
   - remember structural typing (see spec)
   - [x] tuples
   - [x] wasm codegen support as WIT records
+- [x] anonymous tuple syntax
+  - [x] tuple type annotations `(A, B)`, expressions `(a, b)`, and `match` patterns
+  - [x] exhaustiveness checking (single-constructor product)
+  - [x] wasm codegen (stack-flattened like records; WIT `tuple<...>`)
+  - [ ] positional field access (`t.0`)
+  - [ ] tuple patterns in `let` LHS (blocked on let patterns generally)
 - [x] enum (tagged union) types
   - [x] wasm codegen support as WIT variants
   - [x] builtin `Option<T>`, `Result<T, E>` (WIT support)

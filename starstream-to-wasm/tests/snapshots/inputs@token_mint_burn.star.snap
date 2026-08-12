@@ -22,7 +22,7 @@ Program {
                                         name: "total",
                                         span: 46..51,
                                     },
-                                    ty: TypeAnnotation {
+                                    ty: Named {
                                         name: [
                                             Identifier {
                                                 name: "u64",
@@ -165,7 +165,7 @@ Program {
                                                 name: "to",
                                                 span: 207..209,
                                             },
-                                            ty: TypeAnnotation {
+                                            ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "Utxo",
@@ -196,7 +196,7 @@ Program {
                                                 name: "source",
                                                 span: 239..245,
                                             },
-                                            ty: TypeAnnotation {
+                                            ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "Utxo",

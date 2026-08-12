@@ -1,0 +1,63 @@
+==================
+Tuple types, expressions, and patterns
+==================
+
+fn swap(pair: (i64, bool)) -> (bool, i64) {
+    match pair {
+        (a, (b, _)) => {
+            (b, a)
+        },
+    }
+}
+
+---
+
+(program
+  (function_definition
+    (identifier)
+    (function_parameter
+      (identifier)
+      (type_annotation
+        (tuple_type
+          (type_annotation
+            (scoped_name
+              (identifier)))
+          (type_annotation
+            (scoped_name
+              (identifier))))))
+    (type_annotation
+      (tuple_type
+        (type_annotation
+          (scoped_name
+            (identifier)))
+        (type_annotation
+          (scoped_name
+            (identifier)))))
+    (block
+      (expression
+        (match_expression
+          (expression
+            (scoped_name
+              (identifier)))
+          (match_arm
+            (pattern
+              (anonymous_tuple_pattern
+                (pattern
+                  (scoped_name
+                    (identifier)))
+                (pattern
+                  (anonymous_tuple_pattern
+                    (pattern
+                      (scoped_name
+                        (identifier)))
+                    (pattern
+                      (wildcard_pattern))))))
+            (block
+              (expression
+                (tuple_expression
+                  (expression
+                    (scoped_name
+                      (identifier)))
+                  (expression
+                    (scoped_name
+                      (identifier))))))))))))

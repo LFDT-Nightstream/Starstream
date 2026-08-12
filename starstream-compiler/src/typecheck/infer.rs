@@ -1055,6 +1055,11 @@ impl Inferencer {
             Expr::Grouping(spanned) => Self::collect_yields_expr(dest, &spanned.node),
             Expr::ScopedName(_) => {}
             Expr::Literal(_) => {}
+            Expr::Tuple(items) => {
+                for each in items {
+                    Self::collect_yields_expr(dest, &each.node);
+                }
+            }
             Expr::StructConstructor { fields, .. } => {
                 for each in fields {
                     Self::collect_yields_expr(dest, &each.value.node);
@@ -1767,6 +1772,30 @@ impl Inferencer {
                     },
                     traces,
                 ))
+            }
+            Pattern::AnonTuple { fields, span } => {
+                // The scrutinee must be a tuple with one type per field.
+                let field_tys: Vec<Type> = fields.iter().map(|_| self.fresh_var()).collect();
+                let tuple_ty = Type::Tuple(Arc::new(field_tys.clone()));
+                let (_, unify_trace) = self.unify(
+                    expected_ty.clone(),
+                    tuple_ty,
+                    value_span,
+                    *span,
+                    TypeErrorKind::PatternTupleMismatch {
+                        arity: fields.len(),
+                        found: self.apply_for_display(expected_ty),
+                    },
+                )?;
+                let mut traces = vec![unify_trace];
+                let mut typed = Vec::with_capacity(fields.len());
+                for (pattern, ty) in fields.iter().zip(&field_tys) {
+                    let (typed_pattern, mut pattern_traces) =
+                        self.infer_pattern(env, pattern, ty, value_span)?;
+                    traces.append(&mut pattern_traces);
+                    typed.push(typed_pattern);
+                }
+                Ok((TypedPattern::AnonTuple { fields: typed }, traces))
             }
         }
     }
@@ -2699,6 +2728,28 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
+            Expr::Tuple(items) => {
+                let mut typed_items = Vec::with_capacity(items.len());
+                let mut item_tys = Vec::with_capacity(items.len());
+                let mut children = Vec::with_capacity(items.len());
+                for item in items {
+                    let (typed_item, item_trace) = self.infer_expr(env, item, ctx)?;
+                    item_tys.push(typed_item.node.ty.clone());
+                    typed_items.push(typed_item);
+                    children.push(item_trace);
+                }
+                let ty = Type::Tuple(Arc::new(item_tys));
+                let typed = Spanned::new(
+                    TypedExpr::new(ty.clone(), TypedExprKind::Tuple(typed_items)),
+                    expr.span,
+                );
+                let result_repr = self.maybe_string(|| self.format_type(&ty));
+                let tree =
+                    self.make_trace("T-Tuple", env_context, subject_repr, result_repr, || {
+                        children
+                    });
+                Ok((typed, tree))
+            }
             Expr::StructConstructor { name, fields } => {
                 let info = self.lookup_struct_info(env, name)?.clone();
                 let mut expected = info
@@ -3425,6 +3476,16 @@ impl Inferencer {
                     BindingVisibility::Private
                 }
             }
+            Expr::Tuple(items) => {
+                if items
+                    .iter()
+                    .all(|item| self.source_expr_visibility(env, item) == BindingVisibility::Public)
+                {
+                    BindingVisibility::Public
+                } else {
+                    BindingVisibility::Private
+                }
+            }
             Expr::FieldAccess { target, .. } => self.source_expr_visibility(env, target),
             Expr::Disclose { .. } => BindingVisibility::Public,
             Expr::Call { .. } => BindingVisibility::Private,
@@ -3443,15 +3504,25 @@ impl Inferencer {
         env: &TypeEnv,
         annotation: &TypeAnnotation,
     ) -> Result<Type, TypeError> {
+        let (name, generics) = match annotation {
+            TypeAnnotation::Named { name, generics } => (name, generics),
+            TypeAnnotation::Tuple { items, .. } => {
+                let item_tys: Vec<Type> = items
+                    .iter()
+                    .map(|item| self.type_from_annotation(env, item))
+                    .collect::<Result<_, _>>()?;
+                return Ok(Type::Tuple(Arc::new(item_tys)));
+            }
+        };
+
         // Resolve each generic arg (done first for lifetime reasons).
-        let type_args: Vec<Type> = annotation
-            .generics
+        let type_args: Vec<Type> = generics
             .iter()
             .map(|g| self.type_from_annotation(env, g))
             .collect::<Result<_, _>>()?;
 
         // Look up type information.
-        let (last, path) = annotation.name.split_last().unwrap();
+        let (last, path) = name.split_last().unwrap();
         let ns = env.root.get_child(path)?;
         let Some(entry) = ns.types.get(last.as_str()) else {
             return Err(TypeError::new(
@@ -3463,12 +3534,12 @@ impl Inferencer {
         };
 
         // Check generic arity match.
-        if entry.type_params.len() != annotation.generics.len() {
+        if entry.type_params.len() != generics.len() {
             return Err(TypeError::new(
                 TypeErrorKind::WrongGenericArity {
                     type_name: last.to_string(),
                     expected: entry.type_params.len(),
-                    found: annotation.generics.len(),
+                    found: generics.len(),
                 },
                 annotation.name_span(),
             ));
@@ -3800,6 +3871,11 @@ impl Inferencer {
                 self.apply_expr(right);
             }
             TypedExprKind::Grouping(inner) => self.apply_expr(inner),
+            TypedExprKind::Tuple(items) => {
+                for item in items {
+                    self.apply_expr(item);
+                }
+            }
             TypedExprKind::StructConstructor { fields, .. } => {
                 for field in fields {
                     self.apply_expr(&mut field.value);

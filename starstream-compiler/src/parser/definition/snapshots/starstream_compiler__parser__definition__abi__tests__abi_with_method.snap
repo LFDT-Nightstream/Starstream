@@ -21,7 +21,7 @@ AbiDef {
                             name: "amount",
                             span: 31..37,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -33,7 +33,7 @@ AbiDef {
                     },
                 ],
                 return_type: Some(
-                    TypeAnnotation {
+                    Named {
                         name: [
                             Identifier {
                                 name: "bool",

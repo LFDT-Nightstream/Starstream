@@ -21,7 +21,7 @@ AbiDef {
                             name: "x",
                             span: 31..32,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",

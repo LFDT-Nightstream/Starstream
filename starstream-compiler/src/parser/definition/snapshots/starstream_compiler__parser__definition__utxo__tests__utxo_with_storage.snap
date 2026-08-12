@@ -15,7 +15,7 @@ UtxoDef {
                         name: "count",
                         span: 45..50,
                     },
-                    ty: TypeAnnotation {
+                    ty: Named {
                         name: [
                             Identifier {
                                 name: "i64",

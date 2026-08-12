@@ -183,6 +183,11 @@ pub enum TypeErrorKind {
         enum_name: String,
         found: Type,
     },
+    /// A tuple pattern's shape does not match the scrutinee's type.
+    PatternTupleMismatch {
+        arity: usize,
+        found: Type,
+    },
     /// Pattern matching is not exhaustive; some cases are not covered.
     NonExhaustiveMatch {
         missing_patterns: Vec<String>,
@@ -353,6 +358,7 @@ impl TypeErrorKind {
             TypeErrorKind::UnknownEnumVariant { .. } => error_code!(E0023),
             TypeErrorKind::EnumPayloadMismatch { .. } => error_code!(E0024),
             TypeErrorKind::PatternEnumMismatch { .. } => error_code!(E0025),
+            TypeErrorKind::PatternTupleMismatch { .. } => error_code!(E0056),
             // E0026 was UnsupportedTypeFeature
             TypeErrorKind::NonExhaustiveMatch { .. } => error_code!(E0027),
             TypeErrorKind::UnreachablePattern => error_code!(E0028),
@@ -585,6 +591,11 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::PatternEnumMismatch { enum_name, found } => write!(
                 f,
                 "pattern references enum `{enum_name}` but scrutinee has type `{}`",
+                found.compact_display()
+            ),
+            TypeErrorKind::PatternTupleMismatch { arity, found } => write!(
+                f,
+                "pattern expects a tuple with {arity} elements but scrutinee has type `{}`",
                 found.compact_display()
             ),
             TypeErrorKind::NonExhaustiveMatch { .. } => {

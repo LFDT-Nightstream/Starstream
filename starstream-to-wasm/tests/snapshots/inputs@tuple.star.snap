@@ -1,0 +1,1663 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/tuple.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "swap",
+                        span: 3..7,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "pair",
+                                span: 8..12,
+                            },
+                            ty: Tuple {
+                                items: [
+                                    Named {
+                                        name: [
+                                            Identifier {
+                                                name: "i64",
+                                                span: 15..18,
+                                            },
+                                        ],
+                                        generics: [],
+                                    },
+                                    Named {
+                                        name: [
+                                            Identifier {
+                                                name: "bool",
+                                                span: 20..24,
+                                            },
+                                        ],
+                                        generics: [],
+                                    },
+                                ],
+                                span: 14..25,
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        Tuple {
+                            items: [
+                                Named {
+                                    name: [
+                                        Identifier {
+                                            name: "bool",
+                                            span: 31..35,
+                                        },
+                                    ],
+                                    generics: [],
+                                },
+                                Named {
+                                    name: [
+                                        Identifier {
+                                            name: "i64",
+                                            span: 37..40,
+                                        },
+                                    ],
+                                    generics: [],
+                                },
+                            ],
+                            span: 30..42,
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Match {
+                                    scrutinee: Spanned {
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "pair",
+                                                    span: 54..58,
+                                                },
+                                            ],
+                                        ),
+                                        span: 54..59,
+                                    },
+                                    arms: [
+                                        MatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    Name(
+                                                        [
+                                                            Identifier {
+                                                                name: "a",
+                                                                span: 70..71,
+                                                            },
+                                                        ],
+                                                    ),
+                                                    Name(
+                                                        [
+                                                            Identifier {
+                                                                name: "b",
+                                                                span: 73..74,
+                                                            },
+                                                        ],
+                                                    ),
+                                                ],
+                                                span: 69..76,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Tuple(
+                                                            [
+                                                                Spanned {
+                                                                    node: ScopedName(
+                                                                        [
+                                                                            Identifier {
+                                                                                name: "b",
+                                                                                span: 94..95,
+                                                                            },
+                                                                        ],
+                                                                    ),
+                                                                    span: 94..95,
+                                                                },
+                                                                Spanned {
+                                                                    node: ScopedName(
+                                                                        [
+                                                                            Identifier {
+                                                                                name: "a",
+                                                                                span: 97..98,
+                                                                            },
+                                                                        ],
+                                                                    ),
+                                                                    span: 97..98,
+                                                                },
+                                                            ],
+                                                        ),
+                                                        span: 93..108,
+                                                    },
+                                                ),
+                                                span: 79..109,
+                                            },
+                                            span: 69..109,
+                                        },
+                                    ],
+                                },
+                                span: 48..117,
+                            },
+                        ),
+                        span: 42..120,
+                    },
+                },
+            ),
+            span: 0..120,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "nested",
+                        span: 123..129,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "value",
+                                span: 130..135,
+                            },
+                            ty: Tuple {
+                                items: [
+                                    Tuple {
+                                        items: [
+                                            Named {
+                                                name: [
+                                                    Identifier {
+                                                        name: "i64",
+                                                        span: 139..142,
+                                                    },
+                                                ],
+                                                generics: [],
+                                            },
+                                            Named {
+                                                name: [
+                                                    Identifier {
+                                                        name: "i64",
+                                                        span: 144..147,
+                                                    },
+                                                ],
+                                                generics: [],
+                                            },
+                                        ],
+                                        span: 138..148,
+                                    },
+                                    Named {
+                                        name: [
+                                            Identifier {
+                                                name: "bool",
+                                                span: 150..154,
+                                            },
+                                        ],
+                                        generics: [],
+                                    },
+                                ],
+                                span: 137..155,
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        Named {
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 160..163,
+                                },
+                            ],
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Match {
+                                    scrutinee: Spanned {
+                                        node: ScopedName(
+                                            [
+                                                Identifier {
+                                                    name: "value",
+                                                    span: 176..181,
+                                                },
+                                            ],
+                                        ),
+                                        span: 176..182,
+                                    },
+                                    arms: [
+                                        MatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    AnonTuple {
+                                                        fields: [
+                                                            Name(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "x",
+                                                                        span: 194..195,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                            Name(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "y",
+                                                                        span: 197..198,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                        ],
+                                                        span: 193..199,
+                                                    },
+                                                    Literal {
+                                                        value: Boolean(
+                                                            true,
+                                                        ),
+                                                        span: 201..205,
+                                                    },
+                                                ],
+                                                span: 192..207,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Binary {
+                                                            op: Add,
+                                                            left: Spanned {
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "x",
+                                                                            span: 224..225,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                                span: 224..226,
+                                                            },
+                                                            right: Spanned {
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "y",
+                                                                            span: 228..229,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                                span: 228..238,
+                                                            },
+                                                        },
+                                                        span: 224..238,
+                                                    },
+                                                ),
+                                                span: 210..239,
+                                            },
+                                            span: 192..239,
+                                        },
+                                        MatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    AnonTuple {
+                                                        fields: [
+                                                            Name(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "x",
+                                                                        span: 251..252,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                            Wildcard {
+                                                                span: 254..255,
+                                                            },
+                                                        ],
+                                                        span: 250..256,
+                                                    },
+                                                    Literal {
+                                                        value: Boolean(
+                                                            false,
+                                                        ),
+                                                        span: 258..263,
+                                                    },
+                                                ],
+                                                span: 249..265,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: ScopedName(
+                                                            [
+                                                                Identifier {
+                                                                    name: "x",
+                                                                    span: 282..283,
+                                                                },
+                                                            ],
+                                                        ),
+                                                        span: 282..292,
+                                                    },
+                                                ),
+                                                span: 268..293,
+                                            },
+                                            span: 249..293,
+                                        },
+                                    ],
+                                },
+                                span: 170..301,
+                            },
+                        ),
+                        span: 164..304,
+                    },
+                },
+            ),
+            span: 120..304,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "sum_pair",
+                        span: 307..315,
+                    },
+                    params: [],
+                    return_type: Some(
+                        Named {
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 321..324,
+                                },
+                            ],
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Match {
+                                    scrutinee: Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "swap",
+                                                            span: 337..341,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 337..341,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: Tuple(
+                                                        [
+                                                            Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        IntegerLiteral {
+                                                                            digits: "1",
+                                                                            radix: Decimal,
+                                                                        },
+                                                                    ),
+                                                                ),
+                                                                span: 343..344,
+                                                            },
+                                                            Spanned {
+                                                                node: Literal(
+                                                                    Boolean(
+                                                                        true,
+                                                                    ),
+                                                                ),
+                                                                span: 346..350,
+                                                            },
+                                                        ],
+                                                    ),
+                                                    span: 342..351,
+                                                },
+                                            ],
+                                        },
+                                        span: 337..353,
+                                    },
+                                    arms: [
+                                        MatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    Literal {
+                                                        value: Boolean(
+                                                            true,
+                                                        ),
+                                                        span: 364..368,
+                                                    },
+                                                    Name(
+                                                        [
+                                                            Identifier {
+                                                                name: "n",
+                                                                span: 370..371,
+                                                            },
+                                                        ],
+                                                    ),
+                                                ],
+                                                span: 363..373,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: ScopedName(
+                                                            [
+                                                                Identifier {
+                                                                    name: "n",
+                                                                    span: 390..391,
+                                                                },
+                                                            ],
+                                                        ),
+                                                        span: 390..400,
+                                                    },
+                                                ),
+                                                span: 376..401,
+                                            },
+                                            span: 363..401,
+                                        },
+                                        MatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    Literal {
+                                                        value: Boolean(
+                                                            false,
+                                                        ),
+                                                        span: 412..417,
+                                                    },
+                                                    Wildcard {
+                                                        span: 419..420,
+                                                    },
+                                                ],
+                                                span: 411..422,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                IntegerLiteral {
+                                                                    digits: "0",
+                                                                    radix: Decimal,
+                                                                },
+                                                            ),
+                                                        ),
+                                                        span: 439..440,
+                                                    },
+                                                ),
+                                                span: 425..450,
+                                            },
+                                            span: 411..450,
+                                        },
+                                    ],
+                                },
+                                span: 331..458,
+                            },
+                        ),
+                        span: 325..461,
+                    },
+                },
+            ),
+            span: 304..461,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "run_tuples",
+                        span: 471..481,
+                    },
+                    params: [],
+                    return_type: None,
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "sum_pair",
+                                                            span: 490..498,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 490..498,
+                                            },
+                                            args: [],
+                                        },
+                                        span: 490..500,
+                                    },
+                                ),
+                                span: 490..506,
+                            },
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "nested",
+                                                            span: 506..512,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 506..512,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: Tuple(
+                                                        [
+                                                            Spanned {
+                                                                node: Tuple(
+                                                                    [
+                                                                        Spanned {
+                                                                            node: Literal(
+                                                                                Integer(
+                                                                                    IntegerLiteral {
+                                                                                        digits: "1",
+                                                                                        radix: Decimal,
+                                                                                    },
+                                                                                ),
+                                                                            ),
+                                                                            span: 515..516,
+                                                                        },
+                                                                        Spanned {
+                                                                            node: Literal(
+                                                                                Integer(
+                                                                                    IntegerLiteral {
+                                                                                        digits: "2",
+                                                                                        radix: Decimal,
+                                                                                    },
+                                                                                ),
+                                                                            ),
+                                                                            span: 518..519,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                                span: 514..520,
+                                                            },
+                                                            Spanned {
+                                                                node: Literal(
+                                                                    Boolean(
+                                                                        true,
+                                                                    ),
+                                                                ),
+                                                                span: 522..526,
+                                                            },
+                                                        ],
+                                                    ),
+                                                    span: 513..527,
+                                                },
+                                            ],
+                                        },
+                                        span: 506..528,
+                                    },
+                                ),
+                                span: 506..530,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 484..532,
+                    },
+                },
+            ),
+            span: 461..532,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Fn: swap => (bool, i64)
+  T-ReturnTail: match pair {
+    (a, b) => {
+        (b, a)
+    },
+} => (bool, i64)
+    T-Match: {pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ match pair {
+    (a, b) => {
+        (b, a)
+    },
+} ⇒ (bool, i64)
+      T-Var: {pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ pair ⇒ (i64, bool)
+      Unify-Tuple: (i64, bool) ~ (t3, t4) => {bool/t4, i64/t3}
+        Unify-Var: i64 ~ t3 => {i64/t3}
+        Unify-Var: bool ~ t4 => {bool/t4}
+      T-Tail: (b, a) => (bool, i64)
+        T-Tuple: {a: i64, b: bool, pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ (b, a) ⇒ (bool, i64)
+          T-Var: {a: i64, b: bool, pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ b ⇒ bool
+          T-Var: {a: i64, b: bool, pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ a ⇒ i64
+    Unify-Tuple: (bool, i64) ~ (bool, i64) => {}
+      Unify-Const: bool ~ bool => {}
+      Unify-Const: i64 ~ i64 => {}
+
+T-Fn: nested => i64
+  T-ReturnTail: match value {
+    ((x, y), true) => {
+        x + y
+    },
+    ((x, _), false) => {
+        x
+    },
+} => i64
+    T-Match: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool)} ⊢ match value {
+    ((x, y), true) => {
+        x + y
+    },
+    ((x, _), false) => {
+        x
+    },
+} ⇒ i64
+      T-Var: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool)} ⊢ value ⇒ ((i64, i64), bool)
+      Unify-Tuple: ((i64, i64), bool) ~ (t5, t6) => {(i64, i64)/t5, bool/t6}
+        Unify-Var: (i64, i64) ~ t5 => {(i64, i64)/t5}
+        Unify-Var: bool ~ t6 => {bool/t6}
+      Unify-Tuple: (i64, i64) ~ (t7, t8) => {i64/t7, i64/t8}
+        Unify-Var: i64 ~ t7 => {i64/t7}
+        Unify-Var: i64 ~ t8 => {i64/t8}
+      Unify-Const: bool ~ bool => {}
+      T-Tail: x + y => i64
+        T-Bin-Add: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64, y: i64} ⊢ x + y ⇒ i64
+          T-Var: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64, y: i64} ⊢ x ⇒ i64
+          T-Var: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64, y: i64} ⊢ y ⇒ i64
+          Unify-Const: i64 ~ i64 => {}
+      Unify-Tuple: ((i64, i64), bool) ~ (t9, t10) => {(i64, i64)/t9, bool/t10}
+        Unify-Var: (i64, i64) ~ t9 => {(i64, i64)/t9}
+        Unify-Var: bool ~ t10 => {bool/t10}
+      Unify-Tuple: (i64, i64) ~ (t11, t12) => {i64/t11, i64/t12}
+        Unify-Var: i64 ~ t11 => {i64/t11}
+        Unify-Var: i64 ~ t12 => {i64/t12}
+      Unify-Const: bool ~ bool => {}
+      T-Tail: x => i64
+        T-Var: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64} ⊢ x ⇒ i64
+      Unify-Const: i64 ~ i64 => i64
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: sum_pair => i64
+  T-ReturnTail: match swap((1, true)) {
+    (true, n) => {
+        n
+    },
+    (false, _) => {
+        0
+    },
+} => i64
+    T-Match: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ match swap((1, true)) {
+    (true, n) => {
+        n
+    },
+    (false, _) => {
+        0
+    },
+} ⇒ i64
+      T-Call: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ swap((1, true)) ⇒ (bool, i64)
+        T-Var: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ swap ⇒ fn((i64, bool)) -> (bool, i64)
+        T-Tuple: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ (1, true) ⇒ (i64, bool)
+          T-Int: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ 1 ⇒ i64
+          T-Bool: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ true ⇒ bool
+        Unify-Tuple: (i64, bool) ~ (i64, bool) => {i64/t13}
+          Unify-Var: i64 ~ i64 => {i64/t13}
+          Unify-Const: bool ~ bool => {}
+      Unify-Tuple: (bool, i64) ~ (t14, t15) => {bool/t14, i64/t15}
+        Unify-Var: bool ~ t14 => {bool/t14}
+        Unify-Var: i64 ~ t15 => {i64/t15}
+      Unify-Const: bool ~ bool => {}
+      T-Tail: n => i64
+        T-Var: {n: i64, nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ n ⇒ i64
+      Unify-Tuple: (bool, i64) ~ (t16, t17) => {bool/t16, i64/t17}
+        Unify-Var: bool ~ t16 => {bool/t16}
+        Unify-Var: i64 ~ t17 => {i64/t17}
+      Unify-Const: bool ~ bool => {}
+      T-Tail: 0 => i64
+        T-Int: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: run_tuples => ()
+  T-Expr: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ sum_pair(); ⇒ ()
+    T-Call: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ sum_pair() ⇒ i64
+      T-Var: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ sum_pair ⇒ fn() -> i64
+  T-Expr: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ nested(((1, 2), true)); ⇒ ()
+    T-Call: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ nested(((1, 2), true)) ⇒ i64
+      T-Var: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ nested ⇒ fn(((i64, i64), bool)) -> i64
+      T-Tuple: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ ((1, 2), true) ⇒ ((i64, i64), bool)
+        T-Tuple: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ (1, 2) ⇒ (i64, i64)
+          T-Int: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ 1 ⇒ i64
+          T-Int: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ 2 ⇒ i64
+        T-Bool: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ true ⇒ bool
+      Unify-Tuple: ((i64, i64), bool) ~ ((i64, i64), bool) => {i64/t19, i64/t20}
+        Unify-Tuple: (i64, i64) ~ (i64, i64) => {i64/t19, i64/t20}
+          Unify-Var: i64 ~ i64 => {i64/t19}
+          Unify-Var: i64 ~ i64 => {i64/t20}
+        Unify-Const: bool ~ bool => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "swap",
+                    span: 3..7,
+                },
+                id: NameId(4),
+                params: [
+                    TypedFunctionParam {
+                        public: false,
+                        name: Identifier {
+                            name: "pair",
+                            span: 8..12,
+                        },
+                        ty: Tuple(
+                            [
+                                Int(
+                                    I64,
+                                ),
+                                Bool,
+                            ],
+                        ),
+                    },
+                ],
+                return_type: Tuple(
+                    [
+                        Bool,
+                        Int(
+                            I64,
+                        ),
+                    ],
+                ),
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Tuple(
+                                    [
+                                        Bool,
+                                        Int(
+                                            I64,
+                                        ),
+                                    ],
+                                ),
+                                kind: Match {
+                                    scrutinee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Tuple(
+                                                [
+                                                    Int(
+                                                        I64,
+                                                    ),
+                                                    Bool,
+                                                ],
+                                            ),
+                                            kind: ScopedName {
+                                                name: [
+                                                    Identifier {
+                                                        name: "pair",
+                                                        span: 54..58,
+                                                    },
+                                                ],
+                                                constant: None,
+                                            },
+                                        },
+                                        span: 54..59,
+                                    },
+                                    arms: [
+                                        TypedMatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    Binding(
+                                                        Identifier {
+                                                            name: "a",
+                                                            span: 70..71,
+                                                        },
+                                                    ),
+                                                    Binding(
+                                                        Identifier {
+                                                            name: "b",
+                                                            span: 73..74,
+                                                        },
+                                                    ),
+                                                ],
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Tuple(
+                                                                [
+                                                                    Bool,
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
+                                                                ],
+                                                            ),
+                                                            kind: Tuple(
+                                                                [
+                                                                    Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Bool,
+                                                                            kind: ScopedName {
+                                                                                name: [
+                                                                                    Identifier {
+                                                                                        name: "b",
+                                                                                        span: 94..95,
+                                                                                    },
+                                                                                ],
+                                                                                constant: None,
+                                                                            },
+                                                                        },
+                                                                        span: 94..95,
+                                                                    },
+                                                                    Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Int(
+                                                                                I64,
+                                                                            ),
+                                                                            kind: ScopedName {
+                                                                                name: [
+                                                                                    Identifier {
+                                                                                        name: "a",
+                                                                                        span: 97..98,
+                                                                                    },
+                                                                                ],
+                                                                                constant: None,
+                                                                            },
+                                                                        },
+                                                                        span: 97..98,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                        },
+                                                        span: 93..108,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                            span: 48..117,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "nested",
+                    span: 123..129,
+                },
+                id: NameId(5),
+                params: [
+                    TypedFunctionParam {
+                        public: false,
+                        name: Identifier {
+                            name: "value",
+                            span: 130..135,
+                        },
+                        ty: Tuple(
+                            [
+                                Tuple(
+                                    [
+                                        Int(
+                                            I64,
+                                        ),
+                                        Int(
+                                            I64,
+                                        ),
+                                    ],
+                                ),
+                                Bool,
+                            ],
+                        ),
+                    },
+                ],
+                return_type: Int(
+                    I64,
+                ),
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int(
+                                    I64,
+                                ),
+                                kind: Match {
+                                    scrutinee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Tuple(
+                                                [
+                                                    Tuple(
+                                                        [
+                                                            Int(
+                                                                I64,
+                                                            ),
+                                                            Int(
+                                                                I64,
+                                                            ),
+                                                        ],
+                                                    ),
+                                                    Bool,
+                                                ],
+                                            ),
+                                            kind: ScopedName {
+                                                name: [
+                                                    Identifier {
+                                                        name: "value",
+                                                        span: 176..181,
+                                                    },
+                                                ],
+                                                constant: None,
+                                            },
+                                        },
+                                        span: 176..182,
+                                    },
+                                    arms: [
+                                        TypedMatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    AnonTuple {
+                                                        fields: [
+                                                            Binding(
+                                                                Identifier {
+                                                                    name: "x",
+                                                                    span: 194..195,
+                                                                },
+                                                            ),
+                                                            Binding(
+                                                                Identifier {
+                                                                    name: "y",
+                                                                    span: 197..198,
+                                                                },
+                                                            ),
+                                                        ],
+                                                    },
+                                                    Literal(
+                                                        Boolean(
+                                                            true,
+                                                        ),
+                                                    ),
+                                                ],
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
+                                                            kind: Binary {
+                                                                op: Add,
+                                                                left: Spanned {
+                                                                    node: TypedExpr {
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
+                                                                        kind: ScopedName {
+                                                                            name: [
+                                                                                Identifier {
+                                                                                    name: "x",
+                                                                                    span: 224..225,
+                                                                                },
+                                                                            ],
+                                                                            constant: None,
+                                                                        },
+                                                                    },
+                                                                    span: 224..226,
+                                                                },
+                                                                right: Spanned {
+                                                                    node: TypedExpr {
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
+                                                                        kind: ScopedName {
+                                                                            name: [
+                                                                                Identifier {
+                                                                                    name: "y",
+                                                                                    span: 228..229,
+                                                                                },
+                                                                            ],
+                                                                            constant: None,
+                                                                        },
+                                                                    },
+                                                                    span: 228..238,
+                                                                },
+                                                            },
+                                                        },
+                                                        span: 224..238,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    AnonTuple {
+                                                        fields: [
+                                                            Binding(
+                                                                Identifier {
+                                                                    name: "x",
+                                                                    span: 251..252,
+                                                                },
+                                                            ),
+                                                            Wildcard,
+                                                        ],
+                                                    },
+                                                    Literal(
+                                                        Boolean(
+                                                            false,
+                                                        ),
+                                                    ),
+                                                ],
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "x",
+                                                                        span: 282..283,
+                                                                    },
+                                                                ],
+                                                                constant: None,
+                                                            },
+                                                        },
+                                                        span: 282..292,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                            span: 170..301,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "sum_pair",
+                    span: 307..315,
+                },
+                id: NameId(6),
+                params: [],
+                return_type: Int(
+                    I64,
+                ),
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int(
+                                    I64,
+                                ),
+                                kind: Match {
+                                    scrutinee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Tuple(
+                                                [
+                                                    Bool,
+                                                    Int(
+                                                        I64,
+                                                    ),
+                                                ],
+                                            ),
+                                            kind: Call {
+                                                callee: Spanned {
+                                                    node: TypedExpr {
+                                                        ty: Function(
+                                                            FunctionType {
+                                                                kind: Normal,
+                                                                name_span: 3..7,
+                                                                params: [
+                                                                    Tuple(
+                                                                        [
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
+                                                                            Bool,
+                                                                        ],
+                                                                    ),
+                                                                ],
+                                                                param_spans: [
+                                                                    14..25,
+                                                                ],
+                                                                result: Tuple(
+                                                                    [
+                                                                        Bool,
+                                                                        Int(
+                                                                            I64,
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                                callee: Some(
+                                                                    Named(
+                                                                        NameId(4),
+                                                                    ),
+                                                                ),
+                                                            },
+                                                        ),
+                                                        kind: ScopedName {
+                                                            name: [
+                                                                Identifier {
+                                                                    name: "swap",
+                                                                    span: 337..341,
+                                                                },
+                                                            ],
+                                                            constant: None,
+                                                        },
+                                                    },
+                                                    span: 337..341,
+                                                },
+                                                args: [
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Tuple(
+                                                                [
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
+                                                                    Bool,
+                                                                ],
+                                                            ),
+                                                            kind: Tuple(
+                                                                [
+                                                                    Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Int(
+                                                                                I64,
+                                                                            ),
+                                                                            kind: Literal(
+                                                                                Integer(
+                                                                                    IntegerLiteral {
+                                                                                        digits: "1",
+                                                                                        radix: Decimal,
+                                                                                    },
+                                                                                ),
+                                                                            ),
+                                                                        },
+                                                                        span: 343..344,
+                                                                    },
+                                                                    Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Bool,
+                                                                            kind: Literal(
+                                                                                Boolean(
+                                                                                    true,
+                                                                                ),
+                                                                            ),
+                                                                        },
+                                                                        span: 346..350,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                        },
+                                                        span: 342..351,
+                                                    },
+                                                ],
+                                            },
+                                        },
+                                        span: 337..341,
+                                    },
+                                    arms: [
+                                        TypedMatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    Literal(
+                                                        Boolean(
+                                                            true,
+                                                        ),
+                                                    ),
+                                                    Binding(
+                                                        Identifier {
+                                                            name: "n",
+                                                            span: 370..371,
+                                                        },
+                                                    ),
+                                                ],
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "n",
+                                                                        span: 390..391,
+                                                                    },
+                                                                ],
+                                                                constant: None,
+                                                            },
+                                                        },
+                                                        span: 390..400,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: AnonTuple {
+                                                fields: [
+                                                    Literal(
+                                                        Boolean(
+                                                            false,
+                                                        ),
+                                                    ),
+                                                    Wildcard,
+                                                ],
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    IntegerLiteral {
+                                                                        digits: "0",
+                                                                        radix: Decimal,
+                                                                    },
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 439..440,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                            span: 331..458,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "run_tuples",
+                    span: 471..481,
+                },
+                id: NameId(7),
+                params: [],
+                return_type: Unit,
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Int(
+                                        I64,
+                                    ),
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 307..315,
+                                                        params: [],
+                                                        param_spans: [],
+                                                        result: Int(
+                                                            I64,
+                                                        ),
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(6),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "sum_pair",
+                                                            span: 490..498,
+                                                        },
+                                                    ],
+                                                    constant: None,
+                                                },
+                                            },
+                                            span: 490..498,
+                                        },
+                                        args: [],
+                                    },
+                                },
+                                span: 490..498,
+                            },
+                        ),
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Int(
+                                        I64,
+                                    ),
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 123..129,
+                                                        params: [
+                                                            Tuple(
+                                                                [
+                                                                    Tuple(
+                                                                        [
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                    Bool,
+                                                                ],
+                                                            ),
+                                                        ],
+                                                        param_spans: [
+                                                            137..155,
+                                                        ],
+                                                        result: Int(
+                                                            I64,
+                                                        ),
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(5),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "nested",
+                                                            span: 506..512,
+                                                        },
+                                                    ],
+                                                    constant: None,
+                                                },
+                                            },
+                                            span: 506..512,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Tuple(
+                                                        [
+                                                            Tuple(
+                                                                [
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
+                                                                ],
+                                                            ),
+                                                            Bool,
+                                                        ],
+                                                    ),
+                                                    kind: Tuple(
+                                                        [
+                                                            Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Tuple(
+                                                                        [
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Spanned {
+                                                                                node: TypedExpr {
+                                                                                    ty: Int(
+                                                                                        I64,
+                                                                                    ),
+                                                                                    kind: Literal(
+                                                                                        Integer(
+                                                                                            IntegerLiteral {
+                                                                                                digits: "1",
+                                                                                                radix: Decimal,
+                                                                                            },
+                                                                                        ),
+                                                                                    ),
+                                                                                },
+                                                                                span: 515..516,
+                                                                            },
+                                                                            Spanned {
+                                                                                node: TypedExpr {
+                                                                                    ty: Int(
+                                                                                        I64,
+                                                                                    ),
+                                                                                    kind: Literal(
+                                                                                        Integer(
+                                                                                            IntegerLiteral {
+                                                                                                digits: "2",
+                                                                                                radix: Decimal,
+                                                                                            },
+                                                                                        ),
+                                                                                    ),
+                                                                                },
+                                                                                span: 518..519,
+                                                                            },
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                                span: 514..520,
+                                                            },
+                                                            Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Bool,
+                                                                    kind: Literal(
+                                                                        Boolean(
+                                                                            true,
+                                                                        ),
+                                                                    ),
+                                                                },
+                                                                span: 522..526,
+                                                            },
+                                                        ],
+                                                    ),
+                                                },
+                                                span: 513..527,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 506..512,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i64 i32) (result i32 i64)))
+  (type (;1;) (func (param i64 i64) (result i64)))
+  (type (;2;) (func (param i64 i64 i32) (result i64)))
+  (type (;3;) (func (result i64)))
+  (type (;4;) (func))
+  (export "run-tuples" (func 4))
+  (func (;0;) (type 0) (param i64 i32) (result i32 i64)
+    (local i64 i32 i32 i64)
+    (local.set 2
+      (local.get 0)
+      (local.set 3
+        (local.get 1)))
+    (local.set 4
+      (local.get 3)
+      (local.set 5
+        (local.get 2)))
+    (local.get 4)
+    (local.get 5)
+  )
+  (func (;1;) (type 1) (param i64 i64) (result i64)
+    (local i64)
+    (local.tee 2
+      (i64.add
+        (local.get 0)
+        (local.get 1)))
+    (if ;; label = @1
+      (i32.ne
+        (i32.and
+          (i64.ge_s
+            (i64.xor
+              (local.get 0)
+              (local.get 1))
+            (i64.const 0))
+          (i64.lt_s
+            (i64.xor
+              (local.get 2)
+              (local.get 0))
+            (i64.const 0)))
+        (i32.const 0))
+      (then
+        (unreachable)))
+  )
+  (func (;2;) (type 2) (param i64 i64 i32) (result i64)
+    (local i64 i64 i32)
+    (block (result i64) ;; label = @1
+      (block ;; label = @2
+        (local.set 3
+          (local.get 0)
+          (local.set 4
+            (local.get 1)
+            (local.set 5
+              (local.get 2))))
+        (br_if 0 (;@2;)
+          (local.get 5))
+        (block ;; label = @3
+          (br_if 0 (;@3;)
+            (i32.eqz
+              (local.get 5)))
+          (unreachable))
+        (br 1 (;@1;)
+          (local.get 3)))
+      (call 1
+        (local.get 3)
+        (local.get 4)))
+  )
+  (func (;3;) (type 3) (result i64)
+    (local i32 i64)
+    (block (result i64) ;; label = @1
+      (block ;; label = @2
+        (call 0
+          (i64.const 1)
+          (i32.const 1))
+        (local.set 1)
+        (local.set 0)
+        (br_if 0 (;@2;)
+          (local.get 0))
+        (block ;; label = @3
+          (br_if 0 (;@3;)
+            (i32.eqz
+              (local.get 0)))
+          (unreachable))
+        (br 1 (;@1;)
+          (i64.const 0)))
+      (local.get 1))
+  )
+  (func (;4;) (type 4)
+    (drop
+      (call 3))
+    (drop
+      (call 2
+        (i64.const 1)
+        (i64.const 2)
+        (i32.const 1)))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func))
+              (export (;0;) "run-tuples" (func (type 0)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  export run-tuples: func();
+}

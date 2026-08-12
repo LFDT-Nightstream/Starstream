@@ -1,0 +1,48 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(value: ((i64, bool), i64) ) -> i64 {\n    match value {\n        ((n, flag), m) => {\n            if (flag) {\n                n\n            } else {\n                m\n            }\n        },\n    }\n}\n"
+---
+T-Fn: test => i64
+  T-ReturnTail: match value {
+    ((n, flag), m) => {
+        if (flag) {
+            n
+        } else {
+            m
+        }
+    },
+} => i64
+    T-Match: {test: fn(((i64, bool), i64)) -> i64, value: ((i64, bool), i64)} ⊢ match value {
+    ((n, flag), m) => {
+        if (flag) {
+            n
+        } else {
+            m
+        }
+    },
+} ⇒ i64
+      T-Var: {test: fn(((i64, bool), i64)) -> i64, value: ((i64, bool), i64)} ⊢ value ⇒ ((i64, bool), i64)
+      Unify-Tuple: ((i64, bool), i64) ~ (t3, t4) => {(i64, bool)/t3, i64/t4}
+        Unify-Var: (i64, bool) ~ t3 => {(i64, bool)/t3}
+        Unify-Var: i64 ~ t4 => {i64/t4}
+      Unify-Tuple: (i64, bool) ~ (t5, t6) => {bool/t6, i64/t5}
+        Unify-Var: i64 ~ t5 => {i64/t5}
+        Unify-Var: bool ~ t6 => {bool/t6}
+      T-Tail: if (flag) {
+    n
+} else {
+    m
+} => i64
+        T-If: {flag: bool, m: i64, n: i64, test: fn(((i64, bool), i64)) -> i64, value: ((i64, bool), i64)} ⊢ if (flag) {
+    n
+} else {
+    m
+} ⇒ ()
+          T-Var: {flag: bool, m: i64, n: i64, test: fn(((i64, bool), i64)) -> i64, value: ((i64, bool), i64)} ⊢ flag ⇒ bool
+          Check-Bool: bool => ok
+          T-Tail: n => i64
+            T-Var: {flag: bool, m: i64, n: i64, test: fn(((i64, bool), i64)) -> i64, value: ((i64, bool), i64)} ⊢ n ⇒ i64
+          T-Tail: m => i64
+            T-Var: {flag: bool, m: i64, n: i64, test: fn(((i64, bool), i64)) -> i64, value: ((i64, bool), i64)} ⊢ m ⇒ i64
+          Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
