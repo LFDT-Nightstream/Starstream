@@ -5,20 +5,94 @@
 //!
 //! [wit-worlds]: https://starstream.nightstream.dev/wit-worlds
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, rc::Rc};
 
 use starstream_types::{Identifier, Type, TypedFunctionParam};
-use wasm_encoder::{FuncType, InstanceType};
+use wasm_encoder::{FuncType, InstanceType, ValType};
 
-use crate::{Compiler, component_encoder::TypeBuilder, to_kebab_case};
+use crate::{
+    Compiler, component_abi::ComponentAbiType, component_encoder::TypeBuilder, to_kebab_case,
+};
 
 /// Builtins imported from `starstream:std/builtins` and friends.
-#[derive(Default)]
 pub struct Builtins {
     pub implements_method: u32,
 }
 
+impl Default for Builtins {
+    fn default() -> Self {
+        Self {
+            implements_method: u32::MAX,
+        }
+    }
+}
+
 impl Compiler {
+    /// Implicit `starstream:std/builtin` import.
+    pub fn import_builtin(&mut self) {
+        let name = "starstream:std/builtin";
+        if self.world_type.has_imported(name) {
+            return;
+        }
+
+        let mut builtin = TypeBuilder::new_interface();
+        self.star_to_component.insert(
+            Type::UtxoAny,
+            Rc::new(ComponentAbiType::Borrow {
+                resource: builtin.fresh_resource("utxo", "s-utxo"),
+            }),
+        );
+        self.star_to_component.insert(
+            Type::TokenAny,
+            Rc::new(ComponentAbiType::Borrow {
+                resource: builtin.fresh_resource("token", "s-token"),
+            }),
+        );
+        self.world_type.import_interface(name, &builtin);
+    }
+
+    /// Implicit `starstream:std/utxo-context` import.
+    pub fn import_utxo_context(&mut self) {
+        let name = "starstream:std/utxo-context";
+        if self.world_type.has_imported(name) {
+            return;
+        }
+
+        let mut utxo_context = TypeBuilder::new_interface();
+
+        let ctx_resource = Rc::new(ComponentAbiType::Borrow {
+            resource: utxo_context.fresh_resource("utxo-context", "s-utxo-context"),
+        });
+
+        self.builtins.implements_method = self.import_function(
+            "starstream:std/utxo-context",
+            "[method]utxo-context.implements-method",
+            &FuncType::new(
+                [
+                    ValType::I32,
+                    ValType::I64,
+                    ValType::I64,
+                    ValType::I64,
+                    ValType::I64,
+                ],
+                [],
+            ),
+        );
+
+        let u64_ty = Rc::new(ComponentAbiType::U64);
+        let tuple = Rc::new(ComponentAbiType::Tuple {
+            fields: vec![u64_ty; 4],
+        });
+        utxo_context.export_fn_2(
+            "[method]utxo-context.implements-method",
+            [("self", ctx_resource), ("hash", tuple)].into_iter(),
+            None,
+        );
+
+        self.world_type.import_interface(name, &utxo_context);
+    }
+
+    /// Declare an event per spec.
     pub fn declare_event(
         &mut self,
         imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
@@ -56,6 +130,7 @@ impl Compiler {
         func_idx
     }
 
+    /// Declare an effect per spec.
     pub fn declare_effect(
         &mut self,
         imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,

@@ -1007,66 +1007,16 @@ impl Compiler {
         // defined functions, so import everything first.
 
         // First, import builtins.
-        if !self.world_type.has_imported("starstream:std/builtin") {
-            let mut builtin = TypeBuilder::new_interface();
-            self.star_to_component.insert(
-                Type::UtxoAny,
-                Rc::new(ComponentAbiType::Borrow {
-                    resource: builtin.fresh_resource("utxo", "s-utxo"),
-                }),
-            );
-            self.star_to_component.insert(
-                Type::TokenAny,
-                Rc::new(ComponentAbiType::Borrow {
-                    resource: builtin.fresh_resource("token", "s-token"),
-                }),
-            );
-            self.world_type
-                .import_interface("starstream:std/builtin", &builtin);
-        }
+        self.import_builtin();
 
         // Utxo context methods needed if the program contains any UTXOs.
         if program
             .definitions
             .iter()
             .any(|d| matches!(d, TypedDefinition::Utxo(_)))
-            && !self.world_type.has_imported("starstream:std/utxo-context")
         {
-            let mut utxo_context = TypeBuilder::new_interface();
-
-            let ctx_resource = Rc::new(ComponentAbiType::Borrow {
-                resource: utxo_context.fresh_resource("utxo-context", "s-utxo-context"),
-            });
-
-            self.builtins.implements_method = self.import_function(
-                "starstream:std/utxo-context",
-                "[method]utxo-context.implements-method",
-                &FuncType::new(
-                    [
-                        ValType::I32,
-                        ValType::I64,
-                        ValType::I64,
-                        ValType::I64,
-                        ValType::I64,
-                    ],
-                    [],
-                ),
-            );
-
-            let u64_ty = Rc::new(ComponentAbiType::U64);
-            let tuple = Rc::new(ComponentAbiType::Tuple {
-                fields: vec![u64_ty; 4],
-            });
-            utxo_context.export_fn_2(
-                "[method]utxo-context.implements-method",
-                [("self", ctx_resource), ("hash", tuple)].into_iter(),
-                None,
-            );
-
+            self.import_utxo_context();
             self.yield_global = Some(self.add_globals([ValType::I32], "yield"));
-
-            self.world_type
-                .import_interface("starstream:std/utxo-context", &utxo_context);
         }
 
         // Import anything the source file explicitly imports.
