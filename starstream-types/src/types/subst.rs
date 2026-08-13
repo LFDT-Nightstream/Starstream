@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     AbiType, EnumType, EnumVariantKind, EnumVariantType, FunctionType, RecordFieldType, RecordType,
-    TokenType, TypedFunctionParam, UtxoType,
+    TokenType, TypedAbiMethodDecl, TypedFunctionParam, UtxoType,
 };
 
 use super::{Type, TypeVarId};
@@ -254,18 +254,18 @@ impl SubstituteType for FunctionType {
         subst: &HashMap<TypeVarId, Type>,
         int_vars: &HashSet<TypeVarId>,
     ) -> Cow<'_, Self> {
-        let params = self.params.substitute_type(subst, int_vars);
-        let result = self.result.substitute_type(subst, int_vars);
-        if matches!((&params, &result), (Cow::Borrowed(_), Cow::Borrowed(_))) {
-            Cow::Borrowed(self)
-        } else {
-            Cow::Owned(FunctionType {
+        match (
+            self.params.substitute_type(subst, int_vars),
+            self.result.substitute_type(subst, int_vars),
+        ) {
+            (Cow::Borrowed(_), Cow::Borrowed(_)) => Cow::Borrowed(self),
+            (params, result) => Cow::Owned(FunctionType {
                 params: params.into_owned(),
                 result: result.into_owned(),
                 kind: self.kind,
                 name_span: self.name_span,
                 callee: self.callee.clone(),
-            })
+            }),
         }
     }
 
@@ -295,10 +295,10 @@ impl SubstituteType for TypedFunctionParam {
     ) -> Cow<'_, Self> {
         match self.ty.substitute_type(subst, int_vars) {
             Cow::Borrowed(_) => Cow::Borrowed(self),
-            Cow::Owned(owned) => Cow::Owned(TypedFunctionParam {
+            Cow::Owned(ty) => Cow::Owned(TypedFunctionParam {
                 public: self.public,
                 name: self.name.clone(),
-                ty: owned,
+                ty,
                 ty_span: self.ty_span,
             }),
         }
@@ -333,9 +333,9 @@ impl SubstituteType for RecordType {
     ) -> Cow<'_, Self> {
         match self.fields.substitute_type(subst, int_vars) {
             Cow::Borrowed(_) => Cow::Borrowed(self),
-            Cow::Owned(owned) => Cow::Owned(RecordType {
+            Cow::Owned(fields) => Cow::Owned(RecordType {
                 name: self.name.clone(),
-                fields: owned,
+                fields,
             }),
         }
     }
@@ -365,9 +365,9 @@ impl SubstituteType for RecordFieldType {
     ) -> Cow<'_, Self> {
         match self.ty.substitute_type(subst, int_vars) {
             Cow::Borrowed(_) => Cow::Borrowed(self),
-            Cow::Owned(owned) => Cow::Owned(RecordFieldType {
+            Cow::Owned(ty) => Cow::Owned(RecordFieldType {
                 name: self.name.clone(),
-                ty: owned,
+                ty,
             }),
         }
     }
@@ -397,19 +397,16 @@ impl SubstituteType for EnumType {
         subst: &HashMap<TypeVarId, Type>,
         int_vars: &HashSet<TypeVarId>,
     ) -> Cow<'_, Self> {
-        let variants = self.variants.substitute_type(subst, int_vars);
-        let type_args = self.type_args.substitute_type(subst, int_vars);
-        if matches!(
-            (&variants, &type_args),
-            (Cow::Borrowed(_), Cow::Borrowed(_))
+        match (
+            self.variants.substitute_type(subst, int_vars),
+            self.type_args.substitute_type(subst, int_vars),
         ) {
-            Cow::Borrowed(self)
-        } else {
-            Cow::Owned(EnumType {
+            (Cow::Borrowed(_), Cow::Borrowed(_)) => Cow::Borrowed(self),
+            (variants, type_args) => Cow::Owned(EnumType {
                 name: self.name.clone(),
                 variants: variants.into_owned(),
                 type_args: type_args.into_owned(),
-            })
+            }),
         }
     }
 
@@ -439,9 +436,9 @@ impl SubstituteType for EnumVariantType {
     ) -> Cow<'_, Self> {
         match self.kind.substitute_type(subst, int_vars) {
             Cow::Borrowed(_) => Cow::Borrowed(self),
-            Cow::Owned(owned) => Cow::Owned(EnumVariantType {
+            Cow::Owned(kind) => Cow::Owned(EnumVariantType {
                 name: self.name.clone(),
-                kind: owned,
+                kind,
             }),
         }
     }
@@ -511,20 +508,43 @@ impl SubstituteType for EnumVariantKind {
     }
 }
 
-// TODO: non-dummy implementation needed?
 impl SubstituteType for UtxoType {
-    fn contains_var(&self, _var: TypeVarId, _subst: &HashMap<TypeVarId, Type>) -> bool {
-        false
+    fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
+        // No need to check always_abis since it's a subset of possible_abis.
+        self.possible_abis.contains_var(var, subst)
     }
 
-    fn collect_free_type_vars(&self, _set: &mut HashSet<TypeVarId>) {}
+    fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
+        // No need to check always_abis since it's a subset of possible_abis.
+        self.possible_abis.collect_free_type_vars(set);
+    }
 
     fn substitute_type(
         &self,
-        _subst: &HashMap<TypeVarId, Type>,
-        _int_vars: &HashSet<TypeVarId>,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
     ) -> Cow<'_, Self> {
-        Cow::Borrowed(self)
+        match self.possible_abis.substitute_type(subst, int_vars) {
+            Cow::Borrowed(_) => Cow::Borrowed(self),
+            Cow::Owned(possible_abis) => Cow::Owned(UtxoType {
+                name: self.name.clone(),
+                id: self.id,
+                possible_abis,
+                always_abis: self
+                    .always_abis
+                    .substitute_type(subst, int_vars)
+                    .into_owned(),
+            }),
+        }
+    }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        self.possible_abis.substitute_in_place(subst, int_vars);
+        self.always_abis.substitute_in_place(subst, int_vars);
     }
 }
 
@@ -542,21 +562,76 @@ impl SubstituteType for TokenType {
     ) -> Cow<'_, Self> {
         Cow::Borrowed(self)
     }
+
+    fn substitute_in_place(
+        &mut self,
+        _subst: &HashMap<TypeVarId, Type>,
+        _int_vars: &HashSet<TypeVarId>,
+    ) {
+    }
 }
 
-// TODO: non-dummy implementation needed?
 impl SubstituteType for AbiType {
-    fn contains_var(&self, _var: TypeVarId, _subst: &HashMap<TypeVarId, Type>) -> bool {
-        false
+    fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
+        self.methods.contains_var(var, subst)
     }
 
-    fn collect_free_type_vars(&self, _set: &mut HashSet<TypeVarId>) {}
+    fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
+        self.methods.collect_free_type_vars(set)
+    }
 
     fn substitute_type(
         &self,
-        _subst: &HashMap<TypeVarId, Type>,
-        _int_vars: &HashSet<TypeVarId>,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
     ) -> Cow<'_, Self> {
-        Cow::Borrowed(self)
+        match self.methods.substitute_type(subst, int_vars) {
+            Cow::Borrowed(_) => Cow::Borrowed(self),
+            Cow::Owned(methods) => Cow::Owned(AbiType {
+                name: self.name.clone(),
+                methods,
+            }),
+        }
+    }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        self.methods.substitute_in_place(subst, int_vars);
+    }
+}
+
+impl SubstituteType for TypedAbiMethodDecl {
+    fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
+        self.ty.contains_var(var, subst)
+    }
+
+    fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
+        self.ty.collect_free_type_vars(set);
+    }
+
+    fn substitute_type(
+        &self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) -> Cow<'_, Self> {
+        match self.ty.substitute_type(subst, int_vars) {
+            Cow::Borrowed(_) => Cow::Borrowed(self),
+            Cow::Owned(ty) => Cow::Owned(TypedAbiMethodDecl {
+                name: self.name.clone(),
+                id: self.id,
+                ty,
+            }),
+        }
+    }
+
+    fn substitute_in_place(
+        &mut self,
+        subst: &HashMap<TypeVarId, Type>,
+        int_vars: &HashSet<TypeVarId>,
+    ) {
+        self.ty.substitute_in_place(subst, int_vars);
     }
 }
