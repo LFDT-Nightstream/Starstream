@@ -1576,8 +1576,8 @@ impl Inferencer {
                 if let Some(constant) = ns.constants.get(last.as_str()).cloned() {
                     // Identifier matching a constant is a test against that constant.
                     let (.., unify_trace) = self.unify(
-                        expected_ty.clone(),
-                        constant.ty.clone(),
+                        expected_ty,
+                        &constant.ty,
                         value_span,
                         last.span,
                         TypeErrorKind::PatternEnumMismatch {
@@ -1630,8 +1630,8 @@ impl Inferencer {
                     Literal::Unit => Type::Unit,
                 };
                 let (.., unify_trace) = self.unify(
-                    expected_ty.clone(),
-                    literal_ty.clone(),
+                    expected_ty,
+                    &literal_ty,
                     value_span,
                     *span,
                     TypeErrorKind::GeneralMismatch {
@@ -1644,8 +1644,8 @@ impl Inferencer {
             Pattern::Struct { name, fields } => {
                 let info = self.lookup_struct_info(env, name)?.clone();
                 let (.., unify_trace) = self.unify(
-                    expected_ty.clone(),
-                    info.ty.clone(),
+                    expected_ty,
+                    &info.ty,
                     value_span,
                     name.last().unwrap().span(),
                     TypeErrorKind::GeneralMismatch {
@@ -1756,8 +1756,8 @@ impl Inferencer {
                 }
                 let func = func.clone();
                 let (_, unify_trace) = self.unify(
-                    expected_ty.clone(),
-                    func.result.clone(),
+                    expected_ty,
+                    &func.result,
                     value_span,
                     last.span,
                     TypeErrorKind::PatternEnumMismatch {
@@ -1936,8 +1936,8 @@ impl Inferencer {
                     // Binding has a type annotation, so unify it with the initial value.
                     let expected_type = self.type_from_annotation(env, ty)?;
                     let (new_value_type, unify_trace) = self.unify(
-                        expected_type.clone(),
-                        value_type.clone(),
+                        &expected_type,
+                        &value_type,
                         name.span_or(value.span),
                         value.span,
                         TypeErrorKind::AssignmentMismatch {
@@ -2061,17 +2061,17 @@ impl Inferencer {
                     )
                     .with_help(help));
                 }
-                let actual_type = typed_value.node.ty.clone();
+                let actual_type = &typed_value.node.ty;
 
                 let (_, unify_trace) = self.unify(
-                    actual_type.clone(),
-                    expected_type.clone(),
+                    actual_type,
+                    &expected_type,
                     value.span,
                     target.span_or(value.span),
                     TypeErrorKind::AssignmentMismatch {
                         name: target.name.clone(),
                         expected: self.apply_for_display(&expected_type),
-                        found: self.apply_for_display(&actual_type),
+                        found: self.apply_for_display(actual_type),
                     },
                 )?;
 
@@ -2097,15 +2097,15 @@ impl Inferencer {
                 match value {
                     Some(expr) => {
                         let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
-                        let actual_type = typed_expr.node.ty.clone();
+                        let actual_type = &typed_expr.node.ty;
                         let (_, unify_trace) = self.unify(
-                            actual_type.clone(),
-                            ctx.expected_return.clone(),
+                            actual_type,
+                            &ctx.expected_return,
                             expr.span,
                             ctx.return_span,
                             TypeErrorKind::ReturnMismatch {
                                 expected: self.apply_for_display(&ctx.expected_return),
-                                found: self.apply_for_display(&actual_type),
+                                found: self.apply_for_display(actual_type),
                             },
                         )?;
                         ctx.saw_return = true;
@@ -2121,8 +2121,8 @@ impl Inferencer {
                     None => {
                         let unit = Type::unit();
                         let (_, unify_trace) = self.unify(
-                            unit.clone(),
-                            ctx.expected_return.clone(),
+                            &unit,
+                            &ctx.expected_return,
                             ctx.return_span,
                             ctx.return_span,
                             TypeErrorKind::ReturnMismatch {
@@ -2184,8 +2184,8 @@ impl Inferencer {
                 // Do like `return ();`
                 let result_repr = self.maybe_string(|| self.format_type(&ctx.expected_return));
                 let (_, unify_trace) = self.unify(
-                    Type::Unit,
-                    ctx.expected_return.clone(),
+                    &Type::Unit,
+                    &ctx.expected_return,
                     ctx.return_span,
                     ctx.return_span,
                     TypeErrorKind::ReturnMismatch {
@@ -2203,8 +2203,8 @@ impl Inferencer {
                 let (subject, mut children) = self.infer_block(env, subject, ctx, false)?;
                 // Require block to return unit for now - we could make try-with an expression later?
                 let (_, unit_trace) = self.unify(
-                    Type::Unit,
-                    subject.ty().clone(),
+                    &Type::Unit,
+                    subject.ty(),
                     ctx.return_span,
                     subject.tail_span(),
                     TypeErrorKind::GeneralMismatch {
@@ -2256,8 +2256,8 @@ impl Inferencer {
                     let (block, trace) = self.infer_block(env, block, ctx, false)?;
                     children.extend(trace);
                     let (_, unit_trace) = self.unify(
-                        Type::Unit,
-                        block.ty().clone(),
+                        &Type::Unit,
+                        block.ty(),
                         ctx.return_span,
                         block.tail_span(),
                         TypeErrorKind::GeneralMismatch {
@@ -2305,15 +2305,15 @@ impl Inferencer {
             let mut children = vec![expr_trace];
             if treat_tail_as_return {
                 ctx.saw_return = true;
-                let actual = typed_expr.node.ty.clone();
+                let actual = &typed_expr.node.ty;
                 let (_, unify_trace) = self.unify(
-                    actual.clone(),
-                    ctx.expected_return.clone(),
+                    actual,
+                    &ctx.expected_return,
                     expr.span,
                     ctx.return_span,
                     TypeErrorKind::ReturnMismatch {
                         expected: self.apply_for_display(&ctx.expected_return),
-                        found: self.apply_for_display(&actual),
+                        found: self.apply_for_display(actual),
                     },
                 )?;
                 children.push(unify_trace);
@@ -2485,7 +2485,7 @@ impl Inferencer {
                     }
                     UnaryOp::Not => self.require_is(
                         &typed_inner.node.ty,
-                        Type::bool(),
+                        &Type::bool(),
                         inner.span,
                         inner.span,
                         TypeErrorKind::UnaryMismatch {
@@ -2562,8 +2562,8 @@ impl Inferencer {
 
                         // Unify left and right to ensure same int width
                         let (unified_ty, unify_trace) = self.unify(
-                            left_ty.clone(),
-                            right_ty.clone(),
+                            &left_ty,
+                            &right_ty,
                             left_label_span,
                             right_label_span,
                             TypeErrorKind::BinaryOperandMismatch {
@@ -2626,7 +2626,7 @@ impl Inferencer {
 
                         children.push(self.require_is(
                             &typed_left.node.ty,
-                            Type::bool(),
+                            &Type::bool(),
                             left_label_span,
                             left_label_span,
                             TypeErrorKind::BinaryOperandMismatch {
@@ -2637,7 +2637,7 @@ impl Inferencer {
                         )?);
                         children.push(self.require_is(
                             &typed_right.node.ty,
-                            Type::bool(),
+                            &Type::bool(),
                             right_label_span,
                             right_label_span,
                             TypeErrorKind::BinaryOperandMismatch {
@@ -2710,7 +2710,7 @@ impl Inferencer {
                 let mut expected = info
                     .fields()
                     .iter()
-                    .map(|field| (field.name.to_string(), (field.ty.clone(), field.name.span)))
+                    .map(|field| (field.name.to_string(), (&field.ty, field.name.span)))
                     .collect::<HashMap<_, _>>();
                 let mut typed_fields = Vec::with_capacity(fields.len());
                 let mut children = Vec::new();
@@ -2740,15 +2740,15 @@ impl Inferencer {
                     })?;
 
                     let (typed_value, value_trace) = self.infer_expr(env, &field.value, ctx)?;
-                    let actual_ty = typed_value.node.ty.clone();
+                    let actual_ty = &typed_value.node.ty;
                     let (_, unify_trace) = self.unify(
-                        actual_ty.clone(),
-                        expected_ty.clone(),
+                        actual_ty,
+                        expected_ty,
                         field.value.span,
                         field.name.span_or(field.value.span),
                         TypeErrorKind::GeneralMismatch {
-                            expected: expected_ty,
-                            found: self.apply_for_display(&actual_ty),
+                            expected: expected_ty.clone(),
+                            found: self.apply_for_display(actual_ty),
                         },
                     )?;
                     children.push(value_trace);
@@ -2798,7 +2798,7 @@ impl Inferencer {
             Expr::FieldAccess { target, field } => {
                 let (typed_target, target_trace) = self.infer_expr(env, target, ctx)?;
                 let target_ty = self.apply_for_display(&typed_target.node.ty);
-                let field_ty = match target_ty.clone() {
+                let field_ty = match &target_ty {
                     Type::Record(record) => record
                         .fields
                         .iter()
@@ -2976,12 +2976,12 @@ impl Inferencer {
                             let then_ty = typed_then
                                 .tail_expression
                                 .as_ref()
-                                .map_or(Type::Unit, |tail| tail.node.ty.clone());
+                                .map_or(&Type::Unit, |tail| &tail.node.ty);
 
                             result_ty = if let Some(current) = result_ty {
                                 let (merged, unify_trace) = self.unify(
-                                    current.clone(),
-                                    then_ty.clone(),
+                                    &current,
+                                    then_ty,
                                     typed_then
                                         .tail_expression
                                         .as_ref()
@@ -2989,14 +2989,14 @@ impl Inferencer {
                                         .unwrap_or(expr.span),
                                     expr.span,
                                     TypeErrorKind::GeneralMismatch {
-                                        expected: current,
-                                        found: self.apply_for_display(&then_ty),
+                                        expected: current.clone(),
+                                        found: self.apply_for_display(then_ty),
                                     },
                                 )?;
                                 children.push(unify_trace);
                                 Some(merged)
                             } else {
-                                Some(then_ty)
+                                Some(then_ty.clone())
                             };
 
                             typed_branches.push((
@@ -3018,12 +3018,12 @@ impl Inferencer {
                     let then_ty = typed_then
                         .tail_expression
                         .as_ref()
-                        .map_or(Type::Unit, |tail| tail.node.ty.clone());
+                        .map_or(&Type::Unit, |tail| &tail.node.ty);
 
                     result_ty = if let Some(current) = result_ty {
                         let (merged, unify_trace) = self.unify(
-                            current.clone(),
-                            then_ty.clone(),
+                            &current,
+                            then_ty,
                             typed_then
                                 .tail_expression
                                 .as_ref()
@@ -3031,14 +3031,14 @@ impl Inferencer {
                                 .unwrap_or(expr.span),
                             expr.span,
                             TypeErrorKind::GeneralMismatch {
-                                expected: current,
-                                found: self.apply_for_display(&then_ty),
+                                expected: current.clone(),
+                                found: self.apply_for_display(then_ty),
                             },
                         )?;
                         children.push(unify_trace);
                         Some(merged)
                     } else {
-                        Some(then_ty)
+                        Some(then_ty.clone())
                     };
 
                     typed_branches.push((typed_condition, typed_then));
@@ -3057,24 +3057,24 @@ impl Inferencer {
                     .and_then(|b| {
                         b.tail_expression
                             .as_ref()
-                            .map(|tail| (tail.node.ty.clone(), tail.span))
+                            .map(|tail| (&tail.node.ty, tail.span))
                     })
-                    .unwrap_or((Type::Unit, expr.span));
+                    .unwrap_or((&Type::Unit, expr.span));
                 let result_ty = if let Some(current) = result_ty {
                     let (merged, unify_trace) = self.unify(
-                        current.clone(),
-                        else_ty.clone(),
+                        &current,
+                        else_ty,
                         else_span,
                         expr.span,
                         TypeErrorKind::GeneralMismatch {
-                            expected: current,
-                            found: self.apply_for_display(&else_ty),
+                            expected: current.clone(),
+                            found: self.apply_for_display(else_ty),
                         },
                     )?;
                     children.push(unify_trace);
                     merged
                 } else {
-                    else_ty
+                    else_ty.clone()
                 };
 
                 let unit_result = self.maybe_string(|| "()".to_string());
@@ -3124,8 +3124,7 @@ impl Inferencer {
                     let arm_ty = typed_block
                         .tail_expression
                         .as_ref()
-                        .map(|expr| expr.node.ty.clone())
-                        .unwrap_or_else(Type::unit);
+                        .map_or(&Type::Unit, |expr| &expr.node.ty);
 
                     let arm_span = arm
                         .body
@@ -3136,11 +3135,11 @@ impl Inferencer {
 
                     result_ty = if let Some((first_ty, first_span)) = result_ty {
                         let (merged, unify_trace) =
-                            self.unify_match_arms(&arm_ty, &first_ty, arm_span, first_span)?;
+                            self.unify_match_arms(arm_ty, &first_ty, arm_span, first_span)?;
                         children.push(unify_trace);
                         Some((merged, first_span))
                     } else {
-                        Some((arm_ty, arm_span))
+                        Some((arm_ty.clone(), arm_span))
                     };
 
                     typed_arms.push(TypedMatchArm {
@@ -3196,7 +3195,7 @@ impl Inferencer {
             }
             Expr::Disclose { expr: inner_expr } => {
                 let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
-                let result_ty = typed_inner.node.ty.clone();
+                let result_ty = &typed_inner.node.ty;
 
                 if self.source_expr_visibility(env, inner_expr) == BindingVisibility::Public {
                     self.warnings.push(
@@ -3206,6 +3205,7 @@ impl Inferencer {
                     );
                 }
 
+                let result_repr = self.maybe_string(|| self.format_type(result_ty));
                 let typed = Spanned::new(
                     TypedExpr::new(
                         result_ty.clone(),
@@ -3215,8 +3215,6 @@ impl Inferencer {
                     ),
                     expr.span,
                 );
-
-                let result_repr = self.maybe_string(|| self.format_type(&result_ty));
                 let tree =
                     self.make_trace("T-Disclose", env_context, subject_repr, result_repr, || {
                         vec![inner_trace]
@@ -3331,16 +3329,16 @@ impl Inferencer {
 
         for (index, (arg, param)) in args.iter().zip(func.params.iter()).enumerate() {
             let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
-            let actual_ty = typed_arg.node.ty.clone();
+            let actual_ty = &typed_arg.node.ty;
 
             let (_, unify_trace) = self.unify(
-                actual_ty.clone(),
-                param.ty.clone(),
+                actual_ty,
+                &param.ty,
                 arg.span,
                 arg.span,
                 TypeErrorKind::ArgumentTypeMismatch {
                     expected: param.ty.clone(),
-                    found: self.apply_for_display(&actual_ty),
+                    found: self.apply_for_display(actual_ty),
                     position: index + 1,
                     param_span: Some(param.ty_span),
                 },
@@ -3518,12 +3516,12 @@ impl Inferencer {
     fn require_is(
         &mut self,
         actual: &Type,
-        expected: Type,
+        expected: &Type,
         left_span: Span,
         right_span: Span,
         kind: TypeErrorKind,
     ) -> Result<InferenceTree, TypeError> {
-        let (_, tree) = self.unify(actual.clone(), expected, left_span, right_span, kind)?;
+        let (_, tree) = self.unify(actual, expected, left_span, right_span, kind)?;
         Ok(tree)
     }
 
@@ -3544,8 +3542,8 @@ impl Inferencer {
         if both_int {
             // Unify to ensure same int width
             let (unified_ty, unify_trace) = self.unify(
-                left_ty.clone(),
-                right_ty.clone(),
+                &left_ty,
+                &right_ty,
                 left_span,
                 right_span,
                 TypeErrorKind::BinaryOperandMismatch {
@@ -3609,8 +3607,8 @@ impl Inferencer {
         if both_int {
             // Unify to ensure same int width
             let (unified_ty, unify_trace) = self.unify(
-                left_ty.clone(),
-                right_ty.clone(),
+                &left_ty,
+                &right_ty,
                 left_span,
                 right_span,
                 TypeErrorKind::BinaryOperandMismatch {
@@ -4050,7 +4048,7 @@ impl Inferencer {
         let current_ty = self.apply(current_arm_ty);
         let first_ty = self.apply(first_arm_ty);
 
-        match self.unify_inner(current_ty.clone(), first_ty.clone()) {
+        match self.unify_inner(&current_ty, &first_ty) {
             Ok((result_ty, children, rule)) => {
                 let subject = self.maybe_string(|| {
                     format!(
@@ -4086,30 +4084,29 @@ impl Inferencer {
     /// Inner unification logic that returns the result without creating error labels.
     fn unify_inner(
         &mut self,
-        left: Type,
-        right: Type,
+        left: &Type,
+        right: &Type,
     ) -> Result<(Type, Vec<InferenceTree>, &'static str), ()> {
         match (left, right) {
             (Type::Unit, Type::Unit) => Ok((Type::Unit, Vec::new(), "Unify-Const")),
             (Type::Bool, Type::Bool) => Ok((Type::Bool, Vec::new(), "Unify-Const")),
             (Type::Int(w1), Type::Int(w2)) if w1 == w2 => {
-                Ok((Type::Int(w1), Vec::new(), "Unify-Const"))
+                Ok((Type::Int(*w1), Vec::new(), "Unify-Const"))
             }
             (Type::Function(left), Type::Function(right))
-                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+                if Arc::as_ptr(left) == Arc::as_ptr(right) =>
             {
-                Ok((Type::Function(left), vec![], "Unify-Const"))
+                Ok((Type::Function(left.clone()), vec![], "Unify-Const"))
             }
             (Type::Function(left), Type::Function(right))
                 if left.params.len() == right.params.len() && left.kind == right.kind =>
             {
                 let mut children = Vec::new();
                 for (l, r) in left.params.iter().zip(right.params.iter()) {
-                    let (_, child, _) = self.unify_inner(l.ty.clone(), r.ty.clone())?;
+                    let (_, child, _) = self.unify_inner(&l.ty, &r.ty)?;
                     children.extend(child);
                 }
-                let (_, ret_child, _) =
-                    self.unify_inner(left.result.clone(), right.result.clone())?;
+                let (_, ret_child, _) = self.unify_inner(&left.result, &right.result)?;
                 children.extend(ret_child);
                 Ok((
                     Type::from(FunctionType {
@@ -4127,25 +4124,23 @@ impl Inferencer {
                     "Unify-Arrow",
                 ))
             }
-            (Type::Tuple(left), Type::Tuple(right))
-                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
-            {
-                Ok((Type::Tuple(left), vec![], "Unify-Const"))
+            (Type::Tuple(left), Type::Tuple(right)) if Arc::as_ptr(left) == Arc::as_ptr(right) => {
+                Ok((Type::Tuple(left.clone()), vec![], "Unify-Const"))
             }
             (Type::Tuple(ls), Type::Tuple(rs)) if ls.len() == rs.len() => {
                 let mut children = Vec::new();
                 for (l, r) in ls.iter().zip(rs.iter()) {
-                    let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
+                    let (_, child, _) = self.unify_inner(l, r)?;
                     children.extend(child);
                 }
-                Ok((Type::Tuple(ls), children, "Unify-Tuple"))
+                Ok((Type::Tuple(ls.clone()), children, "Unify-Tuple"))
             }
             // Records unify structurally: names are aliases, but fields must
             // line up in declaration order, matching `unify` below.
             (Type::Record(left), Type::Record(right))
-                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
+                if Arc::as_ptr(left) == Arc::as_ptr(right) =>
             {
-                Ok((Type::Record(left), vec![], "Unify-Const"))
+                Ok((Type::Record(left.clone()), vec![], "Unify-Const"))
             }
             (Type::Record(ls), Type::Record(rs)) if ls.fields.len() == rs.fields.len() => {
                 let mut children = Vec::new();
@@ -4153,15 +4148,15 @@ impl Inferencer {
                     if lf.name.as_str() != rf.name.as_str() {
                         return Err(());
                     }
-                    let (_, child, _) = self.unify_inner(lf.ty.clone(), rf.ty.clone())?;
+                    let (_, child, _) = self.unify_inner(&lf.ty, &rf.ty)?;
                     children.extend(child);
                 }
-                Ok((Type::Record(ls), children, "Unify-Record"))
+                Ok((Type::Record(ls.clone()), children, "Unify-Record"))
             }
             // Enums likewise unify by shape, not name, with variants compared
             // in declaration order.
-            (Type::Enum(left), Type::Enum(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
-                Ok((Type::Enum(left), vec![], "Unify-Const"))
+            (Type::Enum(left), Type::Enum(right)) if Arc::as_ptr(left) == Arc::as_ptr(right) => {
+                Ok((Type::Enum(left.clone()), vec![], "Unify-Const"))
             }
             (Type::Enum(ls), Type::Enum(rs)) if ls.variants.len() == rs.variants.len() => {
                 let mut children = Vec::new();
@@ -4175,7 +4170,7 @@ impl Inferencer {
                             if lt.len() == rt.len() =>
                         {
                             for (l, r) in lt.iter().zip(rt.iter()) {
-                                let (_, c, _) = self.unify_inner(l.clone(), r.clone())?;
+                                let (_, c, _) = self.unify_inner(l, r)?;
                                 children.extend(c);
                             }
                         }
@@ -4186,79 +4181,74 @@ impl Inferencer {
                                 if l.name.as_str() != r.name.as_str() {
                                     return Err(());
                                 }
-                                let (_, c, _) = self.unify_inner(l.ty.clone(), r.ty.clone())?;
+                                let (_, c, _) = self.unify_inner(&l.ty, &r.ty)?;
                                 children.extend(c);
                             }
                         }
                         _ => return Err(()),
                     }
                 }
-                Ok((Type::Enum(ls), children, "Unify-Enum"))
+                Ok((Type::Enum(ls.clone()), children, "Unify-Enum"))
             }
             // Utxo and Token types are nominal and only unify with themselves.
             (Type::UtxoAny, Type::UtxoAny) => Ok((Type::UtxoAny, Vec::new(), "Unify-Const")),
-            (Type::Utxo(left), Type::Utxo(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
-                Ok((Type::Utxo(left), Vec::new(), "Unify-Const"))
+            (Type::Utxo(left), Type::Utxo(right)) if Arc::as_ptr(left) == Arc::as_ptr(right) => {
+                Ok((Type::Utxo(left.clone()), Vec::new(), "Unify-Const"))
             }
             (Type::TokenAny, Type::TokenAny) => Ok((Type::TokenAny, Vec::new(), "Unify-Const")),
-            (Type::Token(left), Type::Token(right))
-                if Arc::as_ptr(&left) == Arc::as_ptr(&right) =>
-            {
-                Ok((Type::Token(left), Vec::new(), "Unify-Const"))
+            (Type::Token(left), Type::Token(right)) if Arc::as_ptr(left) == Arc::as_ptr(right) => {
+                Ok((Type::Token(left.clone()), Vec::new(), "Unify-Const"))
             }
             // TODO: structural unification for Abi types
-            (Type::Abi(left), Type::Abi(right)) if Arc::as_ptr(&left) == Arc::as_ptr(&right) => {
-                Ok((Type::Abi(left), Vec::new(), "Unify-Const"))
+            (Type::Abi(left), Type::Abi(right)) if Arc::as_ptr(left) == Arc::as_ptr(right) => {
+                Ok((Type::Abi(left.clone()), Vec::new(), "Unify-Const"))
+            }
+            (Type::Var(id1), Type::Var(id2)) if id1 == id2 => {
+                Ok((Type::Var(*id1), Vec::new(), "Unify-Var"))
             }
             (Type::Var(id), ty) => {
-                if ty == Type::Var(id) {
-                    return Ok((ty, Vec::new(), "Unify-Var"));
-                }
-                if ty.contains_var(id, &self.subst) {
+                if ty.contains_var(*id, &self.subst) {
                     return Err(());
                 }
                 // If this var is int-constrained, verify the target is an int type
                 // or propagate the constraint to another var.
-                if self.int_vars.contains(&id) {
+                if self.int_vars.contains(id) {
                     match &ty {
                         Type::Int(_) => {} // OK
                         Type::Var(other_id) => {
                             // Propagate int constraint to the other var
                             self.int_vars.insert(*other_id);
                             // Also propagate literal value tracking if present
-                            if let Some(val) = self.int_literal_values.get(&id).cloned() {
+                            if let Some(val) = self.int_literal_values.get(id).cloned() {
                                 self.int_literal_values.entry(*other_id).or_insert(val);
                             }
                         }
                         _ => return Err(()),
                     }
                 }
-                self.subst.insert(id, ty.clone());
-                Ok((ty, Vec::new(), "Unify-Var"))
+                self.subst.insert(*id, ty.clone());
+                Ok((ty.clone(), Vec::new(), "Unify-Var"))
             }
             (ty, Type::Var(id)) => {
-                if ty == Type::Var(id) {
-                    return Ok((ty, Vec::new(), "Unify-Var"));
-                }
-                if ty.contains_var(id, &self.subst) {
+                if ty.contains_var(*id, &self.subst) {
                     return Err(());
                 }
                 // If this var is int-constrained, verify the target is an int type
                 // or propagate the constraint to another var.
-                if self.int_vars.contains(&id) {
+                if self.int_vars.contains(id) {
                     match &ty {
                         Type::Int(_) => {} // OK
                         Type::Var(other_id) => {
                             self.int_vars.insert(*other_id);
-                            if let Some(val) = self.int_literal_values.get(&id).cloned() {
+                            if let Some(val) = self.int_literal_values.get(id).cloned() {
                                 self.int_literal_values.entry(*other_id).or_insert(val);
                             }
                         }
                         _ => return Err(()),
                     }
                 }
-                self.subst.insert(id, ty.clone());
-                Ok((ty, Vec::new(), "Unify-Var"))
+                self.subst.insert(*id, ty.clone());
+                Ok((ty.clone(), Vec::new(), "Unify-Var"))
             }
             _ => Err(()),
         }
@@ -4267,14 +4257,14 @@ impl Inferencer {
     /// Unify two types, updating the substitution set and returning a trace node.
     fn unify(
         &mut self,
-        left: Type,
-        right: Type,
+        left: &Type,
+        right: &Type,
         left_span: Span,
         right_span: Span,
         error_kind: TypeErrorKind,
     ) -> Result<(Type, InferenceTree), TypeError> {
-        let left = self.apply(&left);
-        let right = self.apply(&right);
+        let left = self.apply(left);
+        let right = self.apply(right);
         let subject = self
             .maybe_string(|| format!("{} ~ {}", self.format_type(&left), self.format_type(&right)));
         let before = if self.capture_traces {
@@ -4307,8 +4297,8 @@ impl Inferencer {
                 let mut arrow_children = Vec::new();
                 for (l, r) in left.params.iter().zip(right.params.iter()) {
                     let (_, child) = self.unify(
-                        l.ty.clone(),
-                        r.ty.clone(),
+                        &l.ty,
+                        &r.ty,
                         left_span,
                         right_span,
                         TypeErrorKind::GeneralMismatch {
@@ -4320,8 +4310,8 @@ impl Inferencer {
                 }
 
                 let (_, ret_child) = self.unify(
-                    left.result.clone(),
-                    right.result.clone(),
+                    &left.result,
+                    &right.result,
                     left_span,
                     right_span,
                     TypeErrorKind::GeneralMismatch {
@@ -4361,8 +4351,8 @@ impl Inferencer {
                 let mut tuple_children = Vec::new();
                 for (l, r) in ls.iter().zip(rs.iter()) {
                     let (_, child) = self.unify(
-                        l.clone(),
-                        r.clone(),
+                        l,
+                        r,
                         left_span,
                         right_span,
                         TypeErrorKind::GeneralMismatch {
@@ -4394,8 +4384,8 @@ impl Inferencer {
                 let mut record_children = Vec::new();
                 for (left_field, right_field) in ls.fields.iter().zip(rs.fields.iter()) {
                     let (_, trace) = self.unify(
-                        left_field.ty.clone(),
-                        right_field.ty.clone(),
+                        &left_field.ty,
+                        &right_field.ty,
                         left_span,
                         right_span,
                         TypeErrorKind::GeneralMismatch {
@@ -4437,8 +4427,8 @@ impl Inferencer {
                             for (left_ty, right_ty) in left_payload.iter().zip(right_payload.iter())
                             {
                                 let (_, trace) = self.unify(
-                                    left_ty.clone(),
-                                    right_ty.clone(),
+                                    left_ty,
+                                    right_ty,
                                     left_span,
                                     right_span,
                                     TypeErrorKind::GeneralMismatch {
@@ -4467,8 +4457,8 @@ impl Inferencer {
                                 left_fields.iter().zip(right_fields.iter())
                             {
                                 let (_, trace) = self.unify(
-                                    left_field.ty.clone(),
-                                    right_field.ty.clone(),
+                                    &left_field.ty,
+                                    &right_field.ty,
                                     left_span,
                                     right_span,
                                     TypeErrorKind::GeneralMismatch {
@@ -4501,11 +4491,11 @@ impl Inferencer {
                 (Type::Abi(left), Vec::new(), "Unify-Const")
             }
             (Type::Var(id), ty) => {
-                self.bind(id, ty.clone(), left_span, right_span, error_kind.clone())?;
+                self.bind(id, &ty, left_span, right_span, error_kind.clone())?;
                 (ty, Vec::new(), "Unify-Var")
             }
             (ty, Type::Var(id)) => {
-                self.bind(id, ty.clone(), right_span, left_span, error_kind.clone())?;
+                self.bind(id, &ty, right_span, left_span, error_kind.clone())?;
                 (ty, Vec::new(), "Unify-Var")
             }
             (left, right) => {
@@ -4542,12 +4532,12 @@ impl Inferencer {
     fn bind(
         &mut self,
         var: TypeVarId,
-        ty: Type,
+        ty: &Type,
         var_span: Span,
         other_span: Span,
         kind: TypeErrorKind,
     ) -> Result<(), TypeError> {
-        if ty == Type::Var(var) {
+        if *ty == Type::Var(var) {
             return Ok(());
         }
 
@@ -4559,7 +4549,7 @@ impl Inferencer {
         // If this var is int-constrained, verify the target is an int type
         // or propagate the constraint to another var.
         if self.int_vars.contains(&var) {
-            match &ty {
+            match ty {
                 Type::Int(_) => {} // OK — concrete int type
                 Type::Var(other_id) => {
                     // Propagate int constraint to the other var
@@ -4576,7 +4566,7 @@ impl Inferencer {
             }
         }
 
-        self.subst.insert(var, ty);
+        self.subst.insert(var, ty.clone());
         Ok(())
     }
 }

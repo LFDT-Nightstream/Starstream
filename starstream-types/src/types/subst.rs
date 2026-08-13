@@ -30,18 +30,12 @@ pub trait SubstituteType: Sized + Clone {
         int_vars: &HashSet<TypeVarId>,
     ) -> Cow<'_, Self>;
 
-    // ------------------------------------------------------------------------
-
     /// Like [Self::substitute_type], but in place.
     fn substitute_in_place(
         &mut self,
         subst: &HashMap<TypeVarId, Type>,
         int_vars: &HashSet<TypeVarId>,
-    ) {
-        if let Cow::Owned(replacement) = self.substitute_type(subst, int_vars) {
-            *self = replacement;
-        }
-    }
+    );
 
     /// Get all free type variables present in `self`.
     fn free_type_vars(&self) -> HashSet<TypeVarId> {
