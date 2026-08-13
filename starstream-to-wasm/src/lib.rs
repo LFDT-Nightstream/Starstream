@@ -1003,6 +1003,9 @@ impl Compiler {
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &TypedProgram) {
+        // Core Wasm requires that all imported functions must precede all
+        // defined functions, so import everything first.
+
         // First, import builtins.
         if !self.world_type.has_imported("starstream:std/builtin") {
             let mut builtin = TypeBuilder::new_interface();
@@ -1080,8 +1083,7 @@ impl Compiler {
             self.world_type.import_interface(&interface_name, &instance);
         }
 
-        // In the Wasm output, imported functions must precede defined
-        // functions, so take care of them now.
+        // Visit imported versions of Utxo and Token resource definitions.
         for definition in &program.definitions {
             match definition {
                 TypedDefinition::Utxo(def) => self.pre_visit_utxo(def),
@@ -1097,6 +1099,11 @@ impl Compiler {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
                 TypedDefinition::Contract => { /* Pure marker, no codegen. */ }
+
+                TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
+                TypedDefinition::Enum(enum_) => self.visit_enum(enum_),
+
+                TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
                 TypedDefinition::Token(token) => self.visit_token(token),
 
                 TypedDefinition::Function(func) => {
@@ -1115,9 +1122,6 @@ impl Compiler {
                         );
                     }
                 }
-                TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
-                TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
-                TypedDefinition::Enum(enum_) => self.visit_enum(enum_),
             }
         }
     }
@@ -1129,7 +1133,7 @@ impl Compiler {
     ) {
         if matches!(&def.from, ImportSource::Path { .. }) {
             // For now, path imports have been visited in topological order,
-            // and visit_function already called for them, so we don't need to
+            // and visit_program already called for them, so we don't need to
             // do anything here.
             // TODO: will change once we have cross-contract imports.
             return;
@@ -1416,13 +1420,14 @@ impl Compiler {
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
+        let export_interface_name = to_kebab_case(utxo.name.as_str());
+        let import_interface_name = format!("starstream:self/{}", export_interface_name);
+        let resource_name = "utxo";
+
         let mut iface = TypeBuilder::new_interface();
         iface.inherit_parent(&self.world_type);
 
         // Declare the resource type.
-        let export_interface_name = to_kebab_case(utxo.name.as_str());
-        let import_interface_name = format!("starstream:self/{}", export_interface_name);
-        let resource_name = "utxo";
         let resource = iface.fresh_resource(resource_name, &format!("u-{}", utxo.name));
         self.star_to_component.insert(
             Type::Utxo(utxo.ty.clone()),
@@ -3017,6 +3022,23 @@ impl Compiler {
         }
     }
 
+    fn visit_call(
+        &mut self,
+        func: &mut StFunction,
+        bb: &mut usize,
+        locals: &dyn Locals,
+        span: Span,
+        core_fn_idx: u32,
+        args: &[Spanned<TypedExpr>],
+    ) -> Result<()> {
+        let _ = span;
+        for arg in args {
+            self.visit_expr_stack(func, bb, locals, arg.span, &arg.node)?;
+        }
+        func.instructions(bb).call(core_fn_idx);
+        Ok(())
+    }
+
     fn enum_promote(
         &mut self,
         func: &mut StFunction,
@@ -3687,23 +3709,6 @@ impl Compiler {
         }
         result.extend_from_slice(&col_locals[column + 1..]);
         result
-    }
-
-    fn visit_call(
-        &mut self,
-        func: &mut StFunction,
-        bb: &mut usize,
-        locals: &dyn Locals,
-        span: Span,
-        core_fn_idx: u32,
-        args: &[Spanned<TypedExpr>],
-    ) -> Result<()> {
-        let _ = span;
-        for arg in args {
-            self.visit_expr_stack(func, bb, locals, arg.span, &arg.node)?;
-        }
-        func.instructions(bb).call(core_fn_idx);
-        Ok(())
     }
 }
 
