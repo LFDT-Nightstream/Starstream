@@ -200,10 +200,14 @@ pub enum TypedIfCondition {
     Bool(Spanned<TypedExpr>),
     /// A type-narrowing test: `if ident is AbiType { ... }`
     Is {
+        /// The variable being narrowed.
         name: Identifier,
-        abi: Arc<AbiType>,
         /// The original type of the variable before narrowing.
         original_type: Type,
+        /// The type being narrowed to.
+        abi: Arc<AbiType>,
+        /// The span of the right-hand side of the `is`.
+        abi_name_span: Span,
     },
 }
 

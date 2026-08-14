@@ -3053,8 +3053,9 @@ impl Inferencer {
                             typed_branches.push((
                                 TypedIfCondition::Is {
                                     name: name.clone(),
-                                    abi: abi.clone(),
                                     original_type: var_ty,
+                                    abi: abi.clone(),
+                                    abi_name_span: abi_name.span,
                                 },
                                 typed_then,
                             ));
@@ -3391,7 +3392,11 @@ impl Inferencer {
                     expected: param.ty.clone(),
                     found: self.apply_for_display(actual_ty),
                     position: index + 1,
-                    param_span: Some(param.ty_span),
+                    param_span: if param.ty_span == DUMMY_SPAN {
+                        None
+                    } else {
+                        Some(param.ty_span)
+                    },
                 },
             )?;
 

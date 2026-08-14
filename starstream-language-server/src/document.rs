@@ -1240,16 +1240,17 @@ impl DocumentState {
                         }
                         TypedIfCondition::Is {
                             name,
-                            abi,
                             original_type,
+                            abi,
+                            abi_name_span,
                         } => {
                             // Hover on the variable shows its original type
                             if let Some(span) = name.opt_span() {
                                 self.add_hover_span(span, original_type);
                             }
                             // Hover on the ABI name shows the ABI definition label
-                            if let Some(span) = abi.name.opt_span() {
-                                self.add_hover_label(span, format!("abi {}", abi.name));
+                            if *abi_name_span != DUMMY_SPAN {
+                                self.add_hover_label(*abi_name_span, format!("abi {}", abi.name));
                             }
                         }
                     }
