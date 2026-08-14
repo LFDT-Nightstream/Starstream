@@ -994,12 +994,13 @@ impl DocumentState {
             // Use to_compact_string() to avoid expanding struct/enum definitions
             // Include effect prefix to match Type::Function display format
             let params = function
+                .ty
                 .params
                 .iter()
                 .map(|p| format!("{}: {}", p.name.name, p.ty.compact_display()))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let signature = format!("({}) -> {}", params, function.return_type.compact_display());
+            let signature = format!("({}) -> {}", params, function.ty.result.compact_display());
 
             self.add_hover_label_with_doc(span, signature.clone(), doc.clone());
 
@@ -1013,7 +1014,7 @@ impl DocumentState {
         scopes.push(HashMap::new());
 
         if let Some(scope) = scopes.last_mut() {
-            for param in &function.params {
+            for param in &function.ty.params {
                 if let Some(span) = param.name.opt_span() {
                     scope.insert(param.name.to_string(), span);
 
@@ -1239,16 +1240,17 @@ impl DocumentState {
                         }
                         TypedIfCondition::Is {
                             name,
-                            abi_name,
                             original_type,
+                            abi,
+                            abi_name_span,
                         } => {
                             // Hover on the variable shows its original type
                             if let Some(span) = name.opt_span() {
                                 self.add_hover_span(span, original_type);
                             }
                             // Hover on the ABI name shows the ABI definition label
-                            if let Some(span) = abi_name.opt_span() {
-                                self.add_hover_label(span, format!("abi {}", abi_name.name));
+                            if *abi_name_span != DUMMY_SPAN {
+                                self.add_hover_label(*abi_name_span, format!("abi {}", abi.name));
                             }
                         }
                     }
@@ -2259,8 +2261,8 @@ impl DocumentState {
                         .flat_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
-                        name: abi.compact_display().to_string(),
-                        detail: Some(abi.to_string()),
+                        name: Type::Abi(abi.clone()).compact_display().to_string(),
+                        detail: Some(Type::Abi(abi.clone()).to_string()),
                         kind: SymbolKind::INTERFACE,
                         tags: None,
                         #[allow(deprecated)]
@@ -2300,21 +2302,12 @@ impl DocumentState {
             match part.ty.kind {
                 FunctionKind::Emit => {
                     if let Some(span) = part.name.opt_span() {
-                        // TODO: restore parameter names here
-                        let params = part
-                            .ty
-                            .params
-                            .iter()
-                            .map(|p| p.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-
-                        let detail = Some(format!("({params})"));
+                        let detail = Type::Function(part.ty.clone()).to_string();
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
                             name: part.name.to_string(),
-                            detail,
+                            detail: Some(detail),
                             kind: SymbolKind::EVENT,
                             tags: None,
                             deprecated: None,
@@ -2328,26 +2321,12 @@ impl DocumentState {
                 }
                 FunctionKind::Raise => {
                     if let Some(span) = part.name.opt_span() {
-                        // TODO: restore parameter names here
-                        let params = part
-                            .ty
-                            .params
-                            .iter()
-                            .map(|p| p.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-
-                        let ret = match &part.ty.result {
-                            Type::Unit => String::new(),
-                            ty => format!(" -> {ty}"),
-                        };
-
-                        let detail = Some(format!("({params}){ret}"));
+                        let detail = Type::Function(part.ty.clone()).to_string();
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
                             name: part.name.to_string(),
-                            detail,
+                            detail: Some(detail),
                             kind: SymbolKind::EVENT,
                             tags: None,
                             deprecated: None,

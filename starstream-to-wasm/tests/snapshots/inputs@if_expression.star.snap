@@ -168,10 +168,19 @@ TypedProgram {
                     span: 10..14,
                 },
                 id: NameId(4),
-                params: [],
-                return_type: Int(
-                    I64,
-                ),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 10..14,
+                    params: [],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(

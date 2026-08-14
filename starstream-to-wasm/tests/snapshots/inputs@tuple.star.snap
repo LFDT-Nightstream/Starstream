@@ -642,19 +642,19 @@ T-Fn: swap => (bool, i64)
         (b, a)
     },
 } => (bool, i64)
-    T-Match: {pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ match pair {
+    T-Match: {pair: (i64, bool), swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ match pair {
     (a, b) => {
         (b, a)
     },
 } ⇒ (bool, i64)
-      T-Var: {pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ pair ⇒ (i64, bool)
+      T-Var: {pair: (i64, bool), swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ pair ⇒ (i64, bool)
       Unify-Tuple: (i64, bool) ~ (t3, t4) => {bool/t4, i64/t3}
         Unify-Var: i64 ~ t3 => {i64/t3}
         Unify-Var: bool ~ t4 => {bool/t4}
       T-Tail: (b, a) => (bool, i64)
-        T-Tuple: {a: i64, b: bool, pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ (b, a) ⇒ (bool, i64)
-          T-Var: {a: i64, b: bool, pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ b ⇒ bool
-          T-Var: {a: i64, b: bool, pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ a ⇒ i64
+        T-Tuple: {a: i64, b: bool, pair: (i64, bool), swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ (b, a) ⇒ (bool, i64)
+          T-Var: {a: i64, b: bool, pair: (i64, bool), swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ b ⇒ bool
+          T-Var: {a: i64, b: bool, pair: (i64, bool), swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ a ⇒ i64
     Unify-Tuple: (bool, i64) ~ (bool, i64) => {}
       Unify-Const: bool ~ bool => {}
       Unify-Const: i64 ~ i64 => {}
@@ -668,7 +668,7 @@ T-Fn: nested => i64
         x
     },
 } => i64
-    T-Match: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool)} ⊢ match value {
+    T-Match: {nested: fn(value: ((i64, i64), bool)) -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64), value: ((i64, i64), bool)} ⊢ match value {
     ((x, y), true) => {
         x + y
     },
@@ -676,7 +676,7 @@ T-Fn: nested => i64
         x
     },
 } ⇒ i64
-      T-Var: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool)} ⊢ value ⇒ ((i64, i64), bool)
+      T-Var: {nested: fn(value: ((i64, i64), bool)) -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64), value: ((i64, i64), bool)} ⊢ value ⇒ ((i64, i64), bool)
       Unify-Tuple: ((i64, i64), bool) ~ (t5, t6) => {(i64, i64)/t5, bool/t6}
         Unify-Var: (i64, i64) ~ t5 => {(i64, i64)/t5}
         Unify-Var: bool ~ t6 => {bool/t6}
@@ -685,9 +685,9 @@ T-Fn: nested => i64
         Unify-Var: i64 ~ t8 => {i64/t8}
       Unify-Const: bool ~ bool => {}
       T-Tail: x + y => i64
-        T-Bin-Add: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64, y: i64} ⊢ x + y ⇒ i64
-          T-Var: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64, y: i64} ⊢ x ⇒ i64
-          T-Var: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64, y: i64} ⊢ y ⇒ i64
+        T-Bin-Add: {nested: fn(value: ((i64, i64), bool)) -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64, y: i64} ⊢ x + y ⇒ i64
+          T-Var: {nested: fn(value: ((i64, i64), bool)) -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64, y: i64} ⊢ x ⇒ i64
+          T-Var: {nested: fn(value: ((i64, i64), bool)) -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64, y: i64} ⊢ y ⇒ i64
           Unify-Const: i64 ~ i64 => {}
       Unify-Tuple: ((i64, i64), bool) ~ (t9, t10) => {(i64, i64)/t9, bool/t10}
         Unify-Var: (i64, i64) ~ t9 => {(i64, i64)/t9}
@@ -697,7 +697,7 @@ T-Fn: nested => i64
         Unify-Var: i64 ~ t12 => {i64/t12}
       Unify-Const: bool ~ bool => {}
       T-Tail: x => i64
-        T-Var: {nested: fn(((i64, i64), bool)) -> i64, swap: fn((i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64} ⊢ x ⇒ i64
+        T-Var: {nested: fn(value: ((i64, i64), bool)) -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64), value: ((i64, i64), bool), x: i64} ⊢ x ⇒ i64
       Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
@@ -710,7 +710,7 @@ T-Fn: sum_pair => i64
         0
     },
 } => i64
-    T-Match: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ match swap((1, true)) {
+    T-Match: {nested: fn(value: ((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ match swap((1, true)) {
     (true, n) => {
         n
     },
@@ -718,11 +718,11 @@ T-Fn: sum_pair => i64
         0
     },
 } ⇒ i64
-      T-Call: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ swap((1, true)) ⇒ (bool, i64)
-        T-Var: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ swap ⇒ fn((i64, bool)) -> (bool, i64)
-        T-Tuple: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ (1, true) ⇒ (i64, bool)
-          T-Int: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ 1 ⇒ i64
-          T-Bool: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ true ⇒ bool
+      T-Call: {nested: fn(value: ((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ swap((1, true)) ⇒ (bool, i64)
+        T-Var: {nested: fn(value: ((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ swap ⇒ fn(pair: (i64, bool)) -> (bool, i64)
+        T-Tuple: {nested: fn(value: ((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ (1, true) ⇒ (i64, bool)
+          T-Int: {nested: fn(value: ((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ 1 ⇒ i64
+          T-Bool: {nested: fn(value: ((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ true ⇒ bool
         Unify-Tuple: (i64, bool) ~ (i64, bool) => {i64/t13}
           Unify-Var: i64 ~ i64 => {i64/t13}
           Unify-Const: bool ~ bool => {}
@@ -731,28 +731,28 @@ T-Fn: sum_pair => i64
         Unify-Var: i64 ~ t15 => {i64/t15}
       Unify-Const: bool ~ bool => {}
       T-Tail: n => i64
-        T-Var: {n: i64, nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ n ⇒ i64
+        T-Var: {n: i64, nested: fn(value: ((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ n ⇒ i64
       Unify-Tuple: (bool, i64) ~ (t16, t17) => {bool/t16, i64/t17}
         Unify-Var: bool ~ t16 => {bool/t16}
         Unify-Var: i64 ~ t17 => {i64/t17}
       Unify-Const: bool ~ bool => {}
       T-Tail: 0 => i64
-        T-Int: {nested: fn(((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ 0 ⇒ i64
+        T-Int: {nested: fn(value: ((i64, i64), bool)) -> i64, sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: run_tuples => ()
-  T-Expr: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ sum_pair(); ⇒ ()
-    T-Call: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ sum_pair() ⇒ i64
-      T-Var: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ sum_pair ⇒ fn() -> i64
-  T-Expr: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ nested(((1, 2), true)); ⇒ ()
-    T-Call: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ nested(((1, 2), true)) ⇒ i64
-      T-Var: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ nested ⇒ fn(((i64, i64), bool)) -> i64
-      T-Tuple: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ ((1, 2), true) ⇒ ((i64, i64), bool)
-        T-Tuple: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ (1, 2) ⇒ (i64, i64)
-          T-Int: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ 1 ⇒ i64
-          T-Int: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ 2 ⇒ i64
-        T-Bool: {nested: fn(((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn((i64, bool)) -> (bool, i64)} ⊢ true ⇒ bool
+  T-Expr: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ sum_pair(); ⇒ ()
+    T-Call: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ sum_pair() ⇒ i64
+      T-Var: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ sum_pair ⇒ fn() -> i64
+  T-Expr: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ nested(((1, 2), true)); ⇒ ()
+    T-Call: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ nested(((1, 2), true)) ⇒ i64
+      T-Var: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ nested ⇒ fn(value: ((i64, i64), bool)) -> i64
+      T-Tuple: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ ((1, 2), true) ⇒ ((i64, i64), bool)
+        T-Tuple: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ (1, 2) ⇒ (i64, i64)
+          T-Int: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ 1 ⇒ i64
+          T-Int: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ 2 ⇒ i64
+        T-Bool: {nested: fn(value: ((i64, i64), bool)) -> i64, run_tuples: fn() -> (), sum_pair: fn() -> i64, swap: fn(pair: (i64, bool)) -> (bool, i64)} ⊢ true ⇒ bool
       Unify-Tuple: ((i64, i64), bool) ~ ((i64, i64), bool) => {i64/t19, i64/t20}
         Unify-Tuple: (i64, i64) ~ (i64, i64) => {i64/t19, i64/t20}
           Unify-Var: i64 ~ i64 => {i64/t19}
@@ -770,31 +770,41 @@ TypedProgram {
                     span: 3..7,
                 },
                 id: NameId(4),
-                params: [
-                    TypedFunctionParam {
-                        public: false,
-                        name: Identifier {
-                            name: "pair",
-                            span: 8..12,
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 3..7,
+                    params: [
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "pair",
+                                span: 8..12,
+                            },
+                            ty: Tuple(
+                                [
+                                    Int(
+                                        I64,
+                                    ),
+                                    Bool,
+                                ],
+                            ),
+                            ty_span: 14..25,
                         },
-                        ty: Tuple(
-                            [
-                                Int(
-                                    I64,
-                                ),
-                                Bool,
-                            ],
-                        ),
-                    },
-                ],
-                return_type: Tuple(
-                    [
-                        Bool,
-                        Int(
-                            I64,
-                        ),
                     ],
-                ),
+                    result: Tuple(
+                        [
+                            Bool,
+                            Int(
+                                I64,
+                            ),
+                        ],
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -921,33 +931,43 @@ TypedProgram {
                     span: 123..129,
                 },
                 id: NameId(5),
-                params: [
-                    TypedFunctionParam {
-                        public: false,
-                        name: Identifier {
-                            name: "value",
-                            span: 130..135,
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 123..129,
+                    params: [
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "value",
+                                span: 130..135,
+                            },
+                            ty: Tuple(
+                                [
+                                    Tuple(
+                                        [
+                                            Int(
+                                                I64,
+                                            ),
+                                            Int(
+                                                I64,
+                                            ),
+                                        ],
+                                    ),
+                                    Bool,
+                                ],
+                            ),
+                            ty_span: 137..155,
                         },
-                        ty: Tuple(
-                            [
-                                Tuple(
-                                    [
-                                        Int(
-                                            I64,
-                                        ),
-                                        Int(
-                                            I64,
-                                        ),
-                                    ],
-                                ),
-                                Bool,
-                            ],
+                    ],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(5),
                         ),
-                    },
-                ],
-                return_type: Int(
-                    I64,
-                ),
+                    ),
+                },
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -1125,10 +1145,19 @@ TypedProgram {
                     span: 307..315,
                 },
                 id: NameId(6),
-                params: [],
-                return_type: Int(
-                    I64,
-                ),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 307..315,
+                    params: [],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(6),
+                        ),
+                    ),
+                },
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -1156,17 +1185,22 @@ TypedProgram {
                                                                 kind: Normal,
                                                                 name_span: 3..7,
                                                                 params: [
-                                                                    Tuple(
-                                                                        [
-                                                                            Int(
-                                                                                I64,
-                                                                            ),
-                                                                            Bool,
-                                                                        ],
-                                                                    ),
-                                                                ],
-                                                                param_spans: [
-                                                                    14..25,
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "pair",
+                                                                            span: 8..12,
+                                                                        },
+                                                                        ty: Tuple(
+                                                                            [
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
+                                                                                Bool,
+                                                                            ],
+                                                                        ),
+                                                                        ty_span: 14..25,
+                                                                    },
                                                                 ],
                                                                 result: Tuple(
                                                                     [
@@ -1337,8 +1371,17 @@ TypedProgram {
                     span: 471..481,
                 },
                 id: NameId(7),
-                params: [],
-                return_type: Unit,
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 471..481,
+                    params: [],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(7),
+                        ),
+                    ),
+                },
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -1355,7 +1398,6 @@ TypedProgram {
                                                         kind: Normal,
                                                         name_span: 307..315,
                                                         params: [],
-                                                        param_spans: [],
                                                         result: Int(
                                                             I64,
                                                         ),
@@ -1398,24 +1440,29 @@ TypedProgram {
                                                         kind: Normal,
                                                         name_span: 123..129,
                                                         params: [
-                                                            Tuple(
-                                                                [
-                                                                    Tuple(
-                                                                        [
-                                                                            Int(
-                                                                                I64,
-                                                                            ),
-                                                                            Int(
-                                                                                I64,
-                                                                            ),
-                                                                        ],
-                                                                    ),
-                                                                    Bool,
-                                                                ],
-                                                            ),
-                                                        ],
-                                                        param_spans: [
-                                                            137..155,
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "value",
+                                                                    span: 130..135,
+                                                                },
+                                                                ty: Tuple(
+                                                                    [
+                                                                        Tuple(
+                                                                            [
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
+                                                                            ],
+                                                                        ),
+                                                                        Bool,
+                                                                    ],
+                                                                ),
+                                                                ty_span: 137..155,
+                                                            },
                                                         ],
                                                         result: Int(
                                                             I64,

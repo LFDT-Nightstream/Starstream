@@ -224,8 +224,17 @@ TypedProgram {
                     span: 3..7,
                 },
                 id: NameId(4),
-                params: [],
-                return_type: Unit,
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 3..7,
+                    params: [],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -308,10 +317,19 @@ TypedProgram {
                     span: 106..113,
                 },
                 id: NameId(5),
-                params: [],
-                return_type: Int(
-                    I64,
-                ),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 106..113,
+                    params: [],
+                    result: Int(
+                        I64,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(5),
+                        ),
+                    ),
+                },
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {

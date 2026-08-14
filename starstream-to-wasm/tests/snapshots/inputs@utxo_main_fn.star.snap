@@ -116,7 +116,6 @@ TypedProgram {
                             kind: Emit,
                             name_span: 23..33,
                             params: [],
-                            param_spans: [],
                             result: Unit,
                             callee: Some(
                                 Named(
@@ -145,8 +144,17 @@ TypedProgram {
                                 span: 66..76,
                             },
                             id: NameId(6),
-                            params: [],
-                            return_type: Unit,
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 66..76,
+                                params: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(6),
+                                    ),
+                                ),
+                            },
                             body: TypedBlock {
                                 statements: [
                                     Expression(
@@ -161,7 +169,6 @@ TypedProgram {
                                                                     kind: Emit,
                                                                     name_span: 23..33,
                                                                     params: [],
-                                                                    param_spans: [],
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(

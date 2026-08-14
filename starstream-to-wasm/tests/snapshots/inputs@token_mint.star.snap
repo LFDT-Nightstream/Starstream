@@ -194,8 +194,17 @@ TypedProgram {
                                 span: 85..89,
                             },
                             id: NameId(5),
-                            params: [],
-                            return_type: Unit,
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 85..89,
+                                params: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(5),
+                                    ),
+                                ),
+                            },
                             body: TypedBlock {
                                 statements: [
                                     Assignment {
@@ -227,62 +236,70 @@ TypedProgram {
                     ),
                     AbiImpl {
                         span: 129..134,
-                        abi: Abi(
-                            AbiType {
-                                name: Identifier {
-                                    name: "Token",
-                                    span: 0..0,
-                                },
-                                methods: [
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "attach",
-                                            span: 0..0,
-                                        },
-                                        id: NameId(0),
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 0..0,
-                                            params: [
-                                                UtxoAny,
-                                            ],
-                                            param_spans: [
-                                                0..0,
-                                            ],
-                                            result: Unit,
-                                            callee: Some(
-                                                Named(
-                                                    NameId(0),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "detach",
-                                            span: 0..0,
-                                        },
-                                        id: NameId(1),
-                                        ty: FunctionType {
-                                            kind: Normal,
-                                            name_span: 0..0,
-                                            params: [
-                                                UtxoAny,
-                                            ],
-                                            param_spans: [
-                                                0..0,
-                                            ],
-                                            result: Unit,
-                                            callee: Some(
-                                                Named(
-                                                    NameId(1),
-                                                ),
-                                            ),
-                                        },
-                                    },
-                                ],
+                        abi: AbiType {
+                            name: Identifier {
+                                name: "Token",
+                                span: 0..0,
                             },
-                        ),
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "attach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(0),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(0),
+                                            ),
+                                        ),
+                                    },
+                                },
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "detach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(1),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(1),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
                         parts: [
                             TypedFunctionDef {
                                 export: None,
@@ -291,17 +308,27 @@ TypedProgram {
                                     span: 148..154,
                                 },
                                 id: NameId(6),
-                                params: [
-                                    TypedFunctionParam {
-                                        public: false,
-                                        name: Identifier {
-                                            name: "to",
-                                            span: 155..157,
+                                ty: FunctionType {
+                                    kind: Normal,
+                                    name_span: 148..154,
+                                    params: [
+                                        TypedFunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "to",
+                                                span: 155..157,
+                                            },
+                                            ty: UtxoAny,
+                                            ty_span: 159..163,
                                         },
-                                        ty: UtxoAny,
-                                    },
-                                ],
-                                return_type: Unit,
+                                    ],
+                                    result: Unit,
+                                    callee: Some(
+                                        Named(
+                                            NameId(6),
+                                        ),
+                                    ),
+                                },
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,
@@ -314,17 +341,27 @@ TypedProgram {
                                     span: 180..186,
                                 },
                                 id: NameId(7),
-                                params: [
-                                    TypedFunctionParam {
-                                        public: false,
-                                        name: Identifier {
-                                            name: "source",
-                                            span: 187..193,
+                                ty: FunctionType {
+                                    kind: Normal,
+                                    name_span: 180..186,
+                                    params: [
+                                        TypedFunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "source",
+                                                span: 187..193,
+                                            },
+                                            ty: UtxoAny,
+                                            ty_span: 195..199,
                                         },
-                                        ty: UtxoAny,
-                                    },
-                                ],
-                                return_type: Unit,
+                                    ],
+                                    result: Unit,
+                                    callee: Some(
+                                        Named(
+                                            NameId(7),
+                                        ),
+                                    ),
+                                },
                                 body: TypedBlock {
                                     statements: [],
                                     tail_expression: None,
@@ -333,12 +370,10 @@ TypedProgram {
                         ],
                     },
                 ],
-                ty: Token(
-                    TokenType {
-                        name: "MyToken",
-                        id: NameId(4),
-                    },
-                ),
+                ty: TokenType {
+                    name: "MyToken",
+                    id: NameId(4),
+                },
             },
         ),
     ],

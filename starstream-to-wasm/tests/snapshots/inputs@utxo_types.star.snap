@@ -108,32 +108,43 @@ TypedProgram {
                     span: 28..48,
                 },
                 id: NameId(5),
-                params: [
-                    TypedFunctionParam {
-                        public: false,
-                        name: Identifier {
-                            name: "utxo",
-                            span: 49..53,
-                        },
-                        ty: UtxoAny,
-                    },
-                    TypedFunctionParam {
-                        public: false,
-                        name: Identifier {
-                            name: "my_utxo",
-                            span: 61..68,
-                        },
-                        ty: Utxo(
-                            UtxoType {
-                                name: "MyUtxo",
-                                id: NameId(4),
-                                possible_abis: [],
-                                always_abis: [],
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 28..48,
+                    params: [
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "utxo",
+                                span: 49..53,
                             },
+                            ty: UtxoAny,
+                            ty_span: 55..59,
+                        },
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "my_utxo",
+                                span: 61..68,
+                            },
+                            ty: Utxo(
+                                UtxoType {
+                                    name: "MyUtxo",
+                                    id: NameId(4),
+                                    possible_abis: [],
+                                    always_abis: [],
+                                },
+                            ),
+                            ty_span: 70..76,
+                        },
+                    ],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(5),
                         ),
-                    },
-                ],
-                return_type: Unit,
+                    ),
+                },
                 body: TypedBlock {
                     statements: [],
                     tail_expression: None,

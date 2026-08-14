@@ -50,8 +50,17 @@ TypedProgram {
                     span: 22..26,
                 },
                 id: NameId(4),
-                params: [],
-                return_type: Unit,
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 22..26,
+                    params: [],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
                 body: TypedBlock {
                     statements: [],
                     tail_expression: None,

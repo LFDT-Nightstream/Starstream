@@ -176,7 +176,6 @@ TypedProgram {
                             kind: Raise,
                             name_span: 21..26,
                             params: [],
-                            param_spans: [],
                             result: Unit,
                             callee: Some(
                                 Named(
@@ -195,7 +194,6 @@ TypedProgram {
                             kind: Emit,
                             name_span: 40..47,
                             params: [],
-                            param_spans: [],
                             result: Unit,
                             callee: Some(
                                 Named(
@@ -217,8 +215,17 @@ TypedProgram {
                     span: 64..68,
                 },
                 id: NameId(6),
-                params: [],
-                return_type: Unit,
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 64..68,
+                    params: [],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(6),
+                        ),
+                    ),
+                },
                 body: TypedBlock {
                     statements: [
                         TryWith {
@@ -236,7 +243,6 @@ TypedProgram {
                                                                     kind: Raise,
                                                                     name_span: 21..26,
                                                                     params: [],
-                                                                    param_spans: [],
                                                                     result: Unit,
                                                                     callee: Some(
                                                                         Named(
@@ -291,7 +297,6 @@ TypedProgram {
                                                                             kind: Emit,
                                                                             name_span: 40..47,
                                                                             params: [],
-                                                                            param_spans: [],
                                                                             result: Unit,
                                                                             callee: Some(
                                                                                 Named(

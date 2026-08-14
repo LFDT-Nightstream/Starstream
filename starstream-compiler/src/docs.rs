@@ -71,7 +71,7 @@ impl From<&Type> for TypeRef {
                 tuple: types.iter().map(TypeRef::from).collect(),
             },
             Type::Function(func) => TypeRef::Function {
-                params: func.params.iter().map(TypeRef::from).collect(),
+                params: func.params.iter().map(|p| TypeRef::from(&p.ty)).collect(),
                 return_type: Box::new(TypeRef::from(&func.result)),
                 kind: func.kind.call_keyword(),
             },
@@ -210,6 +210,7 @@ fn function_doc(f: &TypedFunctionDef, doc: Option<String>) -> FunctionDoc {
         name: f.name.name.clone(),
         doc,
         params: f
+            .ty
             .params
             .iter()
             .map(|p| ParamDoc {
@@ -217,7 +218,7 @@ fn function_doc(f: &TypedFunctionDef, doc: Option<String>) -> FunctionDoc {
                 ty: TypeRef::from(&p.ty),
             })
             .collect(),
-        return_type: TypeRef::from(&f.return_type),
+        return_type: TypeRef::from(&f.ty.result),
         kind: "",
         export: f.export.as_ref().map(|e| e.keyword()),
     }
