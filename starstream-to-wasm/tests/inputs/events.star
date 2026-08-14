@@ -1,5 +1,5 @@
 abi Foo {
-    event Hello(one: i32, two: i32);
+    event Hello(one: i32, two_two: i32);
 }
 
 script fn main() {

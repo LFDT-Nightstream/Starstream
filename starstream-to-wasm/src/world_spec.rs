@@ -116,16 +116,9 @@ impl Compiler {
         );
 
         // Component import
-        let comp_params = params
-            .iter()
-            .filter_map(|p| {
-                self.star_to_component_type(&p.ty)
-                    .map(|t| (p.name.as_str(), t))
-            })
-            .collect::<Vec<_>>();
-        let comp_result = None;
+        let sig = self.star_to_component_signature(None, params, &Type::Unit);
         let iface = imported_interfaces.entry(interface).or_default();
-        iface.export_fn_2(&kebab, comp_params.into_iter(), comp_result.as_ref());
+        iface.export_fn(&kebab, &sig);
 
         func_idx
     }
@@ -157,16 +150,9 @@ impl Compiler {
         );
 
         // Component import
-        let comp_params = params
-            .iter()
-            .filter_map(|p| {
-                self.star_to_component_type(&p.ty)
-                    .map(|t| (p.name.as_str(), t))
-            })
-            .collect::<Vec<_>>();
-        let comp_result = self.star_to_component_type(result);
+        let sig = self.star_to_component_signature(None, params, result);
         let iface = imported_interfaces.entry(interface).or_default();
-        iface.export_fn_2(&kebab, comp_params.into_iter(), comp_result.as_ref());
+        iface.export_fn(&kebab, &sig);
 
         func_idx
     }

@@ -548,7 +548,7 @@ impl Compiler {
         &mut self,
         this: Option<&Type>,
         params: &[TypedFunctionParam],
-        return_type: &Type,
+        result: &Type,
     ) -> ComponentAbiFunctionSignature {
         let this = this.and_then(|ty| {
             self.star_to_component_type(ty)
@@ -561,7 +561,7 @@ impl Compiler {
                     .map(|t| (to_kebab_case(p.name.as_str()), t))
             }))
             .collect::<Vec<_>>();
-        let mut result = self.star_to_component_type(return_type);
+        let mut result = self.star_to_component_type(result);
         if let Some(m) = &result {
             result = Some(m.convert_resource_to_owned());
         }
@@ -720,7 +720,7 @@ impl Compiler {
                     .iter()
                     .filter_map(|f| {
                         self.star_to_component_type(&f.ty)
-                            .map(|ty| (f.name.as_str().to_owned(), ty))
+                            .map(|ty| (to_kebab_case(f.name.as_str()), ty))
                     })
                     .collect();
                 ComponentAbiType::Record { fields }
@@ -1115,17 +1115,13 @@ impl Compiler {
                         self.callables.insert(id, func_idx);
 
                         // Component import
-                        let comp_params = func_ty
-                            .params
-                            .iter()
-                            .filter_map(|p| {
-                                self.star_to_component_type(&p.ty)
-                                    .map(|t| (p.name.as_str(), t))
-                            })
-                            .collect::<Vec<_>>();
-                        let comp_result = self.star_to_component_type(&func_ty.result);
+                        let sig = self.star_to_component_signature(
+                            None,
+                            &func_ty.params,
+                            &func_ty.result,
+                        );
                         let iface = imported_interfaces.entry(def.from.to_string()).or_default();
-                        iface.export_fn_2(&kebab, comp_params.into_iter(), comp_result.as_ref());
+                        iface.export_fn(&kebab, &sig);
                     }
                 }
                 _ => todo!(),
