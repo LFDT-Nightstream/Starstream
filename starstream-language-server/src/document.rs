@@ -1121,6 +1121,11 @@ impl DocumentState {
                 self.collect_expr(right, scopes);
             }
             TypedExprKind::Grouping(inner) => self.collect_expr(inner, scopes),
+            TypedExprKind::Tuple(items) => {
+                for item in items {
+                    self.collect_expr(item, scopes);
+                }
+            }
             TypedExprKind::Literal(_) => {}
             TypedExprKind::StructConstructor {
                 name,
@@ -1390,6 +1395,15 @@ impl DocumentState {
             }
             TypedPattern::Tuple { .. } => {
                 // TODO
+            }
+            TypedPattern::AnonTuple { fields } => {
+                let item_tys: Vec<Option<Type>> = match expected_ty.as_ref() {
+                    Some(Type::Tuple(items)) => items.iter().cloned().map(Some).collect(),
+                    _ => vec![None; fields.len()],
+                };
+                for (field, ty) in fields.iter().zip(item_tys) {
+                    self.collect_pattern(field, scopes, ty);
+                }
             }
             TypedPattern::Constant { .. } => {
                 // TODO
@@ -1788,23 +1802,32 @@ impl DocumentState {
     }
 
     fn collect_type_annotation_node(&mut self, annotation: &TypeAnnotation) {
-        let last = annotation.name.last().unwrap();
-        self.add_type_usage(last.opt_span(), &last.name);
+        match annotation {
+            TypeAnnotation::Named { name, generics } => {
+                let last = name.last().unwrap();
+                self.add_type_usage(last.opt_span(), &last.name);
 
-        if let Some(span) = last.opt_span()
-            && let Some(label) = self.type_label_for_name(&last.name)
-        {
-            // Look up doc comment for struct or enum types
-            let doc = self
-                .struct_docs
-                .get(&last.name)
-                .or_else(|| self.enum_docs.get(&last.name))
-                .cloned();
-            self.add_hover_label_with_doc(span, label, doc);
-        }
+                if let Some(span) = last.opt_span()
+                    && let Some(label) = self.type_label_for_name(&last.name)
+                {
+                    // Look up doc comment for struct or enum types
+                    let doc = self
+                        .struct_docs
+                        .get(&last.name)
+                        .or_else(|| self.enum_docs.get(&last.name))
+                        .cloned();
+                    self.add_hover_label_with_doc(span, label, doc);
+                }
 
-        for generic in &annotation.generics {
-            self.collect_type_annotation_node(generic);
+                for generic in generics {
+                    self.collect_type_annotation_node(generic);
+                }
+            }
+            TypeAnnotation::Tuple { items, .. } => {
+                for item in items {
+                    self.collect_type_annotation_node(item);
+                }
+            }
         }
     }
 

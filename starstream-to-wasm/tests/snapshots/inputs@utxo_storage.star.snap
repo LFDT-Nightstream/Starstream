@@ -21,7 +21,7 @@ Program {
                                         name: "counter",
                                         span: 44..51,
                                     },
-                                    ty: TypeAnnotation {
+                                    ty: Named {
                                         name: [
                                             Identifier {
                                                 name: "i64",
@@ -36,7 +36,7 @@ Program {
                                         name: "multiplier",
                                         span: 74..84,
                                     },
-                                    ty: TypeAnnotation {
+                                    ty: Named {
                                         name: [
                                             Identifier {
                                                 name: "i64",

@@ -21,7 +21,7 @@ Program {
                             },
                             payload: Tuple(
                                 [
-                                    TypeAnnotation {
+                                    Named {
                                         name: [
                                             Identifier {
                                                 name: "bool",
@@ -41,7 +41,7 @@ Program {
                             },
                             payload: Tuple(
                                 [
-                                    TypeAnnotation {
+                                    Named {
                                         name: [
                                             Identifier {
                                                 name: "i64",
@@ -74,7 +74,7 @@ Program {
                                 name: "foo",
                                 span: 58..61,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Foo",

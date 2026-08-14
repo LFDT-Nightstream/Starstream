@@ -939,7 +939,16 @@ impl Compiler {
                 return None;
             }
             Type::Function { .. } => todo!(),
-            Type::Tuple(_) => todo!(),
+            Type::Tuple(items) => {
+                let fields: Vec<_> = items
+                    .iter()
+                    .filter_map(|item| self.star_to_component_type(item))
+                    .collect();
+                if fields.is_empty() {
+                    return None;
+                }
+                ComponentAbiType::Tuple { fields }
+            }
             // Utxo handles are always borrowed for now. The ledger is the "owner".
             Type::UtxoAny => {
                 if let Some(idx) = self.resources.get("Utxo") {
@@ -2278,6 +2287,11 @@ impl Compiler {
                     self.visit_expr_drop(func, bb, locals, field.value.span, &field.value.node)?;
                 }
             }
+            TypedExprKind::Tuple(items) => {
+                for item in items {
+                    self.visit_expr_drop(func, bb, locals, item.span, &item.node)?;
+                }
+            }
             TypedExprKind::FieldAccess { target, field: _ } => {
                 self.visit_expr_drop(func, bb, locals, target.span, &target.node)?;
             }
@@ -3050,6 +3064,13 @@ impl Compiler {
                 self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)
             }
             // Data constructors
+            TypedExprKind::Tuple(items) => {
+                // Tuples flatten onto the stack item by item, like records.
+                for item in items {
+                    self.visit_expr_stack(func, bb, locals, item.span, &item.node)?;
+                }
+                Ok(())
+            }
             TypedExprKind::StructConstructor {
                 name: _,
                 enum_variant,
@@ -3508,6 +3529,20 @@ impl Compiler {
                     args,
                 }
             }
+            TypedPattern::AnonTuple { fields } => {
+                let Type::Tuple(item_types) = ty else {
+                    unreachable!()
+                };
+                let args = fields
+                    .iter()
+                    .zip(item_types.iter())
+                    .map(|(p, item_ty)| self.lower_pattern(p, arm_idx, item_ty))
+                    .collect();
+                Pat::Ctor {
+                    ctor: Ctor::Struct,
+                    args,
+                }
+            }
             TypedPattern::Constant { name: _, variant } => Pat::Ctor {
                 ctor: Ctor::EnumVariant {
                     variant_index: *variant,
@@ -3631,7 +3666,7 @@ impl Compiler {
                             },
                         );
                     }
-                    Type::Record(_) => {
+                    Type::Record(_) | Type::Tuple(_) => {
                         if let Some((ctor, subtree)) = cases.first() {
                             let field_types = ctor.field_types(col_type);
                             let new_col_locals = self.expand_col_locals_for_struct(

@@ -19,7 +19,7 @@ Program {
                                 name: "amount",
                                 span: 18..24,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "i64",
@@ -35,7 +35,7 @@ Program {
                                 name: "price",
                                 span: 35..40,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "i64",
@@ -68,7 +68,7 @@ Program {
                                 name: "item",
                                 span: 72..76,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Item",
@@ -80,7 +80,7 @@ Program {
                         },
                     ],
                     return_type: Some(
-                        TypeAnnotation {
+                        Named {
                             name: [
                                 Identifier {
                                     name: "i64",

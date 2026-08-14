@@ -27,7 +27,7 @@ Program {
                                             name: "one",
                                             span: 26..29,
                                         },
-                                        ty: TypeAnnotation {
+                                        ty: Named {
                                             name: [
                                                 Identifier {
                                                     name: "i32",
@@ -43,7 +43,7 @@ Program {
                                             name: "two",
                                             span: 36..39,
                                         },
-                                        ty: TypeAnnotation {
+                                        ty: Named {
                                             name: [
                                                 Identifier {
                                                     name: "i32",

@@ -1,0 +1,85 @@
+---
+source: starstream-compiler/src/parser/definition/function.rs
+description: "Code:\n\nfn pair(input: (i64, bool)) -> (bool, i64) { input }"
+---
+FunctionDef {
+    export: None,
+    name: Identifier {
+        name: "pair",
+        span: 3..7,
+    },
+    params: [
+        FunctionParam {
+            public: false,
+            name: Identifier {
+                name: "input",
+                span: 8..13,
+            },
+            ty: Tuple {
+                items: [
+                    Named {
+                        name: [
+                            Identifier {
+                                name: "i64",
+                                span: 16..19,
+                            },
+                        ],
+                        generics: [],
+                    },
+                    Named {
+                        name: [
+                            Identifier {
+                                name: "bool",
+                                span: 21..25,
+                            },
+                        ],
+                        generics: [],
+                    },
+                ],
+                span: 15..26,
+            },
+        },
+    ],
+    return_type: Some(
+        Tuple {
+            items: [
+                Named {
+                    name: [
+                        Identifier {
+                            name: "bool",
+                            span: 32..36,
+                        },
+                    ],
+                    generics: [],
+                },
+                Named {
+                    name: [
+                        Identifier {
+                            name: "i64",
+                            span: 38..41,
+                        },
+                    ],
+                    generics: [],
+                },
+            ],
+            span: 31..43,
+        },
+    ),
+    body: Block {
+        statements: [],
+        tail_expression: Some(
+            Spanned {
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "input",
+                            span: 45..50,
+                        },
+                    ],
+                ),
+                span: 45..51,
+            },
+        ),
+        span: 43..52,
+    },
+}

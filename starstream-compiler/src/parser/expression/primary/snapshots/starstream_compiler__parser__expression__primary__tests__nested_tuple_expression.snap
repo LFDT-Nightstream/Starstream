@@ -1,0 +1,51 @@
+---
+source: starstream-compiler/src/parser/expression/primary/mod.rs
+description: "Code:\n\n((1, 2), 3)"
+---
+Spanned {
+    node: Tuple(
+        [
+            Spanned {
+                node: Tuple(
+                    [
+                        Spanned {
+                            node: Literal(
+                                Integer(
+                                    IntegerLiteral {
+                                        digits: "1",
+                                        radix: Decimal,
+                                    },
+                                ),
+                            ),
+                            span: 2..3,
+                        },
+                        Spanned {
+                            node: Literal(
+                                Integer(
+                                    IntegerLiteral {
+                                        digits: "2",
+                                        radix: Decimal,
+                                    },
+                                ),
+                            ),
+                            span: 5..6,
+                        },
+                    ],
+                ),
+                span: 1..7,
+            },
+            Spanned {
+                node: Literal(
+                    Integer(
+                        IntegerLiteral {
+                            digits: "3",
+                            radix: Decimal,
+                        },
+                    ),
+                ),
+                span: 9..10,
+            },
+        ],
+    ),
+    span: 0..11,
+}

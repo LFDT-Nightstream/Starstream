@@ -13,7 +13,7 @@ StructDef {
                 name: "x",
                 span: 15..16,
             },
-            ty: TypeAnnotation {
+            ty: Named {
                 name: [
                     Identifier {
                         name: "i64",

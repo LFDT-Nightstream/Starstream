@@ -22,7 +22,7 @@ Program {
                                 },
                                 params: [],
                                 return_type: Some(
-                                    TypeAnnotation {
+                                    Named {
                                         name: [
                                             Identifier {
                                                 name: "i32",
@@ -62,7 +62,7 @@ Program {
                                     },
                                     params: [],
                                     return_type: Some(
-                                        TypeAnnotation {
+                                        Named {
                                             name: [
                                                 Identifier {
                                                     name: "i32",

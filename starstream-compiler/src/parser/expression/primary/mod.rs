@@ -30,9 +30,22 @@ pub fn primary<'a>(
         .map(Expr::Grouping)
         .spanned();
 
+    // Anonymous tuple: `(a, b)`. At least two elements, so `(a)` stays a
+    // grouping and `()` stays the unit literal.
+    let tuple = expression
+        .clone()
+        .separated_by(just(',').padded())
+        .at_least(2)
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .delimited_by(just('(').padded(), just(')').padded())
+        .map(Expr::Tuple)
+        .spanned();
+
     let block_expr = block.clone().map(Box::new).map(Expr::Block).spanned();
 
     choice((
+        tuple,
         grouping,
         integer(),
         boolean(),
@@ -80,5 +93,20 @@ mod tests {
     #[test]
     fn enum_constructor_unit() {
         assert_expression_snapshot!("Option::None");
+    }
+
+    #[test]
+    fn tuple_expression() {
+        assert_expression_snapshot!("(1, true)");
+    }
+
+    #[test]
+    fn nested_tuple_expression() {
+        assert_expression_snapshot!("((1, 2), 3)");
+    }
+
+    #[test]
+    fn tuple_expression_trailing_comma() {
+        assert_expression_snapshot!("(1, 2,)");
     }
 }

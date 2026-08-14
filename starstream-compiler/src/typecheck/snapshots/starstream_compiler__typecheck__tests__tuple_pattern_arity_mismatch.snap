@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(pair: (i64, bool)) -> i64 {\n    match pair {\n        (a, b, c) => {\n            a\n        },\n    }\n}\n"
+---
+E0056 (https://starstream.nightstream.dev/errors/E0056)
+
+  x pattern expects a tuple with 3 elements but scrutinee has type `(i64, bool)`
+   ,-[test.star:2:11]
+ 1 | fn test(pair: (i64, bool)) -> i64 {
+ 2 |     match pair {
+   :           ^^^^^
+ 3 |         (a, b, c) => {
+   :         ^^^^^|^^^^
+   :              `-- type mismatch
+ 4 |             a
+   `----

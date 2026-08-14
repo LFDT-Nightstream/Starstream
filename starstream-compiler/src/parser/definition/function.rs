@@ -106,6 +106,11 @@ mod tests {
     }
 
     #[test]
+    fn function_with_tuple_types() {
+        assert_function_snapshot!("fn pair(input: (i64, bool)) -> (bool, i64) { input }");
+    }
+
+    #[test]
     fn function_with_public_param() {
         assert_function_snapshot!("fn reveal(pub value: i64) -> i64 { value }");
     }

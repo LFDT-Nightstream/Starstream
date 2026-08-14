@@ -314,7 +314,7 @@ pub struct FunctionDef {
 impl FunctionDef {
     pub fn return_span(&self) -> Span {
         self.return_type.as_ref().map_or(self.name.span, |ret| {
-            span_or(scoped_name_span(&ret.name), self.name.span)
+            span_or(ret.name_span(), self.name.span)
         })
     }
 }
@@ -498,20 +498,33 @@ pub struct EffectDef {
 // Type syntax
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct TypeAnnotation {
-    pub name: ScopedName,
-    pub generics: Vec<TypeAnnotation>,
+pub enum TypeAnnotation {
+    /// A named type, optionally with generic arguments: `i64`, `Option<i64>`.
+    Named {
+        name: ScopedName,
+        generics: Vec<TypeAnnotation>,
+    },
+    /// An anonymous tuple type: `(A, B)`. Always at least two elements;
+    /// `()` is the unit type and `(A)` is not valid syntax.
+    Tuple {
+        items: Vec<TypeAnnotation>,
+        #[serde(skip)]
+        span: Span,
+    },
 }
 
 impl TypeAnnotation {
     pub fn name_span(&self) -> Span {
-        scoped_name_span(&self.name)
+        match self {
+            TypeAnnotation::Named { name, .. } => scoped_name_span(name),
+            TypeAnnotation::Tuple { span, .. } => *span,
+        }
     }
 }
 
 impl From<Identifier> for TypeAnnotation {
     fn from(name: Identifier) -> Self {
-        TypeAnnotation {
+        TypeAnnotation::Named {
             name: vec![name],
             generics: Default::default(),
         }
@@ -598,6 +611,9 @@ pub enum Expr {
     Grouping(Box<Spanned<Expr>>),
     ScopedName(ScopedName),
     Literal(Literal),
+    /// An anonymous tuple: `(a, b)`. Always at least two elements;
+    /// `()` is the unit literal and `(a)` is a grouping.
+    Tuple(Vec<Spanned<Expr>>),
     StructConstructor {
         name: ScopedName,
         fields: Vec<StructFieldInitializer>,
@@ -851,6 +867,12 @@ pub enum Pattern {
     Tuple {
         name: ScopedName,
         fields: Vec<Pattern>,
+    },
+    /// An anonymous tuple pattern: `(a, b)`. Always at least two elements.
+    AnonTuple {
+        fields: Vec<Pattern>,
+        #[serde(skip)]
+        span: Span,
     },
 }
 
