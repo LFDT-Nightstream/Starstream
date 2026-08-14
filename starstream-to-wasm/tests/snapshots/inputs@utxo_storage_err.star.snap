@@ -21,7 +21,7 @@ Program {
                                         name: "counter",
                                         span: 44..51,
                                     },
-                                    ty: TypeAnnotation {
+                                    ty: Named {
                                         name: [
                                             Identifier {
                                                 name: "i64",
@@ -50,7 +50,7 @@ Program {
                     },
                     params: [],
                     return_type: Some(
-                        TypeAnnotation {
+                        Named {
                             name: [
                                 Identifier {
                                     name: "i64",

@@ -69,6 +69,21 @@
     }
   },
   {
+    "type": "anonymous_tuple_pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "pattern",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "arguments",
     "named": true,
     "fields": {},
@@ -255,6 +270,10 @@
             "named": true
           },
           {
+            "type": "tuple_expression",
+            "named": true
+          },
+          {
             "type": "unit_literal",
             "named": true
           },
@@ -429,6 +448,10 @@
         },
         {
           "type": "struct_constructor",
+          "named": true
+        },
+        {
+          "type": "tuple_expression",
           "named": true
         },
         {
@@ -847,6 +870,10 @@
       "required": true,
       "types": [
         {
+          "type": "anonymous_tuple_pattern",
+          "named": true
+        },
+        {
           "type": "literal_pattern",
           "named": true
         },
@@ -978,6 +1005,10 @@
             "named": true
           },
           {
+            "type": "tuple_expression",
+            "named": true
+          },
+          {
             "type": "unit_literal",
             "named": true
           },
@@ -1081,6 +1112,10 @@
           },
           {
             "type": "struct_constructor",
+            "named": true
+          },
+          {
+            "type": "tuple_expression",
             "named": true
           },
           {
@@ -1273,6 +1308,21 @@
     }
   },
   {
+    "type": "tuple_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "tuple_pattern",
     "named": true,
     "fields": {},
@@ -1292,6 +1342,21 @@
     }
   },
   {
+    "type": "tuple_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "type_annotation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "type_annotation",
     "named": true,
     "fields": {},
@@ -1301,6 +1366,10 @@
       "types": [
         {
           "type": "scoped_name",
+          "named": true
+        },
+        {
+          "type": "tuple_type",
           "named": true
         },
         {

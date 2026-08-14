@@ -148,7 +148,13 @@ abi_fn_declaration ::=
 
 (* Type syntax *)
 
-type_annotation ::= scoped_name ( "<" type_annotation ( "," type_annotation )* ","? ">" )?
+type_annotation ::=
+  | scoped_name ( "<" type_annotation ( "," type_annotation )* ","? ">" )?
+  | tuple_type
+
+(* Anonymous tuple type. Always at least two elements: `()` is the unit
+   type and `(A)` is not valid syntax. *)
+tuple_type ::= "(" type_annotation "," type_annotation ( "," type_annotation )* ","? ")"
 
 (* Blocks and statements *)
 
@@ -200,6 +206,7 @@ field_access ::= "." identifier
 (* Primary expressions are those outside the precedence table *)
 primary_expression ::=
   | "(" expression ")"
+  | tuple_expression
   | scoped_name
   | integer_literal
   | boolean_literal
@@ -215,6 +222,10 @@ primary_expression ::=
   | match_expression
 
 scoped_name ::= identifier ( "::" identifier )*
+
+(* Anonymous tuple. Always at least two elements: `(expression)` is a
+   grouping and `()` is the unit literal. *)
+tuple_expression ::= "(" expression "," expression ( "," expression )* ","? ")"
 
 struct_constructor ::= scoped_name "{" ( struct_field_initializer ( "," struct_field_initializer )* ","? )? "}"
 
@@ -247,6 +258,7 @@ pattern ::=
   | unit_literal
   | struct_pattern
   | tuple_pattern
+  | anonymous_tuple_pattern
   | scoped_name
 
 struct_pattern ::= scoped_name "{" ( struct_field_pattern ( "," struct_field_pattern )* ","? )? "}"
@@ -255,7 +267,11 @@ struct_field_pattern ::=
   | identifier ":" pattern
   | identifier
 
+(* Enum variant pattern with a tuple-style payload, e.g. `Ok(value)`. *)
 tuple_pattern ::= scoped_name "(" ( pattern ( "," pattern )* ","? )? ")"
+
+(* Anonymous tuple pattern. Always at least two elements. *)
+anonymous_tuple_pattern ::= "(" pattern "," pattern ( "," pattern )* ","? ")"
 
 unary_expression ::= ("-" | "!") expression
 
@@ -295,9 +311,9 @@ Definitions live exclusively at the program (module) scope. Statements appear
 inside blocks (function bodies, control-flow branches, etc.) and cannot occurat the top level.
 
 `type_annotation` names reuse the type declarations defined elsewhere in this
-spec (e.g., `i64`, `bool`, `CustomType`). Structured annotations such as tuples
-or generic parameters extend this rule by nesting additional `type_annotation`
-instances between `<…>` as described in the [Types](#types) section.
+spec (e.g., `i64`, `bool`, `CustomType`). Structured annotations nest
+additional `type_annotation` instances: generic parameters between `<…>` and
+anonymous tuples between `(…)`, as described in the [Types](#types) section.
 Record and enum shapes must first be declared via `struct`/`enum` definitions
 before they can be referenced. The name `_` means "unspecified", a free type
 variable subject to inference.
@@ -403,6 +419,10 @@ displayed in IDE hover tooltips above the type information.
 
 - `()` - unit type with one value, `()`
 - `bool` - boolean type with two values, `true` and `false`
+- `(A, B)` - anonymous tuple types with two or more elements. Tuple values are
+  written `(a, b)` and destructured with tuple patterns in `match` arms.
+  There are no one-element tuples: `(A)` is not valid type syntax and `(a)` is
+  a parenthesized expression.
 - `Option<T>` - generic type with `None` and `Some(T)` variants
 - `Result<T, E>` - generic type with `Ok(T)` and `Err(E)` variants
 - `Utxo` - handle to a Utxo of unknown contract and ABI
@@ -434,6 +454,7 @@ No user-defined generics at this time.
 - Struct and enum definitions introduce canonical shapes, but names are merely aliases; two independently-declared structs with the same fields — same names, same types, in the same declaration order — are interchangeable.
 - Type annotations refer to those named definitions. Shapes are compared in declaration order; no reordering or canonicalization is performed, so the same field set declared in a different order is a different shape.
 - Unification succeeds for records when both sides declare the same field names in the same order and each corresponding field type unifies. A similar rule holds for enums, matching variant names, variant order, and payload arity/type.
+- Tuples are purely structural: two tuple types unify when they have the same number of elements and each corresponding element type unifies. Tuples do not unify with records.
 - Pattern matching and field access operate on these shapes; renaming a type but keeping its layout requires no code changes.
 
 ## Contracts
@@ -642,6 +663,7 @@ visibility modifier:
 - Integer literals may be written in decimal (`42`), hexadecimal (`0xFF`), octal (`0o17`), or binary (`0b1010`) notation. The notation only affects how the literal is written (and how the formatter prints it back); the value and typing rules are identical across notations.
 - Boolean literals work in the obvious way.
 - Struct literals `TypeName { field: expr, ... }` evaluate each field expression once and produce a record value. Field names must be unique; order is irrelevant.
+- Tuple expressions `(a, b, ...)` evaluate their elements left-to-right and produce a tuple value. Tuples are destructured with anonymous tuple patterns in `match` arms; there is no positional field access.
 - Enum constructors use `TypeName::Variant` with a previously declared enum name. Tuple-style payloads evaluate left-to-right and are stored without reordering.
 - Field accesses evaluate the receiver, ensure it is a struct value, then project the requested field. Accessing a missing field is a type error.
 - `match` expressions evaluate the scrutinee first, then test arms sequentially. The first pattern whose shape matches the scrutinee executes. Pattern matching is exhaustive: all possible cases must be covered, and unreachable patterns are reported as errors. The wildcard pattern `_` matches any value without introducing a binding.

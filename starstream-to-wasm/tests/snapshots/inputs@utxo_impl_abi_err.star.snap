@@ -112,7 +112,7 @@ Program {
                                                 name: "x",
                                                 span: 182..183,
                                             },
-                                            ty: TypeAnnotation {
+                                            ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "i32",
@@ -159,7 +159,7 @@ Program {
                                     },
                                     params: [],
                                     return_type: Some(
-                                        TypeAnnotation {
+                                        Named {
                                             name: [
                                                 Identifier {
                                                     name: "i32",

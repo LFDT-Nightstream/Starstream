@@ -1,0 +1,30 @@
+---
+source: starstream-compiler/src/parser/expression/primary/mod.rs
+description: "Code:\n\n(1, true)"
+---
+Spanned {
+    node: Tuple(
+        [
+            Spanned {
+                node: Literal(
+                    Integer(
+                        IntegerLiteral {
+                            digits: "1",
+                            radix: Decimal,
+                        },
+                    ),
+                ),
+                span: 1..2,
+            },
+            Spanned {
+                node: Literal(
+                    Boolean(
+                        true,
+                    ),
+                ),
+                span: 4..8,
+            },
+        ],
+    ),
+    span: 0..9,
+}

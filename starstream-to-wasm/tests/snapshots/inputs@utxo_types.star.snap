@@ -35,7 +35,7 @@ Program {
                                 name: "utxo",
                                 span: 49..53,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Utxo",
@@ -51,7 +51,7 @@ Program {
                                 name: "my_utxo",
                                 span: 61..68,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "MyUtxo",

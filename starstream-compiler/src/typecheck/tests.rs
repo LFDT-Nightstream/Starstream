@@ -714,6 +714,103 @@ fn exhaustive_match_with_struct_payload() {
 }
 
 #[test]
+fn tuple_expression_and_annotation() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn swap(pair: (i64, bool)) -> (bool, i64) {
+            match pair {
+                (a, b) => {
+                    (b, a)
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn tuple_pattern_arity_mismatch() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(pair: (i64, bool)) -> i64 {
+            match pair {
+                (a, b, c) => {
+                    a
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn tuple_pattern_on_non_tuple() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(value: i64) -> i64 {
+            match value {
+                (a, b) => {
+                    a
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_tuple_of_bools_non_exhaustive() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(pair: (bool, bool)) -> i64 {
+            match pair {
+                (true, true) => {
+                    1
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_tuple_of_bools_exhaustive() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(pair: (bool, bool)) -> i64 {
+            match pair {
+                (true, _) => {
+                    1
+                },
+                (false, _) => {
+                    0
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn nested_tuple_pattern_binds_inner_types() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(value: ((i64, bool), i64) ) -> i64 {
+            match value {
+                ((n, flag), m) => {
+                    if (flag) {
+                        n
+                    } else {
+                        m
+                    }
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
 fn match_bool_literal_exhaustive() {
     assert_typecheck_snapshot!(
         r#"

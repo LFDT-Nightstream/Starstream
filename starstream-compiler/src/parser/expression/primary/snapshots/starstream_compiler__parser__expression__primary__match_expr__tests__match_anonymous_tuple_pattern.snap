@@ -1,0 +1,71 @@
+---
+source: starstream-compiler/src/parser/expression/primary/match_expr.rs
+description: "Code:\n\nmatch pair {\n    (a, (b, _)) => {\n        a\n    },\n}\n"
+---
+Spanned {
+    node: Match {
+        scrutinee: Spanned {
+            node: ScopedName(
+                [
+                    Identifier {
+                        name: "pair",
+                        span: 6..10,
+                    },
+                ],
+            ),
+            span: 6..11,
+        },
+        arms: [
+            MatchArm {
+                pattern: AnonTuple {
+                    fields: [
+                        Name(
+                            [
+                                Identifier {
+                                    name: "a",
+                                    span: 18..19,
+                                },
+                            ],
+                        ),
+                        AnonTuple {
+                            fields: [
+                                Name(
+                                    [
+                                        Identifier {
+                                            name: "b",
+                                            span: 22..23,
+                                        },
+                                    ],
+                                ),
+                                Wildcard {
+                                    span: 25..26,
+                                },
+                            ],
+                            span: 21..27,
+                        },
+                    ],
+                    span: 17..29,
+                },
+                body: Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: ScopedName(
+                                [
+                                    Identifier {
+                                        name: "a",
+                                        span: 42..43,
+                                    },
+                                ],
+                            ),
+                            span: 42..48,
+                        },
+                    ),
+                    span: 32..49,
+                },
+                span: 17..49,
+            },
+        ],
+    },
+    span: 0..53,
+}

@@ -854,21 +854,28 @@ fn identifier_to_doc<'a>(identifier: &Identifier, _source: &'a str) -> RcDoc<'a,
 }
 
 fn type_annotation_to_doc<'a>(annotation: &TypeAnnotation, source: &'a str) -> RcDoc<'a, ()> {
-    let mut doc = scoped_name_to_doc(&annotation.name, source);
-    if !annotation.generics.is_empty() {
-        let generics = RcDoc::intersperse(
-            annotation
-                .generics
-                .iter()
-                .map(|x| type_annotation_to_doc(x, source)),
-            RcDoc::text(", "),
-        );
-        doc = doc
-            .append(RcDoc::text("<"))
-            .append(generics)
-            .append(RcDoc::text(">"));
+    match annotation {
+        TypeAnnotation::Named { name, generics } => {
+            let mut doc = scoped_name_to_doc(name, source);
+            if !generics.is_empty() {
+                let generics = RcDoc::intersperse(
+                    generics.iter().map(|x| type_annotation_to_doc(x, source)),
+                    RcDoc::text(", "),
+                );
+                doc = doc
+                    .append(RcDoc::text("<"))
+                    .append(generics)
+                    .append(RcDoc::text(">"));
+            }
+            doc
+        }
+        TypeAnnotation::Tuple { items, .. } => RcDoc::text("(")
+            .append(RcDoc::intersperse(
+                items.iter().map(|x| type_annotation_to_doc(x, source)),
+                RcDoc::text(", "),
+            ))
+            .append(RcDoc::text(")")),
     }
-    doc
 }
 
 fn struct_literal_expr_to_doc<'a>(
@@ -983,6 +990,12 @@ fn pattern_to_doc<'a>(pattern: &Pattern, source: &'a str) -> RcDoc<'a, ()> {
                 RcDoc::text(", "),
             ))
             .append(RcDoc::text(")")),
+        Pattern::AnonTuple { fields, .. } => RcDoc::text("(")
+            .append(RcDoc::intersperse(
+                fields.iter().map(|x| pattern_to_doc(x, source)),
+                RcDoc::text(", "),
+            ))
+            .append(RcDoc::text(")")),
     }
 }
 
@@ -1038,6 +1051,22 @@ fn expr_with_prec<'a>(
             let doc = match expr {
                 Expr::Literal(literal) => literal_to_doc(literal, source),
                 Expr::ScopedName(name) => scoped_name_to_doc(name, source),
+                Expr::Tuple(items) => RcDoc::text("(")
+                    .append(RcDoc::intersperse(
+                        items.iter().map(|item| {
+                            spanned(item, source, |node| {
+                                expr_with_prec(
+                                    node,
+                                    PREC_LOWEST,
+                                    ChildPosition::Top,
+                                    source,
+                                    comments,
+                                )
+                            })
+                        }),
+                        RcDoc::text(", "),
+                    ))
+                    .append(RcDoc::text(")")),
                 Expr::Unary { op, expr } => {
                     let operand = spanned(expr, source, |node| {
                         expr_with_prec(node, prec, ChildPosition::Unary, source, comments)
@@ -1214,6 +1243,7 @@ fn precedence(expr: &Expr) -> u8 {
     match expr {
         Expr::Literal(_)
         | Expr::ScopedName(_)
+        | Expr::Tuple(_)
         | Expr::StructConstructor { .. }
         | Expr::Disclose { .. }
         | Expr::Emit { .. }
@@ -1342,6 +1372,19 @@ mod tests {
                 value = (1 + 2) * (3 - 4) / 5;
                 value = value + (10 / (3 + 2));
                 result = (1 + 2 == 3) && !(false || true);
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn tuples() {
+        assert_format_snapshot!(
+            r#"
+            fn swap(pair: (i64,   bool)) -> (bool, i64) {
+                match pair {
+                    (a,b) => { (b,   a) },
+                }
             }
             "#,
         );

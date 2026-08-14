@@ -19,7 +19,7 @@ Program {
                                 name: "x",
                                 span: 17..18,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "i64",
@@ -50,7 +50,7 @@ Program {
                             },
                             payload: Tuple(
                                 [
-                                    TypeAnnotation {
+                                    Named {
                                         name: [
                                             Identifier {
                                                 name: "Ctx",
@@ -91,7 +91,7 @@ Program {
                             },
                             payload: Tuple(
                                 [
-                                    TypeAnnotation {
+                                    Named {
                                         name: [
                                             Identifier {
                                                 name: "bool",
@@ -111,7 +111,7 @@ Program {
                             },
                             payload: Tuple(
                                 [
-                                    TypeAnnotation {
+                                    Named {
                                         name: [
                                             Identifier {
                                                 name: "i64",
@@ -131,7 +131,7 @@ Program {
                             },
                             payload: Tuple(
                                 [
-                                    TypeAnnotation {
+                                    Named {
                                         name: [
                                             Identifier {
                                                 name: "Thing",
@@ -164,7 +164,7 @@ Program {
                                 name: "foo",
                                 span: 141..144,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Foo",
@@ -176,7 +176,7 @@ Program {
                         },
                     ],
                     return_type: Some(
-                        TypeAnnotation {
+                        Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -401,7 +401,7 @@ Program {
                                 name: "foo",
                                 span: 418..421,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Foo",
@@ -413,7 +413,7 @@ Program {
                         },
                     ],
                     return_type: Some(
-                        TypeAnnotation {
+                        Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -531,7 +531,7 @@ Program {
                                 name: "x",
                                 span: 569..570,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "i64",
@@ -543,7 +543,7 @@ Program {
                         },
                     ],
                     return_type: Some(
-                        TypeAnnotation {
+                        Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -661,7 +661,7 @@ Program {
                                             name: "x",
                                             span: 727..728,
                                         },
-                                        ty: TypeAnnotation {
+                                        ty: Named {
                                             name: [
                                                 Identifier {
                                                     name: "i64",
@@ -677,7 +677,7 @@ Program {
                                             name: "y",
                                             span: 735..736,
                                         },
-                                        ty: TypeAnnotation {
+                                        ty: Named {
                                             name: [
                                                 Identifier {
                                                     name: "i64",
@@ -712,7 +712,7 @@ Program {
                                 name: "msg",
                                 span: 763..766,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Message",
@@ -724,7 +724,7 @@ Program {
                         },
                     ],
                     return_type: Some(
-                        TypeAnnotation {
+                        Named {
                             name: [
                                 Identifier {
                                     name: "i64",

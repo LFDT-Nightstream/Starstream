@@ -15,7 +15,7 @@ EnumDef {
             },
             payload: Tuple(
                 [
-                    TypeAnnotation {
+                    Named {
                         name: [
                             Identifier {
                                 name: "i64",

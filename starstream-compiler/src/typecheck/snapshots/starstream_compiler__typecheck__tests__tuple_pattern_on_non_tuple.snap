@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(value: i64) -> i64 {\n    match value {\n        (a, b) => {\n            a\n        },\n    }\n}\n"
+---
+E0056 (https://starstream.nightstream.dev/errors/E0056)
+
+  x pattern expects a tuple with 2 elements but scrutinee has type `i64`
+   ,-[test.star:2:11]
+ 1 | fn test(value: i64) -> i64 {
+ 2 |     match value {
+   :           ^^^|^^
+   :              `-- has type `i64`
+ 3 |         (a, b) => {
+   :         ^^^|^^^
+   :            `-- has type `(t3, t4)`
+ 4 |             a
+   `----

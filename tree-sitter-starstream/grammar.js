@@ -204,17 +204,32 @@ module.exports = grammar({
     // Type syntax
 
     type_annotation: ($) =>
-      seq(
-        $.scoped_name,
-        optional(
-          seq(
-            "<",
-            $.type_annotation,
-            repeat(seq(",", $.type_annotation)),
-            optional(","),
-            ">",
+      choice(
+        seq(
+          $.scoped_name,
+          optional(
+            seq(
+              "<",
+              $.type_annotation,
+              repeat(seq(",", $.type_annotation)),
+              optional(","),
+              ">",
+            ),
           ),
         ),
+        $.tuple_type,
+      ),
+
+    // Anonymous tuple type: `(A, B)`. Always at least two elements.
+    tuple_type: ($) =>
+      seq(
+        "(",
+        $.type_annotation,
+        ",",
+        $.type_annotation,
+        repeat(seq(",", $.type_annotation)),
+        optional(","),
+        ")",
       ),
 
     // Blocks and statements
@@ -311,6 +326,7 @@ module.exports = grammar({
     _primary_expression: ($) =>
       choice(
         seq("(", $.expression, ")"),
+        $.tuple_expression,
 
         // Ambiguity: `match foo { patterns }` vs `match foo { struct fields } { patterns }`.
         // In this case, identifier has priority. Use parens to get struct literal.
@@ -328,6 +344,19 @@ module.exports = grammar({
         $.yield_expression,
         $.if_expression,
         $.match_expression,
+      ),
+
+    // Anonymous tuple: `(a, b)`. Always at least two elements; `(a)` is a
+    // grouping and `()` is the unit literal.
+    tuple_expression: ($) =>
+      seq(
+        "(",
+        $.expression,
+        ",",
+        $.expression,
+        repeat(seq(",", $.expression)),
+        optional(","),
+        ")",
       ),
 
     scoped_name: ($) => seq($.identifier, repeat(seq("::", $.identifier))),
@@ -405,6 +434,7 @@ module.exports = grammar({
         $.literal_pattern,
         $.struct_pattern,
         $.tuple_pattern,
+        $.anonymous_tuple_pattern,
         $.scoped_name,
       ),
 
@@ -435,6 +465,18 @@ module.exports = grammar({
         $.scoped_name,
         "(",
         optional(seq($.pattern, repeat(seq(",", $.pattern)))),
+        optional(","),
+        ")",
+      ),
+
+    // Anonymous tuple pattern: `(a, b)`. Always at least two elements.
+    anonymous_tuple_pattern: ($) =>
+      seq(
+        "(",
+        $.pattern,
+        ",",
+        $.pattern,
+        repeat(seq(",", $.pattern)),
         optional(","),
         ")",
       ),

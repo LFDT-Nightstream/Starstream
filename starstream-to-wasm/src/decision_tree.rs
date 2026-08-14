@@ -49,12 +49,11 @@ impl Ctor {
             }
             Ctor::BoolTrue | Ctor::BoolFalse => 0,
             Ctor::IntLiteral(_) => 0,
-            Ctor::Struct => {
-                let Type::Record(r) = col_type else {
-                    return 0;
-                };
-                r.fields.len()
-            }
+            Ctor::Struct => match col_type {
+                Type::Record(r) => r.fields.len(),
+                Type::Tuple(items) => items.len(),
+                _ => 0,
+            },
             Ctor::Unit => 0,
         }
     }
@@ -74,12 +73,11 @@ impl Ctor {
                     }
                 }
             }
-            Ctor::Struct => {
-                let Type::Record(r) = col_type else {
-                    return vec![];
-                };
-                r.fields.iter().map(|f| f.ty.clone()).collect()
-            }
+            Ctor::Struct => match col_type {
+                Type::Record(r) => r.fields.iter().map(|f| f.ty.clone()).collect(),
+                Type::Tuple(items) => items.as_ref().clone(),
+                _ => vec![],
+            },
             Ctor::BoolTrue | Ctor::BoolFalse | Ctor::IntLiteral(_) | Ctor::Unit => vec![],
         }
     }
@@ -329,7 +327,7 @@ fn is_complete_signature(ctors: &[Ctor], ty: &Type) -> bool {
                 && (0..enum_type.variants.len())
                     .all(|i| ctors.contains(&Ctor::EnumVariant { variant_index: i }))
         }
-        Type::Record(_) => true,
+        Type::Record(_) | Type::Tuple(_) => true,
         Type::Unit => true,
         Type::Int(_) => false,
         _ => false,

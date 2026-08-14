@@ -15,7 +15,7 @@ FunctionDef {
                 name: "value",
                 span: 14..19,
             },
-            ty: TypeAnnotation {
+            ty: Named {
                 name: [
                     Identifier {
                         name: "i64",
@@ -27,7 +27,7 @@ FunctionDef {
         },
     ],
     return_type: Some(
-        TypeAnnotation {
+        Named {
             name: [
                 Identifier {
                     name: "i64",

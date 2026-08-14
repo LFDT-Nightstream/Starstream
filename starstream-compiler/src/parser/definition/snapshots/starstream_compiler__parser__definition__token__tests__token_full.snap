@@ -16,7 +16,7 @@ TokenDef {
                         name: "my_arbitrary_variable",
                         span: 54..75,
                     },
-                    ty: TypeAnnotation {
+                    ty: Named {
                         name: [
                             Identifier {
                                 name: "u32",
@@ -83,7 +83,7 @@ TokenDef {
                                 name: "to",
                                 span: 179..181,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Utxo",
@@ -114,7 +114,7 @@ TokenDef {
                                 name: "source",
                                 span: 210..216,
                             },
-                            ty: TypeAnnotation {
+                            ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Utxo",

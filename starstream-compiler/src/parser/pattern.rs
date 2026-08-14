@@ -56,7 +56,20 @@ pub fn pattern<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> + Clone {
             .map(|(name, fields)| Pattern::Struct { name, fields });
 
         let tuple_pattern =
-            tuple_pattern(pattern).map(|(name, fields)| Pattern::Tuple { name, fields });
+            tuple_pattern(pattern.clone()).map(|(name, fields)| Pattern::Tuple { name, fields });
+
+        // Anonymous tuple pattern: `(a, b)`. At least two elements, so `()`
+        // stays the unit literal above.
+        let anon_tuple_pattern = pattern
+            .separated_by(just(',').padded())
+            .at_least(2)
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just('(').padded(), just(')').padded())
+            .map_with(|fields, extra| Pattern::AnonTuple {
+                fields,
+                span: extra.span(),
+            });
 
         let binding = primitives::scoped_name().map(Pattern::Name);
 
@@ -67,6 +80,7 @@ pub fn pattern<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> + Clone {
             unit_literal,
             struct_pattern,
             tuple_pattern,
+            anon_tuple_pattern,
             binding,
         ))
         .padded()

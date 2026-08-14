@@ -21,7 +21,7 @@ AbiDef {
                             name: "sender",
                             span: 32..38,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -37,7 +37,7 @@ AbiDef {
                             name: "to",
                             span: 45..47,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -53,7 +53,7 @@ AbiDef {
                             name: "amount",
                             span: 54..60,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -80,7 +80,7 @@ AbiDef {
                             name: "message",
                             span: 82..89,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",

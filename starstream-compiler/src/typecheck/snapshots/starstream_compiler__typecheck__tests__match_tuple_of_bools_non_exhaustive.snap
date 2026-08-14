@@ -1,0 +1,19 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(pair: (bool, bool)) -> i64 {\n    match pair {\n        (true, true) => {\n            1\n        },\n    }\n}\n"
+---
+E0027 (https://starstream.nightstream.dev/errors/E0027)
+
+  x non-exhaustive match
+   ,-[test.star:2:5]
+ 1 |     fn test(pair: (bool, bool)) -> i64 {
+ 2 | ,->     match pair {
+ 3 | |           (true, true) => {
+ 4 | |               1
+ 5 | |           },
+ 6 | `->     }
+ 7 |     }
+   `----
+  help: missing patterns:
+        - `(false, _)`
+        ensure all cases are covered or add a wildcard `_` pattern

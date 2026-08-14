@@ -1,0 +1,26 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn swap(pair: (i64, bool)) -> (bool, i64) {\n    match pair {\n        (a, b) => {\n            (b, a)\n        },\n    }\n}\n"
+---
+T-Fn: swap => (bool, i64)
+  T-ReturnTail: match pair {
+    (a, b) => {
+        (b, a)
+    },
+} => (bool, i64)
+    T-Match: {pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ match pair {
+    (a, b) => {
+        (b, a)
+    },
+} ⇒ (bool, i64)
+      T-Var: {pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ pair ⇒ (i64, bool)
+      Unify-Tuple: (i64, bool) ~ (t3, t4) => {bool/t4, i64/t3}
+        Unify-Var: i64 ~ t3 => {i64/t3}
+        Unify-Var: bool ~ t4 => {bool/t4}
+      T-Tail: (b, a) => (bool, i64)
+        T-Tuple: {a: i64, b: bool, pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ (b, a) ⇒ (bool, i64)
+          T-Var: {a: i64, b: bool, pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ b ⇒ bool
+          T-Var: {a: i64, b: bool, pair: (i64, bool), swap: fn((i64, bool)) -> (bool, i64)} ⊢ a ⇒ i64
+    Unify-Tuple: (bool, i64) ~ (bool, i64) => {}
+      Unify-Const: bool ~ bool => {}
+      Unify-Const: i64 ~ i64 => {}

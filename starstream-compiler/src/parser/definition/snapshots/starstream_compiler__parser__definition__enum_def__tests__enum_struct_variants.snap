@@ -20,7 +20,7 @@ EnumDef {
                             name: "value",
                             span: 19..24,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",
@@ -47,7 +47,7 @@ EnumDef {
                             name: "msg",
                             span: 39..42,
                         },
-                        ty: TypeAnnotation {
+                        ty: Named {
                             name: [
                                 Identifier {
                                     name: "i64",

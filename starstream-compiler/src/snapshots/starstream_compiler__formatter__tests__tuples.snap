@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn swap(pair: (i64,   bool)) -> (bool, i64) {\n    match pair {\n        (a,b) => { (b,   a) },\n    }\n}\n"
+---
+fn swap(pair: (i64, bool)) -> (bool, i64) {
+    match pair {
+        (a, b) => {
+            (b, a)
+        },
+    }
+}

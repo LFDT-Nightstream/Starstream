@@ -22,7 +22,7 @@ Program {
                                         name: "supply",
                                         span: 54..60,
                                     },
-                                    ty: TypeAnnotation {
+                                    ty: Named {
                                         name: [
                                             Identifier {
                                                 name: "u32",
@@ -92,7 +92,7 @@ Program {
                                                 name: "to",
                                                 span: 155..157,
                                             },
-                                            ty: TypeAnnotation {
+                                            ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "Utxo",
@@ -123,7 +123,7 @@ Program {
                                                 name: "source",
                                                 span: 187..193,
                                             },
-                                            ty: TypeAnnotation {
+                                            ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "Utxo",

@@ -27,7 +27,7 @@ Program {
                                             name: "chips",
                                             span: 30..35,
                                         },
-                                        ty: TypeAnnotation {
+                                        ty: Named {
                                             name: [
                                                 Identifier {
                                                     name: "u64",
@@ -55,7 +55,7 @@ Program {
                                             name: "mult",
                                             span: 60..64,
                                         },
-                                        ty: TypeAnnotation {
+                                        ty: Named {
                                             name: [
                                                 Identifier {
                                                     name: "u64",
@@ -83,7 +83,7 @@ Program {
                                             name: "mult_pct",
                                             span: 89..97,
                                         },
-                                        ty: TypeAnnotation {
+                                        ty: Named {
                                             name: [
                                                 Identifier {
                                                     name: "u64",
@@ -122,7 +122,7 @@ Program {
                                             name: "total",
                                             span: 139..144,
                                         },
-                                        ty: TypeAnnotation {
+                                        ty: Named {
                                             name: [
                                                 Identifier {
                                                     name: "u64",
@@ -156,7 +156,7 @@ Program {
                                         name: "chips",
                                         span: 206..211,
                                     },
-                                    ty: TypeAnnotation {
+                                    ty: Named {
                                         name: [
                                             Identifier {
                                                 name: "u64",
@@ -171,7 +171,7 @@ Program {
                                         name: "mult",
                                         span: 234..238,
                                     },
-                                    ty: TypeAnnotation {
+                                    ty: Named {
                                         name: [
                                             Identifier {
                                                 name: "u64",
@@ -288,7 +288,7 @@ Program {
                                                 name: "chips2",
                                                 span: 377..383,
                                             },
-                                            ty: TypeAnnotation {
+                                            ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "u64",
@@ -357,7 +357,7 @@ Program {
                                                 name: "mult2",
                                                 span: 463..468,
                                             },
-                                            ty: TypeAnnotation {
+                                            ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "u64",
@@ -426,7 +426,7 @@ Program {
                                                 name: "mult_pct",
                                                 span: 545..553,
                                             },
-                                            ty: TypeAnnotation {
+                                            ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "u64",
