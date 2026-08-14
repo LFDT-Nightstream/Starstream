@@ -1791,7 +1791,7 @@ impl Inferencer {
                 let field_tys: Vec<Type> = fields.iter().map(|_| self.fresh_var()).collect();
                 let tuple_ty = Type::Tuple(Arc::new(field_tys.clone()));
                 let (_, unify_trace) = self.unify(
-                    &expected_ty,
+                    expected_ty,
                     &tuple_ty,
                     value_span,
                     *span,
@@ -2431,8 +2431,8 @@ impl Inferencer {
                         "T-Unit",
                     ),
                 };
-                let typed = Spanned::new(TypedExpr::new(ty.clone(), kind), expr.span);
                 let result_repr = self.maybe_string(|| self.format_type(&ty));
+                let typed = Spanned::new(TypedExpr::new(ty, kind), expr.span);
                 let tree = self.make_trace(
                     rule,
                     env_context.clone(),
@@ -2723,7 +2723,7 @@ impl Inferencer {
                 let typed = Spanned::new(
                     TypedExpr::new(
                         typed_inner.node.ty.clone(),
-                        TypedExprKind::Grouping(Box::new(typed_inner.clone())),
+                        TypedExprKind::Grouping(Box::new(typed_inner)),
                     ),
                     expr.span,
                 );
@@ -2745,11 +2745,11 @@ impl Inferencer {
                     children.push(item_trace);
                 }
                 let ty = Type::Tuple(Arc::new(item_tys));
+                let result_repr = self.maybe_string(|| self.format_type(&ty));
                 let typed = Spanned::new(
-                    TypedExpr::new(ty.clone(), TypedExprKind::Tuple(typed_items)),
+                    TypedExpr::new(ty, TypedExprKind::Tuple(typed_items)),
                     expr.span,
                 );
-                let result_repr = self.maybe_string(|| self.format_type(&ty));
                 let tree =
                     self.make_trace("T-Tuple", env_context, subject_repr, result_repr, || {
                         children
@@ -2906,9 +2906,10 @@ impl Inferencer {
                     }
                 };
 
+                let result_repr = self.maybe_string(|| self.format_type(&field_ty));
                 let typed = Spanned::new(
                     TypedExpr::new(
-                        field_ty.clone(),
+                        field_ty,
                         TypedExprKind::FieldAccess {
                             target: Box::new(typed_target.clone()),
                             field: field.clone(),
@@ -2916,7 +2917,6 @@ impl Inferencer {
                     ),
                     expr.span,
                 );
-                let result_repr = self.maybe_string(|| self.format_type(&field_ty));
                 let tree = self.make_trace(
                     "T-FieldAccess",
                     env_context,
@@ -3209,9 +3209,10 @@ impl Inferencer {
                 }
 
                 let expr_type = result_ty.map(|(ty, _)| ty).unwrap_or_else(Type::unit);
+                let result_repr = self.maybe_string(|| self.format_type(&expr_type));
                 let typed = Spanned::new(
                     TypedExpr::new(
-                        expr_type.clone(),
+                        expr_type,
                         TypedExprKind::Match {
                             scrutinee: Box::new(typed_scrutinee.clone()),
                             arms: typed_arms,
@@ -3219,7 +3220,6 @@ impl Inferencer {
                     ),
                     expr.span,
                 );
-                let result_repr = self.maybe_string(|| self.format_type(&expr_type));
                 let tree =
                     self.make_trace("T-Match", env_context, subject_repr, result_repr, || {
                         children
