@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use wasm_encoder::{InstructionSink, MemArg};
+use wasm_encoder::{InstructionSink, MemArg, ValType};
 
 /// Function used to generate instructions to store a single value to memory.
 pub type StoreFn = Box<dyn Fn(InstructionSink)>;
@@ -80,6 +80,12 @@ pub struct Resource {
     pub full_name: String,
 }
 
+impl Resource {
+    pub fn repr(&self) -> ValType {
+        ValType::I32
+    }
+}
+
 impl ComponentAbiType {
     pub fn convert_resource_to_owned(self: &Rc<Self>) -> Rc<ComponentAbiType> {
         match &**self {
@@ -124,7 +130,7 @@ impl ComponentAbiType {
                 ("error".to_string(), err.clone()),
             ]),
             ComponentAbiType::Flags { labels } => todo!(),
-            ComponentAbiType::Own { .. } | ComponentAbiType::Borrow { .. } => 4,
+            ComponentAbiType::Own { resource } | ComponentAbiType::Borrow { resource } => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
         }
     }

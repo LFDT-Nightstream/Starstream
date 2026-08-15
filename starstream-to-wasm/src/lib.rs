@@ -1260,10 +1260,28 @@ impl Compiler {
         self.export_component_ty(enum_.ty.name.as_str(), &Type::Enum(enum_.ty.clone()));
     }
 
+    /// Handles all imports for a Utxo definition, including the WIT import
+    /// from `starstream:self` and the core new/drop imports used by the
+    /// export half.
     fn pre_visit_utxo(&mut self, utxo: &TypedUtxoDef) {
         let export_interface_name = to_kebab_case(utxo.name.as_str());
+        // It's illegal in WIT to `use` from an anonymous interface, which is
+        // necessary to refer to resources from it in exported functions, so
+        // we have to give it this `starstream:self` name.
         let import_interface_name = format!("starstream:self/{}", export_interface_name);
         let resource_name = "utxo";
+
+        let mut iface = TypeBuilder::new_interface();
+        iface.inherit_parent(&self.world_type);
+
+        // Declare the resource type.
+        let resource = iface.fresh_resource(resource_name, &format!("u-{}", utxo.name));
+        self.star_to_component.insert(
+            Type::Utxo(utxo.ty.clone()),
+            Rc::new(ComponentAbiType::Borrow {
+                resource: resource.clone(),
+            }),
+        );
 
         // Allocate the synthetic `resource.new` and `resource.drop` imports.
         let new_fn = self.import_function(
@@ -1276,15 +1294,18 @@ impl Compiler {
             &format!("[resource-drop]{resource_name}"),
             &FuncType::new([ValType::I32], []),
         );
+        let this_ty = Type::Utxo(utxo.ty.clone());
         self.resource_abi_fns
-            .insert(Type::Utxo(utxo.ty.clone()), (new_fn, drop_fn));
+            .insert(this_ty.clone(), (new_fn, drop_fn));
 
-        // Utxos declared in a file have an "exported" half and an "imported" half
-        // since calls need to go through the runtime.
+        // Allocate imports for `main fn`s and always-implemented ABI fns.
         for part in &utxo.parts {
             match part {
+                TypedUtxoPart::Storage(..) => {}
                 TypedUtxoPart::Function(function) => {
                     if let Some(FunctionExport::UtxoMain) = function.export {
+                        // `main fn`. Ignore declared return, always return handle.
+                        // Core import.
                         let mut params = Vec::with_capacity(16);
                         for p in &function.ty.params {
                             _ = self.star_to_core_types(
@@ -1293,8 +1314,6 @@ impl Compiler {
                                 &p.ty,
                             );
                         }
-
-                        // Don't use declared result (always Unit). The imported version returns a handle.
                         let mut results = Vec::with_capacity(1);
                         _ = self.star_to_core_types(
                             function.name.span(),
@@ -1312,6 +1331,12 @@ impl Compiler {
                             &FuncType::new(params, results),
                         );
                         self.callables.insert(function.id, idx);
+
+                        // Component import.
+                        iface.export_fn(
+                            &wit_name,
+                            &self.star_to_component_signature(None, &function.ty.params, &this_ty),
+                        );
                     }
                 }
                 TypedUtxoPart::AbiImpl {
@@ -1321,10 +1346,10 @@ impl Compiler {
                 } => {
                     let always_on = utxo.ty.always_abis.iter().any(|a| a == abi);
                     if always_on {
-                        let this = Type::Utxo(utxo.ty.clone());
                         for function in parts {
+                            // Core import.
                             let mut params = Vec::with_capacity(16);
-                            _ = self.star_to_core_types(function.name.span, &mut params, &this);
+                            _ = self.star_to_core_types(function.name.span, &mut params, &this_ty);
                             for p in &function.ty.params {
                                 _ = self.star_to_core_types(
                                     p.name.span_or(function.name.span()),
@@ -1332,7 +1357,6 @@ impl Compiler {
                                     &p.ty,
                                 );
                             }
-
                             let mut results = Vec::with_capacity(1);
                             _ = self.star_to_core_types(
                                 function.name.span(),
@@ -1356,18 +1380,32 @@ impl Compiler {
                                 .unwrap()
                                 .id;
                             self.method_callables
-                                .insert((this.clone(), abi_function_id), idx);
+                                .insert((this_ty.clone(), abi_function_id), idx);
+
+                            // Component import.
+                            iface.export_fn(
+                                &wit_name,
+                                &self.star_to_component_signature(
+                                    Some(&this_ty),
+                                    &function.ty.params,
+                                    &function.ty.result,
+                                ),
+                            );
                         }
                     }
                 }
-                _ => {}
             }
         }
+
+        // Import interface.
+        self.world_type
+            .import_interface(&import_interface_name, &iface);
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
+        // Declare the exported version of the Utxo, accepting the utxo-context
+        // parameter, and .
         let export_interface_name = to_kebab_case(utxo.name.as_str());
-        let import_interface_name = format!("starstream:self/{}", export_interface_name);
         let resource_name = "utxo";
 
         let mut iface = TypeBuilder::new_interface();
@@ -1386,6 +1424,7 @@ impl Compiler {
             .resource_abi_fns
             .get(&Type::Utxo(utxo.ty.clone()))
             .unwrap();
+        let this_ty = Type::Utxo(utxo.ty.clone());
 
         // Reserve the ID for the `resume;` function for this Utxo.
         let yield_start = self.yield_id;
@@ -1397,6 +1436,11 @@ impl Compiler {
             // resource_drop_fn,
             resource_local: u32::MAX,
         });
+
+        // let utxo_context_resource = self.builtins.utxo_context_resource.clone().unwrap();
+        // let utxo_context_ty = Rc::new(ComponentAbiType::Borrow {
+        //     resource: utxo_context_resource,
+        // });
 
         // Visit each Utxo part.
         let mut coordination_script_callables = HashMap::new();
@@ -1455,15 +1499,15 @@ impl Compiler {
                     parts,
                 } => {
                     // TODO: generate cast functions
-                    let this = Type::Utxo(utxo.ty.clone());
                     for function in parts {
+                        // Core export.
                         let core = self.visit_function(
-                            Some(&this),
+                            Some(&this_ty),
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
                         let sig = self.star_to_component_signature(
-                            Some(&this),
+                            Some(&this_ty),
                             &function.ty.params,
                             &function.ty.result,
                         );
@@ -1503,15 +1547,13 @@ impl Compiler {
                 .chain(start_global..end_global),
         );
 
-        // It's illegal in WIT to `use` from an anonymous interface, which is
-        // necessary to refer to resources from it in exported functions.
-        self.world_type
-            .import_interface(&import_interface_name, &iface);
+        // Export interface.
         self.world_type
             .export_interface(&export_interface_name, &iface);
-        self.current_resource = None;
 
+        // Restore old scope.
         self.callables.extend(coordination_script_callables);
+        self.current_resource = None;
     }
 
     fn pre_visit_token(&mut self, token: &TypedTokenDef) {
@@ -2936,7 +2978,8 @@ impl Compiler {
                             func.instructions(bb)
                                 .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
                         }
-                        func.instructions(bb).call(self.builtins.implements_method);
+                        func.instructions(bb)
+                            .call(self.builtins.implements_method.unwrap());
                     }
                 }
 

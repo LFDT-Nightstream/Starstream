@@ -11,20 +11,17 @@ use starstream_types::{Identifier, Type, TypedFunctionParam};
 use wasm_encoder::{FuncType, InstanceType, ValType};
 
 use crate::{
-    Compiler, component_abi::ComponentAbiType, component_encoder::TypeBuilder, to_kebab_case,
+    Compiler,
+    component_abi::{ComponentAbiType, Resource},
+    component_encoder::TypeBuilder,
+    to_kebab_case,
 };
 
 /// Builtins imported from `starstream:std/builtins` and friends.
+#[derive(Default)]
 pub struct Builtins {
-    pub implements_method: u32,
-}
-
-impl Default for Builtins {
-    fn default() -> Self {
-        Self {
-            implements_method: u32::MAX,
-        }
-    }
+    pub utxo_context_resource: Option<Rc<Resource>>,
+    pub implements_method: Option<u32>,
 }
 
 impl Compiler {
@@ -60,11 +57,13 @@ impl Compiler {
 
         let mut utxo_context = TypeBuilder::new_interface();
 
-        let ctx_resource = Rc::new(ComponentAbiType::Borrow {
-            resource: utxo_context.fresh_resource("utxo-context", "s-utxo-context"),
+        let utxo_context_resource = utxo_context.fresh_resource("utxo-context", "s-utxo-context");
+        self.builtins.utxo_context_resource = Some(utxo_context_resource.clone());
+        let utxo_context_type = Rc::new(ComponentAbiType::Borrow {
+            resource: utxo_context_resource,
         });
 
-        self.builtins.implements_method = self.import_function(
+        self.builtins.implements_method = Some(self.import_function(
             "starstream:std/utxo-context",
             "[method]utxo-context.implements-method",
             &FuncType::new(
@@ -77,7 +76,7 @@ impl Compiler {
                 ],
                 [],
             ),
-        );
+        ));
 
         let u64_ty = Rc::new(ComponentAbiType::U64);
         let tuple = Rc::new(ComponentAbiType::Tuple {
@@ -85,7 +84,7 @@ impl Compiler {
         });
         utxo_context.export_fn_2(
             "[method]utxo-context.implements-method",
-            [("self", ctx_resource), ("hash", tuple)].into_iter(),
+            [("self", utxo_context_type), ("hash", tuple)].into_iter(),
             None,
         );
 
