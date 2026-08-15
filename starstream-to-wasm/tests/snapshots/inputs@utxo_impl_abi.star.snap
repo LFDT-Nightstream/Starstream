@@ -289,33 +289,36 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64)))
-  (type (;1;) (func (param i32) (result i32)))
-  (type (;2;) (func (param i32)))
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64)))
+  (type (;2;) (func (param i32) (result i32)))
   (type (;3;) (func))
   (type (;4;) (func (param i32 i32) (result i32)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;0;) (type 0)))
-  (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
-  (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;0;) (type 0)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;1;) (type 1)))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;2;) (type 2)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;3;) (type 0)))
   (global (;0;) (mut i32) (i32.const 0))
-  (export "my-utxo#[method]utxo.hello" (func 4))
-  (export "my-utxo#get-storage" (func 5))
-  (export "my-utxo#set-storage" (func 6))
-  (func (;3;) (type 3)
+  (export "my-utxo#[method]utxo.hello" (func 5))
+  (export "my-utxo#get-storage" (func 6))
+  (export "my-utxo#set-storage" (func 7))
+  (func (;4;) (type 3)
+    (call 0
+      (i32.const 0))
     (unreachable)
   )
-  (func (;4;) (type 4) (param i32 i32) (result i32)
+  (func (;5;) (type 4) (param i32 i32) (result i32)
     (i32.const 17)
   )
-  (func (;5;) (type 1) (param i32) (result i32)
+  (func (;6;) (type 2) (param i32) (result i32)
     (local i32)
     (global.get 0)
   )
-  (func (;6;) (type 1) (param i32) (result i32)
+  (func (;7;) (type 2) (param i32) (result i32)
     (local i32)
     (global.set 0
       (local.get 0))
-    (return_call 1
+    (return_call 2
       (i32.const 0))
   )
   (@custom "component-type"
@@ -349,9 +352,11 @@ TypedProgram {
                   (export (;0;) "utxo-context" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (own 0))
-                  (type (;3;) (tuple u64 u64 u64 u64))
-                  (type (;4;) (func (param "self" 1) (param "hash" 3)))
-                  (export (;0;) "[method]utxo-context.implements-method" (func (type 4)))
+                  (type (;3;) (func (param "self" 1)))
+                  (export (;0;) "[method]utxo-context.resume" (func (type 3)))
+                  (type (;4;) (tuple u64 u64 u64 u64))
+                  (type (;5;) (func (param "self" 1) (param "hash" 4)))
+                  (export (;1;) "[method]utxo-context.implements-method" (func (type 5)))
                 )
               )
               (import "starstream:std/utxo-context" (instance (;1;) (type 9)))
@@ -436,6 +441,7 @@ package starstream:std {
   }
   interface utxo-context {
     resource utxo-context {
+      resume: func();
       implements-method: func(hash: tuple<u64, u64, u64, u64>);
     }
   }

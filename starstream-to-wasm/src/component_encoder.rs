@@ -165,10 +165,10 @@ impl<T: TypeRegistry> TypeBuilder<T> {
     pub fn export_fn_2<'a>(
         &mut self,
         name: &str,
-        params: impl Iterator<Item = (&'a str, Rc<ComponentAbiType>)>,
+        params: impl IntoIterator<Item = (&'a str, Rc<ComponentAbiType>)>,
         result: Option<&Rc<ComponentAbiType>>,
     ) {
-        let type_idx = self.encode_func(params, result);
+        let type_idx = self.encode_func(params.into_iter(), result);
         self.inner.export(name, ComponentTypeRef::Func(type_idx));
     }
 

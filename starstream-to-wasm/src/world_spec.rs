@@ -21,6 +21,7 @@ use crate::{
 #[derive(Default)]
 pub struct Builtins {
     pub utxo_context_resource: Option<Rc<Resource>>,
+    pub resume: Option<u32>,
     pub implements_method: Option<u32>,
 }
 
@@ -63,8 +64,19 @@ impl Compiler {
             resource: utxo_context_resource,
         });
 
+        self.builtins.resume = Some(self.import_function(
+            name,
+            "[method]utxo-context.resume",
+            &FuncType::new([ValType::I32], []),
+        ));
+        utxo_context.export_fn_2(
+            "[method]utxo-context.resume",
+            [("self", utxo_context_type.clone())],
+            None,
+        );
+
         self.builtins.implements_method = Some(self.import_function(
-            "starstream:std/utxo-context",
+            name,
             "[method]utxo-context.implements-method",
             &FuncType::new(
                 [
@@ -77,14 +89,13 @@ impl Compiler {
                 [],
             ),
         ));
-
         let u64_ty = Rc::new(ComponentAbiType::U64);
         let tuple = Rc::new(ComponentAbiType::Tuple {
             fields: vec![u64_ty; 4],
         });
         utxo_context.export_fn_2(
             "[method]utxo-context.implements-method",
-            [("self", utxo_context_type), ("hash", tuple)].into_iter(),
+            [("self", utxo_context_type), ("hash", tuple)],
             None,
         );
 

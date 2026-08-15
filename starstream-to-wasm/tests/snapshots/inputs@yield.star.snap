@@ -395,42 +395,45 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64)))
-  (type (;1;) (func (param i32) (result i32)))
-  (type (;2;) (func (param i32)))
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64)))
+  (type (;2;) (func (param i32) (result i32)))
   (type (;3;) (func))
   (type (;4;) (func (param i32 i32) (result i32)))
   (type (;5;) (func (param i32 i32)))
   (type (;6;) (func (param i32) (result i32 i32 i32 i32)))
   (type (;7;) (func (param i32 i32 i32 i32) (result i32)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;0;) (type 0)))
-  (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
-  (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
-  (import "starstream:self/my-utxo" "[static]utxo.hello-utxo" (func (;3;) (type 1)))
-  (import "starstream:self/my-utxo" "[method]utxo.foo" (func (;4;) (type 2)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;0;) (type 0)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;1;) (type 1)))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;2;) (type 2)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;3;) (type 0)))
+  (import "starstream:self/my-utxo" "[static]utxo.hello-utxo" (func (;4;) (type 2)))
+  (import "starstream:self/my-utxo" "[method]utxo.foo" (func (;5;) (type 0)))
   (memory (;0;) 1)
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
   (global (;2;) (mut i32) (i32.const 0))
   (global (;3;) (mut i32) (i32.const 0))
-  (export "my-utxo#[static]utxo.hello-utxo" (func 6))
-  (export "my-utxo#[method]utxo.foo" (func 8))
-  (export "my-utxo#get-storage" (func 10))
-  (export "my-utxo#set-storage" (func 11))
+  (export "my-utxo#[static]utxo.hello-utxo" (func 7))
+  (export "my-utxo#[method]utxo.foo" (func 9))
+  (export "my-utxo#get-storage" (func 11))
+  (export "my-utxo#set-storage" (func 12))
   (export "memory" (memory 0))
-  (func (;5;) (type 3)
+  (func (;6;) (type 3)
+    (call 0
+      (i32.const 0))
     (block ;; label = @1
       (br_if 0 (;@1;)
         (i32.ne
           (global.get 0)
           (i32.const 1)))
-      (return_call 7))
+      (return_call 8))
     (unreachable)
   )
-  (func (;6;) (type 4) (param i32 i32) (result i32)
+  (func (;7;) (type 4) (param i32 i32) (result i32)
     (local i32)
     (local.set 2
-      (call 1
+      (call 2
         (i32.const 0)))
     (global.set 0
       (i32.const 1))
@@ -440,7 +443,7 @@ TypedProgram {
       (local.get 1))
     (global.set 3
       (local.get 2))
-    (call 0
+    (call 1
       (i32.const 0)
       (i64.const -8086495256948496852)
       (i64.const 3765343665581825017)
@@ -448,7 +451,7 @@ TypedProgram {
       (i64.const -5843589418109203719))
     (local.get 2)
   )
-  (func (;7;) (type 3)
+  (func (;8;) (type 3)
     (local i32 i32 i32)
     (local.set 0
       (global.get 1))
@@ -463,20 +466,20 @@ TypedProgram {
     (global.set 3
       (i32.const 0))
   )
-  (func (;8;) (type 5) (param i32 i32)
-    (return_call 5)
+  (func (;9;) (type 5) (param i32 i32)
+    (return_call 6)
   )
-  (func (;9;) (type 6) (param i32) (result i32 i32 i32 i32)
+  (func (;10;) (type 6) (param i32) (result i32 i32 i32 i32)
     (local i32)
     (global.get 0)
     (global.get 1)
     (global.get 2)
     (global.get 3)
   )
-  (func (;10;) (type 1) (param i32) (result i32)
+  (func (;11;) (type 2) (param i32) (result i32)
     (local i32 i32 i32 i32 i32)
     (i32.const 4)
-    (call 9
+    (call 10
       (local.get 0))
     (local.set 5)
     (local.set 4)
@@ -497,7 +500,7 @@ TypedProgram {
       (local.get 5))
     (i32.const 4)
   )
-  (func (;11;) (type 7) (param i32 i32 i32 i32) (result i32)
+  (func (;12;) (type 7) (param i32 i32 i32 i32) (result i32)
     (local i32 i32 i32 i32)
     (global.set 0
       (local.get 0))
@@ -507,7 +510,7 @@ TypedProgram {
       (local.get 2))
     (global.set 3
       (local.get 3))
-    (return_call 1
+    (return_call 2
       (i32.const 0))
   )
   (@custom "component-type"
@@ -541,9 +544,11 @@ TypedProgram {
                   (export (;0;) "utxo-context" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (own 0))
-                  (type (;3;) (tuple u64 u64 u64 u64))
-                  (type (;4;) (func (param "self" 1) (param "hash" 3)))
-                  (export (;0;) "[method]utxo-context.implements-method" (func (type 4)))
+                  (type (;3;) (func (param "self" 1)))
+                  (export (;0;) "[method]utxo-context.resume" (func (type 3)))
+                  (type (;4;) (tuple u64 u64 u64 u64))
+                  (type (;5;) (func (param "self" 1) (param "hash" 4)))
+                  (export (;1;) "[method]utxo-context.implements-method" (func (type 5)))
                 )
               )
               (import "starstream:std/utxo-context" (instance (;1;) (type 9)))
@@ -638,6 +643,7 @@ package starstream:std {
   }
   interface utxo-context {
     resource utxo-context {
+      resume: func();
       implements-method: func(hash: tuple<u64, u64, u64, u64>);
     }
   }

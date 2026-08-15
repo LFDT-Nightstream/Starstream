@@ -1799,6 +1799,9 @@ impl Compiler {
 
     fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {
         let mut func = Function::new([]);
+        // signal resumption to runtime
+        func.instructions().i32_const(0);
+        func.instructions().call(self.builtins.resume.unwrap());
         if let Some(yield_global) = self.yield_global {
             // if (yield_id == 0) { return resume_0(); } else if ... else unreachable
             for yield_id in range {

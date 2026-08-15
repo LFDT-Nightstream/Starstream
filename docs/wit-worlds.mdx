@@ -67,7 +67,8 @@ world root {
 
 ## Importing Utxos
 
-Contracts which import Utxos do so by importing interfaces containing a `resource utxo`.
+Contracts which import Utxos do so by importing interfaces from `starstream:utxo`
+with the Utxo's name containing a `resource utxo`.
 If needed, the import may also include `downcast` and `upcast` methods, which
 the runtime will provide.
 
@@ -75,7 +76,12 @@ For example:
 
 ```wit
 world root {
-    import my-utxo: interface {
+    import starstream:utxo/my-utxo;
+}
+
+package starstream:utxo {
+    @external-id("0123456789abcdef")
+    interface my-utxo {
         use starstream:std/builtin.{utxo as builtin-utxo};
 
         resource utxo {
@@ -91,8 +97,11 @@ world root {
 A contract which defines a Utxo and also uses it in its own coordination script
 will both export and import the Utxo interface.
 
-Importing a Utxo from another contract uses `@external-id` on the `interface`
-with that contract's digest.
+Using a Utxo from a coordination script in the same contract imports
+`starstream:self/<utxo-name>`.
+
+Importing a Utxo from another contract imports `starstream:utxo/<utxo-name>` and
+supplies `@external-id` on the `interface` with that contract's digest.
 
 ## Importing ABIs
 
