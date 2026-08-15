@@ -1503,12 +1503,12 @@ impl Compiler {
                 .chain(start_global..end_global),
         );
 
-        self.world_type
-            .export_interface(&export_interface_name, &iface);
         // It's illegal in WIT to `use` from an anonymous interface, which is
         // necessary to refer to resources from it in exported functions.
         self.world_type
             .import_interface(&import_interface_name, &iface);
+        self.world_type
+            .export_interface(&export_interface_name, &iface);
         self.current_resource = None;
 
         self.callables.extend(coordination_script_callables);
