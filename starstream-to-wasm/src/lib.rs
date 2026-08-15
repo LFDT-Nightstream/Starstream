@@ -1275,9 +1275,10 @@ impl Compiler {
         iface.inherit_parent(&self.world_type);
 
         // Declare the resource type.
+        let this_ty = Type::Utxo(utxo.ty.clone());
         let resource = iface.fresh_resource(resource_name, &format!("u-{}", utxo.name));
         self.star_to_component.insert(
-            Type::Utxo(utxo.ty.clone()),
+            this_ty.clone(),
             Rc::new(ComponentAbiType::Borrow {
                 resource: resource.clone(),
             }),
@@ -1294,7 +1295,6 @@ impl Compiler {
             &format!("[resource-drop]{resource_name}"),
             &FuncType::new([ValType::I32], []),
         );
-        let this_ty = Type::Utxo(utxo.ty.clone());
         self.resource_abi_fns
             .insert(this_ty.clone(), (new_fn, drop_fn));
 
@@ -1404,7 +1404,7 @@ impl Compiler {
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
         // Declare the exported version of the Utxo, accepting the utxo-context
-        // parameter, and .
+        // parameter.
         let export_interface_name = to_kebab_case(utxo.name.as_str());
         let resource_name = "utxo";
 
@@ -1412,19 +1412,16 @@ impl Compiler {
         iface.inherit_parent(&self.world_type);
 
         // Declare the resource type.
+        let this_ty = Type::Utxo(utxo.ty.clone());
         let resource = iface.fresh_resource(resource_name, &format!("u-{}", utxo.name));
-        self.star_to_component.insert(
-            Type::Utxo(utxo.ty.clone()),
+        let old_resource = self.star_to_component.insert(
+            this_ty.clone(),
             Rc::new(ComponentAbiType::Borrow {
                 resource: resource.clone(),
             }),
         );
 
-        let (resource_new_fn, _resource_drop_fn) = *self
-            .resource_abi_fns
-            .get(&Type::Utxo(utxo.ty.clone()))
-            .unwrap();
-        let this_ty = Type::Utxo(utxo.ty.clone());
+        let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&this_ty).unwrap();
 
         // Reserve the ID for the `resume;` function for this Utxo.
         let yield_start = self.yield_id;
@@ -1539,7 +1536,7 @@ impl Compiler {
         let end_global = self.globals.len();
         self.generate_storage_exports(
             &utxo.name,
-            &Type::Utxo(utxo.ty.clone()),
+            &this_ty,
             &mut iface,
             &export_interface_name,
             self.yield_global
@@ -1553,47 +1550,72 @@ impl Compiler {
 
         // Restore old scope.
         self.callables.extend(coordination_script_callables);
+        self.star_to_component
+            .insert(this_ty, old_resource.unwrap());
         self.current_resource = None;
     }
 
     fn pre_visit_token(&mut self, token: &TypedTokenDef) {
-        let interface_name = to_kebab_case(token.name.as_str());
+        let export_interface_name = to_kebab_case(token.name.as_str());
+        // It's illegal in WIT to `use` from an anonymous interface, which is
+        // necessary to refer to resources from it in exported functions, so
+        // we have to give it this `starstream:self` name.
+        let import_interface_name = format!("starstream:self/{}", export_interface_name);
         let resource_name = "token";
 
-        // Allocate the synthetic `resource.new` and `resource.drop` imports.
-        let new_fn = self.import_function(
-            &format!("[export]{interface_name}"),
-            &format!("[resource-new]{resource_name}"),
-            &FuncType::new([ValType::I32], [ValType::I32]),
-        );
-        let drop_fn = self.import_function(
-            &format!("[export]{interface_name}"),
-            &format!("[resource-drop]{resource_name}"),
-            &FuncType::new([ValType::I32], []),
-        );
-        self.resource_abi_fns
-            .insert(Type::Token(token.ty.clone()), (new_fn, drop_fn));
-    }
-
-    fn visit_token(&mut self, token: &TypedTokenDef) {
         let mut iface = TypeBuilder::new_interface();
         iface.inherit_parent(&self.world_type);
 
         // Declare the resource type.
-        let interface_name = to_kebab_case(token.name.as_str());
-        let resource_name = "token";
+        let this_ty = Type::Token(token.ty.clone());
         let resource = iface.fresh_resource(resource_name, &format!("t-{}", token.name));
         self.star_to_component.insert(
-            Type::Token(token.ty.clone()),
+            this_ty.clone(),
             Rc::new(ComponentAbiType::Borrow {
                 resource: resource.clone(),
             }),
         );
 
-        let (resource_new_fn, _resource_drop_fn) = *self
-            .resource_abi_fns
-            .get(&Type::Token(token.ty.clone()))
-            .unwrap();
+        // Allocate the synthetic `resource.new` and `resource.drop` imports.
+        let new_fn = self.import_function(
+            &format!("[export]{export_interface_name}"),
+            &format!("[resource-new]{resource_name}"),
+            &FuncType::new([ValType::I32], [ValType::I32]),
+        );
+        let drop_fn = self.import_function(
+            &format!("[export]{export_interface_name}"),
+            &format!("[resource-drop]{resource_name}"),
+            &FuncType::new([ValType::I32], []),
+        );
+        self.resource_abi_fns
+            .insert(this_ty.clone(), (new_fn, drop_fn));
+
+        // When it's possible to call functions on tokens, this is where they'd
+        // be inserted into `callables`.
+
+        // Import interface.
+        self.world_type
+            .import_interface(&import_interface_name, &iface);
+    }
+
+    fn visit_token(&mut self, token: &TypedTokenDef) {
+        let export_interface_name = to_kebab_case(token.name.as_str());
+        let resource_name = "token";
+
+        let mut iface = TypeBuilder::new_interface();
+        iface.inherit_parent(&self.world_type);
+
+        // Declare the resource type.
+        let this_ty = Type::Token(token.ty.clone());
+        let resource = iface.fresh_resource(resource_name, &format!("t-{}", token.name));
+        let old_resource = self.star_to_component.insert(
+            this_ty.clone(),
+            Rc::new(ComponentAbiType::Borrow {
+                resource: resource.clone(),
+            }),
+        );
+
+        let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&this_ty).unwrap();
 
         // Tokens have no coroutine/`yield` semantics, so there is no `resume;`
         // function to reserve (unlike `utxo`). `resume_fn` is never read because
@@ -1646,7 +1668,7 @@ impl Compiler {
                                 &core.ty,
                             ) {
                                 self.export_core_fn(
-                                    &format!("{interface_name}#{wit_name}"),
+                                    &format!("{export_interface_name}#{wit_name}"),
                                     func_idx,
                                 );
                                 iface.export_fn(&wit_name, &sig);
@@ -1673,7 +1695,7 @@ impl Compiler {
                                 &core.ty,
                             ) {
                                 self.export_core_fn(
-                                    &format!("{interface_name}#{wit_name}"),
+                                    &format!("{export_interface_name}#{wit_name}"),
                                     func_idx,
                                 );
                                 iface.export_fn(&wit_name, &sig);
@@ -1695,12 +1717,12 @@ impl Compiler {
                     _ = abi; // TODO: generate cast functions (mirrors `utxo`)
                     for function in parts {
                         let core = self.visit_function(
-                            Some(&Type::Token(token.ty.clone())),
+                            Some(&this_ty),
                             function,
                             &(&() as &dyn Locals, &token_storage),
                         );
                         let sig = self.star_to_component_signature(
-                            Some(&Type::Token(token.ty.clone())),
+                            Some(&this_ty),
                             &function.ty.params,
                             &function.ty.result,
                         );
@@ -1714,7 +1736,10 @@ impl Compiler {
                             core.idx,
                             &core.ty,
                         ) {
-                            self.export_core_fn(&format!("{interface_name}#{wit_name}"), func_idx);
+                            self.export_core_fn(
+                                &format!("{export_interface_name}#{wit_name}"),
+                                func_idx,
+                            );
                             iface.export_fn(&wit_name, &sig);
                         }
                     }
@@ -1727,13 +1752,19 @@ impl Compiler {
         let end_global = self.globals.len();
         self.generate_storage_exports(
             &token.name,
-            &Type::Token(token.ty.clone()),
+            &this_ty,
             &mut iface,
-            &interface_name,
+            &export_interface_name,
             start_global..end_global,
         );
 
-        self.world_type.export_interface(&interface_name, &iface);
+        // Export interface.
+        self.world_type
+            .export_interface(&export_interface_name, &iface);
+
+        // Restore old scope.
+        self.star_to_component
+            .insert(this_ty, old_resource.unwrap());
         self.current_resource = None;
     }
 

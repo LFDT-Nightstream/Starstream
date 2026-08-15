@@ -446,6 +446,18 @@ TypedProgram {
                   (export (;0;) "token" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (own 0))
+                )
+              )
+              (import "starstream:self/my-token" (instance (;1;) (type 9)))
+              (alias export 1 "token" (type (;10;)))
+              (import "t-my-token" (type (;11;) (eq 10)))
+              (type (;12;) (borrow 11))
+              (type (;13;) (own 11))
+              (type (;14;)
+                (instance
+                  (export (;0;) "token" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
                   (type (;3;) (func (result 2)))
                   (export (;0;) "[static]token.mint" (func (type 3)))
                   (alias outer 1 1 (type (;4;)))
@@ -464,7 +476,7 @@ TypedProgram {
                   (export (;4;) "set-storage" (func (type 13)))
                 )
               )
-              (export (;1;) "my-token" (instance (type 9)))
+              (export (;2;) "my-token" (instance (type 14)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -480,7 +492,9 @@ package root:component;
 
 world root {
   import starstream:std/builtin;
+  import starstream:self/my-token;
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+  use starstream:self/my-token.{token as t-my-token};
 
   export my-token: interface {
     use starstream:std/builtin.{utxo as s-utxo};
@@ -504,6 +518,13 @@ package starstream:std {
   interface builtin {
     resource utxo;
 
+    resource token;
+  }
+}
+
+
+package starstream:self {
+  interface my-token {
     resource token;
   }
 }
