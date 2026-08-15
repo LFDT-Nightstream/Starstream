@@ -293,6 +293,7 @@ TypedProgram {
   (type (;1;) (func (param i32) (result i32)))
   (type (;2;) (func (param i32)))
   (type (;3;) (func))
+  (type (;4;) (func (param i32 i32) (result i32)))
   (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;0;) (type 0)))
   (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
   (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
@@ -303,7 +304,7 @@ TypedProgram {
   (func (;3;) (type 3)
     (unreachable)
   )
-  (func (;4;) (type 1) (param i32) (result i32)
+  (func (;4;) (type 4) (param i32 i32) (result i32)
     (i32.const 17)
   )
   (func (;5;) (type 1) (param i32) (result i32)
@@ -375,14 +376,18 @@ TypedProgram {
                   (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (own 0))
-                  (type (;3;) (func (param "self" 1) (result s32)))
-                  (export (;0;) "[method]utxo.hello" (func (type 3)))
-                  (type (;4;) (record (field "yield" s32)))
-                  (export (;5;) "storage" (type (eq 4)))
-                  (type (;6;) (func (param "self" 1) (result 5)))
-                  (export (;1;) "get-storage" (func (type 6)))
-                  (type (;7;) (func (param "storage" 5) (result 2)))
-                  (export (;2;) "set-storage" (func (type 7)))
+                  (alias outer 1 10 (type (;3;)))
+                  (export (;4;) "s-utxo-context" (type (eq 3)))
+                  (type (;5;) (borrow 4))
+                  (type (;6;) (own 4))
+                  (type (;7;) (func (param "self" 1) (param "utxo-context" 5) (result s32)))
+                  (export (;0;) "[method]utxo.hello" (func (type 7)))
+                  (type (;8;) (record (field "yield" s32)))
+                  (export (;9;) "storage" (type (eq 8)))
+                  (type (;10;) (func (param "self" 1) (result 9)))
+                  (export (;1;) "get-storage" (func (type 10)))
+                  (type (;11;) (func (param "storage" 9) (result 2)))
+                  (export (;2;) "set-storage" (func (type 11)))
                 )
               )
               (export (;3;) "my-utxo" (instance (type 19)))
@@ -408,8 +413,10 @@ world root {
   use starstream:self/my-utxo.{utxo as u-my-utxo};
 
   export my-utxo: interface {
+    use starstream:std/utxo-context.{utxo-context as s-utxo-context};
+
     resource utxo {
-      hello: func() -> s32;
+      hello: func(utxo-context: borrow<s-utxo-context>) -> s32;
     }
 
     record storage {

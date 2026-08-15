@@ -948,6 +948,9 @@ impl Compiler {
                     .and(ok);
                 dest.extend(flat);
             }
+            ComponentAbiType::Own { resource } | ComponentAbiType::Borrow { resource } => {
+                dest.push(resource.repr())
+            }
             _ => ok = Err(self.push_error(span, format!("unknown component lowering for {ty:?}"))),
         }
         ok
@@ -1057,7 +1060,7 @@ impl Compiler {
                 TypedDefinition::Token(token) => self.visit_token(token),
 
                 TypedDefinition::Function(func) => {
-                    let core = self.visit_function(None, func, &());
+                    let core = self.visit_function(None, None, func, &());
                     if let Some(FunctionExport::Script) = func.export {
                         let sig = self.star_to_component_signature(
                             None,
@@ -1168,6 +1171,7 @@ impl Compiler {
     fn visit_function(
         &mut self,
         this: Option<&Type>,
+        context: Option<&ComponentAbiType>,
         function: &TypedFunctionDef,
         parent: &dyn Locals,
     ) -> CoreFn {
@@ -1175,6 +1179,9 @@ impl Compiler {
         let mut params = Vec::with_capacity(16);
         if let Some(this) = this {
             _ = self.star_to_core_types(function.name.span(), &mut params, this);
+        }
+        if let Some(context) = context {
+            _ = self.component_to_core_types(function.name.span(), &mut params, context);
         }
         for p in &function.ty.params {
             locals.insert(
@@ -1434,10 +1441,10 @@ impl Compiler {
             resource_local: u32::MAX,
         });
 
-        // let utxo_context_resource = self.builtins.utxo_context_resource.clone().unwrap();
-        // let utxo_context_ty = Rc::new(ComponentAbiType::Borrow {
-        //     resource: utxo_context_resource,
-        // });
+        let utxo_context_resource = self.builtins.utxo_context_resource.clone().unwrap();
+        let utxo_context_ty = Rc::new(ComponentAbiType::Borrow {
+            resource: utxo_context_resource,
+        });
 
         // Visit each Utxo part.
         let mut coordination_script_callables = HashMap::new();
@@ -1461,14 +1468,20 @@ impl Compiler {
                         coordination_script_callables.insert(function.id, *c);
                     }
 
-                    let core =
-                        self.visit_function(None, function, &(&() as &dyn Locals, &utxo_storage));
                     if let Some(FunctionExport::UtxoMain) = function.export {
+                        let core = self.visit_function(
+                            None,
+                            Some(&utxo_context_ty),
+                            function,
+                            &(&() as &dyn Locals, &utxo_storage),
+                        );
                         let mut sig = self.star_to_component_signature(
                             None,
                             &function.ty.params,
                             &function.ty.result,
                         );
+                        sig.params
+                            .insert(0, ("utxo-context".to_owned(), utxo_context_ty.clone()));
                         sig.result = Some(Rc::new(ComponentAbiType::Own {
                             resource: resource.clone(),
                         }));
@@ -1488,6 +1501,14 @@ impl Compiler {
                             );
                             iface.export_fn(&wit_name, &sig);
                         }
+                    } else {
+                        // No context on private fns for now.
+                        self.visit_function(
+                            None,
+                            None,
+                            function,
+                            &(&() as &dyn Locals, &utxo_storage),
+                        );
                     }
                 }
                 TypedUtxoPart::AbiImpl {
@@ -1500,14 +1521,17 @@ impl Compiler {
                         // Core export.
                         let core = self.visit_function(
                             Some(&this_ty),
+                            Some(&utxo_context_ty),
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
-                        let sig = self.star_to_component_signature(
+                        let mut sig = self.star_to_component_signature(
                             Some(&this_ty),
                             &function.ty.params,
                             &function.ty.result,
                         );
+                        sig.params
+                            .insert(1, ("utxo-context".to_owned(), utxo_context_ty.clone()));
                         let wit_name = format!(
                             "[method]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())
@@ -1642,8 +1666,12 @@ impl Compiler {
                     }
                 }
                 TypedTokenPart::Function(function) => {
-                    let core =
-                        self.visit_function(None, function, &(&() as &dyn Locals, &token_storage));
+                    let core = self.visit_function(
+                        None,
+                        None, // TODO: token context type
+                        function,
+                        &(&() as &dyn Locals, &token_storage),
+                    );
                     match function.export {
                         // A `mint fn` is a constructor: it returns an owned
                         // handle to the freshly minted token (see the resource
@@ -1718,6 +1746,7 @@ impl Compiler {
                     for function in parts {
                         let core = self.visit_function(
                             Some(&this_ty),
+                            None, // TODO: token context type
                             function,
                             &(&() as &dyn Locals, &token_storage),
                         );

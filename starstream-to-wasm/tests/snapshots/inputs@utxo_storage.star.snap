@@ -435,27 +435,27 @@ TypedProgram {
       (then
         (unreachable)))
   )
-  (func (;7;) (type 3) (result i32)
+  (func (;7;) (type 1) (param i32) (result i32)
     (local i32)
-    (local.set 0
+    (local.set 1
       (call 1
         (i32.const 0)))
     (global.set 1
       (call 6
         (global.get 1)
         (i64.const 1)))
-    (local.get 0)
+    (local.get 1)
   )
-  (func (;8;) (type 3) (result i32)
+  (func (;8;) (type 1) (param i32) (result i32)
     (local i32)
-    (local.set 0
+    (local.set 1
       (call 1
         (i32.const 0)))
     (global.set 2
       (call 6
         (global.get 2)
         (i64.const 1)))
-    (local.get 0)
+    (local.get 1)
   )
   (func (;9;) (type 6) (param i32) (result i32 i64 i64)
     (local i32)
@@ -556,16 +556,20 @@ TypedProgram {
                   (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (own 0))
-                  (type (;3;) (func (result 2)))
-                  (export (;0;) "[static]utxo.increment" (func (type 3)))
-                  (type (;4;) (func (result 2)))
-                  (export (;1;) "[static]utxo.increment-mult" (func (type 4)))
-                  (type (;5;) (record (field "yield" s32) (field "counter" s64) (field "multiplier" s64)))
-                  (export (;6;) "storage" (type (eq 5)))
-                  (type (;7;) (func (param "self" 1) (result 6)))
-                  (export (;2;) "get-storage" (func (type 7)))
-                  (type (;8;) (func (param "storage" 6) (result 2)))
-                  (export (;3;) "set-storage" (func (type 8)))
+                  (alias outer 1 10 (type (;3;)))
+                  (export (;4;) "s-utxo-context" (type (eq 3)))
+                  (type (;5;) (borrow 4))
+                  (type (;6;) (own 4))
+                  (type (;7;) (func (param "utxo-context" 5) (result 2)))
+                  (export (;0;) "[static]utxo.increment" (func (type 7)))
+                  (type (;8;) (func (param "utxo-context" 5) (result 2)))
+                  (export (;1;) "[static]utxo.increment-mult" (func (type 8)))
+                  (type (;9;) (record (field "yield" s32) (field "counter" s64) (field "multiplier" s64)))
+                  (export (;10;) "storage" (type (eq 9)))
+                  (type (;11;) (func (param "self" 1) (result 10)))
+                  (export (;2;) "get-storage" (func (type 11)))
+                  (type (;12;) (func (param "storage" 10) (result 2)))
+                  (export (;3;) "set-storage" (func (type 12)))
                 )
               )
               (export (;3;) "my-utxo" (instance (type 19)))
@@ -591,9 +595,11 @@ world root {
   use starstream:self/my-utxo.{utxo as u-my-utxo};
 
   export my-utxo: interface {
+    use starstream:std/utxo-context.{utxo-context as s-utxo-context};
+
     resource utxo {
-      increment: static func() -> utxo;
-      increment-mult: static func() -> utxo;
+      increment: static func(utxo-context: borrow<s-utxo-context>) -> utxo;
+      increment-mult: static func(utxo-context: borrow<s-utxo-context>) -> utxo;
     }
 
     record storage {
