@@ -16,10 +16,12 @@ utxo PayToPublicKey {
     storage {
         let mut _recipient: PublicKey;
     }
+
     main fn start(recipient: PublicKey) {
         _recipient = recipient;
         yield(IPayToPublicKey);
     }
+
     impl IPayToPublicKey {
         fn consume() / [TokenReleased] {
             // recipient is the owner at this point
