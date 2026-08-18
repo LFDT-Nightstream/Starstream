@@ -443,6 +443,22 @@ fn params_to_doc<'a>(params: &[FunctionParam], source: &'a str) -> RcDoc<'a, ()>
     }
 }
 
+fn definition_parts_to_doc<'a>(parts: impl IntoIterator<Item = RcDoc<'a, ()>>) -> RcDoc<'a, ()> {
+    let mut body = RcDoc::nil();
+    for (i, part) in parts.into_iter().enumerate() {
+        if i > 0 {
+            // Extra hardline is un-nested so the blank line has no trailing indent.
+            body = body.append(RcDoc::hardline());
+        }
+        body = body.append(RcDoc::hardline().append(part).nest(INDENT));
+    }
+
+    RcDoc::text("{")
+        .append(body)
+        .append(RcDoc::hardline())
+        .append("}")
+}
+
 fn utxo_definition_to_doc<'a>(
     definition: &UtxoDef,
     source: &'a str,
@@ -452,20 +468,12 @@ fn utxo_definition_to_doc<'a>(
         .append(RcDoc::space())
         .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append("{")
-        .append(
-            RcDoc::line()
-                .append(RcDoc::intersperse(
-                    definition
-                        .parts
-                        .iter()
-                        .map(|x| utxo_part_to_doc(x, source, comments)),
-                    RcDoc::line(),
-                ))
-                .nest(INDENT),
-        )
-        .append(RcDoc::line())
-        .append("}")
+        .append(definition_parts_to_doc(
+            definition
+                .parts
+                .iter()
+                .map(|x| utxo_part_to_doc(x, source, comments)),
+        ))
 }
 
 fn abi_impl_to_doc<'a>(
@@ -536,20 +544,12 @@ fn token_definition_to_doc<'a>(
         .append(RcDoc::space())
         .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append("{")
-        .append(
-            RcDoc::line()
-                .append(RcDoc::intersperse(
-                    definition
-                        .parts
-                        .iter()
-                        .map(|x| token_part_to_doc(x, source, comments)),
-                    RcDoc::line(),
-                ))
-                .nest(INDENT),
-        )
-        .append(RcDoc::line())
-        .append("}")
+        .append(definition_parts_to_doc(
+            definition
+                .parts
+                .iter()
+                .map(|x| token_part_to_doc(x, source, comments)),
+        ))
 }
 
 fn token_part_to_doc<'a>(
@@ -1530,6 +1530,28 @@ mod tests {
                     fn detach(source: Utxo) {}
                 }
                 fn helper() {}
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn utxo_definition() {
+        assert_format_snapshot!(
+            r#"
+            utxo PayToPublicKey {
+                storage {
+                    let mut _recipient: PublicKey;
+                }
+                main fn start(recipient: PublicKey) {
+                    _recipient = recipient;
+                    yield(IPayToPublicKey);
+                }
+                impl IPayToPublicKey {
+                    fn consume() {
+                        resume;
+                    }
+                }
             }
             "#,
         );

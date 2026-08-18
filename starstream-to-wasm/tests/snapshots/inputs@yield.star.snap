@@ -86,21 +86,21 @@ Program {
                                         },
                                     ],
                                     tail_expression: None,
-                                    span: 72..104,
+                                    span: 72..105,
                                 },
                             },
                         ),
                         AbiImpl {
                             abi: Identifier {
                                 name: "Foo",
-                                span: 109..112,
+                                span: 110..113,
                             },
                             parts: [
                                 FunctionDef {
                                     export: None,
                                     name: Identifier {
                                         name: "foo",
-                                        span: 126..129,
+                                        span: 127..130,
                                     },
                                     params: [],
                                     return_type: None,
@@ -108,11 +108,11 @@ Program {
                                         statements: [
                                             Spanned {
                                                 node: Resume,
-                                                span: 146..162,
+                                                span: 147..163,
                                             },
                                         ],
                                         tail_expression: None,
-                                        span: 132..168,
+                                        span: 133..169,
                                     },
                                 },
                             ],
@@ -120,7 +120,7 @@ Program {
                     ],
                 },
             ),
-            span: 27..172,
+            span: 27..173,
         },
     ],
 }
@@ -272,7 +272,7 @@ TypedProgram {
                         },
                     ),
                     AbiImpl {
-                        span: 109..112,
+                        span: 110..113,
                         abi: AbiType {
                             name: Identifier {
                                 name: "Foo",
@@ -304,12 +304,12 @@ TypedProgram {
                                 export: None,
                                 name: Identifier {
                                     name: "foo",
-                                    span: 126..129,
+                                    span: 127..130,
                                 },
                                 id: NameId(7),
                                 ty: FunctionType {
                                     kind: Normal,
-                                    name_span: 126..129,
+                                    name_span: 127..130,
                                     params: [],
                                     result: Unit,
                                     callee: Some(

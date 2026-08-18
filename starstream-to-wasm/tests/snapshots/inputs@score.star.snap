@@ -190,7 +190,7 @@ Program {
                                 ),
                                 name: Identifier {
                                     name: "new",
-                                    span: 263..266,
+                                    span: 264..267,
                                 },
                                 params: [],
                                 return_type: None,
@@ -203,14 +203,14 @@ Program {
                                                         abis: [
                                                             Identifier {
                                                                 name: "Score",
-                                                                span: 285..290,
+                                                                span: 286..291,
                                                             },
                                                         ],
                                                     },
-                                                    span: 279..291,
+                                                    span: 280..292,
                                                 },
                                             ),
-                                            span: 279..301,
+                                            span: 280..302,
                                         },
                                         Spanned {
                                             node: Expression(
@@ -221,11 +221,11 @@ Program {
                                                                 [
                                                                     Identifier {
                                                                         name: "Finish",
-                                                                        span: 306..312,
+                                                                        span: 307..313,
                                                                     },
                                                                 ],
                                                             ),
-                                                            span: 306..312,
+                                                            span: 307..313,
                                                         },
                                                         args: [
                                                             Spanned {
@@ -236,63 +236,63 @@ Program {
                                                                             [
                                                                                 Identifier {
                                                                                     name: "chips",
-                                                                                    span: 313..318,
+                                                                                    span: 314..319,
                                                                                 },
                                                                             ],
                                                                         ),
-                                                                        span: 313..319,
+                                                                        span: 314..320,
                                                                     },
                                                                     right: Spanned {
                                                                         node: ScopedName(
                                                                             [
                                                                                 Identifier {
                                                                                     name: "mult",
-                                                                                    span: 321..325,
+                                                                                    span: 322..326,
                                                                                 },
                                                                             ],
                                                                         ),
-                                                                        span: 321..325,
+                                                                        span: 322..326,
                                                                     },
                                                                 },
-                                                                span: 313..325,
+                                                                span: 314..326,
                                                             },
                                                         ],
                                                     },
-                                                    span: 301..326,
+                                                    span: 302..327,
                                                 },
                                             ),
-                                            span: 301..332,
+                                            span: 302..333,
                                         },
                                     ],
                                     tail_expression: None,
-                                    span: 269..338,
+                                    span: 270..340,
                                 },
                             },
                         ),
                         AbiImpl {
                             abi: Identifier {
                                 name: "Score",
-                                span: 343..348,
+                                span: 345..350,
                             },
                             parts: [
                                 FunctionDef {
                                     export: None,
                                     name: Identifier {
                                         name: "plus_chips",
-                                        span: 362..372,
+                                        span: 364..374,
                                     },
                                     params: [
                                         FunctionParam {
                                             public: true,
                                             name: Identifier {
                                                 name: "chips2",
-                                                span: 377..383,
+                                                span: 379..385,
                                             },
                                             ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "u64",
-                                                        span: 385..388,
+                                                        span: 387..390,
                                                     },
                                                 ],
                                                 generics: [],
@@ -306,7 +306,7 @@ Program {
                                                 node: Assignment {
                                                     target: Identifier {
                                                         name: "chips",
-                                                        span: 404..409,
+                                                        span: 406..411,
                                                     },
                                                     value: Spanned {
                                                         node: Binary {
@@ -316,52 +316,52 @@ Program {
                                                                     [
                                                                         Identifier {
                                                                             name: "chips",
-                                                                            span: 412..417,
+                                                                            span: 414..419,
                                                                         },
                                                                     ],
                                                                 ),
-                                                                span: 412..418,
+                                                                span: 414..420,
                                                             },
                                                             right: Spanned {
                                                                 node: ScopedName(
                                                                     [
                                                                         Identifier {
                                                                             name: "chips2",
-                                                                            span: 420..426,
+                                                                            span: 422..428,
                                                                         },
                                                                     ],
                                                                 ),
-                                                                span: 420..426,
+                                                                span: 422..428,
                                                             },
                                                         },
-                                                        span: 412..426,
+                                                        span: 414..428,
                                                     },
                                                 },
-                                                span: 404..436,
+                                                span: 406..438,
                                             },
                                         ],
                                         tail_expression: None,
-                                        span: 390..446,
+                                        span: 392..448,
                                     },
                                 },
                                 FunctionDef {
                                     export: None,
                                     name: Identifier {
                                         name: "plus_mult",
-                                        span: 449..458,
+                                        span: 451..460,
                                     },
                                     params: [
                                         FunctionParam {
                                             public: true,
                                             name: Identifier {
                                                 name: "mult2",
-                                                span: 463..468,
+                                                span: 465..470,
                                             },
                                             ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "u64",
-                                                        span: 470..473,
+                                                        span: 472..475,
                                                     },
                                                 ],
                                                 generics: [],
@@ -375,7 +375,7 @@ Program {
                                                 node: Assignment {
                                                     target: Identifier {
                                                         name: "mult",
-                                                        span: 489..493,
+                                                        span: 491..495,
                                                     },
                                                     value: Spanned {
                                                         node: Binary {
@@ -385,52 +385,52 @@ Program {
                                                                     [
                                                                         Identifier {
                                                                             name: "mult",
-                                                                            span: 496..500,
+                                                                            span: 498..502,
                                                                         },
                                                                     ],
                                                                 ),
-                                                                span: 496..501,
+                                                                span: 498..503,
                                                             },
                                                             right: Spanned {
                                                                 node: ScopedName(
                                                                     [
                                                                         Identifier {
                                                                             name: "mult2",
-                                                                            span: 503..508,
+                                                                            span: 505..510,
                                                                         },
                                                                     ],
                                                                 ),
-                                                                span: 503..508,
+                                                                span: 505..510,
                                                             },
                                                         },
-                                                        span: 496..508,
+                                                        span: 498..510,
                                                     },
                                                 },
-                                                span: 489..518,
+                                                span: 491..520,
                                             },
                                         ],
                                         tail_expression: None,
-                                        span: 475..528,
+                                        span: 477..530,
                                     },
                                 },
                                 FunctionDef {
                                     export: None,
                                     name: Identifier {
                                         name: "mult_mult",
-                                        span: 531..540,
+                                        span: 533..542,
                                     },
                                     params: [
                                         FunctionParam {
                                             public: true,
                                             name: Identifier {
                                                 name: "mult_pct",
-                                                span: 545..553,
+                                                span: 547..555,
                                             },
                                             ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "u64",
-                                                        span: 555..558,
+                                                        span: 557..560,
                                                     },
                                                 ],
                                                 generics: [],
@@ -444,7 +444,7 @@ Program {
                                                 node: Assignment {
                                                     target: Identifier {
                                                         name: "mult",
-                                                        span: 574..578,
+                                                        span: 576..580,
                                                     },
                                                     value: Spanned {
                                                         node: Binary {
@@ -457,25 +457,25 @@ Program {
                                                                             [
                                                                                 Identifier {
                                                                                     name: "mult",
-                                                                                    span: 581..585,
+                                                                                    span: 583..587,
                                                                                 },
                                                                             ],
                                                                         ),
-                                                                        span: 581..586,
+                                                                        span: 583..588,
                                                                     },
                                                                     right: Spanned {
                                                                         node: ScopedName(
                                                                             [
                                                                                 Identifier {
                                                                                     name: "mult_pct",
-                                                                                    span: 588..596,
+                                                                                    span: 590..598,
                                                                                 },
                                                                             ],
                                                                         ),
-                                                                        span: 588..597,
+                                                                        span: 590..599,
                                                                     },
                                                                 },
-                                                                span: 581..597,
+                                                                span: 583..599,
                                                             },
                                                             right: Spanned {
                                                                 node: Literal(
@@ -486,24 +486,24 @@ Program {
                                                                         },
                                                                     ),
                                                                 ),
-                                                                span: 599..602,
+                                                                span: 601..604,
                                                             },
                                                         },
-                                                        span: 581..602,
+                                                        span: 583..604,
                                                     },
                                                 },
-                                                span: 574..612,
+                                                span: 576..614,
                                             },
                                         ],
                                         tail_expression: None,
-                                        span: 560..622,
+                                        span: 562..624,
                                     },
                                 },
                                 FunctionDef {
                                     export: None,
                                     name: Identifier {
                                         name: "finish",
-                                        span: 625..631,
+                                        span: 627..633,
                                     },
                                     params: [],
                                     return_type: None,
@@ -511,11 +511,11 @@ Program {
                                         statements: [
                                             Spanned {
                                                 node: Resume,
-                                                span: 648..664,
+                                                span: 650..666,
                                             },
                                         ],
                                         tail_expression: None,
-                                        span: 634..670,
+                                        span: 636..672,
                                     },
                                 },
                             ],
@@ -523,7 +523,7 @@ Program {
                     ],
                 },
             ),
-            span: 155..675,
+            span: 155..677,
         },
         Spanned {
             node: Function(
@@ -533,7 +533,7 @@ Program {
                     ),
                     name: Identifier {
                         name: "example",
-                        span: 685..692,
+                        span: 687..694,
                     },
                     params: [],
                     return_type: None,
@@ -545,7 +545,7 @@ Program {
                                     mutable: false,
                                     name: Identifier {
                                         name: "prog",
-                                        span: 705..709,
+                                        span: 707..711,
                                     },
                                     ty: None,
                                     value: Spanned {
@@ -555,22 +555,22 @@ Program {
                                                     [
                                                         Identifier {
                                                             name: "ScoreProgress",
-                                                            span: 712..725,
+                                                            span: 714..727,
                                                         },
                                                         Identifier {
                                                             name: "new",
-                                                            span: 727..730,
+                                                            span: 729..732,
                                                         },
                                                     ],
                                                 ),
-                                                span: 712..730,
+                                                span: 714..732,
                                             },
                                             args: [],
                                         },
-                                        span: 712..732,
+                                        span: 714..734,
                                     },
                                 },
-                                span: 701..738,
+                                span: 703..740,
                             },
                             Spanned {
                                 node: Expression(
@@ -583,18 +583,18 @@ Program {
                                                             [
                                                                 Identifier {
                                                                     name: "prog",
-                                                                    span: 738..742,
+                                                                    span: 740..744,
                                                                 },
                                                             ],
                                                         ),
-                                                        span: 738..742,
+                                                        span: 740..744,
                                                     },
                                                     field: Identifier {
                                                         name: "plus_chips",
-                                                        span: 743..753,
+                                                        span: 745..755,
                                                     },
                                                 },
-                                                span: 738..753,
+                                                span: 740..755,
                                             },
                                             args: [
                                                 Spanned {
@@ -606,22 +606,22 @@ Program {
                                                             },
                                                         ),
                                                     ),
-                                                    span: 754..756,
+                                                    span: 756..758,
                                                 },
                                             ],
                                         },
-                                        span: 738..757,
+                                        span: 740..759,
                                     },
                                 ),
-                                span: 738..759,
+                                span: 740..761,
                             },
                         ],
                         tail_expression: None,
-                        span: 695..761,
+                        span: 697..763,
                     },
                 },
             ),
-            span: 675..761,
+            span: 677..763,
         },
     ],
 }
@@ -976,12 +976,12 @@ TypedProgram {
                             ),
                             name: Identifier {
                                 name: "new",
-                                span: 263..266,
+                                span: 264..267,
                             },
                             id: NameId(10),
                             ty: FunctionType {
                                 kind: Normal,
-                                name_span: 263..266,
+                                name_span: 264..267,
                                 params: [],
                                 result: Unit,
                                 callee: Some(
@@ -1117,7 +1117,7 @@ TypedProgram {
                                                     ],
                                                 },
                                             },
-                                            span: 279..291,
+                                            span: 280..292,
                                         },
                                     ),
                                     Expression(
@@ -1156,7 +1156,7 @@ TypedProgram {
                                                                 name: [
                                                                     Identifier {
                                                                         name: "Finish",
-                                                                        span: 306..312,
+                                                                        span: 307..313,
                                                                     },
                                                                 ],
                                                                 constant: Some(
@@ -1164,7 +1164,7 @@ TypedProgram {
                                                                 ),
                                                             },
                                                         },
-                                                        span: 306..312,
+                                                        span: 307..313,
                                                     },
                                                     args: [
                                                         Spanned {
@@ -1183,13 +1183,13 @@ TypedProgram {
                                                                                 name: [
                                                                                     Identifier {
                                                                                         name: "chips",
-                                                                                        span: 313..318,
+                                                                                        span: 314..319,
                                                                                     },
                                                                                 ],
                                                                                 constant: None,
                                                                             },
                                                                         },
-                                                                        span: 313..319,
+                                                                        span: 314..320,
                                                                     },
                                                                     right: Spanned {
                                                                         node: TypedExpr {
@@ -1200,22 +1200,22 @@ TypedProgram {
                                                                                 name: [
                                                                                     Identifier {
                                                                                         name: "mult",
-                                                                                        span: 321..325,
+                                                                                        span: 322..326,
                                                                                     },
                                                                                 ],
                                                                                 constant: None,
                                                                             },
                                                                         },
-                                                                        span: 321..325,
+                                                                        span: 322..326,
                                                                     },
                                                                 },
                                                             },
-                                                            span: 313..325,
+                                                            span: 314..326,
                                                         },
                                                     ],
                                                 },
                                             },
-                                            span: 306..312,
+                                            span: 307..313,
                                         },
                                     ),
                                 ],
@@ -1224,7 +1224,7 @@ TypedProgram {
                         },
                     ),
                     AbiImpl {
-                        span: 343..348,
+                        span: 345..350,
                         abi: AbiType {
                             name: Identifier {
                                 name: "Score",
@@ -1346,23 +1346,23 @@ TypedProgram {
                                 export: None,
                                 name: Identifier {
                                     name: "plus_chips",
-                                    span: 362..372,
+                                    span: 364..374,
                                 },
                                 id: NameId(12),
                                 ty: FunctionType {
                                     kind: Normal,
-                                    name_span: 362..372,
+                                    name_span: 364..374,
                                     params: [
                                         TypedFunctionParam {
                                             public: true,
                                             name: Identifier {
                                                 name: "chips2",
-                                                span: 377..383,
+                                                span: 379..385,
                                             },
                                             ty: Int(
                                                 U64,
                                             ),
-                                            ty_span: 385..388,
+                                            ty_span: 387..390,
                                         },
                                     ],
                                     result: Unit,
@@ -1377,7 +1377,7 @@ TypedProgram {
                                         Assignment {
                                             target: Identifier {
                                                 name: "chips",
-                                                span: 404..409,
+                                                span: 406..411,
                                             },
                                             value: Spanned {
                                                 node: TypedExpr {
@@ -1395,13 +1395,13 @@ TypedProgram {
                                                                     name: [
                                                                         Identifier {
                                                                             name: "chips",
-                                                                            span: 412..417,
+                                                                            span: 414..419,
                                                                         },
                                                                     ],
                                                                     constant: None,
                                                                 },
                                                             },
-                                                            span: 412..418,
+                                                            span: 414..420,
                                                         },
                                                         right: Spanned {
                                                             node: TypedExpr {
@@ -1412,17 +1412,17 @@ TypedProgram {
                                                                     name: [
                                                                         Identifier {
                                                                             name: "chips2",
-                                                                            span: 420..426,
+                                                                            span: 422..428,
                                                                         },
                                                                     ],
                                                                     constant: None,
                                                                 },
                                                             },
-                                                            span: 420..426,
+                                                            span: 422..428,
                                                         },
                                                     },
                                                 },
-                                                span: 412..426,
+                                                span: 414..428,
                                             },
                                         },
                                     ],
@@ -1433,23 +1433,23 @@ TypedProgram {
                                 export: None,
                                 name: Identifier {
                                     name: "plus_mult",
-                                    span: 449..458,
+                                    span: 451..460,
                                 },
                                 id: NameId(13),
                                 ty: FunctionType {
                                     kind: Normal,
-                                    name_span: 449..458,
+                                    name_span: 451..460,
                                     params: [
                                         TypedFunctionParam {
                                             public: true,
                                             name: Identifier {
                                                 name: "mult2",
-                                                span: 463..468,
+                                                span: 465..470,
                                             },
                                             ty: Int(
                                                 U64,
                                             ),
-                                            ty_span: 470..473,
+                                            ty_span: 472..475,
                                         },
                                     ],
                                     result: Unit,
@@ -1464,7 +1464,7 @@ TypedProgram {
                                         Assignment {
                                             target: Identifier {
                                                 name: "mult",
-                                                span: 489..493,
+                                                span: 491..495,
                                             },
                                             value: Spanned {
                                                 node: TypedExpr {
@@ -1482,13 +1482,13 @@ TypedProgram {
                                                                     name: [
                                                                         Identifier {
                                                                             name: "mult",
-                                                                            span: 496..500,
+                                                                            span: 498..502,
                                                                         },
                                                                     ],
                                                                     constant: None,
                                                                 },
                                                             },
-                                                            span: 496..501,
+                                                            span: 498..503,
                                                         },
                                                         right: Spanned {
                                                             node: TypedExpr {
@@ -1499,17 +1499,17 @@ TypedProgram {
                                                                     name: [
                                                                         Identifier {
                                                                             name: "mult2",
-                                                                            span: 503..508,
+                                                                            span: 505..510,
                                                                         },
                                                                     ],
                                                                     constant: None,
                                                                 },
                                                             },
-                                                            span: 503..508,
+                                                            span: 505..510,
                                                         },
                                                     },
                                                 },
-                                                span: 496..508,
+                                                span: 498..510,
                                             },
                                         },
                                     ],
@@ -1520,23 +1520,23 @@ TypedProgram {
                                 export: None,
                                 name: Identifier {
                                     name: "mult_mult",
-                                    span: 531..540,
+                                    span: 533..542,
                                 },
                                 id: NameId(14),
                                 ty: FunctionType {
                                     kind: Normal,
-                                    name_span: 531..540,
+                                    name_span: 533..542,
                                     params: [
                                         TypedFunctionParam {
                                             public: true,
                                             name: Identifier {
                                                 name: "mult_pct",
-                                                span: 545..553,
+                                                span: 547..555,
                                             },
                                             ty: Int(
                                                 U64,
                                             ),
-                                            ty_span: 555..558,
+                                            ty_span: 557..560,
                                         },
                                     ],
                                     result: Unit,
@@ -1551,7 +1551,7 @@ TypedProgram {
                                         Assignment {
                                             target: Identifier {
                                                 name: "mult",
-                                                span: 574..578,
+                                                span: 576..580,
                                             },
                                             value: Spanned {
                                                 node: TypedExpr {
@@ -1576,13 +1576,13 @@ TypedProgram {
                                                                                 name: [
                                                                                     Identifier {
                                                                                         name: "mult",
-                                                                                        span: 581..585,
+                                                                                        span: 583..587,
                                                                                     },
                                                                                 ],
                                                                                 constant: None,
                                                                             },
                                                                         },
-                                                                        span: 581..586,
+                                                                        span: 583..588,
                                                                     },
                                                                     right: Spanned {
                                                                         node: TypedExpr {
@@ -1593,17 +1593,17 @@ TypedProgram {
                                                                                 name: [
                                                                                     Identifier {
                                                                                         name: "mult_pct",
-                                                                                        span: 588..596,
+                                                                                        span: 590..598,
                                                                                     },
                                                                                 ],
                                                                                 constant: None,
                                                                             },
                                                                         },
-                                                                        span: 588..597,
+                                                                        span: 590..599,
                                                                     },
                                                                 },
                                                             },
-                                                            span: 581..597,
+                                                            span: 583..599,
                                                         },
                                                         right: Spanned {
                                                             node: TypedExpr {
@@ -1619,11 +1619,11 @@ TypedProgram {
                                                                     ),
                                                                 ),
                                                             },
-                                                            span: 599..602,
+                                                            span: 601..604,
                                                         },
                                                     },
                                                 },
-                                                span: 581..602,
+                                                span: 583..604,
                                             },
                                         },
                                     ],
@@ -1634,12 +1634,12 @@ TypedProgram {
                                 export: None,
                                 name: Identifier {
                                     name: "finish",
-                                    span: 625..631,
+                                    span: 627..633,
                                 },
                                 id: NameId(15),
                                 ty: FunctionType {
                                     kind: Normal,
-                                    name_span: 625..631,
+                                    name_span: 627..633,
                                     params: [],
                                     result: Unit,
                                     callee: Some(
@@ -1907,12 +1907,12 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "example",
-                    span: 685..692,
+                    span: 687..694,
                 },
                 id: NameId(11),
                 ty: FunctionType {
                     kind: Normal,
-                    name_span: 685..692,
+                    name_span: 687..694,
                     params: [],
                     result: Unit,
                     callee: Some(
@@ -1928,7 +1928,7 @@ TypedProgram {
                             mutable: false,
                             name: Identifier {
                                 name: "prog",
-                                span: 705..709,
+                                span: 707..711,
                             },
                             value: Spanned {
                                 node: TypedExpr {
@@ -2180,7 +2180,7 @@ TypedProgram {
                                                 ty: Function(
                                                     FunctionType {
                                                         kind: Normal,
-                                                        name_span: 263..266,
+                                                        name_span: 264..267,
                                                         params: [],
                                                         result: Utxo(
                                                             UtxoType {
@@ -2435,11 +2435,11 @@ TypedProgram {
                                                     name: [
                                                         Identifier {
                                                             name: "ScoreProgress",
-                                                            span: 712..725,
+                                                            span: 714..727,
                                                         },
                                                         Identifier {
                                                             name: "new",
-                                                            span: 727..730,
+                                                            span: 729..732,
                                                         },
                                                     ],
                                                     constant: Some(
@@ -2447,12 +2447,12 @@ TypedProgram {
                                                     ),
                                                 },
                                             },
-                                            span: 712..730,
+                                            span: 714..732,
                                         },
                                         args: [],
                                     },
                                 },
-                                span: 712..730,
+                                span: 714..732,
                             },
                         },
                         Expression(
@@ -2736,21 +2736,21 @@ TypedProgram {
                                                                 name: [
                                                                     Identifier {
                                                                         name: "prog",
-                                                                        span: 738..742,
+                                                                        span: 740..744,
                                                                     },
                                                                 ],
                                                                 constant: None,
                                                             },
                                                         },
-                                                        span: 738..742,
+                                                        span: 740..744,
                                                     },
                                                     field: Identifier {
                                                         name: "plus_chips",
-                                                        span: 743..753,
+                                                        span: 745..755,
                                                     },
                                                 },
                                             },
-                                            span: 738..753,
+                                            span: 740..755,
                                         },
                                         args: [
                                             Spanned {
@@ -2767,12 +2767,12 @@ TypedProgram {
                                                         ),
                                                     ),
                                                 },
-                                                span: 754..756,
+                                                span: 756..758,
                                             },
                                         ],
                                     },
                                 },
-                                span: 738..753,
+                                span: 740..755,
                             },
                         ),
                     ],

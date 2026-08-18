@@ -55,7 +55,7 @@ Program {
                                 ),
                                 name: Identifier {
                                     name: "increment",
-                                    span: 109..118,
+                                    span: 110..119,
                                 },
                                 params: [],
                                 return_type: None,
@@ -65,7 +65,7 @@ Program {
                                             node: Assignment {
                                                 target: Identifier {
                                                     name: "counter",
-                                                    span: 131..138,
+                                                    span: 132..139,
                                                 },
                                                 value: Spanned {
                                                     node: Binary {
@@ -75,11 +75,11 @@ Program {
                                                                 [
                                                                     Identifier {
                                                                         name: "counter",
-                                                                        span: 141..148,
+                                                                        span: 142..149,
                                                                     },
                                                                 ],
                                                             ),
-                                                            span: 141..149,
+                                                            span: 142..150,
                                                         },
                                                         right: Spanned {
                                                             node: Literal(
@@ -90,17 +90,17 @@ Program {
                                                                     },
                                                                 ),
                                                             ),
-                                                            span: 151..152,
+                                                            span: 152..153,
                                                         },
                                                     },
-                                                    span: 141..152,
+                                                    span: 142..153,
                                                 },
                                             },
-                                            span: 131..158,
+                                            span: 132..159,
                                         },
                                     ],
                                     tail_expression: None,
-                                    span: 121..164,
+                                    span: 122..166,
                                 },
                             },
                         ),
@@ -111,7 +111,7 @@ Program {
                                 ),
                                 name: Identifier {
                                     name: "increment_mult",
-                                    span: 172..186,
+                                    span: 174..188,
                                 },
                                 params: [],
                                 return_type: None,
@@ -121,7 +121,7 @@ Program {
                                             node: Assignment {
                                                 target: Identifier {
                                                     name: "multiplier",
-                                                    span: 199..209,
+                                                    span: 201..211,
                                                 },
                                                 value: Spanned {
                                                     node: Binary {
@@ -131,11 +131,11 @@ Program {
                                                                 [
                                                                     Identifier {
                                                                         name: "multiplier",
-                                                                        span: 212..222,
+                                                                        span: 214..224,
                                                                     },
                                                                 ],
                                                             ),
-                                                            span: 212..223,
+                                                            span: 214..225,
                                                         },
                                                         right: Spanned {
                                                             node: Literal(
@@ -146,24 +146,24 @@ Program {
                                                                     },
                                                                 ),
                                                             ),
-                                                            span: 225..226,
+                                                            span: 227..228,
                                                         },
                                                     },
-                                                    span: 212..226,
+                                                    span: 214..228,
                                                 },
                                             },
-                                            span: 199..232,
+                                            span: 201..234,
                                         },
                                     ],
                                     tail_expression: None,
-                                    span: 189..234,
+                                    span: 191..236,
                                 },
                             },
                         ),
                     ],
                 },
             ),
-            span: 0..236,
+            span: 0..238,
         },
     ],
 }
@@ -224,12 +224,12 @@ TypedProgram {
                             ),
                             name: Identifier {
                                 name: "increment",
-                                span: 109..118,
+                                span: 110..119,
                             },
                             id: NameId(5),
                             ty: FunctionType {
                                 kind: Normal,
-                                name_span: 109..118,
+                                name_span: 110..119,
                                 params: [],
                                 result: Unit,
                                 callee: Some(
@@ -243,7 +243,7 @@ TypedProgram {
                                     Assignment {
                                         target: Identifier {
                                             name: "counter",
-                                            span: 131..138,
+                                            span: 132..139,
                                         },
                                         value: Spanned {
                                             node: TypedExpr {
@@ -261,13 +261,13 @@ TypedProgram {
                                                                 name: [
                                                                     Identifier {
                                                                         name: "counter",
-                                                                        span: 141..148,
+                                                                        span: 142..149,
                                                                     },
                                                                 ],
                                                                 constant: None,
                                                             },
                                                         },
-                                                        span: 141..149,
+                                                        span: 142..150,
                                                     },
                                                     right: Spanned {
                                                         node: TypedExpr {
@@ -283,11 +283,11 @@ TypedProgram {
                                                                 ),
                                                             ),
                                                         },
-                                                        span: 151..152,
+                                                        span: 152..153,
                                                     },
                                                 },
                                             },
-                                            span: 141..152,
+                                            span: 142..153,
                                         },
                                     },
                                 ],
@@ -302,12 +302,12 @@ TypedProgram {
                             ),
                             name: Identifier {
                                 name: "increment_mult",
-                                span: 172..186,
+                                span: 174..188,
                             },
                             id: NameId(6),
                             ty: FunctionType {
                                 kind: Normal,
-                                name_span: 172..186,
+                                name_span: 174..188,
                                 params: [],
                                 result: Unit,
                                 callee: Some(
@@ -321,7 +321,7 @@ TypedProgram {
                                     Assignment {
                                         target: Identifier {
                                             name: "multiplier",
-                                            span: 199..209,
+                                            span: 201..211,
                                         },
                                         value: Spanned {
                                             node: TypedExpr {
@@ -339,13 +339,13 @@ TypedProgram {
                                                                 name: [
                                                                     Identifier {
                                                                         name: "multiplier",
-                                                                        span: 212..222,
+                                                                        span: 214..224,
                                                                     },
                                                                 ],
                                                                 constant: None,
                                                             },
                                                         },
-                                                        span: 212..223,
+                                                        span: 214..225,
                                                     },
                                                     right: Spanned {
                                                         node: TypedExpr {
@@ -361,11 +361,11 @@ TypedProgram {
                                                                 ),
                                                             ),
                                                         },
-                                                        span: 225..226,
+                                                        span: 227..228,
                                                     },
                                                 },
                                             },
-                                            span: 212..226,
+                                            span: 214..228,
                                         },
                                     },
                                 ],

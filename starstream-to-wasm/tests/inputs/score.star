@@ -11,10 +11,12 @@ utxo ScoreProgress {
         let mut chips: u64;
         let mut mult: u64;
     }
+
     main fn new() {
         yield(Score);
         emit Finish(chips * mult);
     }
+
     impl Score {
         fn plus_chips(pub chips2: u64) {
             chips = chips + chips2;
