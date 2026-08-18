@@ -10,6 +10,9 @@
 module.exports = grammar({
   name: "starstream",
 
+  // Prevent keyword tokens from matching substrings of identifiers.
+  word: ($) => $.identifier,
+
   // Meant to follow spec grammar closely.
   // Rules names prefixed with _ are hidden in the output syntax tree, best
   // used for choices between single children.
