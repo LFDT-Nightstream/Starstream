@@ -21,6 +21,7 @@ use crate::{
 #[derive(Default)]
 pub struct Builtins {
     pub utxo_context_resource: Option<Rc<Resource>>,
+    pub utxo_context_drop: Option<u32>,
     pub resume: Option<u32>,
     pub implements_method: Option<u32>,
 }
@@ -63,6 +64,11 @@ impl Compiler {
         let utxo_context_type = Rc::new(ComponentAbiType::Borrow {
             resource: utxo_context_resource,
         });
+        self.builtins.utxo_context_drop = Some(self.import_function(
+            name,
+            "[resource-drop]utxo-context",
+            &FuncType::new([ValType::I32], []),
+        ));
 
         self.builtins.resume = Some(self.import_function(
             name,

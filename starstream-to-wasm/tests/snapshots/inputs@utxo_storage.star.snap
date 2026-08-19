@@ -394,27 +394,28 @@ TypedProgram {
   (type (;4;) (func (param i64 i64) (result i64)))
   (type (;5;) (func (param i32) (result i32 i64 i64)))
   (type (;6;) (func (param i32 i64 i64) (result i32)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;0;) (type 0)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;1;) (type 1)))
-  (import "[export]my-utxo" "[resource-new]utxo" (func (;2;) (type 2)))
-  (import "[export]my-utxo" "[resource-drop]utxo" (func (;3;) (type 0)))
-  (import "starstream:self/my-utxo" "[static]utxo.increment" (func (;4;) (type 3)))
-  (import "starstream:self/my-utxo" "[static]utxo.increment-mult" (func (;5;) (type 3)))
+  (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;0;) (type 0)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;1;) (type 0)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;2;) (type 1)))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;3;) (type 2)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;4;) (type 0)))
+  (import "starstream:self/my-utxo" "[static]utxo.increment" (func (;5;) (type 3)))
+  (import "starstream:self/my-utxo" "[static]utxo.increment-mult" (func (;6;) (type 3)))
   (memory (;0;) 1)
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i64) (i64.const 0))
   (global (;2;) (mut i64) (i64.const 0))
-  (export "my-utxo#[static]utxo.increment" (func 8))
-  (export "my-utxo#[static]utxo.increment-mult" (func 9))
-  (export "my-utxo#get-storage" (func 11))
-  (export "my-utxo#set-storage" (func 12))
+  (export "my-utxo#[static]utxo.increment" (func 9))
+  (export "my-utxo#[static]utxo.increment-mult" (func 10))
+  (export "my-utxo#get-storage" (func 12))
+  (export "my-utxo#set-storage" (func 13))
   (export "memory" (memory 0))
-  (func (;6;) (type 0) (param i32)
-    (call 0
+  (func (;7;) (type 0) (param i32)
+    (call 1
       (local.get 0))
     (unreachable)
   )
-  (func (;7;) (type 4) (param i64 i64) (result i64)
+  (func (;8;) (type 4) (param i64 i64) (result i64)
     (local i64)
     (local.tee 2
       (i64.add
@@ -437,37 +438,37 @@ TypedProgram {
       (then
         (unreachable)))
   )
-  (func (;8;) (type 2) (param i32) (result i32)
+  (func (;9;) (type 2) (param i32) (result i32)
     (local i32)
     (local.set 1
-      (call 2
+      (call 3
         (i32.const 0)))
     (global.set 1
-      (call 7
+      (call 8
         (global.get 1)
         (i64.const 1)))
     (local.get 1)
   )
-  (func (;9;) (type 2) (param i32) (result i32)
+  (func (;10;) (type 2) (param i32) (result i32)
     (local i32)
     (local.set 1
-      (call 2
+      (call 3
         (i32.const 0)))
     (global.set 2
-      (call 7
+      (call 8
         (global.get 2)
         (i64.const 1)))
     (local.get 1)
   )
-  (func (;10;) (type 5) (param i32) (result i32 i64 i64)
+  (func (;11;) (type 5) (param i32) (result i32 i64 i64)
     (global.get 0)
     (global.get 1)
     (global.get 2)
   )
-  (func (;11;) (type 2) (param i32) (result i32)
+  (func (;12;) (type 2) (param i32) (result i32)
     (local i32 i32 i64 i64)
     (i32.const 8)
-    (call 10
+    (call 11
       (local.get 0))
     (local.set 4)
     (local.set 3)
@@ -484,14 +485,14 @@ TypedProgram {
       (local.get 4))
     (i32.const 8)
   )
-  (func (;12;) (type 6) (param i32 i64 i64) (result i32)
+  (func (;13;) (type 6) (param i32 i64 i64) (result i32)
     (global.set 0
       (local.get 0))
     (global.set 1
       (local.get 1))
     (global.set 2
       (local.get 2))
-    (return_call 2
+    (return_call 3
       (i32.const 0))
   )
   (@custom "component-type"
