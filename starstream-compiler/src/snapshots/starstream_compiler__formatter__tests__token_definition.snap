@@ -7,11 +7,15 @@ token MyToken {
         indexed let mut my_arbitrary_variable: u32;
         let mut plain_variable: u8;
     }
+
     mint fn my_mint_fn() { }
+
     burn fn my_burn_fn() { }
+
     impl Token {
         fn attach(to: Utxo) { }
         fn detach(source: Utxo) { }
     }
+
     fn helper() { }
 }

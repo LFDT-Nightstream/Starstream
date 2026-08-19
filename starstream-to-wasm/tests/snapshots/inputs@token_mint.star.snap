@@ -41,7 +41,7 @@ Program {
                                 ),
                                 name: Identifier {
                                     name: "mint",
-                                    span: 85..89,
+                                    span: 86..90,
                                 },
                                 params: [],
                                 return_type: None,
@@ -51,7 +51,7 @@ Program {
                                             node: Assignment {
                                                 target: Identifier {
                                                     name: "supply",
-                                                    span: 102..108,
+                                                    span: 103..109,
                                                 },
                                                 value: Spanned {
                                                     node: Literal(
@@ -62,41 +62,41 @@ Program {
                                                             },
                                                         ),
                                                     ),
-                                                    span: 111..112,
+                                                    span: 112..113,
                                                 },
                                             },
-                                            span: 102..118,
+                                            span: 103..119,
                                         },
                                     ],
                                     tail_expression: None,
-                                    span: 92..124,
+                                    span: 93..126,
                                 },
                             },
                         ),
                         AbiImpl {
                             abi: Identifier {
                                 name: "Token",
-                                span: 129..134,
+                                span: 131..136,
                             },
                             parts: [
                                 FunctionDef {
                                     export: None,
                                     name: Identifier {
                                         name: "attach",
-                                        span: 148..154,
+                                        span: 150..156,
                                     },
                                     params: [
                                         FunctionParam {
                                             public: false,
                                             name: Identifier {
                                                 name: "to",
-                                                span: 155..157,
+                                                span: 157..159,
                                             },
                                             ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "Utxo",
-                                                        span: 159..163,
+                                                        span: 161..165,
                                                     },
                                                 ],
                                                 generics: [],
@@ -107,27 +107,27 @@ Program {
                                     body: Block {
                                         statements: [],
                                         tail_expression: None,
-                                        span: 165..177,
+                                        span: 167..179,
                                     },
                                 },
                                 FunctionDef {
                                     export: None,
                                     name: Identifier {
                                         name: "detach",
-                                        span: 180..186,
+                                        span: 182..188,
                                     },
                                     params: [
                                         FunctionParam {
                                             public: false,
                                             name: Identifier {
                                                 name: "source",
-                                                span: 187..193,
+                                                span: 189..195,
                                             },
                                             ty: Named {
                                                 name: [
                                                     Identifier {
                                                         name: "Utxo",
-                                                        span: 195..199,
+                                                        span: 197..201,
                                                     },
                                                 ],
                                                 generics: [],
@@ -138,7 +138,7 @@ Program {
                                     body: Block {
                                         statements: [],
                                         tail_expression: None,
-                                        span: 201..209,
+                                        span: 203..211,
                                     },
                                 },
                             ],
@@ -146,7 +146,7 @@ Program {
                     ],
                 },
             ),
-            span: 0..213,
+            span: 0..215,
         },
     ],
 }
@@ -191,12 +191,12 @@ TypedProgram {
                             ),
                             name: Identifier {
                                 name: "mint",
-                                span: 85..89,
+                                span: 86..90,
                             },
                             id: NameId(5),
                             ty: FunctionType {
                                 kind: Normal,
-                                name_span: 85..89,
+                                name_span: 86..90,
                                 params: [],
                                 result: Unit,
                                 callee: Some(
@@ -210,7 +210,7 @@ TypedProgram {
                                     Assignment {
                                         target: Identifier {
                                             name: "supply",
-                                            span: 102..108,
+                                            span: 103..109,
                                         },
                                         value: Spanned {
                                             node: TypedExpr {
@@ -226,7 +226,7 @@ TypedProgram {
                                                     ),
                                                 ),
                                             },
-                                            span: 111..112,
+                                            span: 112..113,
                                         },
                                     },
                                 ],
@@ -235,7 +235,7 @@ TypedProgram {
                         },
                     ),
                     AbiImpl {
-                        span: 129..134,
+                        span: 131..136,
                         abi: AbiType {
                             name: Identifier {
                                 name: "Token",
@@ -305,21 +305,21 @@ TypedProgram {
                                 export: None,
                                 name: Identifier {
                                     name: "attach",
-                                    span: 148..154,
+                                    span: 150..156,
                                 },
                                 id: NameId(6),
                                 ty: FunctionType {
                                     kind: Normal,
-                                    name_span: 148..154,
+                                    name_span: 150..156,
                                     params: [
                                         TypedFunctionParam {
                                             public: false,
                                             name: Identifier {
                                                 name: "to",
-                                                span: 155..157,
+                                                span: 157..159,
                                             },
                                             ty: UtxoAny,
-                                            ty_span: 159..163,
+                                            ty_span: 161..165,
                                         },
                                     ],
                                     result: Unit,
@@ -338,21 +338,21 @@ TypedProgram {
                                 export: None,
                                 name: Identifier {
                                     name: "detach",
-                                    span: 180..186,
+                                    span: 182..188,
                                 },
                                 id: NameId(7),
                                 ty: FunctionType {
                                     kind: Normal,
-                                    name_span: 180..186,
+                                    name_span: 182..188,
                                     params: [
                                         TypedFunctionParam {
                                             public: false,
                                             name: Identifier {
                                                 name: "source",
-                                                span: 187..193,
+                                                span: 189..195,
                                             },
                                             ty: UtxoAny,
-                                            ty_span: 195..199,
+                                            ty_span: 197..201,
                                         },
                                     ],
                                     result: Unit,

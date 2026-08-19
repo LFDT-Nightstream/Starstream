@@ -16,7 +16,7 @@ Program {
                     parts: [],
                 },
             ),
-            span: 0..18,
+            span: 0..17,
         },
         Spanned {
             node: Function(
@@ -26,20 +26,20 @@ Program {
                     ),
                     name: Identifier {
                         name: "script_accepts_utxos",
-                        span: 28..48,
+                        span: 27..47,
                     },
                     params: [
                         FunctionParam {
                             public: false,
                             name: Identifier {
                                 name: "utxo",
-                                span: 49..53,
+                                span: 48..52,
                             },
                             ty: Named {
                                 name: [
                                     Identifier {
                                         name: "Utxo",
-                                        span: 55..59,
+                                        span: 54..58,
                                     },
                                 ],
                                 generics: [],
@@ -49,13 +49,13 @@ Program {
                             public: false,
                             name: Identifier {
                                 name: "my_utxo",
-                                span: 61..68,
+                                span: 60..67,
                             },
                             ty: Named {
                                 name: [
                                     Identifier {
                                         name: "MyUtxo",
-                                        span: 70..76,
+                                        span: 69..75,
                                     },
                                 ],
                                 generics: [],
@@ -66,11 +66,11 @@ Program {
                     body: Block {
                         statements: [],
                         tail_expression: None,
-                        span: 78..82,
+                        span: 77..81,
                     },
                 },
             ),
-            span: 18..82,
+            span: 17..81,
         },
     ],
 }
@@ -105,27 +105,27 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "script_accepts_utxos",
-                    span: 28..48,
+                    span: 27..47,
                 },
                 id: NameId(5),
                 ty: FunctionType {
                     kind: Normal,
-                    name_span: 28..48,
+                    name_span: 27..47,
                     params: [
                         TypedFunctionParam {
                             public: false,
                             name: Identifier {
                                 name: "utxo",
-                                span: 49..53,
+                                span: 48..52,
                             },
                             ty: UtxoAny,
-                            ty_span: 55..59,
+                            ty_span: 54..58,
                         },
                         TypedFunctionParam {
                             public: false,
                             name: Identifier {
                                 name: "my_utxo",
-                                span: 61..68,
+                                span: 60..67,
                             },
                             ty: Utxo(
                                 UtxoType {
@@ -135,7 +135,7 @@ TypedProgram {
                                     always_abis: [],
                                 },
                             ),
-                            ty_span: 70..76,
+                            ty_span: 69..75,
                         },
                     ],
                     result: Unit,
