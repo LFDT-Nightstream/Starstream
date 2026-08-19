@@ -231,6 +231,7 @@ struct Compiler {
     yield_funcs: Vec<u32>,
 
     current_resource: Option<ResourceContext>,
+    context_local: Option<u32>,
 }
 
 struct ResourceContext {
@@ -436,7 +437,7 @@ impl Compiler {
                 result: Some(storage_record.clone()),
             };
             let ty = FuncType::new([ValType::I32], storage_flat.iter().copied());
-            let mut code = Function::new([(1, ValType::I32)]);
+            let mut code = Function::new_with_locals_types([ValType::I32]);
             for g in fields.clone() {
                 code.instructions().global_get(g);
             }
@@ -457,7 +458,7 @@ impl Compiler {
                 result: Some(utxo_own.clone()),
             };
             let ty = FuncType::new(storage_flat.iter().copied(), [ValType::I32]);
-            let mut code = Function::new(RleLocals::from_iter(storage_flat.iter().copied()));
+            let mut code = Function::new_with_locals_types(storage_flat.iter().copied());
             for (l, g) in fields.clone().enumerate() {
                 code.instructions()
                     .local_get(u32::try_from(l).unwrap())
@@ -1181,6 +1182,7 @@ impl Compiler {
             _ = self.star_to_core_types(function.name.span(), &mut params, this);
         }
         if let Some(context) = context {
+            self.context_local = Some(u32::try_from(params.len()).unwrap());
             _ = self.component_to_core_types(function.name.span(), &mut params, context);
         }
         for p in &function.ty.params {
@@ -1252,6 +1254,7 @@ impl Compiler {
         if let Some(utxo) = &mut self.current_resource {
             utxo.resource_local = u32::MAX;
         }
+        self.context_local = None;
 
         CoreFn {
             idx,
@@ -1432,7 +1435,7 @@ impl Compiler {
 
         // Reserve the ID for the `resume;` function for this Utxo.
         let yield_start = self.yield_id;
-        let resume_fn = self.add_function(&FuncType::new([], []), Vec::new());
+        let resume_fn = self.add_function(&FuncType::new([ValType::I32], []), Vec::new());
         let resume_code_idx = self.code_bytes.len() - 1;
         self.current_resource = Some(ResourceContext {
             resume_fn,
@@ -1798,9 +1801,9 @@ impl Compiler {
     }
 
     fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {
-        let mut func = Function::new([]);
+        let mut func = Function::new_with_locals_types([ValType::I32]);
         // signal resumption to runtime
-        func.instructions().i32_const(0);
+        func.instructions().local_get(0);
         func.instructions().call(self.builtins.resume.unwrap());
         if let Some(yield_global) = self.yield_global {
             // if (yield_id == 0) { return resume_0(); } else if ... else unreachable
@@ -1942,6 +1945,7 @@ impl Compiler {
                     break;
                 }
                 TypedStatement::Resume => {
+                    func.instructions(bb).local_get(self.context_local.unwrap());
                     func.cfg.fill(
                         *bb,
                         Out::ReturnCall {
@@ -3035,8 +3039,7 @@ impl Compiler {
                     for method in &abi.methods {
                         let digest = sha2::Sha256::digest(method.identity());
                         assert_eq!(digest.len(), 32);
-                        // utxo-context handle value currently hardcoded to 0
-                        func.instructions(bb).i32_const(0);
+                        func.instructions(bb).local_get(self.context_local.unwrap());
                         for chunk in digest.chunks_exact(8) {
                             func.instructions(bb)
                                 .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));

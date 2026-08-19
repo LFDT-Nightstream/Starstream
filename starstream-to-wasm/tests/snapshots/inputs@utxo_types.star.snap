@@ -159,8 +159,7 @@ TypedProgram {
   (type (;0;) (func (param i32)))
   (type (;1;) (func (param i32 i64 i64 i64 i64)))
   (type (;2;) (func (param i32) (result i32)))
-  (type (;3;) (func))
-  (type (;4;) (func (param i32 i32)))
+  (type (;3;) (func (param i32 i32)))
   (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;0;) (type 0)))
   (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;1;) (type 1)))
   (import "[export]my-utxo" "[resource-new]utxo" (func (;2;) (type 2)))
@@ -169,9 +168,10 @@ TypedProgram {
   (export "my-utxo#get-storage" (func 5))
   (export "my-utxo#set-storage" (func 6))
   (export "script-accepts-utxos" (func 7))
-  (func (;4;) (type 3)
+  (func (;4;) (type 0) (param i32)
+    (local i32)
     (call 0
-      (i32.const 0))
+      (local.get 0))
     (unreachable)
   )
   (func (;5;) (type 2) (param i32) (result i32)
@@ -185,7 +185,7 @@ TypedProgram {
     (return_call 2
       (i32.const 0))
   )
-  (func (;7;) (type 4) (param i32 i32))
+  (func (;7;) (type 3) (param i32 i32))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")

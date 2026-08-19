@@ -338,9 +338,10 @@ TypedProgram {
   (export "my-utxo#[static]utxo.hello-utxo" (func 8))
   (export "my-utxo#get-storage" (func 9))
   (export "my-utxo#set-storage" (func 10))
-  (func (;6;) (type 2)
+  (func (;6;) (type 0) (param i32)
+    (local i32)
     (call 0
-      (i32.const 0))
+      (local.get 0))
     (unreachable)
   )
   (func (;7;) (type 2)
