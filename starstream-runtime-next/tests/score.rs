@@ -1,17 +1,17 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
-    ConstructorExport, Contract, CoordinationScriptExport, EventHandler, Host, MethodExport,
-    ResourceView, Utxo, UtxoHandler, UtxoStorageExport, bindings,
+    ConstructorExport, Contract, CoordinationScriptExport, Host, MethodExport, Utxo,
+    UtxoStorageExport, bindings,
 };
 use starstream_to_wasm::compile;
 use tracing::{Instrument as _, info_span, instrument};
 use wasmtime::component::{Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
-use wasmtime::{Store, bail};
+use wasmtime::{Store, StoreContextMut, bail};
 
 /// Compile a single Starstream contract source to a core Wasm module in-process.
 ///
@@ -39,24 +39,17 @@ static EXAMPLE_SCORE: LazyLock<Vec<u8>> =
 
 struct Ctx {
     contract: Contract<Self>,
-    ty: ProgressUtxo,
 
     table: ResourceTable,
     events: Vec<(String, String, Box<[Val]>)>,
 
-    outputs: Vec<(Utxo, u32)>,
+    outputs: Vec<(Utxo, Resource<UtxoCtx>)>,
     dropped_utxo_cxs: Vec<UtxoCtx>,
 }
 
 #[derive(Debug, Default)]
 pub struct UtxoCtx {
     methods: Vec<(u64, u64, u64, u64)>,
-}
-
-impl ResourceView for Ctx {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
 }
 
 impl bindings::starstream::std::builtin::Host for Ctx {}
@@ -86,57 +79,33 @@ impl bindings::starstream::std::cardano::Host for Ctx {
     }
 }
 
-impl EventHandler for Ctx {
-    fn emit_event(&mut self, instance: &str, name: &str, params: &[Val]) {
-        self.events
-            .push((instance.into(), name.into(), params.into()));
+impl Host for Ctx {
+    type UtxoContext = UtxoCtx;
+
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
     }
-}
 
-impl UtxoHandler for Ctx {
-    type Context = UtxoCtx;
+    fn contract(store: StoreContextMut<Self>) -> Contract<Self> {
+        store.data().contract.clone()
+    }
 
-    #[instrument(skip(store), ret)]
-    async fn construct_utxo(
-        mut store: wasmtime::StoreContextMut<'_, Self>,
-        instance: &Arc<str>,
-        name: &Arc<str>,
-        params: &[Val],
-    ) -> wasmtime::Result<Utxo>
-    where
-        Self: Sized,
-    {
-        match (instance.as_ref(), name.as_ref()) {
-            ("starstream:self/score-progress", "[static]utxo.new") => {
-                let Ctx {
-                    contract,
-                    ty,
-                    table,
-                    ..
-                } = store.data_mut();
-                let contract = contract.clone();
-                let ty = ty.clone();
-                let cx = table.push(UtxoCtx::default())?;
-                let cx_rep = cx.rep();
-                let cx = cx.try_into_resource_any(&mut store)?;
-                let instance = contract.instantiate(&mut store).await?;
+    fn new_utxo_context(_store: StoreContextMut<Self>) -> Self::UtxoContext {
+        Self::UtxoContext::default()
+    }
 
-                let mut ps = Vec::with_capacity(params.len().saturating_add(1));
-                ps.push(Val::Resource(cx));
-                for p in params {
-                    ps.push(p.clone());
-                }
-                let utxo = instance.create_utxo(&mut store, &ty.new, ps).await?;
-                store.data_mut().outputs.push((utxo, cx_rep));
-                Ok(utxo)
-            }
-            _ => panic!("unexpected UTXO constructor call `{instance}#{name}`"),
-        }
+    fn output(
+        mut store: StoreContextMut<Self>,
+        utxo: Utxo,
+        cx: Resource<Self::UtxoContext>,
+    ) -> wasmtime::Result<()> {
+        store.data_mut().outputs.push((utxo, cx));
+        Ok(())
     }
 
     #[instrument(skip(store, cx), ret)]
     fn implements_method(
-        mut store: wasmtime::StoreContextMut<'_, Self>,
+        mut store: StoreContextMut<Self>,
         cx: Resource<UtxoCtx>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<()> {
@@ -146,18 +115,15 @@ impl UtxoHandler for Ctx {
     }
 
     #[instrument(skip(store, cx), ret)]
-    fn resume(
-        mut store: wasmtime::StoreContextMut<'_, Self>,
-        cx: Resource<UtxoCtx>,
-    ) -> wasmtime::Result<()> {
+    fn resume(mut store: StoreContextMut<Self>, cx: Resource<UtxoCtx>) -> wasmtime::Result<()> {
         let UtxoCtx { methods } = store.data_mut().table.get_mut(&cx)?;
         methods.clear();
         Ok(())
     }
 
     #[instrument(skip(store, cx), ret)]
-    fn drop(
-        mut store: wasmtime::StoreContextMut<'_, Self>,
+    fn drop_utxo_context(
+        mut store: StoreContextMut<Self>,
         cx: Resource<UtxoCtx>,
     ) -> wasmtime::Result<()> {
         let Ctx {
@@ -167,6 +133,20 @@ impl UtxoHandler for Ctx {
         } = store.data_mut();
         let cx = table.delete(cx)?;
         dropped_utxo_cxs.push(cx);
+        Ok(())
+    }
+
+    #[instrument(skip(store), ret)]
+    fn emit_event(
+        mut store: StoreContextMut<Self>,
+        instance: &str,
+        name: &str,
+        params: &[Val],
+    ) -> wasmtime::Result<()> {
+        store
+            .data_mut()
+            .events
+            .push((instance.into(), name.into(), params.into()));
         Ok(())
     }
 }
@@ -336,7 +316,6 @@ async fn score_main_new() -> wasmtime::Result<()> {
         &engine,
         Ctx {
             contract: contract.clone(),
-            ty: ty.clone(),
             table,
             events: Vec::default(),
             outputs: Vec::default(),
@@ -456,7 +435,6 @@ async fn score_script_example() -> wasmtime::Result<()> {
         &engine,
         Ctx {
             contract: contract.clone(),
-            ty: ty.clone(),
             table: ResourceTable::default(),
             events: Vec::default(),
             outputs: Vec::default(),
@@ -481,15 +459,28 @@ async fn score_script_example() -> wasmtime::Result<()> {
         ..
     } = store.data();
     let mut outputs = outputs.iter();
-    let (utxo, utxo_cx_rep) = match (outputs.next(), outputs.next()) {
-        (Some(output), None) => output,
+    let (utxo, utxo_cx) = match (outputs.next(), outputs.next()) {
+        (Some((utxo, utxo_cx)), None) => (*utxo, utxo_cx),
         _ => bail!("unexpected outputs created: {outputs:?}"),
     };
 
-    let UtxoCtx { methods } = table.get(&Resource::new_borrow(*utxo_cx_rep))?;
+    let UtxoCtx { methods } = table.get(utxo_cx)?;
     assert_eq!(methods.as_slice(), *METHODS);
     assert!(dropped_utxo_cxs.is_empty());
     assert!(events.is_empty());
+
+    let ProgressStorage {
+        chips,
+        mult,
+        r#yield,
+        yield1,
+        yield1_v1,
+    } = get_progress_storage(&mut store, &utxo, &ty.storage).await?;
+    assert_eq!(chips, 42);
+    assert_eq!(mult, 4);
+    assert_eq!(r#yield, 1);
+    assert_eq!(yield1, 1);
+    assert_eq!(yield1_v1, 2);
 
     utxo.drop(&mut store).await.context("failed to drop UTXO")?;
 
