@@ -247,7 +247,13 @@ pub fn link_utxo_instance<T: UtxoHandler>(
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) if name == "utxo" => {
-                linker.resource("utxo", ResourceType::host::<Utxo>(), |_, _| Ok(()))?;
+                linker.resource("utxo", ResourceType::host::<Utxo>(), |mut store, rep| {
+                    store
+                        .data_mut()
+                        .table()
+                        .delete::<Utxo>(Resource::new_own(rep))?;
+                    Ok(())
+                })?;
             }
             types::ComponentItem::Resource(..) => {
                 bail!("UTXO instance resource imports unsupported")
