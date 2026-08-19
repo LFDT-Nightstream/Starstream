@@ -437,7 +437,7 @@ impl Compiler {
                 result: Some(storage_record.clone()),
             };
             let ty = FuncType::new([ValType::I32], storage_flat.iter().copied());
-            let mut code = Function::new_with_locals_types([ValType::I32]);
+            let mut code = Function::new([]);
             for g in fields.clone() {
                 code.instructions().global_get(g);
             }
@@ -458,7 +458,7 @@ impl Compiler {
                 result: Some(utxo_own.clone()),
             };
             let ty = FuncType::new(storage_flat.iter().copied(), [ValType::I32]);
-            let mut code = Function::new_with_locals_types(storage_flat.iter().copied());
+            let mut code = Function::new([]);
             for (l, g) in fields.clone().enumerate() {
                 code.instructions()
                     .local_get(u32::try_from(l).unwrap())
@@ -1801,7 +1801,7 @@ impl Compiler {
     }
 
     fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {
-        let mut func = Function::new_with_locals_types([ValType::I32]);
+        let mut func = Function::new([]);
         // signal resumption to runtime
         func.instructions().local_get(0);
         func.instructions().call(self.builtins.resume.unwrap());

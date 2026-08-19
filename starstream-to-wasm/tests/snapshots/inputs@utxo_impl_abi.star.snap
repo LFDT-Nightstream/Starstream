@@ -302,7 +302,6 @@ TypedProgram {
   (export "my-utxo#get-storage" (func 6))
   (export "my-utxo#set-storage" (func 7))
   (func (;4;) (type 0) (param i32)
-    (local i32)
     (call 0
       (local.get 0))
     (unreachable)
@@ -311,11 +310,9 @@ TypedProgram {
     (i32.const 17)
   )
   (func (;6;) (type 2) (param i32) (result i32)
-    (local i32)
     (global.get 0)
   )
   (func (;7;) (type 2) (param i32) (result i32)
-    (local i32)
     (global.set 0
       (local.get 0))
     (return_call 2

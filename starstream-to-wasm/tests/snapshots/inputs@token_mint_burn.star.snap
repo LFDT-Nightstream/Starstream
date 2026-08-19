@@ -653,11 +653,9 @@ TypedProgram {
   (func (;6;) (type 5) (param i32 i32))
   (func (;7;) (type 5) (param i32 i32))
   (func (;8;) (type 6) (param i32) (result i64)
-    (local i32)
     (global.get 0)
   )
   (func (;9;) (type 7) (param i64) (result i32)
-    (local i64)
     (global.set 0
       (local.get 0))
     (return_call 0

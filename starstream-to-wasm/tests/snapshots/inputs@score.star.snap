@@ -2823,7 +2823,6 @@ TypedProgram {
   (export "example" (func 22))
   (export "memory" (memory 0))
   (func (;10;) (type 0) (param i32)
-    (local i32)
     (call 0
       (local.get 0))
     (block ;; label = @1
@@ -2974,7 +2973,6 @@ TypedProgram {
       (local.get 1))
   )
   (func (;19;) (type 10) (param i32) (result i32 i64 i64 i32 i32)
-    (local i32)
     (global.get 0)
     (global.get 1)
     (global.get 2)
@@ -3010,7 +3008,6 @@ TypedProgram {
     (i32.const 8)
   )
   (func (;21;) (type 11) (param i32 i64 i64 i32 i32) (result i32)
-    (local i32 i64 i64 i32 i32)
     (global.set 0
       (local.get 0))
     (global.set 1
