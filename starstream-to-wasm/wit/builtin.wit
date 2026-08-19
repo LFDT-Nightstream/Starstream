@@ -5,4 +5,7 @@ package starstream:std;
 interface builtin {
     /// A generic handle to any Utxo.
     resource utxo {}
+
+    /// A generic handle to any Token.
+    resource token {}
 }

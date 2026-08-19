@@ -52,8 +52,8 @@ pub enum Type {
     Abi(Arc<AbiType>),
 }
 
-// Keep Type small (and use Rc instead of Box) to make it cheap to clone.
-const _: [(); 0 - !(std::mem::size_of::<Type>() <= 32) as usize] = [];
+// Keep Type small (and use Arc instead of Box) to make it cheap to clone.
+const _: () = assert!(std::mem::size_of::<Type>() <= 2 * std::mem::size_of::<usize>());
 
 /// Identifier for a type variable.
 ///

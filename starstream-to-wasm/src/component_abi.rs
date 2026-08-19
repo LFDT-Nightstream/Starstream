@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use wasm_encoder::{InstructionSink, MemArg};
+use wasm_encoder::{InstructionSink, MemArg, ValType};
 
 /// Function used to generate instructions to store a single value to memory.
 pub type StoreFn = Box<dyn Fn(InstructionSink)>;
@@ -61,19 +61,37 @@ pub enum ComponentAbiType {
         labels: Vec<String>,
     },
     Own {
-        resource: u32,
+        resource: Rc<Resource>,
     },
     Borrow {
-        resource: u32,
+        resource: Rc<Resource>,
     },
     Stream,
     Future,
 }
 
+/// Resource type.
+#[derive(Hash, PartialEq, Eq, Debug)]
+pub struct Resource {
+    /// The true name of the resource. How it will be exported. Like `utxo`.
+    pub name: String,
+    /// A globally unambiguous name, like `builtin-utxo` or `u-my-utxo`,
+    /// for WIT `use` statements.
+    pub full_name: String,
+}
+
+impl Resource {
+    pub fn repr(&self) -> ValType {
+        ValType::I32
+    }
+}
+
 impl ComponentAbiType {
     pub fn convert_resource_to_owned(self: &Rc<Self>) -> Rc<ComponentAbiType> {
-        match **self {
-            ComponentAbiType::Borrow { resource } => Rc::new(ComponentAbiType::Own { resource }),
+        match &**self {
+            ComponentAbiType::Borrow { resource } => Rc::new(ComponentAbiType::Own {
+                resource: resource.clone(),
+            }),
             _ => self.clone(),
         }
     }
@@ -112,7 +130,7 @@ impl ComponentAbiType {
                 ("error".to_string(), err.clone()),
             ]),
             ComponentAbiType::Flags { labels } => todo!(),
-            ComponentAbiType::Own { .. } | ComponentAbiType::Borrow { .. } => 4,
+            ComponentAbiType::Own { resource } | ComponentAbiType::Borrow { resource } => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
         }
     }

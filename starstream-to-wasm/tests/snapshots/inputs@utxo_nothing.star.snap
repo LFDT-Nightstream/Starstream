@@ -1,6 +1,6 @@
 ---
 source: starstream-to-wasm/tests/snapshots.rs
-input_file: starstream-to-wasm/tests/inputs/utxo_types.star
+input_file: starstream-to-wasm/tests/inputs/utxo_nothing.star
 ---
 ==== AST ====
 Program {
@@ -16,69 +16,13 @@ Program {
                     parts: [],
                 },
             ),
-            span: 0..17,
-        },
-        Spanned {
-            node: Function(
-                FunctionDef {
-                    export: Some(
-                        Script,
-                    ),
-                    name: Identifier {
-                        name: "script_accepts_utxos",
-                        span: 27..47,
-                    },
-                    params: [
-                        FunctionParam {
-                            public: false,
-                            name: Identifier {
-                                name: "utxo",
-                                span: 48..52,
-                            },
-                            ty: Named {
-                                name: [
-                                    Identifier {
-                                        name: "Utxo",
-                                        span: 54..58,
-                                    },
-                                ],
-                                generics: [],
-                            },
-                        },
-                        FunctionParam {
-                            public: false,
-                            name: Identifier {
-                                name: "my_utxo",
-                                span: 60..67,
-                            },
-                            ty: Named {
-                                name: [
-                                    Identifier {
-                                        name: "MyUtxo",
-                                        span: 69..75,
-                                    },
-                                ],
-                                generics: [],
-                            },
-                        },
-                    ],
-                    return_type: None,
-                    body: Block {
-                        statements: [],
-                        tail_expression: None,
-                        span: 77..81,
-                    },
-                },
-            ),
-            span: 17..81,
+            span: 0..16,
         },
     ],
 }
 
 ==== Inference trace ====
 T-Utxo: MyUtxo => 
-
-T-Fn: script_accepts_utxos => ()
 
 ==== Typed AST ====
 TypedProgram {
@@ -98,59 +42,6 @@ TypedProgram {
                 },
             },
         ),
-        Function(
-            TypedFunctionDef {
-                export: Some(
-                    Script,
-                ),
-                name: Identifier {
-                    name: "script_accepts_utxos",
-                    span: 27..47,
-                },
-                id: NameId(5),
-                ty: FunctionType {
-                    kind: Normal,
-                    name_span: 27..47,
-                    params: [
-                        TypedFunctionParam {
-                            public: false,
-                            name: Identifier {
-                                name: "utxo",
-                                span: 48..52,
-                            },
-                            ty: UtxoAny,
-                            ty_span: 54..58,
-                        },
-                        TypedFunctionParam {
-                            public: false,
-                            name: Identifier {
-                                name: "my_utxo",
-                                span: 60..67,
-                            },
-                            ty: Utxo(
-                                UtxoType {
-                                    name: "MyUtxo",
-                                    id: NameId(4),
-                                    possible_abis: [],
-                                    always_abis: [],
-                                },
-                            ),
-                            ty_span: 69..75,
-                        },
-                    ],
-                    result: Unit,
-                    callee: Some(
-                        Named(
-                            NameId(5),
-                        ),
-                    ),
-                },
-                body: TypedBlock {
-                    statements: [],
-                    tail_expression: None,
-                },
-            },
-        ),
     ],
 }
 
@@ -160,7 +51,6 @@ TypedProgram {
   (type (;1;) (func (param i32 i64 i64 i64 i64)))
   (type (;2;) (func (param i32) (result i32)))
   (type (;3;) (func))
-  (type (;4;) (func (param i32 i32)))
   (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;0;) (type 0)))
   (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;1;) (type 0)))
   (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;2;) (type 1)))
@@ -170,7 +60,6 @@ TypedProgram {
   (global (;1;) (mut i32) (i32.const 0))
   (export "my-utxo#get-storage" (func 6))
   (export "my-utxo#set-storage" (func 7))
-  (export "script-accepts-utxos" (func 8))
   (func (;5;) (type 3)
     (call 1
       (global.get 1))
@@ -185,7 +74,6 @@ TypedProgram {
     (return_call 3
       (i32.const 0))
   )
-  (func (;8;) (type 4) (param i32 i32))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -255,8 +143,6 @@ TypedProgram {
                 )
               )
               (export (;3;) "my-utxo" (instance (type 19)))
-              (type (;20;) (func (param "utxo" 3) (param "my-utxo" 17)))
-              (export (;0;) "script-accepts-utxos" (func (type 20)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -278,7 +164,6 @@ world root {
   use starstream:std/utxo-context.{utxo-context as s-utxo-context};
   use starstream:self/my-utxo.{utxo as u-my-utxo};
 
-  export script-accepts-utxos: func(utxo: borrow<s-utxo>, my-utxo: borrow<u-my-utxo>);
   export my-utxo: interface {
     resource utxo;
 

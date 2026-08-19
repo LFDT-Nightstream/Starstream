@@ -405,11 +405,9 @@ TypedProgram {
   (func (;3;) (type 3) (param i32 i32))
   (func (;4;) (type 3) (param i32 i32))
   (func (;5;) (type 0) (param i32) (result i32)
-    (local i32)
     (global.get 0)
   )
   (func (;6;) (type 0) (param i32) (result i32)
-    (local i32)
     (global.set 0
       (local.get 0))
     (return_call 0
@@ -422,27 +420,61 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (import "utxo" (type (;0;) (sub resource)))
-              (type (;1;)
+              (type (;0;)
                 (instance
-                  (export (;0;) "token" (type (sub resource)))
-                  (type (;1;) (own 0))
-                  (type (;2;) (func (result 1)))
-                  (export (;0;) "[static]token.mint" (func (type 2)))
-                  (type (;3;) (borrow 0))
-                  (type (;4;) (func (param "self" 3) (param "to" 3)))
-                  (export (;1;) "[method]token.attach" (func (type 4)))
-                  (type (;5;) (func (param "self" 3) (param "source" 3)))
-                  (export (;2;) "[method]token.detach" (func (type 5)))
-                  (type (;6;) (record (field "supply" s32)))
-                  (export (;7;) "storage" (type (eq 6)))
-                  (type (;8;) (func (param "self" 3) (result 7)))
-                  (export (;3;) "get-storage" (func (type 8)))
-                  (type (;9;) (func (param "storage" 7) (result 1)))
-                  (export (;4;) "set-storage" (func (type 9)))
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (export (;3;) "token" (type (sub resource)))
+                  (type (;4;) (borrow 3))
+                  (type (;5;) (own 3))
                 )
               )
-              (export (;0;) "my-token" (instance (type 1)))
+              (import "starstream:std/builtin" (instance (;0;) (type 0)))
+              (alias export 0 "utxo" (type (;1;)))
+              (import "s-utxo" (type (;2;) (eq 1)))
+              (type (;3;) (borrow 2))
+              (type (;4;) (own 2))
+              (alias export 0 "token" (type (;5;)))
+              (import "s-token" (type (;6;) (eq 5)))
+              (type (;7;) (borrow 6))
+              (type (;8;) (own 6))
+              (type (;9;)
+                (instance
+                  (export (;0;) "token" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                )
+              )
+              (import "starstream:self/my-token" (instance (;1;) (type 9)))
+              (alias export 1 "token" (type (;10;)))
+              (import "t-my-token" (type (;11;) (eq 10)))
+              (type (;12;) (borrow 11))
+              (type (;13;) (own 11))
+              (type (;14;)
+                (instance
+                  (export (;0;) "token" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (type (;3;) (func (result 2)))
+                  (export (;0;) "[static]token.mint" (func (type 3)))
+                  (alias outer 1 1 (type (;4;)))
+                  (export (;5;) "s-utxo" (type (eq 4)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
+                  (type (;8;) (func (param "self" 1) (param "to" 6)))
+                  (export (;1;) "[method]token.attach" (func (type 8)))
+                  (type (;9;) (func (param "self" 1) (param "source" 6)))
+                  (export (;2;) "[method]token.detach" (func (type 9)))
+                  (type (;10;) (record (field "supply" s32)))
+                  (export (;11;) "storage" (type (eq 10)))
+                  (type (;12;) (func (param "self" 1) (result 11)))
+                  (export (;3;) "get-storage" (func (type 12)))
+                  (type (;13;) (func (param "storage" 11) (result 2)))
+                  (export (;4;) "set-storage" (func (type 13)))
+                )
+              )
+              (export (;2;) "my-token" (instance (type 14)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -457,13 +489,18 @@ TypedProgram {
 package root:component;
 
 world root {
-  resource utxo;
+  import starstream:std/builtin;
+  import starstream:self/my-token;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+  use starstream:self/my-token.{token as t-my-token};
 
   export my-token: interface {
+    use starstream:std/builtin.{utxo as s-utxo};
+
     resource token {
       mint: static func() -> token;
-      attach: func(to: borrow<token>);
-      detach: func(source: borrow<token>);
+      attach: func(to: borrow<s-utxo>);
+      detach: func(source: borrow<s-utxo>);
     }
 
     record storage {
@@ -473,5 +510,19 @@ world root {
     get-storage: func(self: borrow<token>) -> storage;
 
     set-storage: func(storage: storage) -> token;
+  }
+}
+package starstream:std {
+  interface builtin {
+    resource utxo;
+
+    resource token;
+  }
+}
+
+
+package starstream:self {
+  interface my-token {
+    resource token;
   }
 }

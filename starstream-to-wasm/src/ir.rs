@@ -11,8 +11,6 @@ use std::fmt;
 
 use wasm_encoder::{BlockType, InstructionSink};
 
-use crate::DisplayClosure;
-
 #[derive(Default)]
 pub struct ControlFlowGraph {
     pub blocks: Vec<BasicBlock>,
@@ -69,7 +67,7 @@ impl Out {
     }
 
     pub fn to_mermaid(&self, i: usize) -> impl fmt::Display {
-        DisplayClosure(move |fmt| {
+        fmt::from_fn(move |fmt| {
             match *self {
                 Out::None => {}
                 Out::Return => {
@@ -198,7 +196,7 @@ impl ControlFlowGraph {
     }
 
     pub fn to_mermaid(&self) -> impl fmt::Display {
-        DisplayClosure(|fmt| {
+        fmt::from_fn(|fmt| {
             writeln!(fmt, "flowchart TB")?;
             writeln!(fmt, "start([start])")?;
             writeln!(fmt, "start --> 0")?;
@@ -230,7 +228,7 @@ impl BasicBlock {
     }
 
     pub fn disassemble(&self) -> impl fmt::Display {
-        DisplayClosure(|fmt| {
+        fmt::from_fn(|fmt| {
             match self.in_type {
                 None | Some(BlockType::Empty) => {}
                 Some(other) => {

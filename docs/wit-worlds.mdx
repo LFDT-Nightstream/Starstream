@@ -40,9 +40,8 @@ Each Utxo declared in the contract is represented as a distinct exported interfa
 An exported interface represents a Utxo if it declares `resource utxo`.
 Each Utxo also has a `record storage` describing its memory and `get-storage` (save) and `set-storage` (load) functions.
 
-Exported functions receive a `utxo-context` supplied by the runtime.
-
-`main fn`s are static methods on the `resource utxo`.
+`main fn`s are static methods on the `resource utxo`, and also receive an
+owned `utxo-context` supplied by the runtime.
 
 For example:
 
@@ -52,7 +51,7 @@ world root {
 
     export my-utxo: interface {
         resource utxo {
-            my-main-fn: static func(ctx: borrow<utxo-context>) -> utxo;
+            my-main-fn: static func(ctx: own<utxo-context>) -> utxo;
         }
 
         record storage {
@@ -67,7 +66,8 @@ world root {
 
 ## Importing Utxos
 
-Contracts which import Utxos do so by importing interfaces containing a `resource utxo`.
+Contracts which import Utxos do so by importing interfaces from `starstream:utxo`
+with the Utxo's name containing a `resource utxo`.
 If needed, the import may also include `downcast` and `upcast` methods, which
 the runtime will provide.
 
@@ -75,7 +75,12 @@ For example:
 
 ```wit
 world root {
-    import my-utxo: interface {
+    import starstream:utxo/my-utxo;
+}
+
+package starstream:utxo {
+    @external-id("0123456789abcdef")
+    interface my-utxo {
         use starstream:std/builtin.{utxo as builtin-utxo};
 
         resource utxo {
@@ -91,10 +96,47 @@ world root {
 A contract which defines a Utxo and also uses it in its own coordination script
 will both export and import the Utxo interface.
 
-Importing a Utxo from another contract uses `@external-id` on the `interface`
-with that contract's digest.
+Using a Utxo from a coordination script in the same contract imports
+`starstream:self/<utxo-name>`.
+
+Importing a Utxo from another contract imports `starstream:utxo/<utxo-name>` and
+supplies `@external-id` on the `interface` with that contract's digest.
 
 ## Importing ABIs
+
+ABIs can contain events, effects, and methods.
+
+### Importing events
+
+To emit events, import and call `starstream:events/<abi-name>#<event-name>`.
+For example:
+
+```wit
+interface starstream:events/my-abi {
+    my-event: func(number: s32);
+}
+
+world root {
+    import starstream:events/my-abi;
+}
+```
+
+### Importing effects
+
+To raise effects, import and call `starstream:effects/<abi-name>#<event-name>`.
+For example:
+
+```wit
+interface starstream:effects/my-abi {
+    my-effect: func(number: s32);
+}
+
+world root {
+    import starstream:effects/my-abi;
+}
+```
+
+### ABI methods
 
 To call methods on a Utxo without knowing its concrete type, import the methods
 from `starstream:contract/dynamic-utxo`:
@@ -103,7 +145,7 @@ from `starstream:contract/dynamic-utxo`:
 interface starstream:contract/dynamic-utxo {
     use starstream:std/builtin.utxo;
 
-    my-method: func(this: borrow<utxo>, parameter: i32);
+    my-method: func(this: borrow<utxo>, parameter: s32);
 }
 
 world root {
@@ -131,7 +173,7 @@ to. For example:
 ```wit
 interface starstream:contract/scripts {
     @external-id("0123456789abcdef")
-    foobar: func() -> i32;
+    foobar: func() -> s32;
 }
 world root {
     import starstream:contract/scripts;

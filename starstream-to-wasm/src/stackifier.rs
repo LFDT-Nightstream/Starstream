@@ -16,7 +16,7 @@ use std::fmt;
 use wasm_encoder::{Encode, FuncType, InstructionSink, ValType};
 
 use crate::{
-    DisplayClosure, StFunction,
+    StFunction,
     ir::{ControlFlowGraph, Out},
 };
 
@@ -187,7 +187,7 @@ impl Stackified<'_> {
     }
 
     pub fn to_mermaid(&self) -> impl fmt::Display {
-        DisplayClosure(|fmt| {
+        fmt::from_fn(|fmt| {
             writeln!(fmt, "flowchart TB")?;
             match self.mode {
                 AsyncMode::Sync | AsyncMode::AsyncStart { .. } => {

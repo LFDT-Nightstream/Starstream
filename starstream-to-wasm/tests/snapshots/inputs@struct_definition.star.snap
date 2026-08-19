@@ -46,10 +46,26 @@ Program {
                             },
                             span: 31..37,
                         },
+                        StructField {
+                            name: Identifier {
+                                name: "w_z",
+                                span: 43..46,
+                            },
+                            ty: Named {
+                                name: [
+                                    Identifier {
+                                        name: "i64",
+                                        span: 48..51,
+                                    },
+                                ],
+                                generics: [],
+                            },
+                            span: 43..51,
+                        },
                     ],
                 },
             ),
-            span: 0..41,
+            span: 0..55,
         },
     ],
 }
@@ -85,6 +101,15 @@ TypedProgram {
                                 I64,
                             ),
                         },
+                        RecordFieldType {
+                            name: Identifier {
+                                name: "w_z",
+                                span: 43..46,
+                            },
+                            ty: Int(
+                                I64,
+                            ),
+                        },
                     ],
                 },
             },
@@ -101,8 +126,27 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (type (;0;) (record (field "x" s64) (field "y" s64)))
-              (import "point" (type (;1;) (eq 0)))
+              (type (;0;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (export (;3;) "token" (type (sub resource)))
+                  (type (;4;) (borrow 3))
+                  (type (;5;) (own 3))
+                )
+              )
+              (import "starstream:std/builtin" (instance (;0;) (type 0)))
+              (alias export 0 "utxo" (type (;1;)))
+              (import "s-utxo" (type (;2;) (eq 1)))
+              (type (;3;) (borrow 2))
+              (type (;4;) (own 2))
+              (alias export 0 "token" (type (;5;)))
+              (import "s-token" (type (;6;) (eq 5)))
+              (type (;7;) (borrow 6))
+              (type (;8;) (own 6))
+              (type (;9;) (record (field "x" s64) (field "y" s64) (field "w-z" s64)))
+              (import "point" (type (;10;) (eq 9)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -116,8 +160,19 @@ TypedProgram {
 package root:component;
 
 world root {
+  import starstream:std/builtin;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
   record point {
     x: s64,
     y: s64,
+    w-z: s64,
+  }
+}
+package starstream:std {
+  interface builtin {
+    resource utxo;
+
+    resource token;
   }
 }

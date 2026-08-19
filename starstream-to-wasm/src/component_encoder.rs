@@ -1,22 +1,32 @@
-use std::{collections::HashMap, rc::Rc};
+//! Helpers to encode [ComponentAbiType] to binary WIT output.
 
-use wasm_encoder::{
-    Alias, ComponentType, ComponentTypeEncoder, ComponentTypeRef, ComponentValType, InstanceType,
-    PrimitiveValType, TypeBounds,
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
 };
 
-use crate::component_abi::{ComponentAbiFunctionSignature, ComponentAbiType};
+use wasm_encoder::{
+    Alias, ComponentExportKind, ComponentOuterAliasKind, ComponentType, ComponentTypeEncoder,
+    ComponentTypeRef, ComponentValType, InstanceType, PrimitiveValType, TypeBounds,
+};
+
+use crate::{
+    component_abi::{ComponentAbiFunctionSignature, ComponentAbiType, Resource},
+    to_kebab_case,
+};
 
 #[derive(Default, Clone)]
-pub struct TypeBuilder<T: ?Sized> {
-    pub component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
+pub struct TypeBuilder<T> {
     pub inner: T,
+    imported_interfaces: HashSet<String>,
+    component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
+    resources: Vec<(Rc<Resource>, u32)>,
+    on_demand_resources: HashMap<Rc<Resource>, u32>,
 }
 
 impl<T: TypeRegistry> TypeBuilder<T> {
     pub fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
-        let idx = self.inner.type_count();
-        (idx, self.inner.ty())
+        (self.inner.type_count(), self.inner.ty())
     }
 
     pub fn encode_func<'a>(
@@ -88,13 +98,7 @@ impl<T: TypeRegistry> TypeBuilder<T> {
             ComponentAbiType::Variant { cases } => {
                 let cases: Vec<_> = cases
                     .iter()
-                    .map(|(name, ty)| {
-                        (
-                            name.as_str(),
-                            ty.as_ref().map(|ty| self.encode_value(ty)),
-                            None,
-                        )
-                    })
+                    .map(|(name, ty)| (name.as_str(), ty.as_ref().map(|ty| self.encode_value(ty))))
                     .collect();
                 let (idx, ty) = self.ty();
                 ty.defined_type().variant(cases);
@@ -115,14 +119,22 @@ impl<T: TypeRegistry> TypeBuilder<T> {
             }
             ComponentAbiType::Flags { .. } => todo!(),
             ComponentAbiType::Own { resource } => {
-                let (idx, ty) = self.ty();
-                ty.defined_type().own(*resource);
-                ComponentValType::Type(idx)
+                // Handled separately by register_resource.
+                if let Some(&index) = self.on_demand_resources.get(resource) {
+                    let (_, own) = self.inherit_resource(resource, index);
+                    ComponentValType::Type(own)
+                } else {
+                    panic!("referencing unimported resource {resource:?}")
+                }
             }
             ComponentAbiType::Borrow { resource } => {
-                let (idx, ty) = self.ty();
-                ty.defined_type().borrow(*resource);
-                ComponentValType::Type(idx)
+                // Handled separately by register_resource.
+                if let Some(&index) = self.on_demand_resources.get(resource) {
+                    let (borrow, _) = self.inherit_resource(resource, index);
+                    ComponentValType::Type(borrow)
+                } else {
+                    panic!("referencing unimported resource {resource:?}")
+                }
             }
             ComponentAbiType::Stream => todo!(),
             ComponentAbiType::Future => todo!(),
@@ -148,6 +160,141 @@ impl<T: TypeRegistry> TypeBuilder<T> {
     pub fn export_fn(&mut self, name: &str, signature: &ComponentAbiFunctionSignature) {
         let type_idx = self.encode_func_sig(signature);
         self.inner.export(name, ComponentTypeRef::Func(type_idx));
+    }
+
+    pub fn export_fn_2<'a>(
+        &mut self,
+        name: &str,
+        params: impl IntoIterator<Item = (&'a str, Rc<ComponentAbiType>)>,
+        result: Option<&Rc<ComponentAbiType>>,
+    ) {
+        let type_idx = self.encode_func(params.into_iter(), result);
+        self.inner.export(name, ComponentTypeRef::Func(type_idx));
+    }
+
+    pub fn fresh_resource(&mut self, name: &str, full_name: &str) -> Rc<Resource> {
+        let rc = Rc::new(Resource {
+            name: to_kebab_case(name),
+            full_name: to_kebab_case(full_name),
+        });
+        let idx = self.inner.type_count();
+        self.inner
+            .import_or_export(&rc.name, ComponentTypeRef::Type(TypeBounds::SubResource));
+        self.register_resource(&rc, idx);
+        self.resources.push((rc.clone(), idx));
+        rc
+    }
+
+    fn inherit_resource(&mut self, resource: &Rc<Resource>, index: u32) -> (u32, u32) {
+        // "alias" makes the type available on a binary level.
+        let alias_idx = self.inner.type_count();
+        self.inner.alias(Alias::Outer {
+            kind: ComponentOuterAliasKind::Type,
+            count: 1,
+            index,
+        });
+
+        // "equality" amounts to a `use` statement (mandatory).
+        let equality_idx = self.inner.type_count();
+        self.inner.export(
+            // The name to `use` as.
+            &resource.full_name,
+            ComponentTypeRef::Type(TypeBounds::Eq(alias_idx)),
+        );
+
+        // no self.resources.push so as to not double-export
+        self.register_resource(resource, equality_idx)
+    }
+
+    fn register_resource(&mut self, resource: &Rc<Resource>, resource_ty: u32) -> (u32, u32) {
+        (
+            {
+                let (idx, ty) = (self.inner.type_count(), self.inner.ty());
+                ty.defined_type().borrow(resource_ty);
+                self.component_to_encoded.insert(
+                    Rc::new(ComponentAbiType::Borrow {
+                        resource: resource.clone(),
+                    }),
+                    ComponentValType::Type(idx),
+                );
+                idx
+            },
+            {
+                let (idx, ty) = (self.inner.type_count(), self.inner.ty());
+                ty.defined_type().own(resource_ty);
+                self.component_to_encoded.insert(
+                    Rc::new(ComponentAbiType::Own {
+                        resource: resource.clone(),
+                    }),
+                    ComponentValType::Type(idx),
+                );
+                idx
+            },
+        )
+    }
+
+    pub fn export_interface(&mut self, name: &str, child: &TypeBuilder<InstanceType>) -> u32 {
+        let (idx, ty) = self.ty();
+        ty.instance(&child.inner);
+        self.inner.export(name, ComponentTypeRef::Instance(idx));
+        // No lift_resources here as it isn't legal binary WIT.
+        idx
+    }
+}
+
+impl TypeBuilder<ComponentType> {
+    pub fn has_imported(&self, name: &str) -> bool {
+        self.imported_interfaces.contains(name)
+    }
+
+    pub fn import_interface(&mut self, name: &str, child: &TypeBuilder<InstanceType>) -> u32 {
+        assert!(self.imported_interfaces.insert(name.to_owned()));
+
+        let (idx, ty) = self.ty();
+        ty.instance(&child.inner);
+
+        let instance_idx = self.inner.instance_count();
+        self.inner
+            .import_or_export(name, ComponentTypeRef::Instance(idx));
+        self.lift_resources(child, instance_idx);
+
+        idx
+    }
+
+    fn lift_resources(&mut self, child: &TypeBuilder<InstanceType>, instance: u32) {
+        // Lift resources declared in the child interface.
+        for (resource, _) in &child.resources {
+            let alias_idx = self.inner.type_count();
+            self.inner.alias(Alias::InstanceExport {
+                instance,
+                kind: ComponentExportKind::Type,
+                name: &resource.name,
+            });
+
+            // "equality" amounts to a `use` statement (mandatory).
+            let equality_idx = self.inner.type_count();
+            self.inner.import(
+                // The name to `use` as.
+                &resource.full_name,
+                ComponentTypeRef::Type(TypeBounds::Eq(alias_idx)),
+            );
+
+            self.register_resource(resource, equality_idx);
+            // Following must use alias_idx or else wit-parser hits an unreachable!(), nice.
+            self.resources.push((resource.clone(), alias_idx));
+        }
+    }
+}
+
+impl TypeBuilder<InstanceType> {
+    pub fn new_interface() -> Self {
+        Self::default()
+    }
+
+    pub fn inherit_parent(&mut self, parent: &TypeBuilder<ComponentType>) {
+        // Lower resources declared in the parent interface.
+        self.on_demand_resources
+            .extend(parent.resources.iter().cloned());
     }
 }
 

@@ -67,6 +67,15 @@ impl bindings::starstream::std::builtin::HostUtxo for Ctx {
     }
 }
 
+impl bindings::starstream::std::builtin::HostToken for Ctx {
+    fn drop(
+        &mut self,
+        _token: Resource<bindings::starstream::std::builtin::Token>,
+    ) -> wasmtime::Result<()> {
+        Ok(())
+    }
+}
+
 impl bindings::starstream::std::cardano::Host for Ctx {
     fn block_height(&mut self) -> wasmtime::Result<i64> {
         Ok(0)

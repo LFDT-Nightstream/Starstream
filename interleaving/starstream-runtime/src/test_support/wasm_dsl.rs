@@ -178,17 +178,7 @@ impl FuncBuilder {
     }
 
     fn finish(self) -> Function {
-        let mut groups: Vec<(u32, ValType)> = Vec::new();
-        for ty in self.locals {
-            if let Some((count, last_ty)) = groups.last_mut()
-                && *last_ty == ty
-            {
-                *count += 1;
-                continue;
-            }
-            groups.push((1, ty));
-        }
-        let mut func = Function::new(groups);
+        let mut func = Function::new_with_locals_types(self.locals);
         for instr in self.instrs {
             func.instruction(&instr);
         }

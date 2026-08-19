@@ -53,21 +53,15 @@ pub struct TypecheckSuccess {
 
 impl TypecheckSuccess {
     pub fn display_traces(&self) -> impl Display {
-        DisplayTraces(&self.traces)
-    }
-}
-
-struct DisplayTraces<'a>(&'a [InferenceTree]);
-
-impl<'a> Display for DisplayTraces<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (index, tree) in self.0.iter().enumerate() {
-            if index > 0 {
-                f.write_str("\n")?;
+        std::fmt::from_fn(|f| {
+            for (index, tree) in self.traces.iter().enumerate() {
+                if index > 0 {
+                    f.write_str("\n")?;
+                }
+                tree.fmt(f)?;
             }
-            tree.fmt(f)?;
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }
 
