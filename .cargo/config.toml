@@ -1,5 +1,12 @@
 [target.wasm32-unknown-unknown]
 rustflags = [
+    # Emit Wasm imports for the JS-provided host functions the sandbox declares
+    # in `extern` blocks (`read_input`, `set_*`, …). These are resolved by the
+    # host at instantiation, never at link time; without this, `rust-lld` (since
+    # the 1.96 toolchain) rejects them as undefined symbols instead of importing
+    # them. Harmless for the wasm-bindgen-based `language-server-web`, which has
+    # no such raw imports.
+    "-Clink-arg=--import-undefined",
     # This adds __indirect_function_table to the exports which is needed for
     # the host to be able to call function pointers directly.
     "-Clink-arg=--export-table",
