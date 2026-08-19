@@ -41,7 +41,7 @@ impl<T: ResourceView> ResourceView for &mut T {
 
 /// Utxo handler
 pub trait UtxoHandler: ResourceView + Send + Sized {
-    type Context;
+    type Context: Send;
 
     fn construct_utxo(
         store: StoreContextMut<Self>,
@@ -273,15 +273,17 @@ pub fn link_instance<T: Host>(
 }
 
 pub fn link_utxo_context<T: UtxoHandler>(linker: &mut LinkerInstance<T>) -> wasmtime::Result<()> {
+    linker.resource(
+        "utxo-context",
+        ResourceType::host::<T::Context>(),
+        |store, cx| T::drop(store, Resource::new_own(cx)),
+    )?;
     linker.func_wrap(
         "[method]utxo-context.implements-method",
         |store, (cx, hash)| T::implements_method(store, cx, hash),
     )?;
     linker.func_wrap("[method]utxo-context.resume", |store, (cx,)| {
         T::resume(store, cx)
-    })?;
-    linker.func_wrap("[resource-drop]utxo-context", |store, (cx,)| {
-        T::drop(store, cx)
     })?;
     Ok(())
 }
@@ -295,11 +297,13 @@ pub fn link_dynamic_imports<T: Host>(
 ) -> wasmtime::Result<()> {
     for (name, types::ComponentExtern { ty, .. }) in ty.imports(engine) {
         if let Some(("starstream:std", interface)) = name.split_once('/') {
-            let mut linker = linker
-                .instance("utxo-context")
-                .context("failed to instantiate `utxo-context` in the linker")?;
             match interface {
-                "utxo-context" => link_utxo_context(&mut linker)?,
+                "utxo-context" => {
+                    let mut linker = linker
+                        .instance("starstream:std/utxo-context")
+                        .context("failed to instantiate `utxo-context` in the linker")?;
+                    link_utxo_context(&mut linker)?
+                }
                 _ => debug!(?name, "skipping builtin instance import"),
             };
             continue;
@@ -322,7 +326,7 @@ pub fn link_dynamic_imports<T: Host>(
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) => {
-                bail!("root instance resource imports unsupported")
+                debug!(?name, "skip root instance resource import")
             }
         }
     }

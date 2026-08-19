@@ -28,4 +28,5 @@ wit-component = { workspace = true }
 sha2 = { workspace = true }
 starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
+test-log = { workspace = true, features = ["color", "trace"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
