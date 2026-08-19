@@ -230,8 +230,9 @@ struct Compiler {
     yield_id: i32,
     yield_funcs: Vec<u32>,
 
-    current_resource: Option<ResourceContext>,
+    context_global: Option<u32>,
     context_local: Option<u32>,
+    current_resource: Option<ResourceContext>,
 }
 
 struct ResourceContext {
@@ -1021,6 +1022,7 @@ impl Compiler {
         {
             self.import_utxo_context();
             self.yield_global = Some(self.add_globals([ValType::I32], "yield"));
+            self.context_global = Some(self.add_globals([ValType::I32], "context"));
         }
 
         // Import anything the source file explicitly imports.
@@ -1217,8 +1219,18 @@ impl Compiler {
             _ => None,
         };
 
+        if let Some(context_local) = self.context_local {
+            // Store `own<utxo-context>` to a global for use in `yield` and `resume`
+            func.instructions(&bb)
+                .local_get(context_local)
+                .global_set(self.context_global.unwrap());
+        }
+
         let _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
-        func.cfg.fill(bb, Out::Return);
+        if bb != usize::MAX {
+            self.visit_return(&mut func, &bb);
+            func.cfg.fill(bb, Out::Return);
+        }
 
         // Stackify from entry point.
         let async_mode = if let Some(resource_local) = resource_local {
@@ -1435,7 +1447,7 @@ impl Compiler {
 
         // Reserve the ID for the `resume;` function for this Utxo.
         let yield_start = self.yield_id;
-        let resume_fn = self.add_function(&FuncType::new([ValType::I32], []), Vec::new());
+        let resume_fn = self.add_function(&FuncType::new([], []), Vec::new());
         let resume_code_idx = self.code_bytes.len() - 1;
         self.current_resource = Some(ResourceContext {
             resume_fn,
@@ -1445,7 +1457,7 @@ impl Compiler {
         });
 
         let utxo_context_resource = self.builtins.utxo_context_resource.clone().unwrap();
-        let utxo_context_ty = Rc::new(ComponentAbiType::Borrow {
+        let utxo_context_ty = Rc::new(ComponentAbiType::Own {
             resource: utxo_context_resource,
         });
 
@@ -1524,17 +1536,15 @@ impl Compiler {
                         // Core export.
                         let core = self.visit_function(
                             Some(&this_ty),
-                            Some(&utxo_context_ty),
+                            None,
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
-                        let mut sig = self.star_to_component_signature(
+                        let sig = self.star_to_component_signature(
                             Some(&this_ty),
                             &function.ty.params,
                             &function.ty.result,
                         );
-                        sig.params
-                            .insert(1, ("utxo-context".to_owned(), utxo_context_ty.clone()));
                         let wit_name = format!(
                             "[method]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())
@@ -1803,7 +1813,7 @@ impl Compiler {
     fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {
         let mut func = Function::new([]);
         // signal resumption to runtime
-        func.instructions().local_get(0);
+        func.instructions().global_get(self.context_global.unwrap());
         func.instructions().call(self.builtins.resume.unwrap());
         if let Some(yield_global) = self.yield_global {
             // if (yield_id == 0) { return resume_0(); } else if ... else unreachable
@@ -1824,6 +1834,17 @@ impl Compiler {
         func.instructions().end();
 
         func.into_raw_body()
+    }
+
+    /// Visit a `return;` statement or the end of the function, doing any
+    /// necessary cleanup.
+    fn visit_return(&self, func: &mut StFunction, bb: &usize) {
+        if let Some(context_local) = self.context_local {
+            // If we own or borrow a context, drop it now.
+            func.instructions(bb)
+                .local_get(context_local)
+                .call(self.builtins.utxo_context_drop.unwrap());
+        }
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
@@ -1935,17 +1956,18 @@ impl Compiler {
                 TypedStatement::Return(Some(expr)) => {
                     let _ =
                         self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
+                    self.visit_return(func, bb);
                     func.cfg.fill(*bb, Out::Return);
                     *bb = usize::MAX;
                     break;
                 }
                 TypedStatement::Return(None) => {
+                    self.visit_return(func, bb);
                     func.cfg.fill(*bb, Out::Return);
                     *bb = usize::MAX;
                     break;
                 }
                 TypedStatement::Resume => {
-                    func.instructions(bb).local_get(self.context_local.unwrap());
                     func.cfg.fill(
                         *bb,
                         Out::ReturnCall {
@@ -3039,7 +3061,8 @@ impl Compiler {
                     for method in &abi.methods {
                         let digest = sha2::Sha256::digest(method.identity());
                         assert_eq!(digest.len(), 32);
-                        func.instructions(bb).local_get(self.context_local.unwrap());
+                        func.instructions(bb)
+                            .global_get(self.context_global.unwrap());
                         for chunk in digest.chunks_exact(8) {
                             func.instructions(bb)
                                 .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
