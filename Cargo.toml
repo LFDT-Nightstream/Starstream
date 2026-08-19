@@ -6,6 +6,7 @@ members = [
   "starstream-interpreter",
   "starstream-language-server",
   "starstream-language-server-web",
+  "starstream-ledger",
   "starstream-runtime-next",
   "starstream-sandbox-web",
   "starstream-to-wasm",
@@ -50,7 +51,8 @@ tracing = { version = "0.1.44", default-features = false }
 wasm-encoder = "0.240.0"
 wasmprinter = "0.240.0"
 wasmparser = "0.240.0"
-wasmtime = { version = "47.0", default-features = false }
+wasmtime = { git = "https://github.com/bytecodealliance/wasmtime.git", rev = "db9cc0399f885fa81a27279b1064d97eaee4b3f1", default-features = false }
+wasmtime-wizer = { git = "https://github.com/bytecodealliance/wasmtime.git", rev = "db9cc0399f885fa81a27279b1064d97eaee4b3f1", default-features = false }
 wit-component = "0.240.0"
 
 neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
