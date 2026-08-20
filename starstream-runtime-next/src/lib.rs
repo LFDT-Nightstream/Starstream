@@ -172,8 +172,6 @@ fn link_utxo_function<T: Host>(
             linker.func_new_async(name, move |mut store, _ty, params, results| {
                 let contract = contract.clone();
                 Box::new(async move {
-                    ensure!(results.len() == 1);
-
                     let contract = contract.unwrap_or_else(|| T::contract(store.as_context_mut()));
                     let instance = contract.instantiate(&mut store).await?;
 
