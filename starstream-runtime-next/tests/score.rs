@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
@@ -41,7 +41,7 @@ struct Ctx {
     contract: Contract<Self>,
 
     table: ResourceTable,
-    events: Vec<(String, String, Box<[Val]>)>,
+    events: Vec<(Arc<str>, Arc<str>, Box<[Val]>)>,
 
     outputs: Vec<(Utxo, Resource<UtxoCtx>)>,
     dropped_utxo_cxs: Vec<UtxoCtx>,
@@ -139,14 +139,14 @@ impl Host for Ctx {
     #[instrument(skip(store), ret)]
     fn emit_event(
         mut store: StoreContextMut<Self>,
-        abi_name: &str,
-        name: &str,
+        abi_name: &Arc<str>,
+        name: &Arc<str>,
         params: &[Val],
     ) -> wasmtime::Result<()> {
         store
             .data_mut()
             .events
-            .push((abi_name.into(), name.into(), params.into()));
+            .push((Arc::clone(abi_name), Arc::clone(name), params.into()));
         Ok(())
     }
 }

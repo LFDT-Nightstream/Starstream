@@ -68,8 +68,8 @@ pub trait Host:
 
     fn emit_event(
         store: StoreContextMut<Self>,
-        abi_name: &str,
-        name: &str,
+        abi_name: &Arc<str>,
+        name: &Arc<str>,
         params: &[Val],
     ) -> wasmtime::Result<()>;
 }
