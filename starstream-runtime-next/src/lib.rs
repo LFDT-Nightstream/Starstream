@@ -1,3 +1,4 @@
+use std::pin::Pin;
 use std::sync::Arc;
 
 use tracing::{debug, instrument};
@@ -42,13 +43,15 @@ pub trait Host:
 
     fn contract(store: StoreContextMut<Self>) -> Contract<Self>;
 
-    fn new_utxo_context(store: StoreContextMut<Self>) -> Self::UtxoContext;
-
-    fn output(
+    fn call_utxo_main(
         store: StoreContextMut<Self>,
-        utxo: Utxo,
-        cx: Resource<Self::UtxoContext>,
-    ) -> wasmtime::Result<()>;
+        f: impl for<'a> FnOnce(
+            StoreContextMut<'a, Self>,
+            Self::UtxoContext,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<Utxo>> + Send + 'a>>
+        + Send,
+    ) -> impl Future<Output = wasmtime::Result<Utxo>> + Send;
 
     fn implements_method(
         store: StoreContextMut<Self>,
@@ -104,7 +107,6 @@ fn link_event_function<T: Host>(
     abi_name: &str,
     name: &str,
 ) -> wasmtime::Result<()> {
-    debug!(abi_name, name, "linking ABI instance event function");
     let abi_name = Arc::<str>::from(abi_name);
     let name = Arc::<str>::from(name);
     ensure!(ty.results().len() == 0);
@@ -122,24 +124,24 @@ fn link_event_instance_import<T: Host>(
     abi_name: &str,
 ) -> wasmtime::Result<()> {
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
-        debug!(name, "linking ABI instance item");
+        debug!(name, "linking event instance item");
         match ty {
             types::ComponentItem::ComponentFunc(ty) => {
                 link_event_function(linker, ty, abi_name, name)?;
             }
             types::ComponentItem::CoreFunc(..) => {
-                bail!("ABI instance core function imports unsupported")
+                bail!("event instance core function imports unsupported")
             }
-            types::ComponentItem::Module(..) => bail!("ABI instance module imports unsupported"),
+            types::ComponentItem::Module(..) => bail!("event instance module imports unsupported"),
             types::ComponentItem::Component(..) => {
-                bail!("ABI instance component imports unsupported")
+                bail!("event instance component imports unsupported")
             }
             types::ComponentItem::ComponentInstance(..) => {
-                bail!("ABI instance component instance imports unsupported")
+                bail!("event instance component instance imports unsupported")
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) => {
-                bail!("ABI instance resource imports unsupported")
+                bail!("event instance resource imports unsupported")
             }
         }
     }
@@ -173,28 +175,29 @@ fn link_utxo_function<T: Host>(
                     ensure!(results.len() == 1);
 
                     let contract = contract.unwrap_or_else(|| T::contract(store.as_context_mut()));
-                    let cx = T::new_utxo_context(store.as_context_mut());
-                    let cx = store.data_mut().table().push(cx)?;
-                    let cx_rep = cx.rep();
-                    let cx = cx.try_into_resource_any(&mut store)?;
-
                     let instance = contract.instantiate(&mut store).await?;
 
-                    let params = {
+                    let mut params = {
                         let mut ps = Vec::with_capacity(params.len().saturating_add(1));
-                        ps.push(Val::Resource(cx));
+                        ps.push(Val::Bool(false));
                         for p in params {
                             ps.push(p.clone());
                         }
                         ps
                     };
-                    let utxo = instance.construct_utxo(&mut store, idx, params).await?;
-                    {
-                        let utxo = store.data_mut().table().push(utxo)?;
-                        let utxo = utxo.try_into_resource_any(store.as_context_mut())?;
-                        results[0] = Val::Resource(utxo);
-                    }
-                    T::output(store, utxo, Resource::new_borrow(cx_rep))
+                    let utxo = T::call_utxo_main(store.as_context_mut(), move |mut store, cx| {
+                        Box::pin(async move {
+                            let cx = store.data_mut().table().push(cx)?;
+                            let cx = cx.try_into_resource_any(&mut store)?;
+                            params[0] = Val::Resource(cx);
+                            instance.construct_utxo(&mut store, idx, params).await
+                        })
+                    })
+                    .await?;
+                    let utxo = store.data_mut().table().push(utxo)?;
+                    let utxo = utxo.try_into_resource_any(store.as_context_mut())?;
+                    results[0] = Val::Resource(utxo);
+                    Ok(())
                 })
             })
         }
@@ -577,12 +580,12 @@ impl<T: Host> Contract<T> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    fn get_utxo_constructor_typed(
+    fn get_utxo_main_typed(
         &self,
         utxo: &UtxoExport,
         name: &str,
         ty: types::ComponentFunc,
-    ) -> wasmtime::Result<ConstructorExport> {
+    ) -> wasmtime::Result<UtxoMainExport> {
         let idx = self
             .pre
             .component()
@@ -598,16 +601,12 @@ impl<T: Host> Contract<T> {
         if resource_ty != utxo.resource_ty {
             bail!("function return value does not match UTXO resource type");
         }
-        Ok(ConstructorExport { ty, idx })
+        Ok(UtxoMainExport { ty, idx })
     }
 
-    /// Get a constructor of an exported UTXO by name
+    /// Get a `main fn` of an exported UTXO by name
     #[instrument(level = "trace", skip_all)]
-    pub fn get_utxo_constructor(
-        &self,
-        utxo: &UtxoExport,
-        name: &str,
-    ) -> wasmtime::Result<ConstructorExport> {
+    pub fn get_utxo_main(&self, utxo: &UtxoExport, name: &str) -> wasmtime::Result<UtxoMainExport> {
         let types::ComponentExtern { ty, .. } = utxo
             .instance_ty
             .get_export(self.pre.engine(), name)
@@ -615,15 +614,15 @@ impl<T: Host> Contract<T> {
         let types::ComponentItem::ComponentFunc(ty) = ty else {
             bail!("export is not a function")
         };
-        self.get_utxo_constructor_typed(utxo, name, ty)
+        self.get_utxo_main_typed(utxo, name, ty)
     }
 
-    /// Iterate over exported UTXO constructors along with their names
+    /// Iterate over exported UTXO `main fn`s along with their names
     #[instrument(level = "trace", skip_all)]
-    pub fn utxo_constructors<'a>(
+    pub fn utxo_mains<'a>(
         &'a self,
         utxo: &'a UtxoExport,
-    ) -> impl Iterator<Item = (&'a str, wasmtime::Result<ConstructorExport>)> {
+    ) -> impl Iterator<Item = (&'a str, wasmtime::Result<UtxoMainExport>)> {
         utxo.instance_ty
             .exports(self.pre.engine())
             .filter_map(move |(name, ty)| match ty {
@@ -631,7 +630,7 @@ impl<T: Host> Contract<T> {
                     ty: types::ComponentItem::ComponentFunc(ty),
                     ..
                 } if name.starts_with("[static]") => {
-                    Some((name, self.get_utxo_constructor_typed(utxo, name, ty)))
+                    Some((name, self.get_utxo_main_typed(utxo, name, ty)))
                 }
                 _ => None,
             })
@@ -793,10 +792,10 @@ impl ContractInstance {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn create_utxo<T>(
+    pub async fn call_utxo_main<T>(
         &self,
         store: impl AsContextMut<Data = T>,
-        ConstructorExport { idx, .. }: &ConstructorExport,
+        UtxoMainExport { idx, .. }: &UtxoMainExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo>
     where
@@ -872,12 +871,12 @@ impl UtxoExport {
 }
 
 #[derive(Clone, Debug)]
-pub struct ConstructorExport {
+pub struct UtxoMainExport {
     ty: types::ComponentFunc,
     idx: ComponentExportIndex,
 }
 
-impl ConstructorExport {
+impl UtxoMainExport {
     #[must_use]
     pub fn ty(&self) -> &types::ComponentFunc {
         &self.ty
