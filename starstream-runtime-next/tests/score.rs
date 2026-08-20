@@ -38,11 +38,18 @@ fn compile_contract(source: &str) -> Vec<u8> {
 static EXAMPLE_SCORE: LazyLock<Vec<u8>> =
     LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
 
+#[derive(Debug, Eq, PartialEq)]
+struct Event {
+    abi_name: Arc<str>,
+    name: Arc<str>,
+    params: Box<[Val]>,
+}
+
 struct Ctx {
     contract: Contract<Self>,
 
     table: ResourceTable,
-    events: Vec<(Arc<str>, Arc<str>, Box<[Val]>)>,
+    events: Vec<Event>,
 
     outputs: Vec<(Utxo, Arc<Mutex<UtxoCtx>>)>,
     dropped_utxo_cxs: Vec<Arc<Mutex<UtxoCtx>>>,
@@ -149,10 +156,11 @@ impl Host for Ctx {
         name: &Arc<str>,
         params: &[Val],
     ) -> wasmtime::Result<()> {
-        store
-            .data_mut()
-            .events
-            .push((Arc::clone(abi_name), Arc::clone(name), params.into()));
+        store.data_mut().events.push(Event {
+            abi_name: Arc::clone(abi_name),
+            name: Arc::clone(name),
+            params: params.into(),
+        });
         Ok(())
     }
 }
@@ -415,11 +423,11 @@ async fn score_main_new() -> wasmtime::Result<()> {
     assert!(table.is_empty());
     assert_eq!(
         events,
-        [(
-            "score".into(),
-            "finish".into(),
-            [Val::U64(3 * 4 * 2)].into()
-        )]
+        [Event {
+            abi_name: "score".into(),
+            name: "finish".into(),
+            params: [Val::U64(3 * 4 * 2)].into()
+        }]
     );
     let mut dropped_utxo_cxs = dropped_utxo_cxs.iter();
     let cx = match (dropped_utxo_cxs.next(), dropped_utxo_cxs.next()) {
