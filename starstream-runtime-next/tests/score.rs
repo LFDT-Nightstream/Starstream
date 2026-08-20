@@ -52,7 +52,6 @@ struct Ctx {
     events: Vec<Event>,
 
     outputs: Vec<(Utxo, Arc<Mutex<UtxoCtx>>)>,
-    dropped_utxo_cxs: Vec<Arc<Mutex<UtxoCtx>>>,
 }
 
 #[derive(Debug, Default)]
@@ -139,13 +138,8 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let Ctx {
-            table,
-            dropped_utxo_cxs,
-            ..
-        } = store.data_mut();
-        let cx = table.delete(cx)?;
-        dropped_utxo_cxs.push(cx);
+        let Ctx { table, .. } = store.data_mut();
+        table.delete(cx)?;
         Ok(())
     }
 
@@ -324,8 +318,8 @@ async fn score_main_new() -> wasmtime::Result<()> {
     let ty = assert_progress_utxo(&contract)?;
 
     let mut table = ResourceTable::default();
-    let utxo_cx = table.push(Arc::new(Mutex::new(UtxoCtx::default())))?;
-    let utxo_cx_rep = utxo_cx.rep();
+    let utxo_cx = Arc::new(Mutex::new(UtxoCtx::default()));
+    let utxo_cx_res = table.push(Arc::clone(&utxo_cx))?;
     let mut store = wasmtime::Store::new(
         &engine,
         Ctx {
@@ -333,20 +327,18 @@ async fn score_main_new() -> wasmtime::Result<()> {
             table,
             events: Vec::default(),
             outputs: Vec::default(),
-            dropped_utxo_cxs: Vec::default(),
         },
     );
-    let utxo_cx = utxo_cx.try_into_resource_any(&mut store)?;
+    let utxo_cx_res = utxo_cx_res.try_into_resource_any(&mut store)?;
     let instance = contract.instantiate(&mut store).await?;
     let utxo = instance
-        .call_utxo_main(&mut store, &ty.new, [Val::Resource(utxo_cx)])
+        .call_utxo_main(&mut store, &ty.new, [Val::Resource(utxo_cx_res)])
         .instrument(info_span!("new"))
         .await
         .context("failed to construct UTXO")?;
 
-    let Ctx { events, table, .. } = store.data();
+    let Ctx { events, .. } = store.data();
     assert_eq!(events.as_ref(), []);
-    let utxo_cx: &Arc<Mutex<UtxoCtx>> = table.get(&Resource::new_borrow(utxo_cx_rep))?;
     assert_eq!(utxo_cx.lock().unwrap().methods, *METHODS);
 
     let ProgressStorage {
@@ -416,7 +408,6 @@ async fn score_main_new() -> wasmtime::Result<()> {
         table,
         events,
         outputs,
-        dropped_utxo_cxs,
         ..
     } = store.into_data();
     assert!(outputs.is_empty());
@@ -429,12 +420,11 @@ async fn score_main_new() -> wasmtime::Result<()> {
             params: [Val::U64(3 * 4 * 2)].into()
         }]
     );
-    let mut dropped_utxo_cxs = dropped_utxo_cxs.iter();
-    let cx = match (dropped_utxo_cxs.next(), dropped_utxo_cxs.next()) {
-        (Some(cx), None) => cx,
-        _ => bail!("unexpected UTXO contexts dropped `{dropped_utxo_cxs:?}`"),
-    };
-    assert_eq!(cx.lock().unwrap().methods, []);
+    let UtxoCtx { methods } = Arc::into_inner(utxo_cx)
+        .expect("UTXO context must have been dropped")
+        .into_inner()
+        .unwrap();
+    assert_eq!(methods, []);
     Ok(())
 }
 
@@ -452,7 +442,6 @@ async fn score_script_example() -> wasmtime::Result<()> {
             table: ResourceTable::default(),
             events: Vec::default(),
             outputs: Vec::default(),
-            dropped_utxo_cxs: Vec::default(),
         },
     );
     let instance = contract
@@ -466,10 +455,7 @@ async fn score_script_example() -> wasmtime::Result<()> {
         .context("failed to call `example` coordination script")?;
 
     let Ctx {
-        events,
-        outputs,
-        dropped_utxo_cxs,
-        ..
+        events, outputs, ..
     } = store.data();
     let mut outputs = outputs.iter();
     let (utxo, utxo_cx) = match (outputs.next(), outputs.next()) {
@@ -477,7 +463,7 @@ async fn score_script_example() -> wasmtime::Result<()> {
         _ => bail!("unexpected outputs created: {outputs:?}"),
     };
     assert_eq!(utxo_cx.lock().unwrap().methods, *METHODS);
-    assert!(dropped_utxo_cxs.is_empty());
+    assert_eq!(Arc::strong_count(utxo_cx), 2);
     assert!(events.is_empty());
 
     let ProgressStorage {
