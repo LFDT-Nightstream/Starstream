@@ -57,6 +57,7 @@ struct Ctx {
 #[derive(Debug, Default)]
 pub struct UtxoCtx {
     methods: Vec<(u64, u64, u64, u64)>,
+    dropped: bool,
 }
 
 impl bindings::starstream::std::builtin::Host for Ctx {}
@@ -139,7 +140,8 @@ impl Host for Ctx {
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
         let Ctx { table, .. } = store.data_mut();
-        table.delete(cx)?;
+        let cx = table.delete(cx)?;
+        cx.lock().unwrap().dropped = true;
         Ok(())
     }
 
@@ -420,11 +422,12 @@ async fn score_main_new() -> wasmtime::Result<()> {
             params: [Val::U64(3 * 4 * 2)].into()
         }]
     );
-    let UtxoCtx { methods } = Arc::into_inner(utxo_cx)
+    let UtxoCtx { methods, dropped } = Arc::into_inner(utxo_cx)
         .expect("UTXO context must have been dropped")
         .into_inner()
         .unwrap();
     assert_eq!(methods, []);
+    assert!(dropped);
     Ok(())
 }
 
@@ -462,8 +465,11 @@ async fn score_script_example() -> wasmtime::Result<()> {
         (Some((utxo, utxo_cx)), None) => (*utxo, utxo_cx),
         _ => bail!("unexpected outputs created: {outputs:?}"),
     };
-    assert_eq!(utxo_cx.lock().unwrap().methods, *METHODS);
-    assert_eq!(Arc::strong_count(utxo_cx), 2);
+    {
+        let utxo_cx = utxo_cx.lock().unwrap();
+        assert_eq!(utxo_cx.methods, *METHODS);
+        assert!(!utxo_cx.dropped);
+    }
     assert!(events.is_empty());
 
     let ProgressStorage {
