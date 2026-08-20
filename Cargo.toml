@@ -41,6 +41,7 @@ starstream-language-server = { path = "starstream-language-server" }
 starstream-runtime-next = { path = "starstream-runtime-next" }
 starstream-to-wasm = { path = "starstream-to-wasm" }
 starstream-types = { path = "starstream-types" }
+test-log = { version = "0.2.18", default-features = false }
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", default-features = false }
 tower-lsp-server = { version = "0.22.1", default-features = false, features = [

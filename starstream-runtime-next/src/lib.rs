@@ -1,3 +1,4 @@
+use std::pin::Pin;
 use std::sync::Arc;
 
 use tracing::{debug, instrument};
@@ -29,59 +30,51 @@ pub mod bindings {
     });
 }
 
-pub trait ResourceView {
+pub trait Host:
+    bindings::starstream::std::builtin::Host
+    + bindings::starstream::std::cardano::Host
+    + Send
+    + Sized
+    + 'static
+{
+    type UtxoContext: Send;
+
     fn table(&mut self) -> &mut ResourceTable;
-}
 
-impl<T: ResourceView> ResourceView for &mut T {
-    fn table(&mut self) -> &mut ResourceTable {
-        T::table(self)
-    }
-}
+    fn contract(store: StoreContextMut<Self>) -> Contract<Self>;
 
-/// Utxo handler
-pub trait UtxoHandler: ResourceView + Send + Sized {
-    type Context;
-
-    fn construct_utxo(
+    fn call_utxo_main(
         store: StoreContextMut<Self>,
-        instance: &Arc<str>,
-        name: &Arc<str>,
-        params: &[Val],
+        f: impl for<'a> FnOnce(
+            StoreContextMut<'a, Self>,
+            Self::UtxoContext,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<Utxo>> + Send + 'a>>
+        + Send,
     ) -> impl Future<Output = wasmtime::Result<Utxo>> + Send;
 
     fn implements_method(
         store: StoreContextMut<Self>,
-        cx: Resource<Self::Context>,
+        cx: Resource<Self::UtxoContext>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<()>;
 
-    fn resume(store: StoreContextMut<Self>, cx: Resource<Self::Context>) -> wasmtime::Result<()>;
+    fn resume(
+        store: StoreContextMut<Self>,
+        cx: Resource<Self::UtxoContext>,
+    ) -> wasmtime::Result<()>;
 
-    fn drop(store: StoreContextMut<Self>, cx: Resource<Self::Context>) -> wasmtime::Result<()>;
-}
+    fn drop_utxo_context(
+        store: StoreContextMut<Self>,
+        cx: Resource<Self::UtxoContext>,
+    ) -> wasmtime::Result<()>;
 
-/// ABI event handler
-pub trait EventHandler {
-    fn emit_event(&mut self, instance: &str, name: &str, params: &[Val]);
-}
-
-pub trait Host:
-    bindings::starstream::std::builtin::Host
-    + bindings::starstream::std::cardano::Host
-    + EventHandler
-    + UtxoHandler
-    + 'static
-{
-}
-
-impl<T> Host for T where
-    T: bindings::starstream::std::builtin::Host
-        + bindings::starstream::std::cardano::Host
-        + EventHandler
-        + UtxoHandler
-        + 'static
-{
+    fn emit_event(
+        store: StoreContextMut<Self>,
+        abi_name: &Arc<str>,
+        name: &Arc<str>,
+        params: &[Val],
+    ) -> wasmtime::Result<()>;
 }
 
 pub fn componentize(wasm: impl AsRef<[u8]>) -> anyhow::Result<Vec<u8>> {
@@ -108,51 +101,47 @@ fn load_component(engine: &Engine, wasm: impl AsRef<[u8]>) -> wasmtime::Result<C
 
 /// Link ABI event [`types::ComponentFunc`] in a [`LinkerInstance`]
 #[instrument(level = "trace", skip_all)]
-pub fn link_abi_event_function<T: EventHandler>(
+fn link_event_function<T: Host>(
     linker: &mut LinkerInstance<T>,
-    _ty: types::ComponentFunc,
-    instance: &str,
+    ty: types::ComponentFunc,
+    abi_name: &str,
     name: &str,
 ) -> wasmtime::Result<()> {
-    debug!(instance, name, "linking ABI instance event function");
-    let instance = Arc::<str>::from(instance);
+    let abi_name = Arc::<str>::from(abi_name);
     let name = Arc::<str>::from(name);
-    linker.func_new(
-        &Arc::clone(&name),
-        move |mut store, _ty, params, _results| {
-            store.data_mut().emit_event(&instance, &name, params);
-            Ok(())
-        },
-    )
+    ensure!(ty.results().len() == 0);
+    linker.func_new(&Arc::clone(&name), move |store, _ty, params, _results| {
+        T::emit_event(store, &abi_name, &name, params)
+    })
 }
 
 /// Link dynamic imported ABI instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
-pub fn link_abi_instance<T: EventHandler>(
+fn link_event_instance_import<T: Host>(
     engine: &Engine,
     linker: &mut LinkerInstance<T>,
     ty: &types::ComponentInstance,
-    instance: &str,
+    abi_name: &str,
 ) -> wasmtime::Result<()> {
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
-        debug!(name, "linking ABI instance item");
+        debug!(name, "linking event instance item");
         match ty {
             types::ComponentItem::ComponentFunc(ty) => {
-                link_abi_event_function(linker, ty, instance, name)?;
+                link_event_function(linker, ty, abi_name, name)?;
             }
             types::ComponentItem::CoreFunc(..) => {
-                bail!("ABI instance core function imports unsupported")
+                bail!("event instance core function imports unsupported")
             }
-            types::ComponentItem::Module(..) => bail!("ABI instance module imports unsupported"),
+            types::ComponentItem::Module(..) => bail!("event instance module imports unsupported"),
             types::ComponentItem::Component(..) => {
-                bail!("ABI instance component imports unsupported")
+                bail!("event instance component imports unsupported")
             }
             types::ComponentItem::ComponentInstance(..) => {
-                bail!("ABI instance component instance imports unsupported")
+                bail!("event instance component instance imports unsupported")
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) => {
-                bail!("ABI instance resource imports unsupported")
+                bail!("event instance resource imports unsupported")
             }
         }
     }
@@ -160,16 +149,18 @@ pub fn link_abi_instance<T: EventHandler>(
 }
 
 /// Link UTXO [`types::ComponentFunc`] in a [`LinkerInstance`]
-#[instrument(level = "trace", skip_all)]
-pub fn link_utxo_function<T: UtxoHandler>(
+#[instrument(level = "trace", skip(component, contract, linker, ty, instance))]
+fn link_utxo_function<T: Host>(
+    contract: Option<Contract<T>>,
+    component: &Component,
     linker: &mut LinkerInstance<T>,
     ty: types::ComponentFunc,
-    instance: &str,
+    instance: &ComponentExportIndex,
     name: &str,
 ) -> wasmtime::Result<()> {
-    debug!(instance, name, "linking UTXO instance function");
-    let instance = Arc::<str>::from(instance);
-    let name = Arc::<str>::from(name);
+    let idx = component
+        .get_export_index(Some(instance), name)
+        .with_context(|| format!("`{name}` export was not found"))?;
     match name.split_once(']') {
         Some(("[static", ..)) => {
             let (Some(Type::Own(..)), None) = ({
@@ -178,62 +169,82 @@ pub fn link_utxo_function<T: UtxoHandler>(
             }) else {
                 bail!("function does not return a single resource value")
             };
-            linker.func_new_async(
-                &Arc::clone(&name),
-                move |mut store, _ty, params, results| {
-                    let instance = Arc::clone(&instance);
-                    let name = Arc::clone(&name);
-                    Box::new(async move {
-                        ensure!(results.len() == 1);
-                        let utxo =
-                            T::construct_utxo(store.as_context_mut(), &instance, &name, params)
-                                .await?;
-                        let utxo = store.data_mut().table().push(utxo)?;
-                        let utxo = utxo.try_into_resource_any(store)?;
-                        results[0] = Val::Resource(utxo);
-                        Ok(())
+            linker.func_new_async(name, move |mut store, _ty, params, results| {
+                let contract = contract.clone();
+                Box::new(async move {
+                    let contract = contract.unwrap_or_else(|| T::contract(store.as_context_mut()));
+                    let instance = contract.instantiate(&mut store).await?;
+
+                    let mut params = {
+                        let mut ps = Vec::with_capacity(params.len().saturating_add(1));
+                        ps.push(Val::Bool(false));
+                        for p in params {
+                            ps.push(p.clone());
+                        }
+                        ps
+                    };
+                    let utxo = T::call_utxo_main(store.as_context_mut(), move |mut store, cx| {
+                        Box::pin(async move {
+                            let cx = store.data_mut().table().push(cx)?;
+                            let cx = cx.try_into_resource_any(&mut store)?;
+                            params[0] = Val::Resource(cx);
+                            instance.construct_utxo(&mut store, idx, params).await
+                        })
                     })
-                },
-            )
+                    .await?;
+                    let utxo = store.data_mut().table().push(utxo)?;
+                    let utxo = utxo.try_into_resource_any(store.as_context_mut())?;
+                    results[0] = Val::Resource(utxo);
+                    Ok(())
+                })
+            })
         }
         Some(("[method", ..)) => {
             let Some((_, Type::Borrow(..))) = ty.params().next() else {
                 bail!("function does not take borrowed resource type as first parameter");
             };
-            linker.func_new_async(
-                &Arc::clone(&name),
-                move |mut store, _ty, params, results| {
-                    let name = Arc::clone(&name);
-                    Box::new(async move {
-                        let Some(Val::Resource(utxo)) = params.first() else {
-                            bail!("first parameter is not a resource")
-                        };
-                        let utxo = utxo.try_into_resource::<Utxo>(&mut store)?;
-                        let utxo = store.data_mut().table().get(&utxo).copied()?;
-                        let f = utxo.get_function_export(&mut store, &*name)?;
-                        f.call_async(&mut store, params, results).await?;
-                        Ok(())
-                    })
-                },
-            )
+            linker.func_new_async(name, move |mut store, _ty, params, results| {
+                Box::new(async move {
+                    let Some(Val::Resource(utxo)) = params.first() else {
+                        bail!("first parameter is not a resource")
+                    };
+                    let utxo = utxo.try_into_resource::<Utxo>(&mut store)?;
+                    let utxo = store.data_mut().table().get(&utxo).copied()?;
+                    let f = utxo.get_function_export(&mut store, idx)?;
+                    let params = {
+                        let mut ps = Vec::with_capacity(params.len());
+                        ps.push(Val::Resource(utxo.resource()));
+                        for p in &params[1..] {
+                            ps.push(p.clone());
+                        }
+                        ps
+                    };
+                    f.call_async(&mut store, &params, results).await?;
+                    Ok(())
+                })
+            })
         }
-        _ => bail!("unexpected UTXO instance function import `{name}` from instance `{instance}`"),
+        _ => bail!("unexpected UTXO instance function import `{name}`"),
     }
 }
 
 /// Link dynamic imported UTXO instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
-pub fn link_utxo_instance<T: UtxoHandler>(
-    engine: &Engine,
+fn link_utxo_instance_import<T: Host>(
+    contract: Option<Contract<T>>,
+    component: &Component,
     linker: &mut LinkerInstance<T>,
     ty: &types::ComponentInstance,
-    instance: &str,
+    name: &str,
 ) -> wasmtime::Result<()> {
-    for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
+    let idx = component
+        .get_export_index(None, name)
+        .with_context(|| format!("`{name}` export was not found"))?;
+    for (name, types::ComponentExtern { ty, .. }) in ty.exports(component.engine()) {
         debug!(name, "linking UTXO instance item");
         match ty {
             types::ComponentItem::ComponentFunc(ty) => {
-                link_utxo_function(linker, ty, instance, name)?;
+                link_utxo_function(contract.clone(), component, linker, ty, &idx, name)?;
             }
             types::ComponentItem::CoreFunc(..) => {
                 bail!("UTXO instance core function imports unsupported")
@@ -247,7 +258,13 @@ pub fn link_utxo_instance<T: UtxoHandler>(
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) if name == "utxo" => {
-                linker.resource("utxo", ResourceType::host::<Utxo>(), |_, _| Ok(()))?;
+                linker.resource("utxo", ResourceType::host::<Utxo>(), |mut store, rep| {
+                    store
+                        .data_mut()
+                        .table()
+                        .delete::<Utxo>(Resource::new_own(rep))?;
+                    Ok(())
+                })?;
             }
             types::ComponentItem::Resource(..) => {
                 bail!("UTXO instance resource imports unsupported")
@@ -258,52 +275,89 @@ pub fn link_utxo_instance<T: UtxoHandler>(
 }
 
 /// Link dynamic imported instance in a [`LinkerInstance`].
-#[instrument(level = "trace", skip_all)]
-pub fn link_instance<T: Host>(
-    engine: &Engine,
+#[instrument(level = "trace", skip(component, linker, ty))]
+fn link_instance_import<T: Host>(
+    component: &Component,
     linker: &mut LinkerInstance<T>,
     ty: &types::ComponentInstance,
     instance: &str,
 ) -> wasmtime::Result<()> {
-    if ty.get_export(engine, "utxo").is_some() {
-        link_utxo_instance(engine, linker, ty, instance)
-    } else {
-        link_abi_instance(engine, linker, ty, instance)
-    }
-}
+    debug_assert!(!instance.starts_with("starstream:std"));
 
-pub fn link_utxo_context<T: UtxoHandler>(linker: &mut LinkerInstance<T>) -> wasmtime::Result<()> {
-    linker.func_wrap(
-        "[method]utxo-context.implements-method",
-        |store, (cx, hash)| T::implements_method(store, cx, hash),
-    )?;
-    linker.func_wrap("[method]utxo-context.resume", |store, (cx,)| {
-        T::resume(store, cx)
-    })?;
-    linker.func_wrap("[resource-drop]utxo-context", |store, (cx,)| {
-        T::drop(store, cx)
-    })?;
-    Ok(())
+    let engine = component.engine();
+    match (
+        instance.split_once('/'),
+        ty.get_export(engine, "utxo"),
+        ty.get_export(engine, "token"),
+    ) {
+        (Some(("starstream:utxo", _name)), ..) => {
+            // TODO: Use external-id to lookup the contract
+            bail!("cross-contract UTXO imports unsupported")
+        }
+
+        (
+            Some(("starstream:self", name)),
+            Some(types::ComponentExtern {
+                ty: types::ComponentItem::Resource(..),
+                ..
+            }),
+            None,
+        ) => link_utxo_instance_import(None, component, linker, ty, name),
+
+        (
+            Some(("starstream:self", ..)),
+            None,
+            Some(types::ComponentExtern {
+                ty: types::ComponentItem::Resource(..),
+                ..
+            }),
+        ) => bail!("token imports unsupported"),
+
+        (
+            Some(("starstream:self", ..)),
+            Some(types::ComponentExtern {
+                ty: types::ComponentItem::Resource(..),
+                ..
+            }),
+            Some(types::ComponentExtern {
+                ty: types::ComponentItem::Resource(..),
+                ..
+            }),
+        ) => bail!("both `utxo` and `token` resources exported by instance `{instance}` import"),
+
+        (Some(("starstream:self", ..)), ..) => {
+            bail!("failed to classify `starstream:self` instance import")
+        }
+
+        (Some(("starstream:events", name)), ..) => {
+            link_event_instance_import(engine, linker, ty, name)
+        }
+
+        (Some(("starstream:effects", ..)), ..) => {
+            bail!("effect imports unsupported")
+        }
+
+        (Some(("starstream:contract", "dynamic-utxo")), ..) => {
+            bail!("dynamic UTXO imports unsupported")
+        }
+
+        (Some(("starstream:contract", "scripts")), ..) => {
+            bail!("coordination script imports unsupported")
+        }
+
+        _ => bail!("unexpected instance import `{instance}`"),
+    }
 }
 
 /// Link dynamic imports of the contract
 #[instrument(level = "trace", skip_all)]
-pub fn link_dynamic_imports<T: Host>(
-    engine: &Engine,
+fn link_dynamic_imports<T: Host>(
+    component: &Component,
     linker: &mut Linker<T>,
-    ty: &types::Component,
 ) -> wasmtime::Result<()> {
-    for (name, types::ComponentExtern { ty, .. }) in ty.imports(engine) {
-        if let Some(("starstream:std", interface)) = name.split_once('/') {
-            let mut linker = linker
-                .instance("utxo-context")
-                .context("failed to instantiate `utxo-context` in the linker")?;
-            match interface {
-                "utxo-context" => link_utxo_context(&mut linker)?,
-                _ => debug!(?name, "skipping builtin instance import"),
-            };
-            continue;
-        }
+    for (name, types::ComponentExtern { ty, .. }) in
+        component.component_type().imports(component.engine())
+    {
         match ty {
             types::ComponentItem::ComponentFunc(..) => {
                 bail!("root instance function imports unsupported")
@@ -314,15 +368,19 @@ pub fn link_dynamic_imports<T: Host>(
             types::ComponentItem::Module(..) => bail!("module imports unsupported"),
             types::ComponentItem::Component(..) => bail!("component imports unsupported"),
             types::ComponentItem::ComponentInstance(ty) => {
+                if name.starts_with("starstream:std") {
+                    debug!(?name, "skipping `starstream:std` import");
+                    continue;
+                }
                 let mut linker = linker
                     .instance(name)
                     .with_context(|| format!("failed to instantiate `{name}` in the linker"))?;
                 debug!(?name, "linking root instance");
-                link_instance(engine, &mut linker, &ty, name)?;
+                link_instance_import(component, &mut linker, &ty, name)?;
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) => {
-                bail!("root instance resource imports unsupported")
+                debug!(?name, "skip root instance resource import")
             }
         }
     }
@@ -344,6 +402,26 @@ impl<T: 'static> Clone for Contract<T> {
     }
 }
 
+fn link_utxo_context<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
+    let mut linker = linker
+        .instance("starstream:std/utxo-context")
+        .context("failed to instantiate `utxo-context` in the linker")?;
+
+    linker.resource(
+        "utxo-context",
+        ResourceType::host::<T::UtxoContext>(),
+        |store, cx| T::drop_utxo_context(store, Resource::new_own(cx)),
+    )?;
+    linker.func_wrap(
+        "[method]utxo-context.implements-method",
+        |store, (cx, hash)| T::implements_method(store, cx, hash),
+    )?;
+    linker.func_wrap("[method]utxo-context.resume", |store, (cx,)| {
+        T::resume(store, cx)
+    })?;
+    Ok(())
+}
+
 impl<T: Host> Contract<T> {
     /// Compile and pre-instantiate a Starstream [Contract]
     #[instrument(level = "trace", skip_all)]
@@ -358,7 +436,8 @@ impl<T: Host> Contract<T> {
         debug!("linking component imports");
         bindings::Host_::add_to_linker::<_, HasSelf<_>>(&mut linker, |cx| cx)
             .context("failed to link builtins")?;
-        link_dynamic_imports(engine, &mut linker, &component.component_type())?;
+        link_utxo_context(&mut linker).context("failed to link `utxo-context`")?;
+        link_dynamic_imports(&component, &mut linker)?;
 
         let ty = linker
             .substituted_component_type(&component)
@@ -499,12 +578,12 @@ impl<T: Host> Contract<T> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    fn get_utxo_constructor_typed(
+    fn get_utxo_main_typed(
         &self,
         utxo: &UtxoExport,
         name: &str,
         ty: types::ComponentFunc,
-    ) -> wasmtime::Result<ConstructorExport> {
+    ) -> wasmtime::Result<UtxoMainExport> {
         let idx = self
             .pre
             .component()
@@ -520,16 +599,12 @@ impl<T: Host> Contract<T> {
         if resource_ty != utxo.resource_ty {
             bail!("function return value does not match UTXO resource type");
         }
-        Ok(ConstructorExport { ty, idx })
+        Ok(UtxoMainExport { ty, idx })
     }
 
-    /// Get a constructor of an exported UTXO by name
+    /// Get a `main fn` of an exported UTXO by name
     #[instrument(level = "trace", skip_all)]
-    pub fn get_utxo_constructor(
-        &self,
-        utxo: &UtxoExport,
-        name: &str,
-    ) -> wasmtime::Result<ConstructorExport> {
+    pub fn get_utxo_main(&self, utxo: &UtxoExport, name: &str) -> wasmtime::Result<UtxoMainExport> {
         let types::ComponentExtern { ty, .. } = utxo
             .instance_ty
             .get_export(self.pre.engine(), name)
@@ -537,15 +612,15 @@ impl<T: Host> Contract<T> {
         let types::ComponentItem::ComponentFunc(ty) = ty else {
             bail!("export is not a function")
         };
-        self.get_utxo_constructor_typed(utxo, name, ty)
+        self.get_utxo_main_typed(utxo, name, ty)
     }
 
-    /// Iterate over exported UTXO constructors along with their names
+    /// Iterate over exported UTXO `main fn`s along with their names
     #[instrument(level = "trace", skip_all)]
-    pub fn utxo_constructors<'a>(
+    pub fn utxo_mains<'a>(
         &'a self,
         utxo: &'a UtxoExport,
-    ) -> impl Iterator<Item = (&'a str, wasmtime::Result<ConstructorExport>)> {
+    ) -> impl Iterator<Item = (&'a str, wasmtime::Result<UtxoMainExport>)> {
         utxo.instance_ty
             .exports(self.pre.engine())
             .filter_map(move |(name, ty)| match ty {
@@ -553,7 +628,7 @@ impl<T: Host> Contract<T> {
                     ty: types::ComponentItem::ComponentFunc(ty),
                     ..
                 } if name.starts_with("[static]") => {
-                    Some((name, self.get_utxo_constructor_typed(utxo, name, ty)))
+                    Some((name, self.get_utxo_main_typed(utxo, name, ty)))
                 }
                 _ => None,
             })
@@ -715,10 +790,10 @@ impl ContractInstance {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn create_utxo<T>(
+    pub async fn call_utxo_main<T>(
         &self,
         store: impl AsContextMut<Data = T>,
-        ConstructorExport { idx, .. }: &ConstructorExport,
+        UtxoMainExport { idx, .. }: &UtxoMainExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo>
     where
@@ -794,12 +869,12 @@ impl UtxoExport {
 }
 
 #[derive(Clone, Debug)]
-pub struct ConstructorExport {
+pub struct UtxoMainExport {
     ty: types::ComponentFunc,
     idx: ComponentExportIndex,
 }
 
-impl ConstructorExport {
+impl UtxoMainExport {
     #[must_use]
     pub fn ty(&self) -> &types::ComponentFunc {
         &self.ty
