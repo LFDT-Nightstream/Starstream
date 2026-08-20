@@ -139,14 +139,14 @@ impl Host for Ctx {
     #[instrument(skip(store), ret)]
     fn emit_event(
         mut store: StoreContextMut<Self>,
-        instance: &str,
+        abi_name: &str,
         name: &str,
         params: &[Val],
     ) -> wasmtime::Result<()> {
         store
             .data_mut()
             .events
-            .push((instance.into(), name.into(), params.into()));
+            .push((abi_name.into(), name.into(), params.into()));
         Ok(())
     }
 }
@@ -410,7 +410,7 @@ async fn score_main_new() -> wasmtime::Result<()> {
     assert_eq!(
         events,
         [(
-            "starstream:events/score".into(),
+            "score".into(),
             "finish".into(),
             [Val::U64(3 * 4 * 2)].into()
         )]

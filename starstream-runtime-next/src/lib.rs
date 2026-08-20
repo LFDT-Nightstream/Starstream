@@ -68,7 +68,7 @@ pub trait Host:
 
     fn emit_event(
         store: StoreContextMut<Self>,
-        instance: &str,
+        abi_name: &str,
         name: &str,
         params: &[Val],
     ) -> wasmtime::Result<()>;
@@ -98,33 +98,34 @@ fn load_component(engine: &Engine, wasm: impl AsRef<[u8]>) -> wasmtime::Result<C
 
 /// Link ABI event [`types::ComponentFunc`] in a [`LinkerInstance`]
 #[instrument(level = "trace", skip_all)]
-fn link_abi_event_function<T: Host>(
+fn link_event_function<T: Host>(
     linker: &mut LinkerInstance<T>,
-    _ty: types::ComponentFunc,
-    instance: &str,
+    ty: types::ComponentFunc,
+    abi_name: &str,
     name: &str,
 ) -> wasmtime::Result<()> {
-    debug!(instance, name, "linking ABI instance event function");
-    let instance = Arc::<str>::from(instance);
+    debug!(abi_name, name, "linking ABI instance event function");
+    let abi_name = Arc::<str>::from(abi_name);
     let name = Arc::<str>::from(name);
+    ensure!(ty.results().len() == 0);
     linker.func_new(&Arc::clone(&name), move |store, _ty, params, _results| {
-        T::emit_event(store, &instance, &name, params)
+        T::emit_event(store, &abi_name, &name, params)
     })
 }
 
 /// Link dynamic imported ABI instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
-fn link_abi_import<T: Host>(
+fn link_event_instance_import<T: Host>(
     engine: &Engine,
     linker: &mut LinkerInstance<T>,
     ty: &types::ComponentInstance,
-    instance: &str,
+    abi_name: &str,
 ) -> wasmtime::Result<()> {
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
         debug!(name, "linking ABI instance item");
         match ty {
             types::ComponentItem::ComponentFunc(ty) => {
-                link_abi_event_function(linker, ty, instance, name)?;
+                link_event_function(linker, ty, abi_name, name)?;
             }
             types::ComponentItem::CoreFunc(..) => {
                 bail!("ABI instance core function imports unsupported")
@@ -228,7 +229,7 @@ fn link_utxo_function<T: Host>(
 
 /// Link dynamic imported UTXO instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
-fn link_utxo_import<T: Host>(
+fn link_utxo_instance_import<T: Host>(
     contract: Option<Contract<T>>,
     component: &Component,
     linker: &mut LinkerInstance<T>,
@@ -284,41 +285,66 @@ fn link_instance_import<T: Host>(
 
     let engine = component.engine();
     match (
+        instance.split_once('/'),
         ty.get_export(engine, "utxo"),
         ty.get_export(engine, "token"),
     ) {
+        (Some(("starstream:utxo", _name)), ..) => {
+            // TODO: Use external-id to lookup the contract
+            bail!("cross-contract UTXO imports unsupported")
+        }
+
         (
-            Some(types::ComponentExtern {
-                ty: types::ComponentItem::Resource(..),
-                ..
-            }),
-            Some(types::ComponentExtern {
-                ty: types::ComponentItem::Resource(..),
-                ..
-            }),
-        ) => bail!("both `utxo` and `token` resources exported by `{instance}`"),
-        (
+            Some(("starstream:self", name)),
             Some(types::ComponentExtern {
                 ty: types::ComponentItem::Resource(..),
                 ..
             }),
             None,
-        ) => match instance.split_once('/') {
-            Some(("starstream:self", name)) => link_utxo_import(None, component, linker, ty, name),
-            Some(("starstream:utxo", _name)) => {
-                // TODO: Use external-id to lookup the contract
-                bail!("cross-contract UTXO imports unsupported")
-            }
-            _ => bail!("unsupported UTXO instance import name `{instance}`"),
-        },
+        ) => link_utxo_instance_import(None, component, linker, ty, name),
+
         (
+            Some(("starstream:self", ..)),
             None,
             Some(types::ComponentExtern {
                 ty: types::ComponentItem::Resource(..),
                 ..
             }),
         ) => bail!("token imports unsupported"),
-        _ => link_abi_import(engine, linker, ty, instance),
+
+        (
+            Some(("starstream:self", ..)),
+            Some(types::ComponentExtern {
+                ty: types::ComponentItem::Resource(..),
+                ..
+            }),
+            Some(types::ComponentExtern {
+                ty: types::ComponentItem::Resource(..),
+                ..
+            }),
+        ) => bail!("both `utxo` and `token` resources exported by instance `{instance}` import"),
+
+        (Some(("starstream:self", ..)), ..) => {
+            bail!("failed to classify `starstream:self` instance import")
+        }
+
+        (Some(("starstream:events", name)), ..) => {
+            link_event_instance_import(engine, linker, ty, name)
+        }
+
+        (Some(("starstream:effects", ..)), ..) => {
+            bail!("effect imports unsupported")
+        }
+
+        (Some(("starstream:contract", "dynamic-utxo")), ..) => {
+            bail!("dynamic UTXO imports unsupported")
+        }
+
+        (Some(("starstream:contract", "scripts")), ..) => {
+            bail!("coordination script imports unsupported")
+        }
+
+        _ => bail!("unexpected instance import `{instance}`"),
     }
 }
 
