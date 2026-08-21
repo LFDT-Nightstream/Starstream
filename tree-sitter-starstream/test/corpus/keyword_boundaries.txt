@@ -1,0 +1,12 @@
+===============================
+Keywords do not split identifiers
+===============================
+
+nope TokenReleased
+
+---
+
+(program
+  (ERROR
+    (identifier)
+    (identifier)))
