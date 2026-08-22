@@ -1,0 +1,22 @@
+{
+  "name": "@starstream/interleaving-spec",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "node scripts/quint.mjs typecheck",
+    "simulate": "node scripts/quint.mjs simulate",
+    "verify": "node scripts/quint.mjs verify",
+    "repl": "node scripts/quint.mjs repl",
+    "check": "node scripts/quint.mjs check",
+    "test": "cargo test -p starstream-interleaving-spec"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "devDependencies": {
+    "@informalsystems/quint": "0.32.0"
+  },
+  "overrides": {
+    "adm-zip": "0.6.0"
+  }
+}

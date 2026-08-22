@@ -14,6 +14,7 @@ members = [
   "interleaving/starstream-interleaving-spec-legacy",
   "ark-poseidon2",
   "ark-goldilocks",
+  "starstream-interleaving-spec",
 ]
 
 [workspace.package]
