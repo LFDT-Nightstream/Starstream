@@ -10,15 +10,17 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install the pinned Quint CLI
+        run: npm ci
+        working-directory: starstream-interleaving-spec
       - run: rustup component add clippy rustfmt
       # Enforce lockfile correctness.
       - run: cargo check --locked
       # Test all crates, except those that force-target WASM.
       # Skip the tests that make proofs, since we'll run those on the release profile
-      - run: cargo test --workspace --exclude starstream-runtime -- --skip circuit_test
+      - run: cargo test --workspace -- --skip circuit_test
       # The tests that do Nightstream proofs are quite slow without --release
-      - run: cargo test -p starstream-interleaving-proof --release circuit_test
-      - run: cargo test -p starstream-runtime --release
+      - run: cargo test -p starstream-interleaving-proof-legacy --release circuit_test
       # Cosmetic checks.
       - run: cargo clippy
       - run: cargo fmt --check
@@ -26,7 +28,6 @@ jobs:
       - name: Mock Ledger - Check formatting
         run: cargo fmt --check
         working-directory: mock-ledger/backend
-
   website:
     name: Website
     runs-on: ubuntu-24.04
@@ -54,3 +55,26 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy website/build --project-name=${{ secrets.CLOUDFLARE_PROJECT_NAME }}
+  quint:
+      name: Quint
+      runs-on: ubuntu-24.04
+      steps:
+        - uses: actions/checkout@v4
+
+        - uses: actions/setup-java@v5
+          with:
+            distribution: temurin
+            java-version: "21"
+            java-package: jre
+
+        - run: java -version
+
+        - name: Install the pinned Quint CLI
+          run: npm ci
+          working-directory: starstream-interleaving-spec
+        - name: Check the execution specification (the invariants)
+          run: npm run check
+          working-directory: starstream-interleaving-spec
+        - name: verify (bounded model checking) the execution specification
+          run: npm run verify
+          working-directory: starstream-interleaving-spec
