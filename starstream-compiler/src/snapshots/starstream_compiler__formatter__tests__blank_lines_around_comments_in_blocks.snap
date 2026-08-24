@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn main() -> i64 {\n    let first = 1;\n\n    // This comment follows a blank line.\n    let second = 2;\n    // This comment precedes a blank line.\n\n\n    first + second\n}\n"
+---
+fn main() -> i64 {
+    let first = 1;
+
+    // This comment follows a blank line.
+    let second = 2;
+    // This comment precedes a blank line.
+
+    first + second
+}
