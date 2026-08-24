@@ -106,12 +106,6 @@ witness types. Plus a Wasm spec for the requirements on the UTXO zkVM.
 - `interleaving/starstream-interleaving-proof/` - Starstream interleaving proof
 circuit (CCS) and Nightstream folding-session integration with MCC middleware
 for Twist and Shout (implemented in Nightstream).
-- `interleaving/starstream-component-runtime/` - Component execution runtime and
-transaction session wiring (witness generation for proving, currently only for
-the interleaving).
-- `interleaving/starstream-runtime/` - Minimal runtime for testing
-Wasm to interleaving proof semantics. Will be replaced completely by
-`starstream-component-runtime` eventually.
 
 Interfaces:
 
