@@ -166,7 +166,7 @@ impl QuintVerifier {
             &format!("--match={RUN_NAME}"),
             &format!("--out-itf={}", itf_pattern.display()),
             "--verbosity=3",
-            "--backend=rust",
+            "--backend=typescript",
         ])?;
 
         if !test.status.success() {
