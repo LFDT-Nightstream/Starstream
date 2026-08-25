@@ -4,7 +4,7 @@ abi MyAbi {
 
 script fn maybe_hello(u: Utxo) -> i32 {
     if u is MyAbi {
-        1
+        u.hello()
     } else {
         0
     }

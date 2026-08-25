@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeMap, rc::Rc};
 
-use starstream_types::{Identifier, Type, TypedFunctionParam};
+use starstream_types::{AbiType, Identifier, Type, TypedFunctionParam};
 use wasm_encoder::{FuncType, InstanceType, ValType};
 
 use crate::{
@@ -34,7 +34,7 @@ impl Compiler {
             return;
         }
 
-        let mut builtin = TypeBuilder::new_interface();
+        let mut builtin = TypeBuilder::default();
         self.star_to_component.insert(
             Type::UtxoAny,
             Rc::new(ComponentAbiType::Borrow {
@@ -57,7 +57,7 @@ impl Compiler {
             return;
         }
 
-        let mut utxo_context = TypeBuilder::new_interface();
+        let mut utxo_context = TypeBuilder::default();
 
         let utxo_context_resource = utxo_context.fresh_resource("utxo-context", "s-utxo-context");
         self.builtins.utxo_context_resource = Some(utxo_context_resource.clone());
@@ -133,8 +133,10 @@ impl Compiler {
 
         // Component import
         let sig = self.star_to_component_signature(None, params, &Type::Unit);
-        let iface = imported_interfaces.entry(interface).or_default();
-        iface.export_fn(&kebab, &sig);
+        imported_interfaces
+            .entry(interface)
+            .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+            .export_fn(&kebab, &sig);
 
         func_idx
     }
@@ -167,8 +169,46 @@ impl Compiler {
 
         // Component import
         let sig = self.star_to_component_signature(None, params, result);
-        let iface = imported_interfaces.entry(interface).or_default();
-        iface.export_fn(&kebab, &sig);
+        imported_interfaces
+            .entry(interface)
+            .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+            .export_fn(&kebab, &sig);
+
+        func_idx
+    }
+
+    pub fn declare_dynamic_method(
+        &mut self,
+        imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
+        _abi_ty: &AbiType,
+        method_name: &Identifier,
+        params: &[TypedFunctionParam],
+        result: &Type,
+    ) -> u32 {
+        let mut core_params = Vec::with_capacity(16);
+        _ = self.star_to_core_types(method_name.span, &mut core_params, &Type::UtxoAny);
+        for p in params {
+            _ = self.star_to_core_types(p.ty_span, &mut core_params, &p.ty);
+        }
+        let mut core_results = Vec::new();
+        _ = self.star_to_core_types(method_name.span, &mut core_results, result);
+
+        let interface = "starstream:contract/dynamic-utxo";
+        let kebab = to_kebab_case(method_name.as_str());
+
+        // Core import
+        let func_idx = self.import_function(
+            &interface,
+            &kebab,
+            &FuncType::new(core_params.iter().copied(), core_results),
+        );
+
+        // Component import
+        let sig = self.star_to_component_signature(Some(&Type::UtxoAny), params, result);
+        imported_interfaces
+            .entry(interface.to_owned())
+            .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+            .export_fn(&kebab, &sig);
 
         func_idx
     }

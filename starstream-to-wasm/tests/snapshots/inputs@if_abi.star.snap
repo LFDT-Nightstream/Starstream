@@ -100,18 +100,33 @@ Program {
                                                 statements: [],
                                                 tail_expression: Some(
                                                     Spanned {
-                                                        node: Literal(
-                                                            Integer(
-                                                                IntegerLiteral {
-                                                                    digits: "1",
-                                                                    radix: Decimal,
+                                                        node: Call {
+                                                            callee: Spanned {
+                                                                node: FieldAccess {
+                                                                    target: Spanned {
+                                                                        node: ScopedName(
+                                                                            [
+                                                                                Identifier {
+                                                                                    name: "u",
+                                                                                    span: 106..107,
+                                                                                },
+                                                                            ],
+                                                                        ),
+                                                                        span: 106..107,
+                                                                    },
+                                                                    field: Identifier {
+                                                                        name: "hello",
+                                                                        span: 108..113,
+                                                                    },
                                                                 },
-                                                            ),
-                                                        ),
-                                                        span: 106..107,
+                                                                span: 106..113,
+                                                            },
+                                                            args: [],
+                                                        },
+                                                        span: 106..120,
                                                     },
                                                 ),
-                                                span: 96..114,
+                                                span: 96..122,
                                             },
                                         ),
                                     ],
@@ -128,21 +143,21 @@ Program {
                                                             },
                                                         ),
                                                     ),
-                                                    span: 129..130,
+                                                    span: 137..138,
                                                 },
                                             ),
-                                            span: 119..137,
+                                            span: 127..145,
                                         },
                                     ),
                                 },
-                                span: 82..137,
+                                span: 82..145,
                             },
                         ),
-                        span: 76..139,
+                        span: 76..147,
                     },
                 },
             ),
-            span: 38..139,
+            span: 38..147,
         },
     ],
 }
@@ -150,21 +165,23 @@ Program {
 ==== Inference trace ====
 T-Fn: maybe_hello => i32
   T-ReturnTail: if u is MyAbi {
-    1
+    u.hello()
 } else {
     0
 } => i32
     T-If: {maybe_hello: fn(u: Utxo) -> i32, u: Utxo} ⊢ if u is MyAbi {
-    1
+    u.hello()
 } else {
     0
 } ⇒ ()
-      T-Tail: 1 => i64
-        T-Int: {maybe_hello: fn(u: Utxo) -> i32, u: MyAbi} ⊢ 1 ⇒ i64
+      T-Tail: u.hello() => i32
+        T-Call: {maybe_hello: fn(u: Utxo) -> i32, u: MyAbi} ⊢ u.hello() ⇒ i32
+          T-FieldAccess: {maybe_hello: fn(u: Utxo) -> i32, u: MyAbi} ⊢ u.hello ⇒ fn() -> i32
+            T-Var: {maybe_hello: fn(u: Utxo) -> i32, u: MyAbi} ⊢ u ⇒ MyAbi
       T-Tail: 0 => i64
         T-Int: {maybe_hello: fn(u: Utxo) -> i32, u: Utxo} ⊢ 0 ⇒ i64
-      Unify-Var: i64 ~ i64 => {i64/t3}
-    Unify-Var: i64 ~ i32 => {i32/t4}
+      Unify-Var: i32 ~ i64 => {i32/t3}
+    Unify-Const: i32 ~ i32 => {}
 
 ==== Typed AST ====
 TypedProgram {
@@ -311,16 +328,81 @@ TypedProgram {
                                                             ty: Int(
                                                                 I32,
                                                             ),
-                                                            kind: Literal(
-                                                                Integer(
-                                                                    IntegerLiteral {
-                                                                        digits: "1",
-                                                                        radix: Decimal,
+                                                            kind: Call {
+                                                                callee: Spanned {
+                                                                    node: TypedExpr {
+                                                                        ty: Function(
+                                                                            FunctionType {
+                                                                                kind: Normal,
+                                                                                name_span: 19..24,
+                                                                                params: [],
+                                                                                result: Int(
+                                                                                    I32,
+                                                                                ),
+                                                                                callee: Some(
+                                                                                    Named(
+                                                                                        NameId(4),
+                                                                                    ),
+                                                                                ),
+                                                                            },
+                                                                        ),
+                                                                        kind: FieldAccess {
+                                                                            target: Spanned {
+                                                                                node: TypedExpr {
+                                                                                    ty: Abi(
+                                                                                        AbiType {
+                                                                                            name: Identifier {
+                                                                                                name: "MyAbi",
+                                                                                                span: 4..9,
+                                                                                            },
+                                                                                            methods: [
+                                                                                                TypedAbiMethodDecl {
+                                                                                                    name: Identifier {
+                                                                                                        name: "hello",
+                                                                                                        span: 19..24,
+                                                                                                    },
+                                                                                                    id: NameId(4),
+                                                                                                    ty: FunctionType {
+                                                                                                        kind: Normal,
+                                                                                                        name_span: 19..24,
+                                                                                                        params: [],
+                                                                                                        result: Int(
+                                                                                                            I32,
+                                                                                                        ),
+                                                                                                        callee: Some(
+                                                                                                            Named(
+                                                                                                                NameId(4),
+                                                                                                            ),
+                                                                                                        ),
+                                                                                                    },
+                                                                                                },
+                                                                                            ],
+                                                                                        },
+                                                                                    ),
+                                                                                    kind: ScopedName {
+                                                                                        name: [
+                                                                                            Identifier {
+                                                                                                name: "u",
+                                                                                                span: 106..107,
+                                                                                            },
+                                                                                        ],
+                                                                                        constant: None,
+                                                                                    },
+                                                                                },
+                                                                                span: 106..107,
+                                                                            },
+                                                                            field: Identifier {
+                                                                                name: "hello",
+                                                                                span: 108..113,
+                                                                            },
+                                                                        },
                                                                     },
-                                                                ),
-                                                            ),
+                                                                    span: 106..113,
+                                                                },
+                                                                args: [],
+                                                            },
                                                         },
-                                                        span: 106..107,
+                                                        span: 106..113,
                                                     },
                                                 ),
                                             },
@@ -344,14 +426,14 @@ TypedProgram {
                                                             ),
                                                         ),
                                                     },
-                                                    span: 129..130,
+                                                    span: 137..138,
                                                 },
                                             ),
                                         },
                                     ),
                                 },
                             },
-                            span: 82..137,
+                            span: 82..145,
                         },
                     ),
                 },
@@ -363,15 +445,17 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func (param i32) (result i32)))
-  (export "maybe-hello" (func 0))
-  (func (;0;) (type 0) (param i32) (result i32)
+  (import "starstream:contract/dynamic-utxo" "hello" (func (;0;) (type 0)))
+  (export "maybe-hello" (func 1))
+  (func (;1;) (type 0) (param i32) (result i32)
     (block (result i32) ;; label = @1
       (block ;; label = @2
         (br_if 0 (;@2;)
           (local.get 0))
         (br 1 (;@1;)
           (i32.const 0)))
-      (i32.const 1))
+      (call 0
+        (local.get 0)))
   )
   (@custom "component-type"
     (component
@@ -399,8 +483,19 @@ TypedProgram {
               (import "s-token" (type (;6;) (eq 5)))
               (type (;7;) (borrow 6))
               (type (;8;) (own 6))
-              (type (;9;) (func (param "u" 3) (result s32)))
-              (export (;0;) "maybe-hello" (func (type 9)))
+              (type (;9;)
+                (instance
+                  (alias outer 1 1 (type (;0;)))
+                  (export (;1;) "s-utxo" (type (eq 0)))
+                  (type (;2;) (borrow 1))
+                  (type (;3;) (own 1))
+                  (type (;4;) (func (param "self" 2) (result s32)))
+                  (export (;0;) "hello" (func (type 4)))
+                )
+              )
+              (import "starstream:contract/dynamic-utxo" (instance (;1;) (type 9)))
+              (type (;10;) (func (param "u" 3) (result s32)))
+              (export (;0;) "maybe-hello" (func (type 10)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -416,6 +511,7 @@ package root:component;
 
 world root {
   import starstream:std/builtin;
+  import starstream:contract/dynamic-utxo;
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
 
   export maybe-hello: func(u: borrow<s-utxo>) -> s32;
@@ -425,5 +521,14 @@ package starstream:std {
     resource utxo;
 
     resource token;
+  }
+}
+
+
+package starstream:contract {
+  interface dynamic-utxo {
+    use starstream:std/builtin.{utxo as s-utxo};
+
+    hello: func(self: borrow<s-utxo>) -> s32;
   }
 }

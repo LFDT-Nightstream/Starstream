@@ -384,7 +384,7 @@ impl Compiler {
 
     fn push_error(&mut self, span: Span, message: impl Into<String>) -> ErrorToken {
         self.errors.push(CompileError {
-            message: message.into(),
+            message: dbg!(message.into()),
             span,
         });
         self.fatal = true;
@@ -813,8 +813,10 @@ impl Compiler {
             Type::Utxo(utxo) => panic!("referencing unregistered utxo {utxo:?}"),
             Type::TokenAny => unreachable!(), // Always preregistered.
             Type::Token(token) => panic!("referencing unregistered token {token:?}"),
-            // ABI handle types aren't implemented yet.
-            Type::Abi(_) => todo!(),
+            // ABI handle types currently decompose to `utxo`.
+            Type::Abi(_) => {
+                return Some(self.star_to_component.get(&Type::UtxoAny).unwrap().clone());
+            }
         };
 
         let cat = Rc::new(cat);
@@ -1162,7 +1164,15 @@ impl Compiler {
                     self.callables.insert(part.id, func);
                 }
                 FunctionKind::Normal => {
-                    // ABI method codegen not yet implemented.
+                    let func = self.declare_dynamic_method(
+                        imported_interfaces,
+                        &def.ty,
+                        &part.name,
+                        &part.ty.params,
+                        &part.ty.result,
+                    );
+                    self.method_callables
+                        .insert((Type::Abi(def.ty.clone()), part.id), func);
                 }
                 FunctionKind::Runtime => unreachable!(),
             }
@@ -1225,7 +1235,7 @@ impl Compiler {
                 .global_set(self.context_global.unwrap());
         }
 
-        let _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
+        _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
         if bb != usize::MAX {
             self.visit_return(&mut func, &bb);
             func.cfg.fill(bb, Out::Return);
@@ -1292,8 +1302,7 @@ impl Compiler {
         let import_interface_name = format!("starstream:self/{}", export_interface_name);
         let resource_name = "utxo";
 
-        let mut iface = TypeBuilder::new_interface();
-        iface.inherit_parent(&self.world_type);
+        let mut iface = TypeBuilder::new_interface(&self.world_type);
 
         // Declare the resource type.
         let this_ty = Type::Utxo(utxo.ty.clone());
@@ -1429,8 +1438,7 @@ impl Compiler {
         let export_interface_name = to_kebab_case(utxo.name.as_str());
         let resource_name = "utxo";
 
-        let mut iface = TypeBuilder::new_interface();
-        iface.inherit_parent(&self.world_type);
+        let mut iface = TypeBuilder::new_interface(&self.world_type);
 
         // Declare the resource type.
         let this_ty = Type::Utxo(utxo.ty.clone());
@@ -1599,8 +1607,7 @@ impl Compiler {
         let import_interface_name = format!("starstream:self/{}", export_interface_name);
         let resource_name = "token";
 
-        let mut iface = TypeBuilder::new_interface();
-        iface.inherit_parent(&self.world_type);
+        let mut iface = TypeBuilder::new_interface(&self.world_type);
 
         // Declare the resource type.
         let this_ty = Type::Token(token.ty.clone());
@@ -1638,8 +1645,7 @@ impl Compiler {
         let export_interface_name = to_kebab_case(token.name.as_str());
         let resource_name = "token";
 
-        let mut iface = TypeBuilder::new_interface();
-        iface.inherit_parent(&self.world_type);
+        let mut iface = TypeBuilder::new_interface(&self.world_type);
 
         // Declare the resource type.
         let this_ty = Type::Token(token.ty.clone());
@@ -1908,7 +1914,7 @@ impl Compiler {
                     func.cfg.fill(*bb, Out::Next(bb_condition));
 
                     let mut bb_condition_2 = bb_condition;
-                    let _ = self.visit_expr_stack(
+                    _ = self.visit_expr_stack(
                         func,
                         &mut bb_condition_2,
                         &(parent, &locals),
@@ -1940,8 +1946,7 @@ impl Compiler {
                     *bb = bb_exit;
                 }
                 TypedStatement::Return(Some(expr)) => {
-                    let _ =
-                        self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
+                    _ = self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
                     self.visit_return(func, bb);
                     func.cfg.fill(*bb, Out::Return);
                     *bb = usize::MAX;
@@ -2118,7 +2123,7 @@ impl Compiler {
                     match condition {
                         TypedIfCondition::Bool(condition) => {
                             // Evaluate condition.
-                            let _ = self.visit_expr_stack(
+                            _ = self.visit_expr_stack(
                                 func,
                                 bb,
                                 locals,
@@ -2151,8 +2156,8 @@ impl Compiler {
                         TypedIfCondition::Is {
                             name,
                             original_type,
-                            abi,
-                            abi_name_span,
+                            abi: _,
+                            abi_name_span: _,
                         } => {
                             let var = locals.get(name.as_str()).unwrap();
 
@@ -2841,7 +2846,7 @@ impl Compiler {
                     match condition {
                         TypedIfCondition::Bool(condition) => {
                             // Evaluate condition.
-                            let _ = self.visit_expr_stack(
+                            _ = self.visit_expr_stack(
                                 func,
                                 bb,
                                 locals,
@@ -2875,8 +2880,8 @@ impl Compiler {
                         TypedIfCondition::Is {
                             name,
                             original_type,
-                            abi,
-                            abi_name_span,
+                            abi: _,
+                            abi_name_span: _,
                         } => {
                             let var = locals.get(name.as_str()).unwrap();
 
@@ -3149,7 +3154,7 @@ impl Compiler {
         core_fn_idx: u32,
         args: &[Spanned<TypedExpr>],
     ) -> Result<()> {
-        let _ = span;
+        _ = span;
         for arg in args {
             self.visit_expr_stack(func, bb, locals, arg.span, &arg.node)?;
         }
@@ -3463,14 +3468,14 @@ impl Compiler {
                 }
 
                 if bulk.is_empty() {
-                    let _ = self.visit_block_drop(
+                    _ = self.visit_block_drop(
                         func,
                         bb,
                         &(locals, &arm_locals),
                         &arms[*action].body,
                     );
                 } else {
-                    let _ = self.visit_block_stack(
+                    _ = self.visit_block_stack(
                         func,
                         bb,
                         &(locals, &arm_locals),
