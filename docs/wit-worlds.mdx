@@ -153,15 +153,10 @@ world root {
 }
 ```
 
-## Exporting coordination scripts
+### ABI casting
 
-Coordination scripts are top-level function exports:
-
-```wit
-world root {
-    export my-coordination-script: func();
-}
-```
+To test whether methods exist before calling them, call `has-method` on
+the `starstream:std/builtin#utxo` resource.
 
 ## Importing coordination scripts
 

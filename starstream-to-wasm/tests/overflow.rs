@@ -33,7 +33,8 @@ fn execute_wasm(wasm: &[u8], func_name: &str, params: &[i64]) -> Result<Vec<i64>
     let engine = Engine::new(&config).unwrap();
     let module = Module::from_binary(&engine, wasm).unwrap();
 
-    let linker = Linker::new(&engine);
+    let mut linker = Linker::new(&engine);
+    linker.define_unknown_imports_as_traps(&module).unwrap();
     let mut store = Store::new(&engine, ());
 
     let instance = linker.instantiate(&mut store, &module).unwrap();

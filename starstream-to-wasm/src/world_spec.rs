@@ -20,6 +20,8 @@ use crate::{
 /// Builtins imported from `starstream:std/builtins` and friends.
 #[derive(Default)]
 pub struct Builtins {
+    pub has_method: Option<u32>,
+
     pub utxo_context_resource: Option<Rc<Resource>>,
     pub utxo_context_drop: Option<u32>,
     pub resume: Option<u32>,
@@ -33,20 +35,47 @@ impl Compiler {
         if self.world_type.has_imported(name) {
             return;
         }
-
         let mut builtin = TypeBuilder::default();
-        self.star_to_component.insert(
-            Type::UtxoAny,
-            Rc::new(ComponentAbiType::Borrow {
-                resource: builtin.fresh_resource("utxo", "s-utxo"),
-            }),
+
+        // `resource utxo`
+        let utxo_resource = builtin.fresh_resource("utxo", "s-utxo");
+        let utxo_type = Rc::new(ComponentAbiType::Borrow {
+            resource: utxo_resource,
+        });
+        self.star_to_component
+            .insert(Type::UtxoAny, utxo_type.clone());
+        self.builtins.has_method = Some(self.import_function(
+            name,
+            "[method]utxo.has-method",
+            &FuncType::new(
+                [
+                    ValType::I32,
+                    ValType::I64,
+                    ValType::I64,
+                    ValType::I64,
+                    ValType::I64,
+                ],
+                [ValType::I32],
+            ),
+        ));
+        let u64_ty = Rc::new(ComponentAbiType::U64);
+        let tuple = Rc::new(ComponentAbiType::Tuple {
+            fields: vec![u64_ty; 4],
+        });
+        builtin.export_fn_2(
+            "[method]utxo.has-method",
+            [("self", utxo_type.clone()), ("hash", tuple)],
+            Some(&Rc::new(ComponentAbiType::Bool)),
         );
+
+        // `resource token`
         self.star_to_component.insert(
             Type::TokenAny,
             Rc::new(ComponentAbiType::Borrow {
                 resource: builtin.fresh_resource("token", "s-token"),
             }),
         );
+
         self.world_type.import_interface(name, &builtin);
     }
 

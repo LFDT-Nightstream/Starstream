@@ -570,24 +570,26 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32) (result i32)))
-  (type (;1;) (func (param i32)))
-  (type (;2;) (func (param i64 i64) (result i64)))
-  (type (;3;) (func (result i32)))
-  (type (;4;) (func))
-  (type (;5;) (func (param i32 i32)))
-  (type (;6;) (func (param i32) (result i64)))
-  (type (;7;) (func (param i64) (result i32)))
-  (import "[export]my-token" "[resource-new]token" (func (;0;) (type 0)))
-  (import "[export]my-token" "[resource-drop]token" (func (;1;) (type 1)))
+  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;1;) (func (param i32) (result i32)))
+  (type (;2;) (func (param i32)))
+  (type (;3;) (func (param i64 i64) (result i64)))
+  (type (;4;) (func (result i32)))
+  (type (;5;) (func))
+  (type (;6;) (func (param i32 i32)))
+  (type (;7;) (func (param i32) (result i64)))
+  (type (;8;) (func (param i64) (result i32)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
+  (import "[export]my-token" "[resource-new]token" (func (;1;) (type 1)))
+  (import "[export]my-token" "[resource-drop]token" (func (;2;) (type 2)))
   (global (;0;) (mut i64) (i64.const 0))
-  (export "my-token#[static]token.mint" (func 3))
-  (export "my-token#[static]token.burn" (func 5))
-  (export "my-token#[method]token.attach" (func 6))
-  (export "my-token#[method]token.detach" (func 7))
-  (export "my-token#get-storage" (func 8))
-  (export "my-token#set-storage" (func 9))
-  (func (;2;) (type 2) (param i64 i64) (result i64)
+  (export "my-token#[static]token.mint" (func 4))
+  (export "my-token#[static]token.burn" (func 6))
+  (export "my-token#[method]token.attach" (func 7))
+  (export "my-token#[method]token.detach" (func 8))
+  (export "my-token#get-storage" (func 9))
+  (export "my-token#set-storage" (func 10))
+  (func (;3;) (type 3) (param i64 i64) (result i64)
     (local i64)
     (local.tee 2
       (i64.add
@@ -610,18 +612,18 @@ TypedProgram {
       (then
         (unreachable)))
   )
-  (func (;3;) (type 3) (result i32)
+  (func (;4;) (type 4) (result i32)
     (local i32)
     (local.set 0
-      (call 0
+      (call 1
         (i32.const 0)))
     (global.set 0
-      (call 2
+      (call 3
         (global.get 0)
         (i64.const 1)))
     (local.get 0)
   )
-  (func (;4;) (type 2) (param i64 i64) (result i64)
+  (func (;5;) (type 3) (param i64 i64) (result i64)
     (local i64)
     (local.tee 2
       (i64.sub
@@ -644,21 +646,21 @@ TypedProgram {
       (then
         (unreachable)))
   )
-  (func (;5;) (type 4)
+  (func (;6;) (type 5)
     (global.set 0
-      (call 4
+      (call 5
         (global.get 0)
         (i64.const 1)))
   )
-  (func (;6;) (type 5) (param i32 i32))
-  (func (;7;) (type 5) (param i32 i32))
-  (func (;8;) (type 6) (param i32) (result i64)
+  (func (;7;) (type 6) (param i32 i32))
+  (func (;8;) (type 6) (param i32 i32))
+  (func (;9;) (type 7) (param i32) (result i64)
     (global.get 0)
   )
-  (func (;9;) (type 7) (param i64) (result i32)
+  (func (;10;) (type 8) (param i64) (result i32)
     (global.set 0
       (local.get 0))
-    (return_call 0
+    (return_call 1
       (i32.const 0))
   )
   (@custom "component-type"
@@ -673,9 +675,12 @@ TypedProgram {
                   (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (own 0))
-                  (export (;3;) "token" (type (sub resource)))
-                  (type (;4;) (borrow 3))
-                  (type (;5;) (own 3))
+                  (type (;3;) (tuple u64 u64 u64 u64))
+                  (type (;4;) (func (param "self" 1) (param "hash" 3) (result bool)))
+                  (export (;0;) "[method]utxo.has-method" (func (type 4)))
+                  (export (;5;) "token" (type (sub resource)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
                 )
               )
               (import "starstream:std/builtin" (instance (;0;) (type 0)))
@@ -765,7 +770,9 @@ world root {
 }
 package starstream:std {
   interface builtin {
-    resource utxo;
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
 
     resource token;
   }

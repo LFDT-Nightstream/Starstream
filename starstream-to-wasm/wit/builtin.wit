@@ -4,7 +4,9 @@ package starstream:std;
 /// Starstream programs require.
 interface builtin {
     /// A generic handle to any Utxo.
-    resource utxo {}
+    resource utxo {
+        has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
 
     /// A generic handle to any Token.
     resource token {}
