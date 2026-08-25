@@ -974,7 +974,7 @@ impl Compiler {
             Type::Bool => 1,
             Type::Int(_) => 1,
             Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) | Type::Abi(_) => 1,
-            Type::Tuple(items) => items.iter().map(|t| Self::star_count_core_types(t)).sum(),
+            Type::Tuple(items) => items.iter().map(Self::star_count_core_types).sum(),
             Type::Record(record) => record
                 .fields
                 .iter()
@@ -988,7 +988,7 @@ impl Compiler {
                     .map(|v| match &v.kind {
                         EnumVariantKind::Unit => 0,
                         EnumVariantKind::Tuple(fields) => {
-                            fields.iter().map(|t| Self::star_count_core_types(t)).sum()
+                            fields.iter().map(Self::star_count_core_types).sum()
                         }
                         EnumVariantKind::Struct(fields) => fields
                             .iter()

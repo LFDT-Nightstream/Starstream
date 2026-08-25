@@ -227,7 +227,7 @@ impl Compiler {
 
         // Core import
         let func_idx = self.import_function(
-            &interface,
+            interface,
             &kebab,
             &FuncType::new(core_params.iter().copied(), core_results),
         );
