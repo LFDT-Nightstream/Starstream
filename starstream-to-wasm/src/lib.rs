@@ -8,13 +8,13 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
-    BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned,
-    StaticFunction, Type, TypedAbiDef, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
-    TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef,
-    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef,
-    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    AbiType, BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionKind, ImportSource,
+    IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
+    TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
+    TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm,
+    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef, TypedTokenPart,
+    TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
-use starstream_types::{FunctionKind, ImportSource, NameId};
 use thiserror::Error;
 use wasm_encoder::{
     BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
@@ -2131,64 +2131,38 @@ impl Compiler {
                                 &condition.node,
                             );
                             assert_eq!(condition.node.ty, Type::Bool);
-
-                            // Inner block for each condition.
-                            let bb_true = func.cfg.add_block();
-                            let bb_false = func.cfg.add_block();
-                            func.cfg.fill(
-                                *bb,
-                                Out::If {
-                                    f: bb_false,
-                                    t: bb_true,
-                                },
-                            );
-                            func.cfg.seal(bb_true, BlockType::Empty);
-                            func.cfg.seal(bb_false, BlockType::Empty);
-                            *bb = bb_true;
-
-                            // True branch.
-                            self.visit_block_drop(func, bb, locals, block)?;
-                            func.cfg.fill(*bb, Out::Next(bb_end));
-
-                            // False branch is to continue evaluating conditions.
-                            *bb = bb_false;
                         }
                         TypedIfCondition::Is {
                             name,
-                            original_type,
-                            abi: _,
+                            original_type: _,
+                            abi,
                             abi_name_span: _,
                         } => {
                             let var = locals.get(name.as_str()).unwrap();
-
-                            // TODO ...
-                            var.load(
-                                func.instructions(bb),
-                                Self::star_count_core_types(original_type),
-                            );
-
-                            // Inner block for each condition.
-                            let bb_true = func.cfg.add_block();
-                            let bb_false = func.cfg.add_block();
-                            func.cfg.fill(
-                                *bb,
-                                Out::If {
-                                    f: bb_false,
-                                    t: bb_true,
-                                },
-                            );
-                            func.cfg.seal(bb_true, BlockType::Empty);
-                            func.cfg.seal(bb_false, BlockType::Empty);
-                            *bb = bb_true;
-
-                            // True branch.
-                            self.visit_block_drop(func, bb, locals, block)?;
-                            func.cfg.fill(*bb, Out::Next(bb_end));
-
-                            // False branch is to continue evaluating conditions.
-                            *bb = bb_false;
+                            self.check_implements_abi(func, bb, &var, abi);
                         }
                     }
+
+                    // Inner block for each condition.
+                    let bb_true = func.cfg.add_block();
+                    let bb_false = func.cfg.add_block();
+                    func.cfg.fill(
+                        *bb,
+                        Out::If {
+                            f: bb_false,
+                            t: bb_true,
+                        },
+                    );
+                    func.cfg.seal(bb_true, BlockType::Empty);
+                    func.cfg.seal(bb_false, BlockType::Empty);
+                    *bb = bb_true;
+
+                    // True branch.
+                    self.visit_block_drop(func, bb, locals, block)?;
+                    func.cfg.fill(*bb, Out::Next(bb_end));
+
+                    // False branch is to continue evaluating conditions.
+                    *bb = bb_false;
                 }
 
                 // Final `else` branch is just inline.
@@ -2854,66 +2828,39 @@ impl Compiler {
                                 &condition.node,
                             );
                             assert_eq!(condition.node.ty, Type::Bool);
-
-                            // Inner block for each condition.
-                            let bb_true = func.cfg.add_block();
-                            let bb_false = func.cfg.add_block();
-                            func.cfg.fill(
-                                *bb,
-                                Out::If {
-                                    f: bb_false,
-                                    t: bb_true,
-                                },
-                            );
-                            func.cfg.seal(bb_true, BlockType::Empty);
-                            func.cfg.seal(bb_false, BlockType::Empty);
-                            *bb = bb_true;
-
-                            // True branch.
-                            self.visit_block_stack(func, bb, locals, block)?;
-                            bulk.store(func, bb);
-                            func.cfg.fill(*bb, Out::Next(bb_end));
-
-                            // False branch is to continue evaluating conditions.
-                            *bb = bb_false;
                         }
                         TypedIfCondition::Is {
                             name,
-                            original_type,
-                            abi: _,
+                            original_type: _,
+                            abi,
                             abi_name_span: _,
                         } => {
                             let var = locals.get(name.as_str()).unwrap();
-
-                            // TODO ...
-                            var.load(
-                                func.instructions(bb),
-                                Self::star_count_core_types(original_type),
-                            );
-
-                            // Inner block for each condition.
-                            let bb_true = func.cfg.add_block();
-                            let bb_false = func.cfg.add_block();
-                            func.cfg.fill(
-                                *bb,
-                                Out::If {
-                                    f: bb_false,
-                                    t: bb_true,
-                                },
-                            );
-                            func.cfg.seal(bb_true, BlockType::Empty);
-                            func.cfg.seal(bb_false, BlockType::Empty);
-                            *bb = bb_true;
-
-                            // True branch.
-                            self.visit_block_stack(func, bb, locals, block)?;
-                            bulk.store(func, bb);
-                            func.cfg.fill(*bb, Out::Next(bb_end));
-
-                            // False branch is to continue evaluating conditions.
-                            *bb = bb_false;
+                            self.check_implements_abi(func, bb, &var, abi);
                         }
                     }
+
+                    // Inner block for each condition.
+                    let bb_true = func.cfg.add_block();
+                    let bb_false = func.cfg.add_block();
+                    func.cfg.fill(
+                        *bb,
+                        Out::If {
+                            f: bb_false,
+                            t: bb_true,
+                        },
+                    );
+                    func.cfg.seal(bb_true, BlockType::Empty);
+                    func.cfg.seal(bb_false, BlockType::Empty);
+                    *bb = bb_true;
+
+                    // True branch.
+                    self.visit_block_stack(func, bb, locals, block)?;
+                    bulk.store(func, bb);
+                    func.cfg.fill(*bb, Out::Next(bb_end));
+
+                    // False branch is to continue evaluating conditions.
+                    *bb = bb_false;
                 }
 
                 // Final `else` branch is just inline.
@@ -3104,14 +3051,9 @@ impl Compiler {
                 // Calls to indicate ABIs exposed
                 for abi in abis {
                     for method in &abi.methods {
-                        let digest = sha2::Sha256::digest(method.identity());
-                        assert_eq!(digest.len(), 32);
                         func.instructions(bb)
                             .global_get(self.context_global.unwrap());
-                        for chunk in digest.chunks_exact(8) {
-                            func.instructions(bb)
-                                .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
-                        }
+                        self.push_method_identity(func, bb, method);
                         func.instructions(bb)
                             .call(self.builtins.implements_method.unwrap());
                     }
@@ -3160,6 +3102,37 @@ impl Compiler {
         }
         func.instructions(bb).call(core_fn_idx);
         Ok(())
+    }
+
+    fn check_implements_abi(
+        &mut self,
+        func: &mut StFunction,
+        bb: &mut usize,
+        var: &Var,
+        abi: &AbiType,
+    ) {
+        func.instructions(bb).i32_const(1);
+        for method in &abi.methods {
+            var.load(func.instructions(bb), 1);
+            self.push_method_identity(func, bb, method);
+            func.instructions(bb)
+                .call(self.builtins.has_method.unwrap());
+            func.instructions(bb).i32_and();
+        }
+    }
+
+    fn push_method_identity(
+        &mut self,
+        func: &mut StFunction,
+        bb: &mut usize,
+        method: &TypedAbiMethodDecl,
+    ) {
+        let digest = sha2::Sha256::digest(method.identity());
+        assert_eq!(digest.len(), 32);
+        for chunk in digest.chunks_exact(8) {
+            func.instructions(bb)
+                .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
+        }
     }
 
     fn enum_promote(

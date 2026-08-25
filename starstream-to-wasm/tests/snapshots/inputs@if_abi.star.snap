@@ -453,7 +453,14 @@ TypedProgram {
     (block (result i32) ;; label = @1
       (block ;; label = @2
         (br_if 0 (;@2;)
-          (local.get 0))
+          (i32.and
+            (i32.const 1)
+            (call 0
+              (local.get 0)
+              (i64.const 1054880662928880172)
+              (i64.const -6997826614512064474)
+              (i64.const 6792174941159429659)
+              (i64.const 2637011046949389427))))
         (br 1 (;@1;)
           (i32.const 0)))
       (call 1
