@@ -1,0 +1,429 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/if_abi.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "MyAbi",
+                        span: 4..9,
+                    },
+                    parts: [
+                        FnDecl(
+                            AbiMethodDecl {
+                                name: Identifier {
+                                    name: "hello",
+                                    span: 19..24,
+                                },
+                                params: [],
+                                return_type: Some(
+                                    Named {
+                                        name: [
+                                            Identifier {
+                                                name: "i32",
+                                                span: 30..33,
+                                            },
+                                        ],
+                                        generics: [],
+                                    },
+                                ),
+                                span: 16..35,
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..38,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "maybe_hello",
+                        span: 48..59,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "u",
+                                span: 60..61,
+                            },
+                            ty: Named {
+                                name: [
+                                    Identifier {
+                                        name: "Utxo",
+                                        span: 63..67,
+                                    },
+                                ],
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        Named {
+                            name: [
+                                Identifier {
+                                    name: "i32",
+                                    span: 72..75,
+                                },
+                            ],
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: If {
+                                    branches: [
+                                        (
+                                            Is {
+                                                name: Identifier {
+                                                    name: "u",
+                                                    span: 85..86,
+                                                },
+                                                abi_name: Identifier {
+                                                    name: "MyAbi",
+                                                    span: 90..95,
+                                                },
+                                            },
+                                            Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                IntegerLiteral {
+                                                                    digits: "1",
+                                                                    radix: Decimal,
+                                                                },
+                                                            ),
+                                                        ),
+                                                        span: 106..107,
+                                                    },
+                                                ),
+                                                span: 96..114,
+                                            },
+                                        ),
+                                    ],
+                                    else_branch: Some(
+                                        Block {
+                                            statements: [],
+                                            tail_expression: Some(
+                                                Spanned {
+                                                    node: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "0",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                    span: 129..130,
+                                                },
+                                            ),
+                                            span: 119..137,
+                                        },
+                                    ),
+                                },
+                                span: 82..137,
+                            },
+                        ),
+                        span: 76..139,
+                    },
+                },
+            ),
+            span: 38..139,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Fn: maybe_hello => i32
+  T-ReturnTail: if u is MyAbi {
+    1
+} else {
+    0
+} => i32
+    T-If: {maybe_hello: fn(u: Utxo) -> i32, u: Utxo} ⊢ if u is MyAbi {
+    1
+} else {
+    0
+} ⇒ ()
+      T-Tail: 1 => i64
+        T-Int: {maybe_hello: fn(u: Utxo) -> i32, u: MyAbi} ⊢ 1 ⇒ i64
+      T-Tail: 0 => i64
+        T-Int: {maybe_hello: fn(u: Utxo) -> i32, u: Utxo} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t3}
+    Unify-Var: i64 ~ i32 => {i32/t4}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                ty: AbiType {
+                    name: Identifier {
+                        name: "MyAbi",
+                        span: 4..9,
+                    },
+                    methods: [
+                        TypedAbiMethodDecl {
+                            name: Identifier {
+                                name: "hello",
+                                span: 19..24,
+                            },
+                            id: NameId(4),
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 19..24,
+                                params: [],
+                                result: Int(
+                                    I32,
+                                ),
+                                callee: Some(
+                                    Named(
+                                        NameId(4),
+                                    ),
+                                ),
+                            },
+                        },
+                    ],
+                },
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "hello",
+                            span: 19..24,
+                        },
+                        id: NameId(4),
+                        ty: FunctionType {
+                            kind: Normal,
+                            name_span: 19..24,
+                            params: [],
+                            result: Int(
+                                I32,
+                            ),
+                            callee: Some(
+                                Named(
+                                    NameId(4),
+                                ),
+                            ),
+                        },
+                    },
+                ],
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "maybe_hello",
+                    span: 48..59,
+                },
+                id: NameId(5),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 48..59,
+                    params: [
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "u",
+                                span: 60..61,
+                            },
+                            ty: UtxoAny,
+                            ty_span: 63..67,
+                        },
+                    ],
+                    result: Int(
+                        I32,
+                    ),
+                    callee: Some(
+                        Named(
+                            NameId(5),
+                        ),
+                    ),
+                },
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int(
+                                    I32,
+                                ),
+                                kind: If {
+                                    branches: [
+                                        (
+                                            Is {
+                                                name: Identifier {
+                                                    name: "u",
+                                                    span: 85..86,
+                                                },
+                                                original_type: UtxoAny,
+                                                abi: AbiType {
+                                                    name: Identifier {
+                                                        name: "MyAbi",
+                                                        span: 4..9,
+                                                    },
+                                                    methods: [
+                                                        TypedAbiMethodDecl {
+                                                            name: Identifier {
+                                                                name: "hello",
+                                                                span: 19..24,
+                                                            },
+                                                            id: NameId(4),
+                                                            ty: FunctionType {
+                                                                kind: Normal,
+                                                                name_span: 19..24,
+                                                                params: [],
+                                                                result: Int(
+                                                                    I32,
+                                                                ),
+                                                                callee: Some(
+                                                                    Named(
+                                                                        NameId(4),
+                                                                    ),
+                                                                ),
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                                abi_name_span: 90..95,
+                                            },
+                                            TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int(
+                                                                I32,
+                                                            ),
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    IntegerLiteral {
+                                                                        digits: "1",
+                                                                        radix: Decimal,
+                                                                    },
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 106..107,
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ],
+                                    else_branch: Some(
+                                        TypedBlock {
+                                            statements: [],
+                                            tail_expression: Some(
+                                                Spanned {
+                                                    node: TypedExpr {
+                                                        ty: Int(
+                                                            I32,
+                                                        ),
+                                                        kind: Literal(
+                                                            Integer(
+                                                                IntegerLiteral {
+                                                                    digits: "0",
+                                                                    radix: Decimal,
+                                                                },
+                                                            ),
+                                                        ),
+                                                    },
+                                                    span: 129..130,
+                                                },
+                                            ),
+                                        },
+                                    ),
+                                },
+                            },
+                            span: 82..137,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i32) (result i32)))
+  (export "maybe-hello" (func 0))
+  (func (;0;) (type 0) (param i32) (result i32)
+    (block (result i32) ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (local.get 0))
+        (br 1 (;@1;)
+          (i32.const 0)))
+      (i32.const 1))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (export (;3;) "token" (type (sub resource)))
+                  (type (;4;) (borrow 3))
+                  (type (;5;) (own 3))
+                )
+              )
+              (import "starstream:std/builtin" (instance (;0;) (type 0)))
+              (alias export 0 "utxo" (type (;1;)))
+              (import "s-utxo" (type (;2;) (eq 1)))
+              (type (;3;) (borrow 2))
+              (type (;4;) (own 2))
+              (alias export 0 "token" (type (;5;)))
+              (import "s-token" (type (;6;) (eq 5)))
+              (type (;7;) (borrow 6))
+              (type (;8;) (own 6))
+              (type (;9;) (func (param "u" 3) (result s32)))
+              (export (;0;) "maybe-hello" (func (type 9)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
+  export maybe-hello: func(u: borrow<s-utxo>) -> s32;
+}
+package starstream:std {
+  interface builtin {
+    resource utxo;
+
+    resource token;
+  }
+}

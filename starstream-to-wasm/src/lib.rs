@@ -966,17 +966,17 @@ impl Compiler {
         }
     }
 
-    fn star_count_core_types(&mut self, ty: &Type) -> u32 {
+    fn star_count_core_types(ty: &Type) -> u32 {
         match ty {
             Type::Unit => 0,
             Type::Bool => 1,
             Type::Int(_) => 1,
-            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) => 1,
-            Type::Tuple(items) => items.iter().map(|t| self.star_count_core_types(t)).sum(),
+            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) | Type::Abi(_) => 1,
+            Type::Tuple(items) => items.iter().map(|t| Self::star_count_core_types(t)).sum(),
             Type::Record(record) => record
                 .fields
                 .iter()
-                .map(|f| self.star_count_core_types(&f.ty))
+                .map(|f| Self::star_count_core_types(&f.ty))
                 .sum(),
             Type::Enum(enum_) => {
                 // discriminator + the max number of slots used by any variant
@@ -986,19 +986,18 @@ impl Compiler {
                     .map(|v| match &v.kind {
                         EnumVariantKind::Unit => 0,
                         EnumVariantKind::Tuple(fields) => {
-                            fields.iter().map(|t| self.star_count_core_types(t)).sum()
+                            fields.iter().map(|t| Self::star_count_core_types(t)).sum()
                         }
                         EnumVariantKind::Struct(fields) => fields
                             .iter()
-                            .map(|f| self.star_count_core_types(&f.ty))
+                            .map(|f| Self::star_count_core_types(&f.ty))
                             .sum(),
                     })
                     .max()
                     .unwrap_or(0)
             }
             Type::Function { .. } => todo!(),
-            Type::Var(_) => todo!(),
-            Type::Abi(_) => 0,
+            Type::Var(_) => unreachable!(),
         }
     }
 
@@ -1893,20 +1892,7 @@ impl Compiler {
                         {
                             let mut types = Vec::new();
                             _ = self.star_to_core_types(value.span, &mut types, &value.node.ty);
-
-                            // Pop from stack to set locals in reverse order.
-                            match var {
-                                Var::Local(local) => {
-                                    for i in (0..types.len()).rev() {
-                                        func.instructions(bb).local_set(local + (i as u32));
-                                    }
-                                }
-                                Var::Global(global) => {
-                                    for i in (0..types.len()).rev() {
-                                        func.instructions(bb).global_set(global + (i as u32));
-                                    }
-                                }
-                            }
+                            var.store(func.instructions(bb), types.len() as u32);
                         }
                     } else {
                         self.push_error(
@@ -2162,8 +2148,40 @@ impl Compiler {
                             // False branch is to continue evaluating conditions.
                             *bb = bb_false;
                         }
-                        TypedIfCondition::Is { .. } => {
-                            todo!("codegen for if...is not yet implemented")
+                        TypedIfCondition::Is {
+                            name,
+                            original_type,
+                            abi,
+                            abi_name_span,
+                        } => {
+                            let var = locals.get(name.as_str()).unwrap();
+
+                            // TODO ...
+                            var.load(
+                                func.instructions(bb),
+                                Self::star_count_core_types(original_type),
+                            );
+
+                            // Inner block for each condition.
+                            let bb_true = func.cfg.add_block();
+                            let bb_false = func.cfg.add_block();
+                            func.cfg.fill(
+                                *bb,
+                                Out::If {
+                                    f: bb_false,
+                                    t: bb_true,
+                                },
+                            );
+                            func.cfg.seal(bb_true, BlockType::Empty);
+                            func.cfg.seal(bb_false, BlockType::Empty);
+                            *bb = bb_true;
+
+                            // True branch.
+                            self.visit_block_drop(func, bb, locals, block)?;
+                            func.cfg.fill(*bb, Out::Next(bb_end));
+
+                            // False branch is to continue evaluating conditions.
+                            *bb = bb_false;
                         }
                     }
                 }
@@ -2190,7 +2208,7 @@ impl Compiler {
                 // Function calls could have any side effect, so always really
                 // call them then drop whatever they might have returned.
                 self.visit_expr_stack(func, bb, locals, span, expr)?;
-                for _ in 0..self.star_count_core_types(&expr.ty) {
+                for _ in 0..Self::star_count_core_types(&expr.ty) {
                     func.instructions(bb).drop();
                 }
             }
@@ -2217,18 +2235,7 @@ impl Compiler {
                 if let [solo] = &name[..]
                     && let Some(var) = locals.get(solo.as_str())
                 {
-                    match var {
-                        Var::Local(local) => {
-                            for i in 0..self.star_count_core_types(&expr.ty) {
-                                func.instructions(bb).local_get(local + i);
-                            }
-                        }
-                        Var::Global(global) => {
-                            for i in 0..self.star_count_core_types(&expr.ty) {
-                                func.instructions(bb).global_get(global + i);
-                            }
-                        }
-                    }
+                    var.load(func.instructions(bb), Self::star_count_core_types(&expr.ty));
                     Ok(())
                 } else if let Type::Enum(enum_) = &expr.ty
                     && let Some(variant) = *constant
@@ -2758,7 +2765,7 @@ impl Compiler {
                             if f.name.as_str() == field.as_str() {
                                 ty = Some(&f.ty);
                             }
-                            let slots = self.star_count_core_types(&f.ty);
+                            let slots = Self::star_count_core_types(&f.ty);
                             total += slots;
                             if ty.is_none() {
                                 offset += slots;
@@ -2865,8 +2872,41 @@ impl Compiler {
                             // False branch is to continue evaluating conditions.
                             *bb = bb_false;
                         }
-                        TypedIfCondition::Is { .. } => {
-                            todo!("codegen for if...is not yet implemented")
+                        TypedIfCondition::Is {
+                            name,
+                            original_type,
+                            abi,
+                            abi_name_span,
+                        } => {
+                            let var = locals.get(name.as_str()).unwrap();
+
+                            // TODO ...
+                            var.load(
+                                func.instructions(bb),
+                                Self::star_count_core_types(original_type),
+                            );
+
+                            // Inner block for each condition.
+                            let bb_true = func.cfg.add_block();
+                            let bb_false = func.cfg.add_block();
+                            func.cfg.fill(
+                                *bb,
+                                Out::If {
+                                    f: bb_false,
+                                    t: bb_true,
+                                },
+                            );
+                            func.cfg.seal(bb_true, BlockType::Empty);
+                            func.cfg.seal(bb_false, BlockType::Empty);
+                            *bb = bb_true;
+
+                            // True branch.
+                            self.visit_block_stack(func, bb, locals, block)?;
+                            bulk.store(func, bb);
+                            func.cfg.fill(*bb, Out::Next(bb_end));
+
+                            // False branch is to continue evaluating conditions.
+                            *bb = bb_false;
                         }
                     }
                 }
@@ -3781,7 +3821,7 @@ impl Compiler {
         result.extend_from_slice(&col_locals[..column]);
         let mut offset = base_local;
         for ft in field_types {
-            let count = self.star_count_core_types(ft);
+            let count = Self::star_count_core_types(ft);
             result.push((offset, ft.clone()));
             offset += count;
         }
@@ -3794,6 +3834,39 @@ impl Compiler {
 enum Var {
     Local(u32),
     Global(u32),
+}
+
+impl Var {
+    fn load(&self, mut sink: InstructionSink, count: u32) {
+        match self {
+            Var::Local(local) => {
+                for i in 0..count {
+                    sink.local_get(local + i);
+                }
+            }
+            Var::Global(global) => {
+                for i in 0..count {
+                    sink.global_get(global + i);
+                }
+            }
+        }
+    }
+
+    /// Pop from stack to set locals in reverse order.
+    fn store(&self, mut sink: InstructionSink, count: u32) {
+        match self {
+            Var::Local(local) => {
+                for i in (0..count).rev() {
+                    sink.local_set(local + i);
+                }
+            }
+            Var::Global(global) => {
+                for i in (0..count).rev() {
+                    sink.global_set(global + i);
+                }
+            }
+        }
+    }
 }
 
 // Probably inefficient, but fun. Fix later?
