@@ -35,7 +35,7 @@ impl Compiler {
         if self.world_type.has_imported(name) {
             return;
         }
-        let mut builtin = TypeBuilder::default();
+        let mut builtin = TypeBuilder::new_interface(&self.world_type);
 
         // `resource utxo`
         let utxo_resource = builtin.fresh_resource("utxo", "s-utxo");
@@ -86,7 +86,7 @@ impl Compiler {
             return;
         }
 
-        let mut utxo_context = TypeBuilder::default();
+        let mut utxo_context = TypeBuilder::new_interface(&self.world_type);
 
         let utxo_context_resource = utxo_context.fresh_resource("utxo-context", "s-utxo-context");
         self.builtins.utxo_context_resource = Some(utxo_context_resource.clone());

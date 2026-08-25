@@ -1127,8 +1127,10 @@ impl Compiler {
                             &func_ty.params,
                             &func_ty.result,
                         );
-                        let iface = imported_interfaces.entry(def.from.to_string()).or_default();
-                        iface.export_fn(&kebab, &sig);
+                        imported_interfaces
+                            .entry(def.from.to_string())
+                            .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+                            .export_fn(&kebab, &sig);
                     }
                 }
                 _ => todo!(),
