@@ -158,6 +158,16 @@ world root {
 To test whether methods exist before calling them, call `has-method` on
 the `starstream:std/builtin#utxo` resource.
 
+## Exporting coordination scripts
+
+Coordination scripts are top-level function exports:
+
+```wit
+world root {
+    export my-coordination-script: func();
+}
+```
+
 ## Importing coordination scripts
 
 Cross-contract coordination scripts are imported from an interface named
