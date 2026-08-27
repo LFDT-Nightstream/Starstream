@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn main() -> i64 {\n    let first = 1;\n\n    let second = 2;\n\n\n\n    let third = 3;\n\n    first + second + third\n}\n"
+---
+fn main() -> i64 {
+    let first = 1;
+
+    let second = 2;
+
+    let third = 3;
+
+    first + second + third
+}

@@ -21,7 +21,22 @@ pub fn program(
 
     program_to_doc(program, source, comments).render_fmt(80, &mut out)?;
 
-    Ok(out)
+    Ok(trim_line_ends(out))
+}
+
+fn trim_line_ends(output: String) -> String {
+    let ends_with_newline = output.ends_with('\n');
+    let mut trimmed = output
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if ends_with_newline {
+        trimmed.push('\n');
+    }
+
+    trimmed
 }
 
 pub fn statement(statement: &Statement) -> Result<String, fmt::Error> {
@@ -800,38 +815,86 @@ fn block_to_doc<'a>(block: &Block, source: &'a str, comments: &CommentMap) -> Rc
             ));
         }
 
-        // Build body with comments between items.
+        // Build body with comments between items. Each line is nested separately
+        // so preserved blank lines do not contain indentation whitespace.
         // block.span.start is the position of `{`, so comments after it and before
         // the first statement will be found.
         let mut body = RcDoc::nil();
         let mut prev_end: usize = block.span.start;
+        let mut has_body_line = false;
 
-        for (i, (span, item_doc)) in span_items.into_iter().enumerate() {
+        for (span, item_doc) in span_items {
             let comments_before = comments.comments_between(prev_end, span, source);
-
-            if i > 0 {
-                body = body.append(RcDoc::line());
-            }
+            let mut gap_start = prev_end;
 
             for c in comments_before {
-                body = body.append(comment_to_doc(c, source));
+                if has_body_line && has_blank_line_between(gap_start, c.0.start, source) {
+                    body = body.append(RcDoc::hardline());
+                }
+
+                body = body.append(
+                    RcDoc::hardline()
+                        .append(RcDoc::text(comment_text(c, source)))
+                        .nest(INDENT),
+                );
+                has_body_line = true;
+                gap_start = c.0.end;
             }
 
-            body = body.append(item_doc);
+            if has_body_line && has_blank_line_between(gap_start, span.start, source) {
+                body = body.append(RcDoc::hardline());
+            }
 
             let inline = comments.inline_comment_after(span, source);
+            let mut line = item_doc;
             if let Some(c) = inline {
-                body = body.append(inline_comment_to_doc(c, source));
+                line = line.append(inline_comment_to_doc(c, source));
             }
+            body = body.append(RcDoc::hardline().append(line).nest(INDENT));
+            has_body_line = true;
 
-            prev_end = inline.map(|c| c.0.end).unwrap_or(span.end);
+            prev_end = inline
+                .map(|c| c.0.end)
+                .unwrap_or_else(|| span_content_end(span, source));
         }
 
         RcDoc::text("{")
-            .append(RcDoc::line().append(body).nest(INDENT))
-            .append(RcDoc::line())
+            .append(body)
+            .append(RcDoc::hardline())
             .append(RcDoc::text("}"))
     }
+}
+
+/// Whether the source contains at least one empty line between two body items.
+///
+/// The parser's spans can include trailing whitespace, so callers pass the end
+/// of the previous item's actual content. Looking back one byte also handles
+/// line comments, whose spans include their terminating newline.
+fn has_blank_line_between(start: usize, end: usize, source: &str) -> bool {
+    if start >= end || end > source.len() {
+        return false;
+    }
+
+    let start = start.saturating_sub(1);
+    let mut at_line_start = false;
+
+    for byte in source.as_bytes()[start..end].iter().copied() {
+        match byte {
+            b'\n' if at_line_start => return true,
+            b'\n' => at_line_start = true,
+            b' ' | b'\t' | b'\r' if at_line_start => {}
+            _ => at_line_start = false,
+        }
+    }
+
+    false
+}
+
+fn span_content_end(span: starstream_types::Span, source: &str) -> usize {
+    source
+        .get(span.start..span.end)
+        .map(|text| span.start + text.trim_end().len())
+        .unwrap_or_else(|| span.end.min(source.len()))
 }
 
 fn parened_expr<'a>(expr: &Spanned<Expr>, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
@@ -1418,6 +1481,43 @@ mod tests {
                         y = y * (x + y);
                     }
                 }
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn blank_lines_in_blocks() {
+        assert_format_snapshot!(
+            r#"
+            fn main() -> i64 {
+                let first = 1;
+
+                let second = 2;
+
+
+
+                let third = 3;
+
+                first + second + third
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn blank_lines_around_comments_in_blocks() {
+        assert_format_snapshot!(
+            r#"
+            fn main() -> i64 {
+                let first = 1;
+
+                // This comment follows a blank line.
+                let second = 2;
+                // This comment precedes a blank line.
+
+
+                first + second
             }
             "#,
         );
