@@ -55,8 +55,8 @@ Inside the REPL, call `init`, concrete semantic actions, or the nondeterministic
 Run the Quint-backed Rust tests:
 
 ```sh
-cargo test -p starstream-interleaving-spec
+npm ci
+npm test
 ```
 
-These pick up the local `node_modules/.bin/quint` when it exists and fall back
-to `quint` on `PATH`, so they work with either installation.
+These tests are ignored by default by `cargo test` because they require Quint.

@@ -19,6 +19,9 @@ jobs:
       # Test all crates, except those that force-target WASM.
       # Skip the tests that make proofs, since we'll run those on the release profile
       - run: cargo test --workspace -- --skip circuit_test
+      - name: Test Rust-to-Quint trace verification
+        run: npm test
+        working-directory: starstream-interleaving-spec
       # The tests that do Nightstream proofs are quite slow without --release
       - run: cargo test -p starstream-interleaving-proof-legacy --release circuit_test
       # Cosmetic checks.

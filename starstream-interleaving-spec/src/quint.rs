@@ -4,8 +4,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use tempfile::TempDir;
 
@@ -77,6 +77,23 @@ pub enum QuintError {
 
     #[error("Quint did not run `{RUN_NAME}`\n{0}")]
     NotRun(Box<VerificationFailure>),
+
+    #[error(
+        "`{command}` is Quint {found}, but package.json pins {pinned}; run `npm ci` in this crate"
+    )]
+    VersionMismatch {
+        command: String,
+        found: String,
+        pinned: &'static str,
+    },
+
+    #[error(
+        "no runnable Quint at `{command}`, which package.json pins at {pinned}; run `npm ci` in this crate"
+    )]
+    NoQuint {
+        command: String,
+        pinned: &'static str,
+    },
 }
 
 impl fmt::Display for VerificationFailure {
@@ -96,21 +113,30 @@ impl fmt::Display for VerificationFailure {
 }
 
 impl QuintVerifier {
-    /// Stage the specification, running the Quint installed by `npm install`
-    /// in this crate if there is one, and whatever is on `PATH` otherwise.
-    pub fn new() -> Result<Self, QuintError> {
+    /// Returns the local Quint executable, falling back to `PATH`.
+    #[must_use]
+    pub fn resolved_command() -> OsString {
         let npm_local = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("node_modules")
             .join(".bin")
             .join(QUINT_COMMAND);
 
         if npm_local.is_file() {
-            Self::with_command(npm_local)
+            npm_local.into_os_string()
         } else {
-            Self::with_command(QUINT_COMMAND)
+            OsString::from(QUINT_COMMAND)
         }
     }
 
+    /// Stages the specification after verifying the resolved Quint version.
+    pub fn new() -> Result<Self, QuintError> {
+        let command = Self::resolved_command();
+        check_pinned_version(&command)?;
+
+        Self::with_command(command)
+    }
+
+    /// Stages the specification with `quint`, without checking its version.
     pub fn with_command(quint: impl AsRef<OsStr>) -> Result<Self, QuintError> {
         let spec_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("spec");
 
@@ -210,6 +236,60 @@ impl QuintVerifier {
             .stderr(Stdio::piped())
             .output()
             .map_err(|source| QuintError::Invoke { program, source })
+    }
+}
+
+fn pinned_version() -> &'static str {
+    static PINNED: LazyLock<String> = LazyLock::new(|| {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../package.json")).expect("package.json parses");
+
+        manifest["devDependencies"]["@informalsystems/quint"]
+            .as_str()
+            .expect("package.json pins @informalsystems/quint")
+            .to_owned()
+    });
+
+    &PINNED
+}
+
+fn installed_version(quint: &OsStr) -> Option<String> {
+    let output = Command::new(quint)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+// Cache only successful checks so installation can recover from a failure.
+fn check_pinned_version(command: &OsStr) -> Result<(), QuintError> {
+    static MATCHED: OnceLock<()> = OnceLock::new();
+
+    if MATCHED.get().is_some() {
+        return Ok(());
+    }
+
+    let pinned = pinned_version();
+
+    match installed_version(command) {
+        Some(found) if found == pinned => {
+            let _ = MATCHED.set(());
+            Ok(())
+        }
+        Some(found) => Err(QuintError::VersionMismatch {
+            command: command.to_string_lossy().into_owned(),
+            found,
+            pinned,
+        }),
+        None => Err(QuintError::NoQuint {
+            command: command.to_string_lossy().into_owned(),
+            pinned,
+        }),
     }
 }
 
@@ -404,6 +484,7 @@ mod tests {
     // this currently mainly a placeholder for the next step, in which the Rust
     // trace generated from the proving runtime will generate the trace to verify
     #[test]
+    #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
     fn replays_a_utxo_constructor() {
         let trace = Trace::new([
             NewUtxo {
@@ -432,6 +513,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
     fn rejects_a_constructor_that_disagrees_on_its_arguments() {
         let trace = Trace::new([
             NewUtxo {
@@ -452,6 +534,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
     fn rejects_a_return_without_entering_constructor() {
         let trace = Trace::new([
             NewUtxo {
