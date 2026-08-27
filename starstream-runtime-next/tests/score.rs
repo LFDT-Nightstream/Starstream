@@ -5,7 +5,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
-    Contract, CoordinationScriptExport, Host, MethodExport, Utxo, UtxoMainExport,
+    Contract, CoordinationScriptExport, Host, MethodExport, Utxo, UtxoExport, UtxoMainExport,
     UtxoStorageExport, bindings,
 };
 use starstream_to_wasm::compile;
@@ -185,6 +185,7 @@ static METHODS: LazyLock<[(u64, u64, u64, u64); 4]> =
 
 #[derive(Clone)]
 struct ProgressUtxo {
+    utxo: UtxoExport,
     storage: UtxoStorageExport,
     new: UtxoMainExport,
     finish: MethodExport,
@@ -250,6 +251,7 @@ fn assert_progress_utxo<T: Host>(contract: &Contract<T>) -> wasmtime::Result<Pro
 
     let storage = utxo.storage().context("failed to lookup storage export")?;
     Ok(ProgressUtxo {
+        utxo: utxo.clone(),
         storage: storage.clone(),
         new,
         finish: methods["[method]utxo.finish"].clone(),
@@ -334,7 +336,7 @@ async fn score_main_new() -> wasmtime::Result<()> {
     let utxo_cx_res = utxo_cx_res.try_into_resource_any(&mut store)?;
     let instance = contract.instantiate(&mut store).await?;
     let utxo = instance
-        .call_utxo_main(&mut store, &ty.new, [Val::Resource(utxo_cx_res)])
+        .call_utxo_main(&mut store, &ty.utxo, &ty.new, [Val::Resource(utxo_cx_res)])
         .instrument(info_span!("new"))
         .await
         .context("failed to construct UTXO")?;
