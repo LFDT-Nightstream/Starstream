@@ -328,12 +328,14 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i32)))
-  (type (;1;) (func))
-  (import "starstream:events/foo" "hello" (func (;0;) (type 0)))
-  (export "main" (func 1))
-  (func (;1;) (type 1)
-    (call 0
+  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;1;) (func (param i32 i32)))
+  (type (;2;) (func))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
+  (import "starstream:events/foo" "hello" (func (;1;) (type 1)))
+  (export "main" (func 2))
+  (func (;2;) (type 2)
+    (call 1
       (i32.const 1)
       (i32.const 2))
   )
@@ -349,9 +351,12 @@ TypedProgram {
                   (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (own 0))
-                  (export (;3;) "token" (type (sub resource)))
-                  (type (;4;) (borrow 3))
-                  (type (;5;) (own 3))
+                  (type (;3;) (tuple u64 u64 u64 u64))
+                  (type (;4;) (func (param "self" 1) (param "hash" 3) (result bool)))
+                  (export (;0;) "[method]utxo.has-method" (func (type 4)))
+                  (export (;5;) "token" (type (sub resource)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
                 )
               )
               (import "starstream:std/builtin" (instance (;0;) (type 0)))
@@ -394,7 +399,9 @@ world root {
 }
 package starstream:std {
   interface builtin {
-    resource utxo;
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
 
     resource token;
   }

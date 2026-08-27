@@ -66,6 +66,15 @@ impl bindings::starstream::std::builtin::HostUtxo for Ctx {
     fn drop(&mut self, _utxo: Resource<Utxo>) -> wasmtime::Result<()> {
         Ok(())
     }
+
+    fn has_method(
+        &mut self,
+        _utxo: Resource<Utxo>,
+        _hash: (u64, u64, u64, u64),
+    ) -> wasmtime::Result<bool> {
+        // TODO
+        Ok(false)
+    }
 }
 
 impl bindings::starstream::std::builtin::HostToken for Ctx {

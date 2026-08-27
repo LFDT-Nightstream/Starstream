@@ -287,14 +287,12 @@ impl TypeBuilder<ComponentType> {
 }
 
 impl TypeBuilder<InstanceType> {
-    pub fn new_interface() -> Self {
-        Self::default()
-    }
-
-    pub fn inherit_parent(&mut self, parent: &TypeBuilder<ComponentType>) {
+    pub fn new_interface(parent: &TypeBuilder<ComponentType>) -> Self {
+        let mut this = Self::default();
         // Lower resources declared in the parent interface.
-        self.on_demand_resources
+        this.on_demand_resources
             .extend(parent.resources.iter().cloned());
+        this
     }
 }
 

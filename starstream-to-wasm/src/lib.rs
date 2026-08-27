@@ -8,13 +8,13 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
-    BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned,
-    StaticFunction, Type, TypedAbiDef, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
-    TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef,
-    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef,
-    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    AbiType, BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionKind, ImportSource,
+    IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
+    TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
+    TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm,
+    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef, TypedTokenPart,
+    TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
-use starstream_types::{FunctionKind, ImportSource, NameId};
 use thiserror::Error;
 use wasm_encoder::{
     BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
@@ -384,7 +384,7 @@ impl Compiler {
 
     fn push_error(&mut self, span: Span, message: impl Into<String>) -> ErrorToken {
         self.errors.push(CompileError {
-            message: message.into(),
+            message: dbg!(message.into()),
             span,
         });
         self.fatal = true;
@@ -813,8 +813,10 @@ impl Compiler {
             Type::Utxo(utxo) => panic!("referencing unregistered utxo {utxo:?}"),
             Type::TokenAny => unreachable!(), // Always preregistered.
             Type::Token(token) => panic!("referencing unregistered token {token:?}"),
-            // ABI handle types aren't implemented yet.
-            Type::Abi(_) => todo!(),
+            // ABI handle types currently decompose to `utxo`.
+            Type::Abi(_) => {
+                return Some(self.star_to_component.get(&Type::UtxoAny).unwrap().clone());
+            }
         };
 
         let cat = Rc::new(cat);
@@ -966,17 +968,17 @@ impl Compiler {
         }
     }
 
-    fn star_count_core_types(&mut self, ty: &Type) -> u32 {
+    fn star_count_core_types(ty: &Type) -> u32 {
         match ty {
             Type::Unit => 0,
             Type::Bool => 1,
             Type::Int(_) => 1,
-            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) => 1,
-            Type::Tuple(items) => items.iter().map(|t| self.star_count_core_types(t)).sum(),
+            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) | Type::Abi(_) => 1,
+            Type::Tuple(items) => items.iter().map(Self::star_count_core_types).sum(),
             Type::Record(record) => record
                 .fields
                 .iter()
-                .map(|f| self.star_count_core_types(&f.ty))
+                .map(|f| Self::star_count_core_types(&f.ty))
                 .sum(),
             Type::Enum(enum_) => {
                 // discriminator + the max number of slots used by any variant
@@ -986,19 +988,18 @@ impl Compiler {
                     .map(|v| match &v.kind {
                         EnumVariantKind::Unit => 0,
                         EnumVariantKind::Tuple(fields) => {
-                            fields.iter().map(|t| self.star_count_core_types(t)).sum()
+                            fields.iter().map(Self::star_count_core_types).sum()
                         }
                         EnumVariantKind::Struct(fields) => fields
                             .iter()
-                            .map(|f| self.star_count_core_types(&f.ty))
+                            .map(|f| Self::star_count_core_types(&f.ty))
                             .sum(),
                     })
                     .max()
                     .unwrap_or(0)
             }
             Type::Function { .. } => todo!(),
-            Type::Var(_) => todo!(),
-            Type::Abi(_) => 0,
+            Type::Var(_) => unreachable!(),
         }
     }
 
@@ -1126,8 +1127,10 @@ impl Compiler {
                             &func_ty.params,
                             &func_ty.result,
                         );
-                        let iface = imported_interfaces.entry(def.from.to_string()).or_default();
-                        iface.export_fn(&kebab, &sig);
+                        imported_interfaces
+                            .entry(def.from.to_string())
+                            .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+                            .export_fn(&kebab, &sig);
                     }
                 }
                 _ => todo!(),
@@ -1163,7 +1166,15 @@ impl Compiler {
                     self.callables.insert(part.id, func);
                 }
                 FunctionKind::Normal => {
-                    // ABI method codegen not yet implemented.
+                    let func = self.declare_dynamic_method(
+                        imported_interfaces,
+                        &def.ty,
+                        &part.name,
+                        &part.ty.params,
+                        &part.ty.result,
+                    );
+                    self.method_callables
+                        .insert((Type::Abi(def.ty.clone()), part.id), func);
                 }
                 FunctionKind::Runtime => unreachable!(),
             }
@@ -1226,7 +1237,7 @@ impl Compiler {
                 .global_set(self.context_global.unwrap());
         }
 
-        let _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
+        _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
         if bb != usize::MAX {
             self.visit_return(&mut func, &bb);
             func.cfg.fill(bb, Out::Return);
@@ -1293,8 +1304,7 @@ impl Compiler {
         let import_interface_name = format!("starstream:self/{}", export_interface_name);
         let resource_name = "utxo";
 
-        let mut iface = TypeBuilder::new_interface();
-        iface.inherit_parent(&self.world_type);
+        let mut iface = TypeBuilder::new_interface(&self.world_type);
 
         // Declare the resource type.
         let this_ty = Type::Utxo(utxo.ty.clone());
@@ -1430,8 +1440,7 @@ impl Compiler {
         let export_interface_name = to_kebab_case(utxo.name.as_str());
         let resource_name = "utxo";
 
-        let mut iface = TypeBuilder::new_interface();
-        iface.inherit_parent(&self.world_type);
+        let mut iface = TypeBuilder::new_interface(&self.world_type);
 
         // Declare the resource type.
         let this_ty = Type::Utxo(utxo.ty.clone());
@@ -1600,8 +1609,7 @@ impl Compiler {
         let import_interface_name = format!("starstream:self/{}", export_interface_name);
         let resource_name = "token";
 
-        let mut iface = TypeBuilder::new_interface();
-        iface.inherit_parent(&self.world_type);
+        let mut iface = TypeBuilder::new_interface(&self.world_type);
 
         // Declare the resource type.
         let this_ty = Type::Token(token.ty.clone());
@@ -1639,8 +1647,7 @@ impl Compiler {
         let export_interface_name = to_kebab_case(token.name.as_str());
         let resource_name = "token";
 
-        let mut iface = TypeBuilder::new_interface();
-        iface.inherit_parent(&self.world_type);
+        let mut iface = TypeBuilder::new_interface(&self.world_type);
 
         // Declare the resource type.
         let this_ty = Type::Token(token.ty.clone());
@@ -1893,20 +1900,7 @@ impl Compiler {
                         {
                             let mut types = Vec::new();
                             _ = self.star_to_core_types(value.span, &mut types, &value.node.ty);
-
-                            // Pop from stack to set locals in reverse order.
-                            match var {
-                                Var::Local(local) => {
-                                    for i in (0..types.len()).rev() {
-                                        func.instructions(bb).local_set(local + (i as u32));
-                                    }
-                                }
-                                Var::Global(global) => {
-                                    for i in (0..types.len()).rev() {
-                                        func.instructions(bb).global_set(global + (i as u32));
-                                    }
-                                }
-                            }
+                            var.store(func.instructions(bb), types.len() as u32);
                         }
                     } else {
                         self.push_error(
@@ -1922,7 +1916,7 @@ impl Compiler {
                     func.cfg.fill(*bb, Out::Next(bb_condition));
 
                     let mut bb_condition_2 = bb_condition;
-                    let _ = self.visit_expr_stack(
+                    _ = self.visit_expr_stack(
                         func,
                         &mut bb_condition_2,
                         &(parent, &locals),
@@ -1954,8 +1948,7 @@ impl Compiler {
                     *bb = bb_exit;
                 }
                 TypedStatement::Return(Some(expr)) => {
-                    let _ =
-                        self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
+                    _ = self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
                     self.visit_return(func, bb);
                     func.cfg.fill(*bb, Out::Return);
                     *bb = usize::MAX;
@@ -2132,7 +2125,7 @@ impl Compiler {
                     match condition {
                         TypedIfCondition::Bool(condition) => {
                             // Evaluate condition.
-                            let _ = self.visit_expr_stack(
+                            _ = self.visit_expr_stack(
                                 func,
                                 bb,
                                 locals,
@@ -2140,32 +2133,38 @@ impl Compiler {
                                 &condition.node,
                             );
                             assert_eq!(condition.node.ty, Type::Bool);
-
-                            // Inner block for each condition.
-                            let bb_true = func.cfg.add_block();
-                            let bb_false = func.cfg.add_block();
-                            func.cfg.fill(
-                                *bb,
-                                Out::If {
-                                    f: bb_false,
-                                    t: bb_true,
-                                },
-                            );
-                            func.cfg.seal(bb_true, BlockType::Empty);
-                            func.cfg.seal(bb_false, BlockType::Empty);
-                            *bb = bb_true;
-
-                            // True branch.
-                            self.visit_block_drop(func, bb, locals, block)?;
-                            func.cfg.fill(*bb, Out::Next(bb_end));
-
-                            // False branch is to continue evaluating conditions.
-                            *bb = bb_false;
                         }
-                        TypedIfCondition::Is { .. } => {
-                            todo!("codegen for if...is not yet implemented")
+                        TypedIfCondition::Is {
+                            name,
+                            original_type: _,
+                            abi,
+                            abi_name_span: _,
+                        } => {
+                            let var = locals.get(name.as_str()).unwrap();
+                            self.check_implements_abi(func, bb, &var, abi);
                         }
                     }
+
+                    // Inner block for each condition.
+                    let bb_true = func.cfg.add_block();
+                    let bb_false = func.cfg.add_block();
+                    func.cfg.fill(
+                        *bb,
+                        Out::If {
+                            f: bb_false,
+                            t: bb_true,
+                        },
+                    );
+                    func.cfg.seal(bb_true, BlockType::Empty);
+                    func.cfg.seal(bb_false, BlockType::Empty);
+                    *bb = bb_true;
+
+                    // True branch.
+                    self.visit_block_drop(func, bb, locals, block)?;
+                    func.cfg.fill(*bb, Out::Next(bb_end));
+
+                    // False branch is to continue evaluating conditions.
+                    *bb = bb_false;
                 }
 
                 // Final `else` branch is just inline.
@@ -2190,7 +2189,7 @@ impl Compiler {
                 // Function calls could have any side effect, so always really
                 // call them then drop whatever they might have returned.
                 self.visit_expr_stack(func, bb, locals, span, expr)?;
-                for _ in 0..self.star_count_core_types(&expr.ty) {
+                for _ in 0..Self::star_count_core_types(&expr.ty) {
                     func.instructions(bb).drop();
                 }
             }
@@ -2217,18 +2216,7 @@ impl Compiler {
                 if let [solo] = &name[..]
                     && let Some(var) = locals.get(solo.as_str())
                 {
-                    match var {
-                        Var::Local(local) => {
-                            for i in 0..self.star_count_core_types(&expr.ty) {
-                                func.instructions(bb).local_get(local + i);
-                            }
-                        }
-                        Var::Global(global) => {
-                            for i in 0..self.star_count_core_types(&expr.ty) {
-                                func.instructions(bb).global_get(global + i);
-                            }
-                        }
-                    }
+                    var.load(func.instructions(bb), Self::star_count_core_types(&expr.ty));
                     Ok(())
                 } else if let Type::Enum(enum_) = &expr.ty
                     && let Some(variant) = *constant
@@ -2758,7 +2746,7 @@ impl Compiler {
                             if f.name.as_str() == field.as_str() {
                                 ty = Some(&f.ty);
                             }
-                            let slots = self.star_count_core_types(&f.ty);
+                            let slots = Self::star_count_core_types(&f.ty);
                             total += slots;
                             if ty.is_none() {
                                 offset += slots;
@@ -2834,7 +2822,7 @@ impl Compiler {
                     match condition {
                         TypedIfCondition::Bool(condition) => {
                             // Evaluate condition.
-                            let _ = self.visit_expr_stack(
+                            _ = self.visit_expr_stack(
                                 func,
                                 bb,
                                 locals,
@@ -2842,33 +2830,39 @@ impl Compiler {
                                 &condition.node,
                             );
                             assert_eq!(condition.node.ty, Type::Bool);
-
-                            // Inner block for each condition.
-                            let bb_true = func.cfg.add_block();
-                            let bb_false = func.cfg.add_block();
-                            func.cfg.fill(
-                                *bb,
-                                Out::If {
-                                    f: bb_false,
-                                    t: bb_true,
-                                },
-                            );
-                            func.cfg.seal(bb_true, BlockType::Empty);
-                            func.cfg.seal(bb_false, BlockType::Empty);
-                            *bb = bb_true;
-
-                            // True branch.
-                            self.visit_block_stack(func, bb, locals, block)?;
-                            bulk.store(func, bb);
-                            func.cfg.fill(*bb, Out::Next(bb_end));
-
-                            // False branch is to continue evaluating conditions.
-                            *bb = bb_false;
                         }
-                        TypedIfCondition::Is { .. } => {
-                            todo!("codegen for if...is not yet implemented")
+                        TypedIfCondition::Is {
+                            name,
+                            original_type: _,
+                            abi,
+                            abi_name_span: _,
+                        } => {
+                            let var = locals.get(name.as_str()).unwrap();
+                            self.check_implements_abi(func, bb, &var, abi);
                         }
                     }
+
+                    // Inner block for each condition.
+                    let bb_true = func.cfg.add_block();
+                    let bb_false = func.cfg.add_block();
+                    func.cfg.fill(
+                        *bb,
+                        Out::If {
+                            f: bb_false,
+                            t: bb_true,
+                        },
+                    );
+                    func.cfg.seal(bb_true, BlockType::Empty);
+                    func.cfg.seal(bb_false, BlockType::Empty);
+                    *bb = bb_true;
+
+                    // True branch.
+                    self.visit_block_stack(func, bb, locals, block)?;
+                    bulk.store(func, bb);
+                    func.cfg.fill(*bb, Out::Next(bb_end));
+
+                    // False branch is to continue evaluating conditions.
+                    *bb = bb_false;
                 }
 
                 // Final `else` branch is just inline.
@@ -3059,14 +3053,9 @@ impl Compiler {
                 // Calls to indicate ABIs exposed
                 for abi in abis {
                     for method in &abi.methods {
-                        let digest = sha2::Sha256::digest(method.identity());
-                        assert_eq!(digest.len(), 32);
                         func.instructions(bb)
                             .global_get(self.context_global.unwrap());
-                        for chunk in digest.chunks_exact(8) {
-                            func.instructions(bb)
-                                .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
-                        }
+                        self.push_method_identity(func, bb, method);
                         func.instructions(bb)
                             .call(self.builtins.implements_method.unwrap());
                     }
@@ -3109,12 +3098,43 @@ impl Compiler {
         core_fn_idx: u32,
         args: &[Spanned<TypedExpr>],
     ) -> Result<()> {
-        let _ = span;
+        _ = span;
         for arg in args {
             self.visit_expr_stack(func, bb, locals, arg.span, &arg.node)?;
         }
         func.instructions(bb).call(core_fn_idx);
         Ok(())
+    }
+
+    fn check_implements_abi(
+        &mut self,
+        func: &mut StFunction,
+        bb: &mut usize,
+        var: &Var,
+        abi: &AbiType,
+    ) {
+        func.instructions(bb).i32_const(1);
+        for method in &abi.methods {
+            var.load(func.instructions(bb), 1);
+            self.push_method_identity(func, bb, method);
+            func.instructions(bb)
+                .call(self.builtins.has_method.unwrap());
+            func.instructions(bb).i32_and();
+        }
+    }
+
+    fn push_method_identity(
+        &mut self,
+        func: &mut StFunction,
+        bb: &mut usize,
+        method: &TypedAbiMethodDecl,
+    ) {
+        let digest = sha2::Sha256::digest(method.identity());
+        assert_eq!(digest.len(), 32);
+        for chunk in digest.chunks_exact(8) {
+            func.instructions(bb)
+                .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
+        }
     }
 
     fn enum_promote(
@@ -3423,14 +3443,14 @@ impl Compiler {
                 }
 
                 if bulk.is_empty() {
-                    let _ = self.visit_block_drop(
+                    _ = self.visit_block_drop(
                         func,
                         bb,
                         &(locals, &arm_locals),
                         &arms[*action].body,
                     );
                 } else {
-                    let _ = self.visit_block_stack(
+                    _ = self.visit_block_stack(
                         func,
                         bb,
                         &(locals, &arm_locals),
@@ -3781,7 +3801,7 @@ impl Compiler {
         result.extend_from_slice(&col_locals[..column]);
         let mut offset = base_local;
         for ft in field_types {
-            let count = self.star_count_core_types(ft);
+            let count = Self::star_count_core_types(ft);
             result.push((offset, ft.clone()));
             offset += count;
         }
@@ -3794,6 +3814,39 @@ impl Compiler {
 enum Var {
     Local(u32),
     Global(u32),
+}
+
+impl Var {
+    fn load(&self, mut sink: InstructionSink, count: u32) {
+        match self {
+            Var::Local(local) => {
+                for i in 0..count {
+                    sink.local_get(local + i);
+                }
+            }
+            Var::Global(global) => {
+                for i in 0..count {
+                    sink.global_get(global + i);
+                }
+            }
+        }
+    }
+
+    /// Pop from stack to set locals in reverse order.
+    fn store(&self, mut sink: InstructionSink, count: u32) {
+        match self {
+            Var::Local(local) => {
+                for i in (0..count).rev() {
+                    sink.local_set(local + i);
+                }
+            }
+            Var::Global(global) => {
+                for i in (0..count).rev() {
+                    sink.global_set(global + i);
+                }
+            }
+        }
+    }
 }
 
 // Probably inefficient, but fun. Fix later?

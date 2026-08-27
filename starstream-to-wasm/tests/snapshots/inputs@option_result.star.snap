@@ -2665,19 +2665,21 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (result i32 i64)))
-  (type (;1;) (func (param i32 i64) (result i64)))
-  (type (;2;) (func (param i32 i64 i32 i64)))
-  (export "run" (func 6))
-  (func (;0;) (type 0) (result i32 i64)
+  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;1;) (func (result i32 i64)))
+  (type (;2;) (func (param i32 i64) (result i64)))
+  (type (;3;) (func (param i32 i64 i32 i64)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
+  (export "run" (func 7))
+  (func (;1;) (type 1) (result i32 i64)
     (i32.const 1)
     (i64.const 42)
   )
-  (func (;1;) (type 0) (result i32 i64)
+  (func (;2;) (type 1) (result i32 i64)
     (i32.const 0)
     (i64.const 0)
   )
-  (func (;2;) (type 1) (param i32 i64) (result i64)
+  (func (;3;) (type 2) (param i32 i64) (result i64)
     (local i32 i64 i64)
     (block (result i64) ;; label = @1
       (block ;; label = @2
@@ -2701,11 +2703,11 @@ TypedProgram {
         (local.get 3))
       (local.get 4))
   )
-  (func (;3;) (type 0) (result i32 i64)
+  (func (;4;) (type 1) (result i32 i64)
     (i32.const 0)
     (i64.const 42)
   )
-  (func (;4;) (type 0) (result i32 i64)
+  (func (;5;) (type 1) (result i32 i64)
     (local i64)
     (i32.const 1)
     (local.set 0
@@ -2713,7 +2715,7 @@ TypedProgram {
         (i32.const 0)))
     (local.get 0)
   )
-  (func (;5;) (type 1) (param i32 i64) (result i64)
+  (func (;6;) (type 2) (param i32 i64) (result i64)
     (local i32 i64 i64 i32)
     (block (result i64) ;; label = @1
       (block ;; label = @2
@@ -2740,13 +2742,13 @@ TypedProgram {
         (local.get 3))
       (local.get 4))
   )
-  (func (;6;) (type 2) (param i32 i64 i32 i64)
+  (func (;7;) (type 3) (param i32 i64 i32 i64)
     (drop
-      (call 2
-        (call 0)))
+      (call 3
+        (call 1)))
     (drop
-      (call 5
-        (call 3)))
+      (call 6
+        (call 4)))
   )
   (@custom "component-type"
     (component
@@ -2760,9 +2762,12 @@ TypedProgram {
                   (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (own 0))
-                  (export (;3;) "token" (type (sub resource)))
-                  (type (;4;) (borrow 3))
-                  (type (;5;) (own 3))
+                  (type (;3;) (tuple u64 u64 u64 u64))
+                  (type (;4;) (func (param "self" 1) (param "hash" 3) (result bool)))
+                  (export (;0;) "[method]utxo.has-method" (func (type 4)))
+                  (export (;5;) "token" (type (sub resource)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
                 )
               )
               (import "starstream:std/builtin" (instance (;0;) (type 0)))
@@ -2805,7 +2810,9 @@ world root {
 }
 package starstream:std {
   interface builtin {
-    resource utxo;
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
 
     resource token;
   }

@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeMap, rc::Rc};
 
-use starstream_types::{Identifier, Type, TypedFunctionParam};
+use starstream_types::{AbiType, Identifier, Type, TypedFunctionParam};
 use wasm_encoder::{FuncType, InstanceType, ValType};
 
 use crate::{
@@ -20,6 +20,8 @@ use crate::{
 /// Builtins imported from `starstream:std/builtins` and friends.
 #[derive(Default)]
 pub struct Builtins {
+    pub has_method: Option<u32>,
+
     pub utxo_context_resource: Option<Rc<Resource>>,
     pub utxo_context_drop: Option<u32>,
     pub resume: Option<u32>,
@@ -33,20 +35,47 @@ impl Compiler {
         if self.world_type.has_imported(name) {
             return;
         }
+        let mut builtin = TypeBuilder::new_interface(&self.world_type);
 
-        let mut builtin = TypeBuilder::new_interface();
-        self.star_to_component.insert(
-            Type::UtxoAny,
-            Rc::new(ComponentAbiType::Borrow {
-                resource: builtin.fresh_resource("utxo", "s-utxo"),
-            }),
+        // `resource utxo`
+        let utxo_resource = builtin.fresh_resource("utxo", "s-utxo");
+        let utxo_type = Rc::new(ComponentAbiType::Borrow {
+            resource: utxo_resource,
+        });
+        self.star_to_component
+            .insert(Type::UtxoAny, utxo_type.clone());
+        self.builtins.has_method = Some(self.import_function(
+            name,
+            "[method]utxo.has-method",
+            &FuncType::new(
+                [
+                    ValType::I32,
+                    ValType::I64,
+                    ValType::I64,
+                    ValType::I64,
+                    ValType::I64,
+                ],
+                [ValType::I32],
+            ),
+        ));
+        let u64_ty = Rc::new(ComponentAbiType::U64);
+        let tuple = Rc::new(ComponentAbiType::Tuple {
+            fields: vec![u64_ty; 4],
+        });
+        builtin.export_fn_2(
+            "[method]utxo.has-method",
+            [("self", utxo_type.clone()), ("hash", tuple)],
+            Some(&Rc::new(ComponentAbiType::Bool)),
         );
+
+        // `resource token`
         self.star_to_component.insert(
             Type::TokenAny,
             Rc::new(ComponentAbiType::Borrow {
                 resource: builtin.fresh_resource("token", "s-token"),
             }),
         );
+
         self.world_type.import_interface(name, &builtin);
     }
 
@@ -57,7 +86,7 @@ impl Compiler {
             return;
         }
 
-        let mut utxo_context = TypeBuilder::new_interface();
+        let mut utxo_context = TypeBuilder::new_interface(&self.world_type);
 
         let utxo_context_resource = utxo_context.fresh_resource("utxo-context", "s-utxo-context");
         self.builtins.utxo_context_resource = Some(utxo_context_resource.clone());
@@ -133,8 +162,10 @@ impl Compiler {
 
         // Component import
         let sig = self.star_to_component_signature(None, params, &Type::Unit);
-        let iface = imported_interfaces.entry(interface).or_default();
-        iface.export_fn(&kebab, &sig);
+        imported_interfaces
+            .entry(interface)
+            .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+            .export_fn(&kebab, &sig);
 
         func_idx
     }
@@ -167,8 +198,46 @@ impl Compiler {
 
         // Component import
         let sig = self.star_to_component_signature(None, params, result);
-        let iface = imported_interfaces.entry(interface).or_default();
-        iface.export_fn(&kebab, &sig);
+        imported_interfaces
+            .entry(interface)
+            .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+            .export_fn(&kebab, &sig);
+
+        func_idx
+    }
+
+    pub fn declare_dynamic_method(
+        &mut self,
+        imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
+        _abi_ty: &AbiType,
+        method_name: &Identifier,
+        params: &[TypedFunctionParam],
+        result: &Type,
+    ) -> u32 {
+        let mut core_params = Vec::with_capacity(16);
+        _ = self.star_to_core_types(method_name.span, &mut core_params, &Type::UtxoAny);
+        for p in params {
+            _ = self.star_to_core_types(p.ty_span, &mut core_params, &p.ty);
+        }
+        let mut core_results = Vec::new();
+        _ = self.star_to_core_types(method_name.span, &mut core_results, result);
+
+        let interface = "starstream:contract/dynamic-utxo";
+        let kebab = to_kebab_case(method_name.as_str());
+
+        // Core import
+        let func_idx = self.import_function(
+            interface,
+            &kebab,
+            &FuncType::new(core_params.iter().copied(), core_results),
+        );
+
+        // Component import
+        let sig = self.star_to_component_signature(Some(&Type::UtxoAny), params, result);
+        imported_interfaces
+            .entry(interface.to_owned())
+            .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+            .export_fn(&kebab, &sig);
 
         func_idx
     }
