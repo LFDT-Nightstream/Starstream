@@ -324,7 +324,6 @@ async fn get_progress_storage<T: Send + 'static>(
 }
 
 #[test_log::test(tokio::test)]
-#[ignore = "dynamic UTXO imports unsupported"]
 async fn score_main_new() -> wasmtime::Result<()> {
     let engine = wasmtime::Engine::default();
     let contract =
@@ -444,7 +443,6 @@ async fn score_main_new() -> wasmtime::Result<()> {
 }
 
 #[test_log::test(tokio::test)]
-#[ignore = "dynamic UTXO imports unsupported"]
 async fn score_script_example() -> wasmtime::Result<()> {
     let engine = wasmtime::Engine::default();
     let contract =
