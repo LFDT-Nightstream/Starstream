@@ -428,7 +428,74 @@ fn link_typed_token_instance<T: Host>(
     Ok(())
 }
 
-/// Link dynamic instance in a [`LinkerInstance`].
+/// Link coordination script [`types::ComponentFunc`] in a [`LinkerInstance`]
+#[instrument(level = "trace", skip(contract, linker))]
+fn link_coordination_script_function<T: Host>(
+    contract: Contract<T>,
+    linker: &mut LinkerInstance<T>,
+    name: &str,
+) -> wasmtime::Result<()> {
+    let export = contract.get_coordination_script(name)?;
+    linker.func_new_async(name, move |mut store, _ty, params, results| {
+        let export = export.clone();
+        let contract = contract.clone();
+        Box::new(async move {
+            let instance = contract.instantiate(&mut store).await?;
+            instance
+                .call_coordination_script(&mut store, &export, params, results)
+                .await
+        })
+    })
+}
+
+/// Link coordination script instance in a [`LinkerInstance`].
+#[instrument(level = "trace", skip(engine, linker, contracts, ty))]
+fn link_coordination_script_instance<T: Host>(
+    engine: &Engine,
+    linker: &mut LinkerInstance<T>,
+    contracts: &impl ContractLookup<T>,
+    ty: &types::ComponentInstance,
+) -> wasmtime::Result<()> {
+    for (
+        name,
+        types::ComponentExtern {
+            ty, external_id, ..
+        },
+    ) in ty.exports(engine)
+    {
+        debug!(name, "linking coordination script instance item");
+        match ty {
+            types::ComponentItem::ComponentFunc(..) => {
+                let external_id = external_id.with_context(|| {
+                    format!("`external-id` missing for coordination script import `{name}`")
+                })?;
+                let contract = contracts.get_contract(external_id).with_context(|| {
+                    format!("failed to get contract for coordination script import `{name}`")
+                })?;
+                link_coordination_script_function(contract, linker, name)?;
+            }
+            types::ComponentItem::CoreFunc(..) => {
+                bail!("coordination script instance core function imports unsupported")
+            }
+            types::ComponentItem::Module(..) => {
+                bail!("coordination script instance module imports unsupported")
+            }
+            types::ComponentItem::Component(..) => {
+                bail!("coordination script instance component imports unsupported")
+            }
+            types::ComponentItem::ComponentInstance(..) => {
+                bail!("coordination script instance component instance imports unsupported")
+            }
+            types::ComponentItem::Type(..) => {}
+            types::ComponentItem::Resource(..) => {
+                bail!("coordination script instance resource imports unsupported")
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Link non-std instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip(component, linker, contracts, ty))]
 fn link_instance<T: Host>(
     component: &Component,
@@ -505,7 +572,7 @@ fn link_instance<T: Host>(
         }
 
         (Some(("starstream:contract", "scripts")), ..) => {
-            bail!("coordination script imports unsupported")
+            link_coordination_script_instance(engine, linker, contracts, ty)
         }
 
         _ => bail!("unexpected instance import `{name}`"),
