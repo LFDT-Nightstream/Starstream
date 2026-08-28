@@ -1,209 +1,21 @@
+pub mod common;
+
 use std::collections::BTreeMap;
-use std::pin::Pin;
 use std::sync::{Arc, LazyLock, Mutex};
 
-use sha2::{Digest as _, Sha256};
-use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
-    Contract, ContractLookup, CoordinationScriptExport, Host, MethodExport, Utxo, UtxoExport,
-    UtxoMainExport, UtxoStorageExport, bindings,
+    Contract, CoordinationScriptExport, Host, MethodExport, StorageExport, Utxo, UtxoExport,
+    UtxoMainExport,
 };
-use starstream_to_wasm::compile;
-use tracing::{Instrument as _, info_span, instrument};
-use wasmtime::component::{Resource, ResourceTable, Val};
+use tracing::{Instrument as _, info_span};
+use wasmtime::component::{ResourceTable, Val};
 use wasmtime::error::Context as _;
-use wasmtime::{AsContextMut as _, Store, StoreContextMut, bail};
+use wasmtime::{Store, bail};
 
-/// Compile a single Starstream contract source to a core Wasm module in-process.
-///
-/// Mirrors the browser sandbox's compile path: parse the source, typecheck it,
-/// then emit the contract. The result carries a `component-type` custom section,
-/// so `Contract::new`'s `componentize` step wraps it into a component at run
-/// time.
-fn compile_contract(source: &str) -> Vec<u8> {
-    let (program, errors) = parse_program(source).into_output_errors();
-    assert!(errors.is_empty(), "parsing failed: {errors:?}");
-    let program = program.expect("parser produced no program");
-    let typed = typecheck_program(&program, TypecheckOptions::default())
-        .unwrap_or_else(|failure| panic!("typechecking failed: {:?}", failure.errors));
-    let result = compile(&typed.program);
-    assert!(
-        result.errors.is_empty(),
-        "compiling failed: {:?}",
-        result.errors
-    );
-    result.wasm.expect("compiling produced no Wasm")
-}
+use crate::common::{Ctx, Event, NoopContractLookup, UtxoCtx, compile_contract, method_hash};
 
-static EXAMPLE_SCORE: LazyLock<Vec<u8>> =
+static CONTRACT: LazyLock<Vec<u8>> =
     LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
-
-struct NoopContractLookup;
-
-impl<T> ContractLookup<T> for NoopContractLookup {
-    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>> {
-        bail!("contract with external_id `{external_id}` unknown")
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct Event {
-    abi_name: Arc<str>,
-    name: Arc<str>,
-    params: Box<[Val]>,
-}
-
-struct Ctx {
-    contract: Contract<Self>,
-
-    table: ResourceTable,
-    events: Vec<Event>,
-
-    outputs: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
-}
-
-#[derive(Debug, Default)]
-pub struct UtxoCtx {
-    methods: Vec<(u64, u64, u64, u64)>,
-    dropped: bool,
-}
-
-impl bindings::starstream::std::cardano::Host for Ctx {
-    fn block_height(&mut self) -> wasmtime::Result<i64> {
-        Ok(0)
-    }
-
-    fn current_slot(&mut self) -> wasmtime::Result<i64> {
-        Ok(0)
-    }
-}
-
-impl Host for Ctx {
-    type UtxoContext = Arc<Mutex<UtxoCtx>>;
-    type Token = (); // TODO: add token support
-
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-
-    fn contract(store: StoreContextMut<Self>) -> Contract<Self> {
-        store.data().contract.clone()
-    }
-
-    async fn call_utxo_main(
-        mut store: StoreContextMut<'_, Self>,
-        f: impl for<'a> FnOnce(
-            StoreContextMut<'a, Self>,
-            Self::UtxoContext,
-        ) -> Pin<
-            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
-        > + Send,
-    ) -> wasmtime::Result<Utxo<Self::UtxoContext>> {
-        let cx = Self::UtxoContext::default();
-        let utxo = f(store.as_context_mut(), Arc::clone(&cx)).await?;
-        store.data_mut().outputs.push(utxo.clone());
-        Ok(utxo)
-    }
-
-    #[instrument(skip(store, utxo), ret)]
-    fn has_method(
-        store: StoreContextMut<Self>,
-        utxo: Resource<Utxo<Self::UtxoContext>>,
-        hash: (u64, u64, u64, u64),
-    ) -> wasmtime::Result<bool> {
-        let Ctx { table, .. } = store.data();
-        let utxo = table.get(&utxo)?;
-        Ok(utxo.context().lock().unwrap().methods.contains(&hash))
-    }
-
-    #[instrument(skip(store, utxo), ret)]
-    fn drop_utxo(
-        mut store: StoreContextMut<Self>,
-        utxo: Resource<Utxo<Self::UtxoContext>>,
-    ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let _utxo = table.delete(utxo)?;
-        Ok(())
-    }
-
-    #[instrument(skip(store, cx), ret)]
-    fn implements_method(
-        mut store: StoreContextMut<Self>,
-        cx: Resource<Self::UtxoContext>,
-        hash: (u64, u64, u64, u64),
-    ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.get_mut(&cx)?;
-        cx.lock().unwrap().methods.push(hash);
-        Ok(())
-    }
-
-    #[instrument(skip(store, cx), ret)]
-    fn resume(
-        mut store: StoreContextMut<Self>,
-        cx: Resource<Self::UtxoContext>,
-    ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.get_mut(&cx)?;
-        cx.lock().unwrap().methods.clear();
-        Ok(())
-    }
-
-    #[instrument(skip(store, cx), ret)]
-    fn drop_utxo_context(
-        mut store: StoreContextMut<Self>,
-        cx: Resource<Self::UtxoContext>,
-    ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.delete(cx)?;
-        cx.lock().unwrap().dropped = true;
-        Ok(())
-    }
-
-    #[instrument(skip(store, token), ret)]
-    fn drop_token(
-        mut store: StoreContextMut<Self>,
-        token: Resource<Self::Token>,
-    ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        () = table.delete(token)?;
-        Ok(())
-    }
-
-    #[instrument(skip(store), ret)]
-    fn emit_event(
-        mut store: StoreContextMut<Self>,
-        abi_name: &Arc<str>,
-        name: &Arc<str>,
-        params: &[Val],
-    ) -> wasmtime::Result<()> {
-        let Ctx { events, .. } = store.data_mut();
-        events.push(Event {
-            abi_name: Arc::clone(abi_name),
-            name: Arc::clone(name),
-            params: params.into(),
-        });
-        Ok(())
-    }
-}
-
-/// The ABI method identity hash the guest reports via `implements-method`:
-/// the SHA-256 of the method name, split into four little-endian `u64`s. Mirrors
-/// the codegen in `starstream-to-wasm`.
-fn method_hash(name: &str) -> (u64, u64, u64, u64) {
-    let digest = Sha256::digest(name.as_bytes());
-    let mut chunks = digest
-        .chunks_exact(8)
-        .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()));
-    let hash = (
-        chunks.next().unwrap(),
-        chunks.next().unwrap(),
-        chunks.next().unwrap(),
-        chunks.next().unwrap(),
-    );
-    assert_eq!(chunks.next(), None);
-    hash
-}
 
 /// The methods of the `Score` ABI, in declaration (and `yield`) order.
 static METHODS: LazyLock<[(u64, u64, u64, u64); 4]> =
@@ -212,7 +24,7 @@ static METHODS: LazyLock<[(u64, u64, u64, u64); 4]> =
 #[derive(Clone)]
 struct ProgressUtxo {
     utxo: UtxoExport,
-    storage: UtxoStorageExport,
+    storage: StorageExport,
     new: UtxoMainExport,
     finish: MethodExport,
     mult_mult: MethodExport,
@@ -222,6 +34,10 @@ struct ProgressUtxo {
 }
 
 fn assert_progress_utxo<T: Host>(contract: &Contract<T>) -> wasmtime::Result<ProgressUtxo> {
+    if let Some(export) = contract.tokens().next() {
+        bail!("unexpected token export: {export:?}")
+    }
+
     let mut utxo_exports = contract.utxos();
     let utxo = match (utxo_exports.next(), utxo_exports.next()) {
         (Some(("score-progress", Ok(utxo))), None) => utxo,
@@ -330,11 +146,11 @@ impl<'a> FromIterator<&'a (String, Val)> for ProgressStorage {
 async fn get_progress_storage<T>(
     store: &mut Store<impl Send + 'static>,
     utxo: &Utxo<T>,
-    storage: &UtxoStorageExport,
+    storage: &StorageExport,
 ) -> wasmtime::Result<ProgressStorage> {
     let storage = utxo
         .storage(storage)
-        .get(store)
+        .call_get(store)
         .await
         .context("failed to get storage")?;
     Ok(storage.iter().collect())
@@ -343,7 +159,7 @@ async fn get_progress_storage<T>(
 #[test_log::test(tokio::test)]
 async fn score_main_new() -> wasmtime::Result<()> {
     let engine = wasmtime::Engine::default();
-    let contract = Contract::new(&engine, NoopContractLookup, EXAMPLE_SCORE.as_slice())
+    let contract = Contract::new(&engine, NoopContractLookup, CONTRACT.as_slice())
         .context("failed to create contract")?;
     let ty = assert_progress_utxo(&contract)?;
 
@@ -390,7 +206,7 @@ async fn score_main_new() -> wasmtime::Result<()> {
     assert_eq!(yield1, 1);
     assert_eq!(yield1_v1, 2);
 
-    utxo.call(
+    utxo.call_method(
         &mut store,
         &ty.plus_chips,
         [Val::Resource(utxo.resource()), Val::U64(3)],
@@ -400,7 +216,7 @@ async fn score_main_new() -> wasmtime::Result<()> {
     .await
     .context("failed to call `plus-chips`")?;
 
-    utxo.call(
+    utxo.call_method(
         &mut store,
         &ty.plus_mult,
         [Val::Resource(utxo.resource()), Val::U64(4)],
@@ -410,7 +226,7 @@ async fn score_main_new() -> wasmtime::Result<()> {
     .await
     .context("failed to call `plus-mult`")?;
 
-    utxo.call(
+    utxo.call_method(
         &mut store,
         &ty.mult_mult,
         [Val::Resource(utxo.resource()), Val::U64(200)],
@@ -433,7 +249,7 @@ async fn score_main_new() -> wasmtime::Result<()> {
     assert_eq!(yield1, 1);
     assert_eq!(yield1_v1, 2);
 
-    utxo.call(&mut store, &ty.finish, [Val::Resource(utxo.resource())], [])
+    utxo.call_method(&mut store, &ty.finish, [Val::Resource(utxo.resource())], [])
         .instrument(info_span!("finish"))
         .await
         .context("failed to call `finish`")?;
@@ -468,7 +284,7 @@ async fn score_main_new() -> wasmtime::Result<()> {
 #[test_log::test(tokio::test)]
 async fn score_script_example() -> wasmtime::Result<()> {
     let engine = wasmtime::Engine::default();
-    let contract = Contract::new(&engine, NoopContractLookup, EXAMPLE_SCORE.as_slice())
+    let contract = Contract::new(&engine, NoopContractLookup, CONTRACT.as_slice())
         .context("failed to create contract")?;
     let ty = assert_progress_utxo(&contract)?;
 
