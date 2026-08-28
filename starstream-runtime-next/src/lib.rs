@@ -99,6 +99,28 @@ fn load_component(engine: &Engine, wasm: impl AsRef<[u8]>) -> wasmtime::Result<C
     }
 }
 
+enum ContractImportTarget<'a, T: 'static> {
+    Component(&'a Component),
+    Contract(Contract<T>),
+}
+
+impl<T> ContractImportTarget<'_, T> {
+    fn component(&self) -> &Component {
+        match self {
+            Self::Component(component) => component,
+            Self::Contract(contract) => contract.pre.component(),
+        }
+    }
+
+    fn contract(&self) -> Option<&Contract<T>> {
+        if let Self::Contract(contract) = self {
+            Some(contract)
+        } else {
+            None
+        }
+    }
+}
+
 /// Link ABI event [`types::ComponentFunc`] in a [`LinkerInstance`]
 #[instrument(level = "trace", skip_all)]
 fn link_event_function<T: Host>(
@@ -149,16 +171,16 @@ fn link_event_instance<T: Host>(
 }
 
 /// Link typed UTXO [`types::ComponentFunc`] in a [`LinkerInstance`]
-#[instrument(level = "trace", skip(component, contract, linker, ty, instance))]
+#[instrument(level = "trace", skip(target, linker, ty, instance))]
 fn link_typed_utxo_function<T: Host>(
-    contract: Option<Contract<T>>,
-    component: &Component,
+    target: &ContractImportTarget<'_, T>,
     linker: &mut LinkerInstance<T>,
     ty: types::ComponentFunc,
     instance: &ComponentExportIndex,
     name: &str,
 ) -> wasmtime::Result<()> {
-    let idx = component
+    let idx = target
+        .component()
         .get_export_index(Some(instance), name)
         .with_context(|| format!("`{name}` export was not found"))?;
     match name.split_once(']') {
@@ -170,6 +192,7 @@ fn link_typed_utxo_function<T: Host>(
                 bail!("function does not return a single resource value")
             };
             let instance_idx = *instance;
+            let contract = target.contract().cloned();
             linker.func_new_async(name, move |mut store, _ty, params, results| {
                 let contract = contract.clone();
                 Box::new(async move {
@@ -238,12 +261,12 @@ fn link_typed_utxo_function<T: Host>(
 /// Link typed UTXO instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
 fn link_typed_utxo_instance<T: Host>(
-    contract: Option<Contract<T>>,
-    component: &Component,
+    target: &ContractImportTarget<'_, T>,
     linker: &mut LinkerInstance<T>,
     ty: &types::ComponentInstance,
     name: &str,
 ) -> wasmtime::Result<()> {
+    let component = target.component();
     let idx = component
         .get_export_index(None, name)
         .with_context(|| format!("`{name}` export was not found"))?;
@@ -251,7 +274,7 @@ fn link_typed_utxo_instance<T: Host>(
         debug!(name, "linking typed UTXO instance item");
         match ty {
             types::ComponentItem::ComponentFunc(ty) => {
-                link_typed_utxo_function(contract.clone(), component, linker, ty, &idx, name)?;
+                link_typed_utxo_function(target, linker, ty, &idx, name)?;
             }
             types::ComponentItem::CoreFunc(..) => {
                 bail!("typed UTXO instance core function imports unsupported")
@@ -358,24 +381,30 @@ fn link_dynamic_utxo_instance<T: Host>(
 }
 
 /// Link dynamic instance in a [`LinkerInstance`].
-#[instrument(level = "trace", skip(component, linker, ty))]
+#[instrument(level = "trace", skip(component, linker, contracts, ty))]
 fn link_instance<T: Host>(
     component: &Component,
     linker: &mut LinkerInstance<T>,
+    contracts: &impl ContractLookup<T>,
     ty: &types::ComponentInstance,
-    instance: &str,
+    name: &str,
+    external_id: Option<&str>,
 ) -> wasmtime::Result<()> {
-    debug_assert!(!instance.starts_with("starstream:std"));
+    debug_assert!(!name.starts_with("starstream:std"));
 
     let engine = component.engine();
     match (
-        instance.split_once('/'),
+        name.split_once('/'),
         ty.get_export(engine, "utxo"),
         ty.get_export(engine, "token"),
     ) {
-        (Some(("starstream:utxo", _name)), ..) => {
-            // TODO: Use external-id to lookup the contract
-            bail!("cross-contract UTXO imports unsupported")
+        (Some(("starstream:utxo", name)), ..) => {
+            let external_id = external_id
+                .with_context(|| format!("`external-id` missing for typed UTXO import `{name}`"))?;
+            let contract = contracts.get_contract(external_id).with_context(|| {
+                format!("failed to get contract for typed UTXO import `{name}`")
+            })?;
+            link_typed_utxo_instance(&ContractImportTarget::Contract(contract), linker, ty, name)
         }
 
         (
@@ -385,7 +414,12 @@ fn link_instance<T: Host>(
                 ..
             }),
             None,
-        ) => link_typed_utxo_instance(None, component, linker, ty, name),
+        ) => link_typed_utxo_instance(
+            &ContractImportTarget::Component(component),
+            linker,
+            ty,
+            name,
+        ),
 
         (
             Some(("starstream:self", ..)),
@@ -406,7 +440,7 @@ fn link_instance<T: Host>(
                 ty: types::ComponentItem::Resource(..),
                 ..
             }),
-        ) => bail!("both `utxo` and `token` resources exported by instance `{instance}` import"),
+        ) => bail!("both `utxo` and `token` resources exported by instance `{name}` import"),
 
         (Some(("starstream:self", ..)), ..) => {
             bail!("failed to classify `starstream:self` instance import")
@@ -426,15 +460,23 @@ fn link_instance<T: Host>(
             bail!("coordination script imports unsupported")
         }
 
-        _ => bail!("unexpected instance import `{instance}`"),
+        _ => bail!("unexpected instance import `{name}`"),
     }
 }
 
 /// Link imports of the contract.
 #[instrument(level = "trace", skip_all)]
-fn link_imports<T: Host>(component: &Component, linker: &mut Linker<T>) -> wasmtime::Result<()> {
-    for (name, types::ComponentExtern { ty, .. }) in
-        component.component_type().imports(component.engine())
+fn link_imports<T: Host>(
+    component: &Component,
+    linker: &mut Linker<T>,
+    contracts: &impl ContractLookup<T>,
+) -> wasmtime::Result<()> {
+    for (
+        name,
+        types::ComponentExtern {
+            ty, external_id, ..
+        },
+    ) in component.component_type().imports(component.engine())
     {
         match ty {
             types::ComponentItem::ComponentFunc(..) => {
@@ -454,7 +496,7 @@ fn link_imports<T: Host>(component: &Component, linker: &mut Linker<T>) -> wasmt
                     .instance(name)
                     .with_context(|| format!("failed to instantiate `{name}` in the linker"))?;
                 debug!(?name, "linking root instance");
-                link_instance(component, &mut linker, &ty, name)?;
+                link_instance(component, &mut linker, contracts, &ty, name, external_id)?;
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) => {
@@ -500,10 +542,19 @@ fn link_utxo_context<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
     Ok(())
 }
 
+pub trait ContractLookup<T> {
+    /// Lookup a contract by `external_id`
+    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>>;
+}
+
 impl<T: Host> Contract<T> {
     /// Compile and pre-instantiate a Starstream [Contract]
     #[instrument(level = "trace", skip_all)]
-    pub fn new(engine: &Engine, wasm: impl AsRef<[u8]>) -> wasmtime::Result<Self> {
+    pub fn new(
+        engine: &Engine,
+        contracts: impl ContractLookup<T>,
+        wasm: impl AsRef<[u8]>,
+    ) -> wasmtime::Result<Self> {
         let wasm = wasm.as_ref();
 
         debug!("loading component");
@@ -515,7 +566,7 @@ impl<T: Host> Contract<T> {
         bindings::Host_::add_to_linker::<_, HasSelf<_>>(&mut linker, |cx| cx)
             .context("failed to link builtins")?;
         link_utxo_context(&mut linker).context("failed to link `utxo-context`")?;
-        link_imports(&component, &mut linker)?;
+        link_imports(&component, &mut linker, &contracts)?;
 
         let ty = linker
             .substituted_component_type(&component)

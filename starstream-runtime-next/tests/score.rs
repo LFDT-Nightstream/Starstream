@@ -5,8 +5,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{
-    Contract, CoordinationScriptExport, Host, MethodExport, Utxo, UtxoExport, UtxoMainExport,
-    UtxoStorageExport, bindings,
+    Contract, ContractLookup, CoordinationScriptExport, Host, MethodExport, Utxo, UtxoExport,
+    UtxoMainExport, UtxoStorageExport, bindings,
 };
 use starstream_to_wasm::compile;
 use tracing::{Instrument as _, info_span, instrument};
@@ -37,6 +37,14 @@ fn compile_contract(source: &str) -> Vec<u8> {
 
 static EXAMPLE_SCORE: LazyLock<Vec<u8>> =
     LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
+
+struct NoopContractLookup;
+
+impl<T> ContractLookup<T> for NoopContractLookup {
+    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>> {
+        bail!("contract with external_id `{external_id}` unknown")
+    }
+}
 
 #[derive(Debug, Eq, PartialEq)]
 struct Event {
@@ -326,8 +334,8 @@ async fn get_progress_storage<T: Send + 'static>(
 #[test_log::test(tokio::test)]
 async fn score_main_new() -> wasmtime::Result<()> {
     let engine = wasmtime::Engine::default();
-    let contract =
-        Contract::new(&engine, EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
+    let contract = Contract::new(&engine, NoopContractLookup, EXAMPLE_SCORE.as_slice())
+        .context("failed to create contract")?;
     let ty = assert_progress_utxo(&contract)?;
 
     let mut table = ResourceTable::default();
@@ -445,8 +453,8 @@ async fn score_main_new() -> wasmtime::Result<()> {
 #[test_log::test(tokio::test)]
 async fn score_script_example() -> wasmtime::Result<()> {
     let engine = wasmtime::Engine::default();
-    let contract =
-        Contract::new(&engine, EXAMPLE_SCORE.as_slice()).context("failed to create contract")?;
+    let contract = Contract::new(&engine, NoopContractLookup, EXAMPLE_SCORE.as_slice())
+        .context("failed to create contract")?;
     let ty = assert_progress_utxo(&contract)?;
 
     let mut store = wasmtime::Store::new(
