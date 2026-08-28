@@ -10,34 +10,25 @@ use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut, Engine, StoreContextMut, bail, ensure};
 
 pub mod bindings {
-    // NOTE: `starstream:std/utxo-context` bindings are hand-written
+    // NOTE: `starstream:std/{builtin,utxo-context}` bindings are hand-written
     wasmtime::component::bindgen!({
         path: "../starstream-to-wasm/wit",
         inline: "
             package starstream:host;
 
             world host {
-                import starstream:std/builtin;
                 import starstream:std/cardano;
             }
         ",
-        with: {
-            "starstream:std/builtin.utxo": crate::Utxo,
-        },
         imports: {
             default: tracing | trappable,
         }
     });
 }
 
-pub trait Host:
-    bindings::starstream::std::builtin::Host
-    + bindings::starstream::std::cardano::Host
-    + Send
-    + Sized
-    + 'static
-{
-    type UtxoContext: Send;
+pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
+    type UtxoContext: Clone + Send;
+    type Token;
 
     fn table(&mut self) -> &mut ResourceTable;
 
@@ -48,10 +39,21 @@ pub trait Host:
         f: impl for<'a> FnOnce(
             StoreContextMut<'a, Self>,
             Self::UtxoContext,
-        )
-            -> Pin<Box<dyn Future<Output = wasmtime::Result<Utxo>> + Send + 'a>>
-        + Send,
-    ) -> impl Future<Output = wasmtime::Result<Utxo>> + Send;
+        ) -> Pin<
+            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
+        > + Send,
+    ) -> impl Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send;
+
+    fn has_method(
+        store: StoreContextMut<Self>,
+        cx: Resource<Utxo<Self::UtxoContext>>,
+        hash: (u64, u64, u64, u64),
+    ) -> wasmtime::Result<bool>;
+
+    fn drop_utxo(
+        store: StoreContextMut<Self>,
+        cx: Resource<Utxo<Self::UtxoContext>>,
+    ) -> wasmtime::Result<()>;
 
     fn implements_method(
         store: StoreContextMut<Self>,
@@ -68,6 +70,8 @@ pub trait Host:
         store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()>;
+
+    fn drop_token(store: StoreContextMut<Self>, cx: Resource<Self::Token>) -> wasmtime::Result<()>;
 
     fn emit_event(
         store: StoreContextMut<Self>,
@@ -209,11 +213,11 @@ fn link_typed_utxo_function<T: Host>(
                     };
                     let utxo = T::call_utxo_main(store.as_context_mut(), move |mut store, cx| {
                         Box::pin(async move {
-                            let cx = store.data_mut().table().push(cx)?;
-                            let cx = cx.try_into_resource_any(&mut store)?;
-                            params[0] = Val::Resource(cx);
+                            let cx_res = store.data_mut().table().push(cx.clone())?;
+                            let cx_res = cx_res.try_into_resource_any(&mut store)?;
+                            params[0] = Val::Resource(cx_res);
                             instance
-                                .construct_utxo(&mut store, instance_idx, idx, params)
+                                .construct_utxo(&mut store, instance_idx, idx, params, cx)
                                 .await
                         })
                     })
@@ -234,10 +238,10 @@ fn link_typed_utxo_function<T: Host>(
                     let Some(Val::Resource(utxo)) = params.first() else {
                         bail!("first parameter is not a resource")
                     };
-                    let utxo = utxo.try_into_resource::<Utxo>(&mut store)?;
-                    let Utxo {
+                    let utxo = utxo.try_into_resource::<Utxo<T::UtxoContext>>(&mut store)?;
+                    let &Utxo {
                         instance, resource, ..
-                    } = store.data_mut().table().get(&utxo).copied()?;
+                    } = store.data_mut().table().get(&utxo)?;
                     let f = instance
                         .get_func(&mut store, idx)
                         .context("method export not found")?;
@@ -290,13 +294,17 @@ fn link_typed_utxo_instance<T: Host>(
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) if name == "utxo" => {
-                linker.resource("utxo", ResourceType::host::<Utxo>(), |mut store, rep| {
-                    store
-                        .data_mut()
-                        .table()
-                        .delete::<Utxo>(Resource::new_own(rep))?;
-                    Ok(())
-                })?;
+                linker.resource(
+                    "utxo",
+                    ResourceType::host::<Utxo<T::UtxoContext>>(),
+                    |mut store, rep| {
+                        store
+                            .data_mut()
+                            .table()
+                            .delete::<Utxo<T::UtxoContext>>(Resource::new_own(rep))?;
+                        Ok(())
+                    },
+                )?;
             }
             types::ComponentItem::Resource(..) => {
                 bail!("typed UTXO instance resource imports unsupported")
@@ -323,12 +331,13 @@ fn link_dynamic_utxo_function<T: Host>(
             let Some(Val::Resource(utxo)) = params.first() else {
                 bail!("first parameter is not a resource")
             };
-            let utxo = utxo.try_into_resource::<Utxo>(&mut store)?;
-            let Utxo {
+            let utxo = utxo.try_into_resource::<Utxo<T::UtxoContext>>(&mut store)?;
+            let &Utxo {
                 instance,
                 instance_idx,
                 resource,
-            } = store.data_mut().table().get(&utxo).copied()?;
+                ..
+            } = store.data_mut().table().get(&utxo)?;
             let idx = instance
                 .get_export_index(&mut store, Some(&instance_idx), &export_name)
                 .context("method export index not found")?;
@@ -443,7 +452,7 @@ fn link_instance<T: Host>(
         ) => bail!("both `utxo` and `token` resources exported by instance `{name}` import"),
 
         (Some(("starstream:self", ..)), ..) => {
-            bail!("failed to classify `starstream:self` instance import")
+            bail!("failed to classify `{name}` instance import")
         }
 
         (Some(("starstream:events", name)), ..) => link_event_instance(engine, linker, ty, name),
@@ -522,10 +531,31 @@ impl<T: 'static> Clone for Contract<T> {
     }
 }
 
+fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
+    let mut linker = linker
+        .instance("starstream:std/builtin")
+        .context("failed to instantiate `starstream:std/builtin` in the linker")?;
+
+    linker.resource(
+        "utxo",
+        ResourceType::host::<Utxo<T::UtxoContext>>(),
+        |store, cx| T::drop_utxo(store, Resource::new_own(cx)),
+    )?;
+    linker.func_wrap("[method]utxo.has-method", |store, (cx, hash)| {
+        let ret = T::has_method(store, cx, hash)?;
+        Ok((ret,))
+    })?;
+
+    linker.resource("token", ResourceType::host::<T::Token>(), |store, cx| {
+        T::drop_token(store, Resource::new_own(cx))
+    })?;
+    Ok(())
+}
+
 fn link_utxo_context<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
     let mut linker = linker
         .instance("starstream:std/utxo-context")
-        .context("failed to instantiate `utxo-context` in the linker")?;
+        .context("failed to instantiate `starstream:std/utxo-context` in the linker")?;
 
     linker.resource(
         "utxo-context",
@@ -564,8 +594,9 @@ impl<T: Host> Contract<T> {
 
         debug!("linking component imports");
         bindings::Host_::add_to_linker::<_, HasSelf<_>>(&mut linker, |cx| cx)
-            .context("failed to link builtins")?;
-        link_utxo_context(&mut linker).context("failed to link `utxo-context`")?;
+            .context("failed to link generated bindings")?;
+        link_builtin(&mut linker).context("failed to link `starstream:std/builtin`")?;
+        link_utxo_context(&mut linker).context("failed to link `starstream:std/utxo-context`")?;
         link_imports(&component, &mut linker, &contracts)?;
 
         let ty = linker
@@ -868,10 +899,7 @@ impl<T: Host> Contract<T> {
     pub async fn instantiate(
         &self,
         store: impl AsContextMut<Data = T>,
-    ) -> wasmtime::Result<ContractInstance>
-    where
-        T: Send,
-    {
+    ) -> wasmtime::Result<ContractInstance> {
         debug!("instantiating component");
         let instance = self
             .pre
@@ -895,14 +923,12 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     async fn construct_utxo<T>(
         &self,
-        mut store: impl AsContextMut<Data = T>,
+        mut store: impl AsContextMut<Data: Send>,
         instance_idx: ComponentExportIndex,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
-    ) -> wasmtime::Result<Utxo>
-    where
-        T: Send + 'static,
-    {
+        cx: T,
+    ) -> wasmtime::Result<Utxo<T>> {
         let f = self
             .0
             .get_func(store.as_context_mut(), name)
@@ -919,49 +945,44 @@ impl ContractInstance {
             instance: self.0,
             instance_idx,
             resource,
+            cx,
         })
     }
 
     #[instrument(level = "trace", skip_all)]
     pub async fn call_utxo_main<T>(
         &self,
-        store: impl AsContextMut<Data = T>,
+        store: impl AsContextMut<Data: Send>,
         UtxoExport { instance_idx, .. }: &UtxoExport,
         UtxoMainExport { idx, .. }: &UtxoMainExport,
+        cx: T,
         params: impl AsRef<[Val]>,
-    ) -> wasmtime::Result<Utxo>
-    where
-        T: Send + 'static,
-    {
-        self.construct_utxo(store, *instance_idx, idx, params).await
+    ) -> wasmtime::Result<Utxo<T>> {
+        self.construct_utxo(store, *instance_idx, idx, params, cx)
+            .await
     }
 
     #[instrument(level = "trace", skip_all)]
     pub async fn load_utxo<T>(
         &self,
-        store: impl AsContextMut<Data = T>,
+        store: impl AsContextMut<Data: Send>,
         UtxoExport { instance_idx, .. }: &UtxoExport,
         UtxoStorageExport { set, .. }: &UtxoStorageExport,
+        cx: T,
         fields: impl Into<Vec<(String, Val)>>,
-    ) -> wasmtime::Result<Utxo>
-    where
-        T: Send + 'static,
-    {
-        self.construct_utxo(store, *instance_idx, set, [Val::Record(fields.into())])
+    ) -> wasmtime::Result<Utxo<T>> {
+        self.construct_utxo(store, *instance_idx, set, [Val::Record(fields.into())], cx)
             .await
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn call_coordination_script<T>(
+    pub async fn call_coordination_script(
         &self,
-        mut store: impl AsContextMut<Data = T>,
+        mut store: impl AsContextMut<Data: Send>,
         CoordinationScriptExport { idx, .. }: &CoordinationScriptExport,
         params: impl AsRef<[Val]>,
         mut results: impl AsMut<[Val]>,
-    ) -> wasmtime::Result<()>
-    where
-        T: Send + 'static,
-    {
+    ) -> wasmtime::Result<()> {
         let f = self
             .0
             .get_func(store.as_context_mut(), idx)
@@ -1043,13 +1064,14 @@ impl CoordinationScriptExport {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct Utxo {
+pub struct Utxo<T> {
     instance: Instance,
     instance_idx: ComponentExportIndex,
     resource: ResourceAny,
+    cx: T,
 }
 
-impl Utxo {
+impl<T> Utxo<T> {
     #[must_use]
     pub fn instance(&self) -> Instance {
         self.instance
@@ -1060,7 +1082,12 @@ impl Utxo {
         self.resource
     }
 
-    pub fn storage(&self, export: &UtxoStorageExport) -> UtxoStorage<'_> {
+    #[must_use]
+    pub fn context(&self) -> &T {
+        &self.cx
+    }
+
+    pub fn storage(&self, export: &UtxoStorageExport) -> UtxoStorage<'_, T> {
         UtxoStorage {
             utxo: self,
             get: export.get,
@@ -1068,9 +1095,9 @@ impl Utxo {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn call<T: Send>(
+    pub async fn call(
         &self,
-        mut store: impl AsContextMut<Data = T>,
+        mut store: impl AsContextMut<Data: Send>,
         MethodExport { idx, .. }: &MethodExport,
         params: impl AsRef<[Val]>,
         mut results: impl AsMut<[Val]>,
@@ -1086,25 +1113,22 @@ impl Utxo {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn drop<T: Send>(
-        self,
-        mut store: impl AsContextMut<Data = T>,
-    ) -> wasmtime::Result<()> {
+    pub async fn drop(self, mut store: impl AsContextMut<Data: Send>) -> wasmtime::Result<()> {
         self.resource.resource_drop_async(&mut store).await?;
         Ok(())
     }
 }
 
-pub struct UtxoStorage<'a> {
-    utxo: &'a Utxo,
+pub struct UtxoStorage<'a, T> {
+    utxo: &'a Utxo<T>,
     get: ComponentExportIndex,
 }
 
-impl UtxoStorage<'_> {
+impl<T> UtxoStorage<'_, T> {
     #[instrument(level = "trace", skip_all)]
-    pub async fn get<T: Send>(
+    pub async fn get(
         &self,
-        mut store: impl AsContextMut<Data = T>,
+        mut store: impl AsContextMut<Data: Send>,
     ) -> wasmtime::Result<Vec<(String, Val)>> {
         let f = self
             .utxo

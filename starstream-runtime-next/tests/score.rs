@@ -59,39 +59,13 @@ struct Ctx {
     table: ResourceTable,
     events: Vec<Event>,
 
-    outputs: Vec<(Utxo, Arc<Mutex<UtxoCtx>>)>,
+    outputs: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
 }
 
 #[derive(Debug, Default)]
 pub struct UtxoCtx {
     methods: Vec<(u64, u64, u64, u64)>,
     dropped: bool,
-}
-
-impl bindings::starstream::std::builtin::Host for Ctx {}
-
-impl bindings::starstream::std::builtin::HostUtxo for Ctx {
-    fn drop(&mut self, _utxo: Resource<Utxo>) -> wasmtime::Result<()> {
-        Ok(())
-    }
-
-    fn has_method(
-        &mut self,
-        _utxo: Resource<Utxo>,
-        _hash: (u64, u64, u64, u64),
-    ) -> wasmtime::Result<bool> {
-        // TODO
-        Ok(false)
-    }
-}
-
-impl bindings::starstream::std::builtin::HostToken for Ctx {
-    fn drop(
-        &mut self,
-        _token: Resource<bindings::starstream::std::builtin::Token>,
-    ) -> wasmtime::Result<()> {
-        Ok(())
-    }
 }
 
 impl bindings::starstream::std::cardano::Host for Ctx {
@@ -106,6 +80,7 @@ impl bindings::starstream::std::cardano::Host for Ctx {
 
 impl Host for Ctx {
     type UtxoContext = Arc<Mutex<UtxoCtx>>;
+    type Token = (); // TODO: add token support
 
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
@@ -120,14 +95,35 @@ impl Host for Ctx {
         f: impl for<'a> FnOnce(
             StoreContextMut<'a, Self>,
             Self::UtxoContext,
-        )
-            -> Pin<Box<dyn Future<Output = wasmtime::Result<Utxo>> + Send + 'a>>
-        + Send,
-    ) -> wasmtime::Result<Utxo> {
+        ) -> Pin<
+            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
+        > + Send,
+    ) -> wasmtime::Result<Utxo<Self::UtxoContext>> {
         let cx = Self::UtxoContext::default();
         let utxo = f(store.as_context_mut(), Arc::clone(&cx)).await?;
-        store.data_mut().outputs.push((utxo, cx));
+        store.data_mut().outputs.push(utxo.clone());
         Ok(utxo)
+    }
+
+    #[instrument(skip(store, utxo), ret)]
+    fn has_method(
+        store: StoreContextMut<Self>,
+        utxo: Resource<Utxo<Self::UtxoContext>>,
+        hash: (u64, u64, u64, u64),
+    ) -> wasmtime::Result<bool> {
+        let Ctx { table, .. } = store.data();
+        let utxo = table.get(&utxo)?;
+        Ok(utxo.context().lock().unwrap().methods.contains(&hash))
+    }
+
+    #[instrument(skip(store, utxo), ret)]
+    fn drop_utxo(
+        mut store: StoreContextMut<Self>,
+        utxo: Resource<Utxo<Self::UtxoContext>>,
+    ) -> wasmtime::Result<()> {
+        let Ctx { table, .. } = store.data_mut();
+        let _utxo = table.delete(utxo)?;
+        Ok(())
     }
 
     #[instrument(skip(store, cx), ret)]
@@ -136,7 +132,8 @@ impl Host for Ctx {
         cx: Resource<Self::UtxoContext>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<()> {
-        let cx = store.data_mut().table.get_mut(&cx)?;
+        let Ctx { table, .. } = store.data_mut();
+        let cx = table.get_mut(&cx)?;
         cx.lock().unwrap().methods.push(hash);
         Ok(())
     }
@@ -146,7 +143,8 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let cx = store.data_mut().table.get_mut(&cx)?;
+        let Ctx { table, .. } = store.data_mut();
+        let cx = table.get_mut(&cx)?;
         cx.lock().unwrap().methods.clear();
         Ok(())
     }
@@ -162,6 +160,16 @@ impl Host for Ctx {
         Ok(())
     }
 
+    #[instrument(skip(store, token), ret)]
+    fn drop_token(
+        mut store: StoreContextMut<Self>,
+        token: Resource<Self::Token>,
+    ) -> wasmtime::Result<()> {
+        let Ctx { table, .. } = store.data_mut();
+        () = table.delete(token)?;
+        Ok(())
+    }
+
     #[instrument(skip(store), ret)]
     fn emit_event(
         mut store: StoreContextMut<Self>,
@@ -169,7 +177,8 @@ impl Host for Ctx {
         name: &Arc<str>,
         params: &[Val],
     ) -> wasmtime::Result<()> {
-        store.data_mut().events.push(Event {
+        let Ctx { events, .. } = store.data_mut();
+        events.push(Event {
             abi_name: Arc::clone(abi_name),
             name: Arc::clone(name),
             params: params.into(),
@@ -318,9 +327,9 @@ impl<'a> FromIterator<&'a (String, Val)> for ProgressStorage {
     }
 }
 
-async fn get_progress_storage<T: Send + 'static>(
-    store: &mut Store<T>,
-    utxo: &Utxo,
+async fn get_progress_storage<T>(
+    store: &mut Store<impl Send + 'static>,
+    utxo: &Utxo<T>,
     storage: &UtxoStorageExport,
 ) -> wasmtime::Result<ProgressStorage> {
     let storage = utxo
@@ -353,7 +362,13 @@ async fn score_main_new() -> wasmtime::Result<()> {
     let utxo_cx_res = utxo_cx_res.try_into_resource_any(&mut store)?;
     let instance = contract.instantiate(&mut store).await?;
     let utxo = instance
-        .call_utxo_main(&mut store, &ty.utxo, &ty.new, [Val::Resource(utxo_cx_res)])
+        .call_utxo_main(
+            &mut store,
+            &ty.utxo,
+            &ty.new,
+            Arc::clone(&utxo_cx),
+            [Val::Resource(utxo_cx_res)],
+        )
         .instrument(info_span!("new"))
         .await
         .context("failed to construct UTXO")?;
@@ -480,12 +495,12 @@ async fn score_script_example() -> wasmtime::Result<()> {
         events, outputs, ..
     } = store.data();
     let mut outputs = outputs.iter();
-    let (utxo, utxo_cx) = match (outputs.next(), outputs.next()) {
-        (Some((utxo, utxo_cx)), None) => (*utxo, utxo_cx),
+    let utxo = match (outputs.next(), outputs.next()) {
+        (Some(utxo), None) => utxo.clone(),
         _ => bail!("unexpected outputs created: {outputs:?}"),
     };
     {
-        let utxo_cx = utxo_cx.lock().unwrap();
+        let utxo_cx = utxo.context().lock().unwrap();
         assert_eq!(utxo_cx.methods, *METHODS);
         assert!(!utxo_cx.dropped);
     }
