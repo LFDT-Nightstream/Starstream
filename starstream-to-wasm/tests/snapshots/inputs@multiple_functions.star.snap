@@ -22,10 +22,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: false,
-                                    name: Identifier {
-                                        name: "flag",
-                                        span: 20..24,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "flag",
+                                                span: 20..24,
+                                            },
+                                        ],
+                                    ),
                                     ty: None,
                                     value: Spanned {
                                         node: Literal(
@@ -35,6 +39,7 @@ Program {
                                         ),
                                         span: 27..31,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 16..37,
                             },
@@ -121,10 +126,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: false,
-                                    name: Identifier {
-                                        name: "base",
-                                        span: 133..137,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "base",
+                                                span: 133..137,
+                                            },
+                                        ],
+                                    ),
                                     ty: None,
                                     value: Spanned {
                                         node: Literal(
@@ -137,6 +146,7 @@ Program {
                                         ),
                                         span: 140..142,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 129..148,
                             },
@@ -240,10 +250,12 @@ TypedProgram {
                         VariableDeclaration {
                             public: false,
                             mutable: false,
-                            name: Identifier {
-                                name: "flag",
-                                span: 20..24,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "flag",
+                                    span: 20..24,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Bool,
@@ -255,6 +267,7 @@ TypedProgram {
                                 },
                                 span: 27..31,
                             },
+                            else_branch: None,
                         },
                     ],
                     tail_expression: Some(
@@ -335,10 +348,12 @@ TypedProgram {
                         VariableDeclaration {
                             public: false,
                             mutable: false,
-                            name: Identifier {
-                                name: "base",
-                                span: 133..137,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "base",
+                                    span: 133..137,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Int(
@@ -355,6 +370,7 @@ TypedProgram {
                                 },
                                 span: 140..142,
                             },
+                            else_branch: None,
                         },
                     ],
                     tail_expression: Some(
@@ -417,12 +433,14 @@ TypedProgram {
   (type (;3;) (func (result i64)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
   (func (;1;) (type 1)
-    (local i32)
+    (local i32 i32)
     (block ;; label = @1
       (local.set 0
         (i32.const 1))
-      (br_if 0 (;@1;)
+      (local.set 1
         (local.get 0))
+      (br_if 0 (;@1;)
+        (local.get 1))
       (return))
   )
   (func (;2;) (type 2) (param i64 i64) (result i64)
@@ -449,11 +467,13 @@ TypedProgram {
         (unreachable)))
   )
   (func (;3;) (type 3) (result i64)
-    (local i64)
+    (local i64 i64)
     (local.set 0
       (i64.const 41))
+    (local.set 1
+      (local.get 0))
     (call 2
-      (local.get 0)
+      (local.get 1)
       (i64.const 1))
   )
   (@custom "component-type"

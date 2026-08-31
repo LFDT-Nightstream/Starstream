@@ -712,9 +712,10 @@ fn statement_to_doc<'a>(
         Statement::VariableDeclaration {
             public,
             mutable,
-            name,
+            pattern,
             ty,
             value,
+            else_branch,
         } => RcDoc::text("let")
             .append(RcDoc::space())
             .append(if *public {
@@ -727,7 +728,7 @@ fn statement_to_doc<'a>(
             } else {
                 RcDoc::nil()
             })
-            .append(identifier_to_doc(name, source))
+            .append(pattern_to_doc(pattern, source))
             .append(if let Some(ty) = ty {
                 RcDoc::text(":")
                     .append(RcDoc::space())
@@ -741,6 +742,14 @@ fn statement_to_doc<'a>(
             .append(spanned(value, source, |node| {
                 expr_to_doc(node, source, comments)
             }))
+            .append(if let Some(block) = else_branch {
+                RcDoc::space()
+                    .append(RcDoc::text("else"))
+                    .append(RcDoc::space())
+                    .append(block_to_doc(block, source, comments))
+            } else {
+                RcDoc::nil()
+            })
             .append(RcDoc::text(";")),
         Statement::Assignment { target, value } => identifier_to_doc(target, source)
             .append(RcDoc::space())
@@ -1421,6 +1430,18 @@ mod tests {
                 } else {
                     answer = 0;
                 }
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn let_patterns() {
+        assert_format_snapshot!(
+            r#"
+            fn main(result: Result<i64, i64>, pair: (i64, bool)) {
+                let(left,right)=pair;
+                let Result::Ok(value)=result else{return;};
             }
             "#,
         );

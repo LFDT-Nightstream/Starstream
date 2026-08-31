@@ -550,9 +550,10 @@ pub enum Statement {
     VariableDeclaration {
         public: bool,
         mutable: bool,
-        name: Identifier,
+        pattern: Pattern,
         ty: Option<TypeAnnotation>,
         value: Spanned<Expr>,
+        else_branch: Option<Block>,
     },
     Assignment {
         target: Identifier,
