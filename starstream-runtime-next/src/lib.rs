@@ -578,8 +578,10 @@ impl<T: Host> Contract<T> {
                 bail!("`set-storage` export is not a function")
             };
             let mut params = ty.params();
-            let (Some((_, Type::Record(record_ty))), None) = (params.next(), params.next()) else {
-                bail!("`set-storage` does not take a storage record as the only parameter");
+            let (Some((_, Type::Own(_))), Some((_, Type::Record(record_ty))), None) =
+                (params.next(), params.next(), params.next())
+            else {
+                bail!("`set-storage` parameter list does not match (own<utxo-context>, storage)");
             };
             if record_ty != *storage_ty {
                 bail!("`set-storage` record type does not match storage type");
