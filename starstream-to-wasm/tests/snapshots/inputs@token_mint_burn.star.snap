@@ -575,10 +575,9 @@ TypedProgram {
   (type (;2;) (func (param i32)))
   (type (;3;) (func (param i64 i64) (result i64)))
   (type (;4;) (func (result i32)))
-  (type (;5;) (func))
-  (type (;6;) (func (param i32 i32)))
-  (type (;7;) (func (param i32) (result i64)))
-  (type (;8;) (func (param i64) (result i32)))
+  (type (;5;) (func (param i32 i32)))
+  (type (;6;) (func (param i32) (result i64)))
+  (type (;7;) (func (param i64) (result i32)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
   (import "[export]my-token" "[resource-new]token" (func (;1;) (type 1)))
   (import "[export]my-token" "[resource-drop]token" (func (;2;) (type 2)))
@@ -646,18 +645,18 @@ TypedProgram {
       (then
         (unreachable)))
   )
-  (func (;6;) (type 5)
+  (func (;6;) (type 2) (param i32)
     (global.set 0
       (call 5
         (global.get 0)
         (i64.const 1)))
   )
-  (func (;7;) (type 6) (param i32 i32))
-  (func (;8;) (type 6) (param i32 i32))
-  (func (;9;) (type 7) (param i32) (result i64)
+  (func (;7;) (type 5) (param i32 i32))
+  (func (;8;) (type 5) (param i32 i32))
+  (func (;9;) (type 6) (param i32) (result i64)
     (global.get 0)
   )
-  (func (;10;) (type 8) (param i64) (result i32)
+  (func (;10;) (type 7) (param i64) (result i32)
     (global.set 0
       (local.get 0))
     (return_call 1
@@ -711,7 +710,7 @@ TypedProgram {
                   (type (;2;) (own 0))
                   (type (;3;) (func (result 2)))
                   (export (;0;) "[static]token.mint" (func (type 3)))
-                  (type (;4;) (func))
+                  (type (;4;) (func (param "this" 2)))
                   (export (;1;) "[static]token.burn" (func (type 4)))
                   (alias outer 1 1 (type (;5;)))
                   (export (;6;) "s-utxo" (type (eq 5)))
@@ -754,7 +753,7 @@ world root {
 
     resource token {
       mint: static func() -> token;
-      burn: static func();
+      burn: static func(this: token);
       attach: func(to: borrow<s-utxo>);
       detach: func(source: borrow<s-utxo>);
     }

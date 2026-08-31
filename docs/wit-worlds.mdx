@@ -59,7 +59,7 @@ world root {
         }
 
         get-storage: func(self: borrow<utxo>) -> storage;
-        set-storage: func(storage: storage) -> utxo;
+        set-storage: func(ctx: own<utxo-context>, storage: storage) -> utxo;
     }
 }
 ```

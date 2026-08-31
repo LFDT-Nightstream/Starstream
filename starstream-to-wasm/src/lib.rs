@@ -452,8 +452,41 @@ impl Compiler {
             }
         }
 
-        // set-storage(storage: storage) -> utxo
-        {
+        if let Some(context_global) = self.context_global {
+            // set-storage(ctx: own<utxo-context>, storage: storage) -> utxo
+            let utxo_context_own = Rc::new(ComponentAbiType::Own {
+                resource: self.builtins.utxo_context_resource.clone().unwrap(),
+            });
+            let sig = ComponentAbiFunctionSignature {
+                params: vec![
+                    ("ctx".to_owned(), utxo_context_own),
+                    ("storage".to_owned(), storage_record.clone()),
+                ],
+                result: Some(utxo_own.clone()),
+            };
+            let ty = FuncType::new(
+                std::iter::once(ValType::I32).chain(storage_flat.iter().copied()),
+                [ValType::I32],
+            );
+            let mut code = Function::new([]);
+            code.instructions().local_get(0).global_set(context_global);
+            for (l, g) in fields.clone().enumerate() {
+                code.instructions()
+                    .local_get(u32::try_from(1 + l).unwrap())
+                    .global_set(g);
+            }
+            code.instructions()
+                .i32_const(0)
+                .return_call(self.current_resource.as_ref().unwrap().resource_new_fn)
+                .end();
+            let func = self.add_function(&ty, code.into_raw_body());
+            if let Some(func_idx) =
+                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty)
+            {
+                self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
+                iface.export_fn("set-storage", &sig);
+            }
+        } else {
             let sig = ComponentAbiFunctionSignature {
                 params: vec![("storage".to_owned(), storage_record.clone())],
                 result: Some(utxo_own.clone()),
@@ -1658,6 +1691,9 @@ impl Compiler {
                 resource: resource.clone(),
             }),
         );
+        let owned = Rc::new(ComponentAbiType::Own {
+            resource: resource.clone(),
+        });
 
         let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&this_ty).unwrap();
 
@@ -1686,25 +1722,23 @@ impl Compiler {
                     }
                 }
                 TypedTokenPart::Function(function) => {
-                    let core = self.visit_function(
-                        None,
-                        None, // TODO: token context type
-                        function,
-                        &(&() as &dyn Locals, &token_storage),
-                    );
                     match function.export {
                         // A `mint fn` is a constructor: it returns an owned
                         // handle to the freshly minted token (see the resource
                         // spawn in `visit_function`).
                         Some(FunctionExport::TokenMint) => {
+                            let core = self.visit_function(
+                                None,
+                                None, // TODO: token context type
+                                function,
+                                &(&() as &dyn Locals, &token_storage),
+                            );
                             let mut sig = self.star_to_component_signature(
                                 None,
                                 &function.ty.params,
                                 &function.ty.result,
                             );
-                            sig.result = Some(Rc::new(ComponentAbiType::Own {
-                                resource: resource.clone(),
-                            }));
+                            sig.result = Some(owned.clone());
                             let wit_name = format!(
                                 "[static]{resource_name}.{}",
                                 to_kebab_case(function.name.as_str())
@@ -1722,16 +1756,21 @@ impl Compiler {
                                 iface.export_fn(&wit_name, &sig);
                             }
                         }
-                        // `burn fn` carries no special wasm semantics — what
-                        // burning actually does is a runtime concern. It is
-                        // exported as a plain static function on the token,
-                        // distinguished only by its export name.
+                        // `burn fn`s are like a named destructors. They accept
+                        // an `own<>` handle to a token and destroy it if possible.
                         Some(FunctionExport::TokenBurn) => {
-                            let sig = self.star_to_component_signature(
+                            let core = self.visit_function(
+                                Some(&this_ty),
+                                None, // TODO: token context type
+                                function,
+                                &(&() as &dyn Locals, &token_storage),
+                            );
+                            let mut sig = self.star_to_component_signature(
                                 None,
                                 &function.ty.params,
                                 &function.ty.result,
                             );
+                            sig.params.insert(0, ("this".to_owned(), owned.clone()));
                             let wit_name = format!(
                                 "[static]{resource_name}.{}",
                                 to_kebab_case(function.name.as_str())
@@ -1751,7 +1790,14 @@ impl Compiler {
                         }
                         // Plain helper functions are compiled but not exported,
                         // matching `utxo` non-`main` functions.
-                        _ => {}
+                        _ => {
+                            self.visit_function(
+                                None,
+                                None,
+                                function,
+                                &(&() as &dyn Locals, &token_storage),
+                            );
+                        }
                     }
                 }
                 TypedTokenPart::AbiImpl {

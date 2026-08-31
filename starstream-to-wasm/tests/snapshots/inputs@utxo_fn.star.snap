@@ -329,6 +329,7 @@ TypedProgram {
   (type (;3;) (func))
   (type (;4;) (func (param i32) (result i32)))
   (type (;5;) (func (result i32)))
+  (type (;6;) (func (param i32 i32) (result i32)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
   (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;1;) (type 1)))
   (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;2;) (type 1)))
@@ -365,9 +366,11 @@ TypedProgram {
   (func (;11;) (type 4) (param i32) (result i32)
     (global.get 0)
   )
-  (func (;12;) (type 4) (param i32) (result i32)
-    (global.set 0
+  (func (;12;) (type 6) (param i32 i32) (result i32)
+    (global.set 1
       (local.get 0))
+    (global.set 0
+      (local.get 1))
     (return_call 5
       (i32.const 0))
   )
@@ -453,7 +456,7 @@ TypedProgram {
                   (export (;9;) "storage" (type (eq 8)))
                   (type (;10;) (func (param "self" 1) (result 9)))
                   (export (;1;) "get-storage" (func (type 10)))
-                  (type (;11;) (func (param "storage" 9) (result 2)))
+                  (type (;11;) (func (param "ctx" 6) (param "storage" 9) (result 2)))
                   (export (;2;) "set-storage" (func (type 11)))
                 )
               )
@@ -493,7 +496,7 @@ world root {
 
     get-storage: func(self: borrow<utxo>) -> storage;
 
-    set-storage: func(storage: storage) -> utxo;
+    set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
   }
 }
 package starstream:std {

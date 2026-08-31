@@ -161,7 +161,8 @@ TypedProgram {
   (type (;2;) (func (param i32 i64 i64 i64 i64)))
   (type (;3;) (func (param i32) (result i32)))
   (type (;4;) (func))
-  (type (;5;) (func (param i32 i32)))
+  (type (;5;) (func (param i32 i32) (result i32)))
+  (type (;6;) (func (param i32 i32)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
   (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;1;) (type 1)))
   (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;2;) (type 1)))
@@ -181,13 +182,15 @@ TypedProgram {
   (func (;7;) (type 3) (param i32) (result i32)
     (global.get 0)
   )
-  (func (;8;) (type 3) (param i32) (result i32)
-    (global.set 0
+  (func (;8;) (type 5) (param i32 i32) (result i32)
+    (global.set 1
       (local.get 0))
+    (global.set 0
+      (local.get 1))
     (return_call 4
       (i32.const 0))
   )
-  (func (;9;) (type 5) (param i32 i32))
+  (func (;9;) (type 6) (param i32 i32))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -255,8 +258,12 @@ TypedProgram {
                   (export (;4;) "storage" (type (eq 3)))
                   (type (;5;) (func (param "self" 1) (result 4)))
                   (export (;0;) "get-storage" (func (type 5)))
-                  (type (;6;) (func (param "storage" 4) (result 2)))
-                  (export (;1;) "set-storage" (func (type 6)))
+                  (alias outer 1 10 (type (;6;)))
+                  (export (;7;) "s-utxo-context" (type (eq 6)))
+                  (type (;8;) (borrow 7))
+                  (type (;9;) (own 7))
+                  (type (;10;) (func (param "ctx" 9) (param "storage" 4) (result 2)))
+                  (export (;1;) "set-storage" (func (type 10)))
                 )
               )
               (export (;3;) "my-utxo" (instance (type 19)))
@@ -285,6 +292,8 @@ world root {
 
   export script-accepts-utxos: func(utxo: borrow<s-utxo>, my-utxo: borrow<u-my-utxo>);
   export my-utxo: interface {
+    use starstream:std/utxo-context.{utxo-context as s-utxo-context};
+
     resource utxo;
 
     record storage {
@@ -293,7 +302,7 @@ world root {
 
     get-storage: func(self: borrow<utxo>) -> storage;
 
-    set-storage: func(storage: storage) -> utxo;
+    set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
   }
 }
 package starstream:std {
