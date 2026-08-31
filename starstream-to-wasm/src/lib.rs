@@ -452,8 +452,41 @@ impl Compiler {
             }
         }
 
-        // set-storage(storage: storage) -> utxo
-        {
+        if let Some(context_global) = self.context_global {
+            // set-storage(ctx: own<utxo-context>, storage: storage) -> utxo
+            let utxo_context_own = Rc::new(ComponentAbiType::Own {
+                resource: self.builtins.utxo_context_resource.clone().unwrap(),
+            });
+            let sig = ComponentAbiFunctionSignature {
+                params: vec![
+                    ("ctx".to_owned(), utxo_context_own),
+                    ("storage".to_owned(), storage_record.clone()),
+                ],
+                result: Some(utxo_own.clone()),
+            };
+            let ty = FuncType::new(
+                std::iter::once(ValType::I32).chain(storage_flat.iter().copied()),
+                [ValType::I32],
+            );
+            let mut code = Function::new([]);
+            code.instructions().local_get(0).global_set(context_global);
+            for (l, g) in fields.clone().enumerate() {
+                code.instructions()
+                    .local_get(u32::try_from(1 + l).unwrap())
+                    .global_set(g);
+            }
+            code.instructions()
+                .i32_const(0)
+                .return_call(self.current_resource.as_ref().unwrap().resource_new_fn)
+                .end();
+            let func = self.add_function(&ty, code.into_raw_body());
+            if let Some(func_idx) =
+                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty)
+            {
+                self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
+                iface.export_fn("set-storage", &sig);
+            }
+        } else {
             let sig = ComponentAbiFunctionSignature {
                 params: vec![("storage".to_owned(), storage_record.clone())],
                 result: Some(utxo_own.clone()),
