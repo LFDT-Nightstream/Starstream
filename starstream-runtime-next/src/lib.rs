@@ -174,90 +174,145 @@ fn link_event_instance<T: Host>(
     Ok(())
 }
 
+/// Link UTXO downcast.
+#[instrument(level = "trace", skip_all)]
+fn link_utxo_downcast<T: Host>(
+    component: Component,
+    linker: &mut LinkerInstance<T>,
+    instance_idx: ComponentExportIndex,
+) -> wasmtime::Result<()> {
+    linker.func_wrap("downcast", move |mut store, (utxo,)| {
+        let utxo = store
+            .data_mut()
+            .table()
+            .get::<Utxo<T::UtxoContext>>(&utxo)?;
+        if !Component::same(&utxo.component, &component) {
+            return Ok((None,));
+        }
+        if utxo.instance_idx != instance_idx {
+            return Ok((None,));
+        }
+        let utxo = utxo.clone();
+        let utxo = store.data_mut().table().push(utxo)?;
+        Ok((Some(utxo),))
+    })
+}
+
+/// Link UTXO upcast.
+#[instrument(level = "trace", skip_all)]
+fn link_utxo_upcast<T: Host>(linker: &mut LinkerInstance<T>) -> wasmtime::Result<()> {
+    linker.func_wrap("upcast", move |mut store, (utxo,)| {
+        let utxo = store
+            .data_mut()
+            .table()
+            .get::<Utxo<T::UtxoContext>>(&utxo)
+            .cloned()?;
+        let utxo = store.data_mut().table().push(utxo)?;
+        Ok((utxo,))
+    })
+}
+
+/// Link typed UTXO main in a [`LinkerInstance`]
+#[instrument(level = "trace", skip_all)]
+fn link_typed_utxo_main<T: Host>(
+    target: &ContractImportTarget<'_, T>,
+    linker: &mut LinkerInstance<T>,
+    ty: types::ComponentFunc,
+    instance_idx: ComponentExportIndex,
+    idx: ComponentExportIndex,
+    name: &str,
+) -> wasmtime::Result<()> {
+    let mut result_tys = ty.results();
+    let (Some(Type::Own(..)), None) = (result_tys.next(), result_tys.next()) else {
+        bail!("`main fn` import does not return a single resource value")
+    };
+    let contract = target.contract().cloned();
+    linker.func_new_async(name, move |mut store, _ty, params, results| {
+        let contract = contract.clone();
+        Box::new(async move {
+            let contract = contract.unwrap_or_else(|| T::contract(store.as_context_mut()));
+            let instance = contract.instantiate(&mut store).await?;
+
+            let mut params = {
+                let mut ps = Vec::with_capacity(params.len().saturating_add(1));
+                ps.push(Val::Bool(false));
+                for p in params {
+                    ps.push(p.clone());
+                }
+                ps
+            };
+            let utxo = T::call_utxo_main(store.as_context_mut(), move |mut store, cx| {
+                Box::pin(async move {
+                    let cx_res = store.data_mut().table().push(cx.clone())?;
+                    let cx_res = cx_res.try_into_resource_any(&mut store)?;
+                    params[0] = Val::Resource(cx_res);
+                    instance
+                        .construct_utxo(&mut store, instance_idx, idx, params, cx)
+                        .await
+                })
+            })
+            .await?;
+            let utxo = store.data_mut().table().push(utxo)?;
+            let utxo = utxo.try_into_resource_any(store.as_context_mut())?;
+            results[0] = Val::Resource(utxo);
+            Ok(())
+        })
+    })
+}
+
+/// Link typed UTXO method in a [`LinkerInstance`]
+#[instrument(level = "trace", skip_all)]
+fn link_typed_utxo_method<T: Host>(
+    linker: &mut LinkerInstance<T>,
+    ty: types::ComponentFunc,
+    idx: ComponentExportIndex,
+    name: &str,
+) -> wasmtime::Result<()> {
+    let Some((_, Type::Borrow(..))) = ty.params().next() else {
+        bail!("function does not take borrowed resource type as first parameter");
+    };
+    linker.func_new_async(name, move |mut store, _ty, params, results| {
+        Box::new(async move {
+            let Some(Val::Resource(utxo)) = params.first() else {
+                bail!("first parameter is not a resource")
+            };
+            let utxo = utxo.try_into_resource::<Utxo<T::UtxoContext>>(&mut store)?;
+            let &Utxo {
+                instance, resource, ..
+            } = store.data_mut().table().get(&utxo)?;
+            let f = instance
+                .get_func(&mut store, idx)
+                .context("method export not found")?;
+            let params = {
+                let mut ps = Vec::with_capacity(params.len());
+                ps.push(Val::Resource(resource));
+                for p in &params[1..] {
+                    ps.push(p.clone());
+                }
+                ps
+            };
+            f.call_async(&mut store, &params, results).await?;
+            Ok(())
+        })
+    })
+}
+
 /// Link typed UTXO [`types::ComponentFunc`] in a [`LinkerInstance`]
-#[instrument(level = "trace", skip(target, linker, ty, instance))]
+#[instrument(level = "trace", skip(target, linker, ty, instance_idx))]
 fn link_typed_utxo_function<T: Host>(
     target: &ContractImportTarget<'_, T>,
     linker: &mut LinkerInstance<T>,
     ty: types::ComponentFunc,
-    instance: &ComponentExportIndex,
+    instance_idx: &ComponentExportIndex,
     name: &str,
 ) -> wasmtime::Result<()> {
     let idx = target
         .component()
-        .get_export_index(Some(instance), name)
+        .get_export_index(Some(instance_idx), name)
         .with_context(|| format!("`{name}` export was not found"))?;
     match name.split_once(']') {
-        Some(("[static", ..)) => {
-            let (Some(Type::Own(..)), None) = ({
-                let mut result_tys = ty.results();
-                (result_tys.next(), result_tys.next())
-            }) else {
-                bail!("function does not return a single resource value")
-            };
-            let instance_idx = *instance;
-            let contract = target.contract().cloned();
-            linker.func_new_async(name, move |mut store, _ty, params, results| {
-                let contract = contract.clone();
-                Box::new(async move {
-                    let contract = contract.unwrap_or_else(|| T::contract(store.as_context_mut()));
-                    let instance = contract.instantiate(&mut store).await?;
-
-                    let mut params = {
-                        let mut ps = Vec::with_capacity(params.len().saturating_add(1));
-                        ps.push(Val::Bool(false));
-                        for p in params {
-                            ps.push(p.clone());
-                        }
-                        ps
-                    };
-                    let utxo = T::call_utxo_main(store.as_context_mut(), move |mut store, cx| {
-                        Box::pin(async move {
-                            let cx_res = store.data_mut().table().push(cx.clone())?;
-                            let cx_res = cx_res.try_into_resource_any(&mut store)?;
-                            params[0] = Val::Resource(cx_res);
-                            instance
-                                .construct_utxo(&mut store, instance_idx, idx, params, cx)
-                                .await
-                        })
-                    })
-                    .await?;
-                    let utxo = store.data_mut().table().push(utxo)?;
-                    let utxo = utxo.try_into_resource_any(store.as_context_mut())?;
-                    results[0] = Val::Resource(utxo);
-                    Ok(())
-                })
-            })
-        }
-        Some(("[method", ..)) => {
-            let Some((_, Type::Borrow(..))) = ty.params().next() else {
-                bail!("function does not take borrowed resource type as first parameter");
-            };
-            linker.func_new_async(name, move |mut store, _ty, params, results| {
-                Box::new(async move {
-                    let Some(Val::Resource(utxo)) = params.first() else {
-                        bail!("first parameter is not a resource")
-                    };
-                    let utxo = utxo.try_into_resource::<Utxo<T::UtxoContext>>(&mut store)?;
-                    let &Utxo {
-                        instance, resource, ..
-                    } = store.data_mut().table().get(&utxo)?;
-                    let f = instance
-                        .get_func(&mut store, idx)
-                        .context("method export not found")?;
-                    let params = {
-                        let mut ps = Vec::with_capacity(params.len());
-                        ps.push(Val::Resource(resource));
-                        for p in &params[1..] {
-                            ps.push(p.clone());
-                        }
-                        ps
-                    };
-                    f.call_async(&mut store, &params, results).await?;
-                    Ok(())
-                })
-            })
-        }
+        Some(("[static", ..)) => link_typed_utxo_main(target, linker, ty, *instance_idx, idx, name),
+        Some(("[method", ..)) => link_typed_utxo_method(linker, ty, idx, name),
         _ => bail!("unexpected typed UTXO instance function import `{name}`"),
     }
 }
@@ -271,14 +326,20 @@ fn link_typed_utxo_instance<T: Host>(
     name: &str,
 ) -> wasmtime::Result<()> {
     let component = target.component();
-    let idx = component
+    let instance_idx = component
         .get_export_index(None, name)
         .with_context(|| format!("`{name}` export was not found"))?;
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(component.engine()) {
         debug!(name, "linking typed UTXO instance item");
         match ty {
+            types::ComponentItem::ComponentFunc(..) if name == "downcast" => {
+                link_utxo_downcast(component.clone(), linker, instance_idx)?;
+            }
+            types::ComponentItem::ComponentFunc(..) if name == "upcast" => {
+                link_utxo_upcast(linker)?;
+            }
             types::ComponentItem::ComponentFunc(ty) => {
-                link_typed_utxo_function(target, linker, ty, &idx, name)?;
+                link_typed_utxo_function(target, linker, ty, &instance_idx, name)?;
             }
             types::ComponentItem::CoreFunc(..) => {
                 bail!("typed UTXO instance core function imports unsupported")
@@ -1268,18 +1329,29 @@ impl<T: Host> Contract<T> {
             .instantiate_async(store)
             .await
             .context("failed to instantiate component")?;
-        Ok(ContractInstance(instance))
+        Ok(ContractInstance {
+            component: self.pre.component().clone(),
+            instance,
+        })
     }
 }
 
 /// Single instantiation of a [Contract]
-#[derive(Debug, Copy, Clone)]
-pub struct ContractInstance(Instance);
+#[derive(Debug, Clone)]
+pub struct ContractInstance {
+    component: Component,
+    instance: Instance,
+}
 
 impl ContractInstance {
     #[must_use]
+    pub fn component(&self) -> &Component {
+        &self.component
+    }
+
+    #[must_use]
     pub fn instance(&self) -> Instance {
-        self.0
+        self.instance
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -1292,7 +1364,7 @@ impl ContractInstance {
         cx: T,
     ) -> wasmtime::Result<Utxo<T>> {
         let f = self
-            .0
+            .instance
             .get_func(store.as_context_mut(), name)
             .context("constructor function export not found")?;
         debug!("calling constructor function");
@@ -1304,7 +1376,8 @@ impl ContractInstance {
             bail!("invalid return value")
         };
         Ok(Utxo {
-            instance: self.0,
+            component: self.component.clone(),
+            instance: self.instance,
             instance_idx,
             resource,
             cx,
@@ -1346,7 +1419,7 @@ impl ContractInstance {
         mut results: impl AsMut<[Val]>,
     ) -> wasmtime::Result<()> {
         let f = self
-            .0
+            .instance
             .get_func(&mut store, idx)
             .context("method export not found")?;
         f.call_async(store, params.as_ref(), results.as_mut())
@@ -1363,7 +1436,7 @@ impl ContractInstance {
         fields: impl Into<Vec<(String, Val)>>,
     ) -> wasmtime::Result<Token> {
         let f = self
-            .0
+            .instance
             .get_func(store.as_context_mut(), set)
             .context("`set-storage` export not found")?;
         debug!("calling `set-storage`");
@@ -1375,7 +1448,7 @@ impl ContractInstance {
             bail!("invalid return value")
         };
         Ok(Token {
-            instance: self.0,
+            instance: self.instance,
             resource,
         })
     }
@@ -1389,7 +1462,7 @@ impl ContractInstance {
         mut results: impl AsMut<[Val]>,
     ) -> wasmtime::Result<()> {
         let f = self
-            .0
+            .instance
             .get_func(store.as_context_mut(), idx)
             .context("coordination script export not found")?;
         debug!("calling coordination script");
@@ -1497,8 +1570,9 @@ impl CoordinationScriptExport {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Utxo<T> {
+    component: Component,
     instance: Instance,
     instance_idx: ComponentExportIndex,
     resource: ResourceAny,
