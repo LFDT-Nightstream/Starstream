@@ -206,7 +206,6 @@ async fn assert_call_method(
     let mut store = wasmtime::Store::new(
         store.engine(),
         Ctx {
-            contract: contract.clone(),
             table,
             events: Vec::default(),
             outputs: Vec::default(),
@@ -243,7 +242,6 @@ async fn assert_call_method(
         mut table,
         events,
         outputs,
-        ..
     } = store.into_data();
     assert!(outputs.is_empty());
     assert_eq!(events, expected_events);
@@ -378,7 +376,6 @@ async fn score_main_new() -> wasmtime::Result<()> {
     let mut store = wasmtime::Store::new(
         &engine,
         Ctx {
-            contract: contract.clone(),
             table,
             events: Vec::default(),
             outputs: Vec::default(),
@@ -530,7 +527,6 @@ async fn score_main_new() -> wasmtime::Result<()> {
         table,
         events,
         outputs,
-        ..
     } = store.into_data();
     assert!(outputs.is_empty());
     assert!(table.is_empty());
@@ -561,7 +557,6 @@ async fn score_script_example() -> wasmtime::Result<()> {
     let mut store = wasmtime::Store::new(
         &engine,
         Ctx {
-            contract: contract.clone(),
             table: ResourceTable::default(),
             events: Vec::default(),
             outputs: Vec::default(),

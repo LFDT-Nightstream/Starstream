@@ -64,11 +64,8 @@ pub struct Event {
 }
 
 pub struct Ctx {
-    pub contract: Contract<Self>,
-
     pub table: ResourceTable,
     pub events: Vec<Event>,
-
     pub outputs: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
 }
 
@@ -94,10 +91,6 @@ impl Host for Ctx {
 
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
-    }
-
-    fn contract(store: StoreContextMut<Self>) -> Contract<Self> {
-        store.data().contract.clone()
     }
 
     async fn call_utxo_main(

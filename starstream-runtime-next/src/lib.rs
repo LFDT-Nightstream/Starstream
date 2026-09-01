@@ -1,5 +1,5 @@
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use tracing::{debug, instrument};
 use wasmtime::component::{
@@ -26,13 +26,16 @@ pub mod bindings {
     });
 }
 
+pub trait ContractLookup<T> {
+    /// Lookup a contract by `external_id`
+    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>>;
+}
+
 pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
     type UtxoContext: Clone + Send;
     type Token;
 
     fn table(&mut self) -> &mut ResourceTable;
-
-    fn contract(store: StoreContextMut<Self>) -> Contract<Self>;
 
     fn call_utxo_main(
         store: StoreContextMut<Self>,
@@ -104,23 +107,50 @@ fn load_component(engine: &Engine, wasm: impl AsRef<[u8]>) -> wasmtime::Result<C
 }
 
 enum ContractImportTarget<'a, T: 'static> {
-    Component(&'a Component),
-    Contract(Contract<T>),
+    This {
+        contract: &'a Arc<OnceLock<Contract<T>>>,
+        component: &'a Component,
+    },
+    External(Contract<T>),
 }
 
 impl<T> ContractImportTarget<'_, T> {
     fn component(&self) -> &Component {
         match self {
-            Self::Component(component) => component,
-            Self::Contract(contract) => contract.pre.component(),
+            Self::This { component, .. } => component,
+            Self::External(contract) => contract.pre.component(),
         }
     }
+}
 
-    fn contract(&self) -> Option<&Contract<T>> {
-        if let Self::Contract(contract) = self {
-            Some(contract)
-        } else {
-            None
+enum ImportedContract<T: 'static> {
+    This(Arc<OnceLock<Contract<T>>>),
+    External(Contract<T>),
+}
+
+impl<T: 'static> Clone for ImportedContract<T> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::This(contract) => Self::This(Arc::clone(contract)),
+            Self::External(contract) => Self::External(contract.clone()),
+        }
+    }
+}
+
+impl<T: 'static> From<&ContractImportTarget<'_, T>> for ImportedContract<T> {
+    fn from(target: &ContractImportTarget<'_, T>) -> Self {
+        match target {
+            ContractImportTarget::This { contract, .. } => Self::This(Arc::clone(contract)),
+            ContractImportTarget::External(contract) => Self::External(contract.clone()),
+        }
+    }
+}
+
+impl<T: 'static> ImportedContract<T> {
+    fn as_contract(&self) -> Option<&Contract<T>> {
+        match self {
+            Self::This(contract) => contract.get(),
+            Self::External(contract) => Some(contract),
         }
     }
 }
@@ -226,11 +256,13 @@ fn link_typed_utxo_main<T: Host>(
     let (Some(Type::Own(..)), None) = (result_tys.next(), result_tys.next()) else {
         bail!("`main fn` import does not return a single resource value")
     };
-    let contract = target.contract().cloned();
+    let contract = ImportedContract::from(target);
     linker.func_new_async(name, move |mut store, _ty, params, results| {
         let contract = contract.clone();
         Box::new(async move {
-            let contract = contract.unwrap_or_else(|| T::contract(store.as_context_mut()));
+            let contract = contract
+                .as_contract()
+                .context("contract was not initialized")?;
             let instance = contract.instantiate(&mut store).await?;
 
             let mut params = {
@@ -320,7 +352,7 @@ fn link_typed_utxo_function<T: Host>(
 /// Link typed UTXO instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
 fn link_typed_utxo_instance<T: Host>(
-    target: &ContractImportTarget<'_, T>,
+    target: ContractImportTarget<'_, T>,
     linker: &mut LinkerInstance<T>,
     ty: &types::ComponentInstance,
     name: &str,
@@ -339,7 +371,7 @@ fn link_typed_utxo_instance<T: Host>(
                 link_utxo_upcast(linker)?;
             }
             types::ComponentItem::ComponentFunc(ty) => {
-                link_typed_utxo_function(target, linker, ty, &instance_idx, name)?;
+                link_typed_utxo_function(&target, linker, ty, &instance_idx, name)?;
             }
             types::ComponentItem::CoreFunc(..) => {
                 bail!("typed UTXO instance core function imports unsupported")
@@ -557,8 +589,9 @@ fn link_coordination_script_instance<T: Host>(
 }
 
 /// Link non-std instance in a [`LinkerInstance`].
-#[instrument(level = "trace", skip(component, linker, contracts, ty))]
+#[instrument(level = "trace", skip(contract, component, linker, contracts, ty))]
 fn link_instance<T: Host>(
+    contract: &Arc<OnceLock<Contract<T>>>,
     component: &Component,
     linker: &mut LinkerInstance<T>,
     contracts: &impl ContractLookup<T>,
@@ -580,7 +613,7 @@ fn link_instance<T: Host>(
             let contract = contracts.get_contract(external_id).with_context(|| {
                 format!("failed to get contract for typed UTXO import `{name}`")
             })?;
-            link_typed_utxo_instance(&ContractImportTarget::Contract(contract), linker, ty, name)
+            link_typed_utxo_instance(ContractImportTarget::External(contract), linker, ty, name)
         }
 
         (
@@ -591,7 +624,10 @@ fn link_instance<T: Host>(
             }),
             None,
         ) => link_typed_utxo_instance(
-            &ContractImportTarget::Component(component),
+            ContractImportTarget::This {
+                contract,
+                component,
+            },
             linker,
             ty,
             name,
@@ -643,6 +679,7 @@ fn link_instance<T: Host>(
 /// Link imports of the contract.
 #[instrument(level = "trace", skip_all)]
 fn link_imports<T: Host>(
+    contract: &Arc<OnceLock<Contract<T>>>,
     component: &Component,
     linker: &mut Linker<T>,
     contracts: &impl ContractLookup<T>,
@@ -672,7 +709,15 @@ fn link_imports<T: Host>(
                     .instance(name)
                     .with_context(|| format!("failed to instantiate `{name}` in the linker"))?;
                 debug!(?name, "linking root instance");
-                link_instance(component, &mut linker, contracts, &ty, name, external_id)?;
+                link_instance(
+                    contract,
+                    component,
+                    &mut linker,
+                    contracts,
+                    &ty,
+                    name,
+                    external_id,
+                )?;
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) => {
@@ -739,11 +784,6 @@ fn link_utxo_context<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
     Ok(())
 }
 
-pub trait ContractLookup<T> {
-    /// Lookup a contract by `external_id`
-    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>>;
-}
-
 fn lookup_get_storage_export(
     component: &Component,
     instance: ComponentExportIndex,
@@ -785,6 +825,7 @@ impl<T: Host> Contract<T> {
 
         debug!("loading component");
         let component = load_component(engine, wasm)?;
+        let contract = Arc::default();
 
         let mut linker = Linker::new(engine);
 
@@ -793,7 +834,7 @@ impl<T: Host> Contract<T> {
             .context("failed to link generated bindings")?;
         link_builtin(&mut linker).context("failed to link `starstream:std/builtin`")?;
         link_utxo_context(&mut linker).context("failed to link `starstream:std/utxo-context`")?;
-        link_imports(&component, &mut linker, &contracts)?;
+        link_imports(&contract, &component, &mut linker, &contracts)?;
 
         let ty = linker
             .substituted_component_type(&component)
@@ -804,7 +845,11 @@ impl<T: Host> Contract<T> {
             .instantiate_pre(&component)
             .context("failed to pre-instantiate component")?;
 
-        Ok(Self { pre, ty })
+        let this = Self { pre, ty };
+        let Ok(()) = contract.set(this.clone()) else {
+            bail!("contract initialized twice")
+        };
+        Ok(this)
     }
 
     #[instrument(level = "trace", skip_all)]
