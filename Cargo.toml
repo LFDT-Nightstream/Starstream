@@ -6,6 +6,9 @@ members = [
   "starstream-interpreter",
   "starstream-language-server",
   "starstream-language-server-web",
+  "starstream-ledger",
+  "starstream-ledger-cli",
+  "starstream-ledger-node",
   "starstream-runtime-next",
   "starstream-sandbox-web",
   "starstream-to-wasm",
@@ -28,18 +31,39 @@ license = "MIT/Apache-2.0"
 [workspace.dependencies]
 anyhow = { version = "1.0.102", default-features = false }
 ariadne = "0.5.1"
+bytes = { version = "1", default-features = false }
 chumsky = "0.11.1"
+ciborium = { version = "0.2", default-features = false }
+clap = { version = "4.6.1", default-features = false }
+coset = { version = "0.3", default-features = false }
+ed25519-dalek = { version = "2", default-features = false }
+headers-accept = { version = "0.3", default-features = false }
+headers-core = { version = "0.3", default-features = false }
+hex = { version = "0.4.3", default-features = false }
+http = { version = "1", default-features = false }
+http-body = { version = "1", default-features = false }
+http-body-util = { version = "0.1", default-features = false }
+hyper = { version = "1", default-features = false }
+hyper-util = { version = "0.1", default-features = false }
 indoc = "2.0"
 insta = "1.43"
+mediatype = { version = "0.21", default-features = false }
 miette = "7.6.0"
+multibase = { version = "0.9", default-features = false }
+multihash = { version = "0.19", default-features = false }
+rand_core = { version = "0.6", default-features = false }
 sha2 = "0.10.9"
 serde = "1.0.219"
 serde_json = "1.0"
 starstream-compiler = { path = "starstream-compiler" }
 starstream-language-server = { path = "starstream-language-server" }
+starstream-ledger = { path = "starstream-ledger", default-features = false }
+starstream-ledger-cli = { path = "starstream-ledger-cli" }
+starstream-ledger-node = { path = "starstream-ledger-node" }
 starstream-runtime-next = { path = "starstream-runtime-next" }
 starstream-to-wasm = { path = "starstream-to-wasm" }
 starstream-types = { path = "starstream-types" }
+tempfile = { version = "3.27", default-features = false }
 test-log = { version = "0.2.18", default-features = false }
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", default-features = false }
@@ -47,12 +71,15 @@ tower-lsp-server = { version = "0.22.1", default-features = false, features = [
   "runtime-agnostic",
 ] }
 tracing = { version = "0.1.44", default-features = false }
+tracing-subscriber = { version = "0.3.23", default-features = false }
 wasm-encoder = "0.254.0"
 wasmprinter = "0.254.0"
 wasmparser = "0.254.0"
 wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
+wasmtime-wizer = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
 wit-component = "0.254.0"
 wit-parser = "0.254.0"
+zeroize = { version = "1.8.2", default-features = false }
 
 neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
 neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }

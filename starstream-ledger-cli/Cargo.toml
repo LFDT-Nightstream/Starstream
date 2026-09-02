@@ -1,0 +1,57 @@
+[package]
+name = "starstream-ledger-cli"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true, features = ["std"] }
+clap = { workspace = true, features = [
+    "color",
+    "derive",
+    "error-context",
+    "help",
+    "std",
+    "string",
+    "suggestions",
+    "usage",
+] }
+ed25519-dalek = { workspace = true, features = ["fast", "rand_core", "zeroize"] }
+hex = { workspace = true, features = ["std"] }
+http = { workspace = true, features = ["std"] }
+hyper-util = { workspace = true, features = [
+    "client-legacy",
+    "http1",
+    "http2",
+    "tokio",
+] }
+rand_core = { workspace = true, features = ["getrandom", "std"] }
+sha2 = { workspace = true }
+starstream-ledger = { workspace = true, features = ["client"] }
+tokio = { workspace = true, features = [
+    "fs",
+    "io-std",
+    "macros",
+    "rt-multi-thread",
+] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = [
+    "ansi",
+    "env-filter",
+    "fmt",
+    "smallvec",
+    "tracing-log",
+] }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+starstream-compiler = { workspace = true }
+starstream-ledger = { workspace = true, features = ["server"] }
+starstream-to-wasm = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["fs", "net", "process"] }
+wit-component = { workspace = true }
+wasmtime = { workspace = true }
