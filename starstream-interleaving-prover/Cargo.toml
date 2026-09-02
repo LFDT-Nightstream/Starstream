@@ -1,0 +1,16 @@
+[package]
+name = "starstream-interleaving-prover"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
+thiserror = { workspace = true }
+neo-application = { workspace = true }
+neo-math = { workspace = true }
+neo-ccs = { workspace = true }
+p3-field = "0.5.0"

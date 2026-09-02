@@ -15,6 +15,7 @@ members = [
   "ark-poseidon2",
   "ark-goldilocks",
   "starstream-interleaving-spec",
+  "starstream-interleaving-prover",
 ]
 
 [workspace.package]
@@ -54,10 +55,11 @@ wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8
 wit-component = "0.254.0"
 wit-parser = "0.254.0"
 
-neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
-neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
-neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
-neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
+neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5b0e296a581143bd56bfe0f54116553a013ee805" }
+neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5b0e296a581143bd56bfe0f54116553a013ee805" }
+neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5b0e296a581143bd56bfe0f54116553a013ee805" }
+neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5b0e296a581143bd56bfe0f54116553a013ee805" }
+neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5b0e296a581143bd56bfe0f54116553a013ee805"}
 
 [profile.dev.package]
 insta.opt-level = 3
