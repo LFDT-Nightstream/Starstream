@@ -1,11 +1,14 @@
-use neo_application::MemoryCheckError;
+use neo_application::{ContinuityCheckError, MemoryCheckError};
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
 use starstream_interleaving_spec::{MethodHash, ResourceHandle, StarstreamValue, Step, Trace};
 
 use super::{Error, Unsatisfied, build_witness_rows, verify_sat, verify_witness_rows};
 use crate::{
-    ccs::layout::{COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_SEL_ENTER_CONSTRUCTOR},
+    ccs::layout::{
+        COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_CURR_AFTER, COL_CURR_BEFORE,
+        COL_SEL_ENTER_CONSTRUCTOR,
+    },
     memory::MemoryId,
 };
 
@@ -98,4 +101,26 @@ fn rejects_tampered_memory_value() {
         ),
         "{error:?}"
     );
+}
+
+#[test]
+fn rejects_tampered_continuity_value() {
+    let trace = constructor_trace([0, 1, 2, 3]);
+    let mut rows = build_witness_rows(&trace);
+    verify_witness_rows(&rows).unwrap();
+
+    rows[0][COL_CURR_AFTER] += F::ONE;
+
+    assert!(matches!(
+        verify_witness_rows(&rows),
+        Err(Error::Unsatisfied(Unsatisfied::Continuity(
+            ContinuityCheckError::Mismatch {
+                boundary: 0,
+                group_name: "curr_continuity",
+                previous_step_column: COL_CURR_AFTER,
+                next_step_column: COL_CURR_BEFORE,
+                ..
+            }
+        )))
+    ));
 }
