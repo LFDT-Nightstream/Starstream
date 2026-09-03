@@ -59,4 +59,6 @@ npm ci
 npm test
 ```
 
-These tests are ignored by default by `cargo test` because they require Quint.
+This also runs the differential trace tests against
+`starstream-interleaving-prover`. These tests are ignored by default by
+`cargo test` because they require Quint.

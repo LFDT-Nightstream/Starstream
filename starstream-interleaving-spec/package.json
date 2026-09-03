@@ -8,7 +8,7 @@
     "verify": "node scripts/quint.mjs verify",
     "repl": "node scripts/quint.mjs repl",
     "check": "node scripts/quint.mjs check",
-    "test": "cargo test -p starstream-interleaving-spec -- --include-ignored"
+    "test": "cargo test -p starstream-interleaving-spec -- --include-ignored && cargo test -p starstream-interleaving-prover --test quint_conformance -- --include-ignored"
   },
   "engines": {
     "node": ">=20.11"
