@@ -6,7 +6,6 @@ mod step;
 mod witness;
 
 use neo_application::{MemoryCheckError, check_memory_rows};
-pub use relation::RelationLayout;
 use starstream_interleaving_spec::Trace;
 
 use crate::{
