@@ -1404,9 +1404,9 @@ impl ContractInstance {
         UtxoExport { instance_idx, .. }: &UtxoExport,
         StorageExport { set, .. }: &StorageExport,
         cx: T,
-        fields: impl Into<Vec<(String, Val)>>,
+        params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Utxo<T>> {
-        self.construct_utxo(store, *instance_idx, set, [Val::Record(fields.into())], cx)
+        self.construct_utxo(store, *instance_idx, set, params, cx)
             .await
     }
 
