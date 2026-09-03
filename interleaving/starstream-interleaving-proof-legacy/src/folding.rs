@@ -202,6 +202,7 @@ fn build_plan(
     let probe_plan = RecursiveStepImagePlan {
         limbs,
         app_private_var_widths: Vec::new(),
+        projection_batches: Vec::new(),
         boundary_bits: 4 * POSEIDON2_GOLDILOCKS_BITS,
         kmul_count: 0,
         ring_action_pair_count: 0,
