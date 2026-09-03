@@ -5,7 +5,10 @@ mod opcode;
 mod step;
 mod witness;
 
-use neo_application::{ContinuityCatalog, MemoryCheckError, check_memory_rows};
+use neo_application::{
+    ContinuityCatalog, ContinuityCheckError, MemoryCheckError, check_continuity_rows,
+    check_memory_rows,
+};
 use neo_math::F;
 use starstream_interleaving_spec::Trace;
 
@@ -28,6 +31,8 @@ pub enum Error {
     ColumnRegistryError(#[from] neo_application::ColumnRegistryError),
     #[error(transparent)]
     ContinuityCatalogError(#[from] neo_application::ContinuityCatalogError),
+    #[error(transparent)]
+    ContinuityCheckError(ContinuityCheckError),
     #[error("failed to check the CCS assignment for step {step}: {source}")]
     CcsCheck {
         step: usize,
@@ -44,6 +49,8 @@ pub enum Unsatisfied {
         row: usize,
         constraint: &'static str,
     },
+    #[error(transparent)]
+    Continuity(ContinuityCheckError),
     #[error(transparent)]
     Memory(#[from] MemoryCheckError<MemoryId>),
 }
@@ -68,7 +75,7 @@ fn build_witness_rows(trace: &Trace) -> Vec<Vec<F>> {
 fn verify_witness_rows(rows: &[Vec<F>]) -> Result<(), Error> {
     let relation = build_relation()?;
     let memory = crate::memory::build_memory_layout();
-    let _continuity =
+    let continuity =
         ContinuityCatalog::new(build_ivc_state_continuity_links(), relation.columns())?;
 
     for (step, row_assignment) in rows.iter().enumerate() {
@@ -96,9 +103,16 @@ fn verify_witness_rows(rows: &[Vec<F>]) -> Result<(), Error> {
     check_memory_rows(&memory, relation.columns(), rows, &preload, &policy)
         .map_err(Unsatisfied::Memory)?;
 
-    // TODO: Replace this with neo_application::check_continuity_rows once that
-    // diagnostic API exists. The eventual proof/batching path must also enforce
-    // these links as constraints rather than relying on a diagnostic check.
+    match check_continuity_rows(&continuity, rows) {
+        Ok(()) => {}
+        Err(source @ ContinuityCheckError::Mismatch { .. }) => {
+            return Err(Unsatisfied::Continuity(source).into());
+        }
+        Err(source) => return Err(Error::ContinuityCheckError(source)),
+    }
+
+    // TODO: The eventual proof/batching path must enforce the continuity links
+    // as constraints rather than relying on this diagnostic check.
 
     // TODO: Constrain and check the initial and terminal carried state once the
     // state witness is populated. Quint's replay already checks
