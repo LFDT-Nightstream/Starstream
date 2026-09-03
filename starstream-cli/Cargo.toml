@@ -18,13 +18,22 @@ console = "0.16.0"
 ignore = "0.4.24"
 miette = { workspace = true, features = ["fancy"] }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 similar = "2.7.0"
 starstream-compiler = { workspace = true }
 starstream-language-server = { workspace = true }
+starstream-runtime-next = { workspace = true }
 starstream-to-wasm = { workspace = true }
 starstream-types = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.47.1", features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.20", default-features = false, features = [
+    "ansi",
+    "env-filter",
+    "fmt",
+] }
 tower-lsp-server = { workspace = true }
 walkdir = "2.5.0"
+wasmtime = { workspace = true, features = ["wave"] }
 wit-component.workspace = true

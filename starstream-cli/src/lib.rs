@@ -11,6 +11,7 @@ mod explain;
 mod format;
 mod lsp;
 mod project;
+mod run;
 mod style;
 mod wasm;
 
@@ -20,6 +21,7 @@ pub use docs::Docs;
 pub use explain::Explain;
 pub use format::Format;
 pub use lsp::Lsp;
+pub use run::Run;
 pub use wasm::Wasm;
 
 /// The Starstream language and toolchain CLI.
@@ -34,6 +36,7 @@ pub enum Command {
     Explain(Explain),
     #[clap(hide = true)]
     Lsp(Lsp),
+    Run(Run),
 }
 
 #[derive(Parser, Debug)]
@@ -55,6 +58,7 @@ impl Cli {
             Command::Check(c) => c.exec(),
             Command::Explain(e) => e.exec(),
             Command::Lsp(l) => l.exec(),
+            Command::Run(r) => r.exec(),
         }
     }
 }
