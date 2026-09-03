@@ -6,12 +6,12 @@ use neo_application::{
 use crate::ccs::layout::{
     COL_CALL_SP_BEFORE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8, COL_CALL_STACK_EXPECTED_ARG_VALUE,
     COL_CALL_STACK_EXPECTED_METHOD_VALUE, COL_CALL_STACK_EXPECTED_RESULT_VALUE,
-    COL_CALL_STACK_MUL_STRIDE_4, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP,
-    COL_CURR_BEFORE, COL_CURR_BEFORE_STRIDE_4, COL_ENABLED_METHOD_ADDR, COL_ENABLED_METHOD_VALUE,
-    COL_IN, COL_OUT, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE,
-    COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
-    COL_UTXO_LIFECYCLE_ADDR, COL_UTXO_LIFECYCLE_READ, COL_UTXO_LIFECYCLE_VALUE,
-    COL_UTXO_LIFECYCLE_WRITE, full_column_registry,
+    COL_CALL_STACK_MUL_STRIDE_4, COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP, COL_CURR_BEFORE,
+    COL_CURR_BEFORE_STRIDE_4, COL_ENABLED_METHOD_ADDR, COL_ENABLED_METHOD_VALUE, COL_IN, COL_OUT,
+    COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
+    COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_UTXO_LIFECYCLE_ADDR,
+    COL_UTXO_LIFECYCLE_READ, COL_UTXO_LIFECYCLE_VALUE, COL_UTXO_LIFECYCLE_WRITE,
+    full_column_registry,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -163,12 +163,11 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 4] {
             kind: MemoryKind::Ram,
             ports: COL_CALL_STACK_EXPECTED_ARG_VALUE
                 .into_iter()
-                .into_iter()
                 .zip(COL_CALL_STACK_MUL_STRIDE_4.into_iter())
-                .flat_map(|(addr, value)| {
+                .flat_map(|(value, address)| {
                     [
                         MemoryPortSpec {
-                            address_columns: vec![addr],
+                            address_columns: vec![address],
                             value_column: value,
                             kind: MemoryPortKind::Write {
                                 value_before_column: None,
@@ -176,7 +175,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 4] {
                             activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
                         },
                         MemoryPortSpec {
-                            address_columns: vec![addr],
+                            address_columns: vec![address],
                             value_column: value,
                             kind: MemoryPortKind::Read,
                             activation: MemoryPortActivation::When(COL_CALL_STACK_TOP),
@@ -193,8 +192,8 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 4] {
             ports: COL_CALL_STACK_EXPECTED_RESULT_VALUE
                 .into_iter()
                 .zip(COL_CALL_STACK_MUL_STRIDE_4.into_iter())
-                .map(|(addr, value)| MemoryPortSpec {
-                    address_columns: vec![addr],
+                .map(|(value, address)| MemoryPortSpec {
+                    address_columns: vec![address],
                     value_column: value,
                     kind: MemoryPortKind::Write {
                         value_before_column: None,
@@ -209,8 +208,8 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 4] {
             ports: COL_CALL_STACK_EXPECTED_METHOD_VALUE
                 .into_iter()
                 .zip(COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8.into_iter())
-                .map(|(addr, value)| MemoryPortSpec {
-                    address_columns: vec![addr],
+                .map(|(value, address)| MemoryPortSpec {
+                    address_columns: vec![address],
                     value_column: value,
                     kind: MemoryPortKind::Write {
                         value_before_column: None,
