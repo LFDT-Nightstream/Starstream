@@ -287,21 +287,12 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     Ok(ApplicationRelation::new(r1cs, column_registry)?)
 }
 
-fn push_gated_linear_zero(
-    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
-    gate: usize,
-    terms: impl IntoIterator<Item = (usize, F)>,
-) {
-    b.push_row([(gate, F::ONE)], terms, []);
-}
-
 fn require_phase_before(
     b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
     opcode: Opcode,
     phase: crate::ivc_state::CurrPhase,
 ) {
-    push_gated_linear_zero(
-        b,
+    b.push_gated_linear_zero(
         opcode.selector(),
         [
             (COL_CURR_PHASE_BEFORE, F::ONE),
@@ -315,8 +306,7 @@ fn require_phase_after(
     opcode: Opcode,
     phase: crate::ivc_state::CurrPhase,
 ) {
-    push_gated_linear_zero(
-        b,
+    b.push_gated_linear_zero(
         opcode.selector(),
         [
             (COL_CURR_PHASE_AFTER, F::ONE),
@@ -351,8 +341,7 @@ fn require_coroutine_kind(
     column: usize,
     expected: CoroutineKind,
 ) {
-    push_gated_linear_zero(
-        b,
+    b.push_gated_linear_zero(
         opcode.selector(),
         [
             (low_bit(column), F::ONE),
@@ -367,7 +356,7 @@ fn require_equal(
     left: usize,
     right: usize,
 ) {
-    push_gated_linear_zero(b, opcode.selector(), [(left, F::ONE), (right, -F::ONE)]);
+    b.push_gated_linear_zero(opcode.selector(), [(left, F::ONE), (right, -F::ONE)]);
 }
 
 fn preserve_pending_constructor_key(
@@ -438,8 +427,7 @@ fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     // Return is allowed in Executing (00) and Yield (11).
     let phase_before = phase_bits(COL_CURR_PHASE_BEFORE);
-    push_gated_linear_zero(
-        b,
+    b.push_gated_linear_zero(
         Opcode::Return.selector(),
         [(phase_before[0], F::ONE), (phase_before[1], -F::ONE)],
     );
@@ -448,8 +436,7 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 
     // These Boolean/U32 values sum to at most 2^33 - 1, below the field
     // modulus, so a zero sum forces every component of `None` to be zero.
-    push_gated_linear_zero(
-        b,
+    b.push_gated_linear_zero(
         Opcode::Return.selector(),
         [
             (COL_PENDING_CTOR_PRESENT_AFTER, F::ONE),
@@ -469,8 +456,7 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         ),
         (COL_RESOURCE_RESOLVER_VALUE, COL_CURR_BEFORE),
     ] {
-        push_gated_linear_zero(
-            b,
+        b.push_gated_linear_zero(
             COL_RESOURCE_RESOLVER_WRITE,
             [(resolver_column, F::ONE), (pending_column, -F::ONE)],
         );
@@ -525,8 +511,7 @@ fn visit_enter_constructor(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::EnterConstructor,
         crate::ivc_state::CurrPhase::Executing,
     );
-    push_gated_linear_zero(
-        b,
+    b.push_gated_linear_zero(
         Opcode::EnterConstructor.selector(),
         [
             (COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE),
@@ -544,8 +529,7 @@ fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::NewUtxo,
         crate::ivc_state::CurrPhase::CtorEnterPending,
     );
-    push_gated_linear_zero(
-        b,
+    b.push_gated_linear_zero(
         Opcode::NewUtxo.selector(),
         [
             (COL_CALL_TARGET, F::ONE),
@@ -553,13 +537,11 @@ fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             (COL_ONE, -F::ONE),
         ],
     );
-    push_gated_linear_zero(
-        b,
+    b.push_gated_linear_zero(
         Opcode::NewUtxo.selector(),
         [(COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE)],
     );
-    push_gated_linear_zero(
-        b,
+    b.push_gated_linear_zero(
         Opcode::NewUtxo.selector(),
         [(COL_PENDING_CTOR_PRESENT_AFTER, F::ONE), (COL_ONE, -F::ONE)],
     );
