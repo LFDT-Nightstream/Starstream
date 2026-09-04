@@ -56,6 +56,8 @@ pub enum Unsatisfied {
     Memory(#[from] MemoryCheckError<MemoryId>),
     #[error("terminal call-stack pointer must be zero, got {actual:?}")]
     TerminalCallStackNotEmpty { actual: F },
+    #[error("terminal coroutine must be a coordinator, got packed id {actual:?}")]
+    TerminalCoroutineNotCoordinator { actual: F },
 }
 
 /// Build the circuit witness for `trace` and check that it satisfies every
@@ -82,10 +84,26 @@ fn verify_execution_statement(rows: &[Vec<F>]) -> Result<(), Error> {
         .into());
     }
 
+    let terminal_curr = rows
+        .last()
+        .map_or(F::new(2), |row| row[crate::ccs::layout::COL_CURR_AFTER]);
+    let terminal_curr_tag = rows.last().map_or(F::ZERO, |row| {
+        let tag_column = crate::ccs::layout::range_check_layout()
+            .bit_columns_for(crate::ccs::layout::COL_CURR_AFTER)
+            .expect("the packed coroutine ID has decomposition bits")
+            .start;
+        row[tag_column]
+    });
+
+    if terminal_curr_tag != F::ZERO {
+        return Err(Unsatisfied::TerminalCoroutineNotCoordinator {
+            actual: terminal_curr,
+        }
+        .into());
+    }
+
     // TODO: Bind the canonical initial carried state and this terminal
     // condition into the proof statement once proof construction is wired.
-    // Quint's full `execution_complete` predicate also requires the terminal
-    // coroutine to be a coordinator; add that check when `curr` is populated.
 
     Ok(())
 }
