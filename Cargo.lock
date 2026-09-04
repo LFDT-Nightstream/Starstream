@@ -2278,6 +2278,7 @@ dependencies = [
  "p3-field",
  "p3-goldilocks",
  "rand_chacha 0.10.0",
+ "rand_chacha 0.9.0",
  "rayon",
  "serde",
  "spartan2",
@@ -3492,6 +3493,18 @@ dependencies = [
  "starstream-interleaving-spec-legacy",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "starstream-interleaving-prover"
+version = "0.0.0"
+dependencies = [
+ "neo-application",
+ "neo-ccs",
+ "neo-math",
+ "p3-field",
+ "starstream-interleaving-spec",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
