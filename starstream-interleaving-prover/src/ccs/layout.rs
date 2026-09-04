@@ -19,8 +19,8 @@ define_column_region! {
         COL_SEL_RETURN: Boolean => "selector for the Return action",
         COL_SEL_CALL_METHOD: Boolean => "selector for the CallMethod action",
         COL_SEL_ENTER_METHOD: Boolean => "selector for the EnterMethod action",
-        COL_CURR_BEFORE: U32 => "coroutine that has the turn",
-        COL_CURR_AFTER: U32 => "coroutine that has the turn in the next step",
+        COL_CURR_BEFORE: U32 => "packed coroutine id that has the turn",
+        COL_CURR_AFTER: U32 => "packed coroutine id that has the turn in the next step",
         COL_CALL_STACK_PUSH: Boolean => "true when a call happens and we need to keep track of the caller's context",
         COL_CALL_STACK_POP: Boolean => "true when returning from a call",
         COL_CALL_STACK_TOP: Boolean => "true when peeking at the top of the call stack without popping",
@@ -34,7 +34,7 @@ define_column_region! {
         // could improve this, but the memory argument as currently implemented
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
         COL_CALL_STACK_EXPECTED_METHOD_VALUE: [U32; 8] => "call_stack[COL_CALL_STACK_EXPECTED_ADDR[i]].expected_method",
-        COL_CALL_TARGET: U32 => "coroutine that gets control in the next step",
+        COL_CALL_TARGET: U32 => "packed coroutine id that gets control in the next step",
         COL_UTXO_LIFECYCLE_ADDR: U32 => "key for lifecycle read/write (can be target or curr)",
         COL_UTXO_LIFECYCLE_VALUE: Byte => "value for lifecycle read/write (can be target or curr)",
         COL_UTXO_LIFECYCLE_WRITE: Boolean => "true (1) if the current opcode writes to the lifecycle map (utxo_id -> live|dead)",
@@ -47,9 +47,9 @@ define_column_region! {
         COL_ENABLED_METHOD_WRITE: Boolean => "true (1) if the current opcode writes to the enabled_method map (utxo_id -> Set[method])",
         COL_ENABLED_METHOD_READ: Boolean => "true (1) if the current opcode reads to the the enabled_method map (utxo_id -> Set[method])",
 
-        COL_RESOURCE_RESOLVER_ADDR_CID: U32 => "",
-        COL_RESOURCE_RESOLVER_ADDR_HANDLE: U32 => "",
-        COL_RESOURCE_RESOLVER_VALUE: Byte => "the coroutine id assigned to the resource at (cid, handle)",
+        COL_RESOURCE_RESOLVER_ADDR_CID: U32 => "packed holder coroutine id in the resource key",
+        COL_RESOURCE_RESOLVER_ADDR_HANDLE: U32 => "resource handle in the resource key",
+        COL_RESOURCE_RESOLVER_VALUE: U32 => "the packed coroutine id assigned to the resource at (cid, handle)",
         COL_RESOURCE_RESOLVER_WRITE: Boolean => "1 if writing to the resource resolver map (on return)",
         COL_RESOURCE_RESOLVER_READ: Boolean => "1 if reading from the resource resolver map (on call_method)",
 
@@ -73,8 +73,12 @@ define_column_region! {
         COL_CALL_SP_AFTER: U32 => "call stack pointer after",
         COL_NEXT_UTXO_ID_BEFORE: U32 => "utxo id allocator",
         COL_NEXT_UTXO_ID_AFTER: U32 => "utxo id allocator",
-        COL_PENDING_CTOR_KEY_BEFORE: U32 => "pending ctor key",
-        COL_PENDING_CTOR_KEY_AFTER: U32 => "pending ctor key",
+        COL_PENDING_CTOR_PRESENT_BEFORE: Boolean => "whether a constructor resource key is pending",
+        COL_PENDING_CTOR_PRESENT_AFTER: Boolean => "whether a constructor resource key remains pending",
+        COL_PENDING_CTOR_HOLDER_BEFORE: U32 => "packed holder coroutine id in the pending constructor key",
+        COL_PENDING_CTOR_HOLDER_AFTER: U32 => "packed holder coroutine id in the pending constructor key",
+        COL_PENDING_CTOR_HANDLE_BEFORE: U32 => "resource handle in the pending constructor key",
+        COL_PENDING_CTOR_HANDLE_AFTER: U32 => "resource handle in the pending constructor key",
     ]
 }
 

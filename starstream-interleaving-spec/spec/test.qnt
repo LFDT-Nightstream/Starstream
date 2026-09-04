@@ -28,6 +28,10 @@ module replay_trace {
     .then(execution_complete)
     .fail()
 
+  run test_yield_from_coordinator_fails = init
+    .then(yield_begin)
+    .fail()
+
   run test_call_method_success =
     init
     .then(new_utxo(List(42), { value: 0 }))
