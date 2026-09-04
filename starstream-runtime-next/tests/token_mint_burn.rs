@@ -101,7 +101,6 @@ async fn token_mint_burn() -> wasmtime::Result<()> {
     let mut store = Store::new(
         &engine,
         Ctx {
-            contract: contract.clone(),
             table: ResourceTable::default(),
             events: Vec::default(),
             outputs: Vec::default(),
@@ -156,7 +155,6 @@ async fn token_mint_burn() -> wasmtime::Result<()> {
         table,
         events,
         outputs,
-        ..
     } = store.into_data();
     assert!(table.is_empty());
     assert!(events.is_empty());

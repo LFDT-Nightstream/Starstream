@@ -33,7 +33,6 @@ pub struct Run {
 }
 
 struct Ctx {
-    contract: Contract<Self>,
     table: ResourceTable,
     outputs: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
 }
@@ -72,10 +71,6 @@ impl Host for Ctx {
 
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
-    }
-
-    fn contract(store: StoreContextMut<Self>) -> Contract<Self> {
-        store.data().contract.clone()
     }
 
     #[instrument(level = "trace", skip_all, ret)]
@@ -205,7 +200,6 @@ async fn exec(
     let mut store = Store::new(
         &engine,
         Ctx {
-            contract: contract.clone(),
             table: ResourceTable::default(),
             outputs: Vec::default(),
         },
