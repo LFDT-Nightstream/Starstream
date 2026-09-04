@@ -1,5 +1,5 @@
 [package]
-name = "starstream-interleaving-proof"
+name = "starstream-interleaving-proof-legacy"
 version = "0.1.0"
 edition = "2024"
 
@@ -10,7 +10,7 @@ ark-r1cs-std = {  version = "0.5.0", default-features = false }
 tracing = { version = "0.1", default-features = false, features = [ "attributes" ] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
+starstream-interleaving-spec = { package = "starstream-interleaving-spec-legacy", path = "../starstream-interleaving-spec-legacy" }
 
 ark-goldilocks = { path = "../../ark-goldilocks" }
 ark-poseidon2 = { path = "../../ark-poseidon2" }
