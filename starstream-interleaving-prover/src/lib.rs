@@ -10,6 +10,7 @@ use neo_application::{
     check_memory_rows,
 };
 use neo_math::F;
+use p3_field::PrimeCharacteristicRing;
 use starstream_interleaving_spec::Trace;
 
 use crate::{
@@ -53,6 +54,8 @@ pub enum Unsatisfied {
     Continuity(ContinuityCheckError),
     #[error(transparent)]
     Memory(#[from] MemoryCheckError<MemoryId>),
+    #[error("terminal call-stack pointer must be zero, got {actual:?}")]
+    TerminalCallStackNotEmpty { actual: F },
 }
 
 /// Build the circuit witness for `trace` and check that it satisfies every
@@ -62,7 +65,29 @@ pub enum Unsatisfied {
 /// wired in, it should remain useful for diagnostics and tests.
 pub fn verify_sat(trace: &Trace) -> Result<(), Error> {
     let rows = build_witness_rows(trace);
-    verify_witness_rows(&rows)
+    verify_witness_rows(&rows)?;
+    verify_execution_statement(&rows)
+}
+
+fn verify_execution_statement(rows: &[Vec<F>]) -> Result<(), Error> {
+    // An empty trace leaves Quint's initial coordinator frame on the stack.
+    let terminal_call_sp = rows
+        .last()
+        .map_or(F::ONE, |row| row[crate::ccs::layout::COL_CALL_SP_AFTER]);
+
+    if terminal_call_sp != F::ZERO {
+        return Err(Unsatisfied::TerminalCallStackNotEmpty {
+            actual: terminal_call_sp,
+        }
+        .into());
+    }
+
+    // TODO: Bind the canonical initial carried state and this terminal
+    // condition into the proof statement once proof construction is wired.
+    // Quint's full `execution_complete` predicate also requires the terminal
+    // coroutine to be a coordinator; add that check when `curr` is populated.
+
+    Ok(())
 }
 
 fn build_witness_rows(trace: &Trace) -> Vec<Vec<F>> {
@@ -113,10 +138,6 @@ fn verify_witness_rows(rows: &[Vec<F>]) -> Result<(), Error> {
 
     // TODO: The eventual proof/batching path must enforce the continuity links
     // as constraints rather than relying on this diagnostic check.
-
-    // TODO: Constrain and check the initial and terminal carried state once the
-    // state witness is populated. Quint's replay already checks
-    // `execution_complete`, including that the call stack is empty.
 
     Ok(())
 }
