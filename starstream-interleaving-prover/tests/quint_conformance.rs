@@ -114,7 +114,7 @@ fn method_call_trace(enter_method: bool) -> Trace {
     Trace::new(steps)
 }
 
-fn cases() -> [Case; 8] {
+fn cases() -> [Case; 9] {
     let accepted = constructor_trace([0, 1, 2, 3]);
     let repeated_arguments = constructor_trace([7, 7, 7, 7]);
     let minimal_constructor = minimal_constructor_trace([0, 1, 2, 3]);
@@ -131,6 +131,11 @@ fn cases() -> [Case; 8] {
             result: StarstreamValue::default().into(),
         },
     ]);
+    let mut wrong_enter_method = method_call_trace(true);
+    wrong_enter_method.0[6] = Step::EnterMethod {
+        method: MethodHash([2, 1, 1, 1]),
+        arguments: vec![1, 2, 3, 4].into(),
+    };
 
     [
         Case {
@@ -174,6 +179,12 @@ fn cases() -> [Case; 8] {
             trace: method_call_trace(true),
             expected: Outcome::Accept,
             rejected_step: None,
+        },
+        Case {
+            name: "enter method with wrong method",
+            trace: wrong_enter_method,
+            expected: Outcome::Reject,
+            rejected_step: Some(6),
         },
         Case {
             name: "return without entering method",

@@ -1,7 +1,15 @@
 use neo_math::F;
-use starstream_interleaving_spec::{Step, Trace};
+use starstream_interleaving_spec::{MethodHash, Step, Trace};
 
 use crate::{ivc_state::CurrPhase, opcode::Opcode};
+
+fn encode_method_hash(method: MethodHash) -> [F; 8] {
+    std::array::from_fn(|word| {
+        let limb = method.0[word / 2];
+        let shift = (word % 2) * 32;
+        F::new((limb >> shift) & u64::from(u32::MAX))
+    })
+}
 
 pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
     let mut wit: Vec<Wit> = vec![];
@@ -32,6 +40,7 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
         call_sp = call_sp_after;
 
         let mut expected_arguments = None;
+        let mut expected_method = None;
 
         match step {
             Step::NewUtxo {
@@ -48,23 +57,23 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
             Step::Return { result: _ } => {}
             Step::CallMethod {
                 resource: _,
-                method: _,
+                method,
                 arguments,
                 result: _,
             } => {
                 expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
+                expected_method.replace(encode_method_hash(*method));
             }
-            Step::EnterMethod {
-                method: _,
-                arguments,
-            } => {
+            Step::EnterMethod { method, arguments } => {
                 expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
+                expected_method.replace(encode_method_hash(*method));
             }
         }
 
         wit.push(Wit {
             opcode,
             expected_arguments,
+            expected_method,
             curr_phase_before,
             curr_phase_after,
             call_sp_before,
@@ -78,6 +87,7 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
 pub(crate) struct Wit {
     pub(crate) opcode: Opcode,
     pub(crate) expected_arguments: Option<Vec<F>>,
+    pub(crate) expected_method: Option<[F; 8]>,
     pub(crate) curr_phase_before: CurrPhase,
     pub(crate) curr_phase_after: CurrPhase,
     pub(crate) call_sp_before: F,
