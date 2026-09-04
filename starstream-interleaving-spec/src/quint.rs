@@ -475,14 +475,8 @@ mod tests {
     use super::*;
     use crate::trace::{MethodHash, ResourceHandle, StarstreamValue};
 
-    // TODO:
-    // for now these are just tests of the spec
-    //
-    // naturally it doesn't really make much sense to do this, since this just
-    // translates Rust to a Quint test module and runs the CLI
-    //
-    // this currently mainly a placeholder for the next step, in which the Rust
-    // trace generated from the proving runtime will generate the trace to verify
+    // Middleware smoke tests: one accepted trace and one rejected trace ensure
+    // the Rust-to-Quint translation, CLI invocation, and error mapping work.
     #[test]
     #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
     fn replays_a_utxo_constructor() {
@@ -510,27 +504,6 @@ mod tests {
             .unwrap()
             .verify(&trace)
             .unwrap_or_else(|error| panic!("{error}"));
-    }
-
-    #[test]
-    #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
-    fn rejects_a_constructor_that_disagrees_on_its_arguments() {
-        let trace = Trace::new([
-            NewUtxo {
-                arguments: vec![0, 1, 2, 3].into(),
-                resource: ResourceHandle(0).into(),
-            },
-            EnterConstructor {
-                arguments: vec![4, 5, 6, 7].into(),
-            },
-        ]);
-
-        let error = QuintVerifier::new().unwrap().verify(&trace).unwrap_err();
-
-        assert!(
-            matches!(error, QuintError::RejectedStep { index: 1, .. }),
-            "{error}"
-        );
     }
 
     #[test]
