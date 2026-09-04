@@ -56,6 +56,21 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
     ])
 }
 
+fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
+    Trace::new([
+        Step::NewUtxo {
+            arguments: arguments.to_vec().into(),
+            resource: ResourceHandle(0).into(),
+        },
+        Step::EnterConstructor {
+            arguments: arguments.to_vec().into(),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+    ])
+}
+
 fn repeated_constructor_entry_trace(arguments: [u32; 4]) -> Trace {
     Trace::new([
         Step::NewUtxo {
@@ -126,7 +141,7 @@ fn method_call_result_trace(
     Trace::new(steps)
 }
 
-fn cases() -> [Case; 10] {
+fn cases() -> [Case; 11] {
     let accepted = constructor_trace([0, 1, 2, 3]);
     let repeated_arguments = constructor_trace([7, 7, 7, 7]);
     let minimal_constructor = minimal_constructor_trace([0, 1, 2, 3]);
@@ -166,6 +181,12 @@ fn cases() -> [Case; 10] {
             name: "minimal utxo constructor",
             trace: minimal_constructor,
             expected: Outcome::Accept,
+            rejected_step: None,
+        },
+        Case {
+            name: "nonempty terminal call stack",
+            trace: incomplete_constructor_trace([0, 1, 2, 3]),
+            expected: Outcome::Reject,
             rejected_step: None,
         },
         Case {
