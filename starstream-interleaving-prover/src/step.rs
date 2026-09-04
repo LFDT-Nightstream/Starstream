@@ -41,6 +41,7 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
 
         let mut expected_arguments = None;
         let mut expected_method = None;
+        let mut expected_result = None;
 
         match step {
             Step::NewUtxo {
@@ -54,15 +55,18 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
             }
             Step::YieldBegin => {}
             Step::RegisterMethod { method: _ } => {}
-            Step::Return { result: _ } => {}
+            Step::Return { result } => {
+                expected_result.replace(result.0.0.iter().map(|&x| F::new(x as u64)).collect());
+            }
             Step::CallMethod {
                 resource: _,
                 method,
                 arguments,
-                result: _,
+                result,
             } => {
                 expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
                 expected_method.replace(encode_method_hash(*method));
+                expected_result.replace(result.0.0.iter().map(|&x| F::new(x as u64)).collect());
             }
             Step::EnterMethod { method, arguments } => {
                 expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
@@ -74,6 +78,7 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
             opcode,
             expected_arguments,
             expected_method,
+            expected_result,
             curr_phase_before,
             curr_phase_after,
             call_sp_before,
@@ -88,6 +93,7 @@ pub(crate) struct Wit {
     pub(crate) opcode: Opcode,
     pub(crate) expected_arguments: Option<Vec<F>>,
     pub(crate) expected_method: Option<[F; 8]>,
+    pub(crate) expected_result: Option<Vec<F>>,
     pub(crate) curr_phase_before: CurrPhase,
     pub(crate) curr_phase_after: CurrPhase,
     pub(crate) call_sp_before: F,
