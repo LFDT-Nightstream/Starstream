@@ -141,7 +141,7 @@ fn method_call_result_trace(
     Trace::new(steps)
 }
 
-fn cases() -> [Case; 11] {
+fn cases() -> [Case; 12] {
     let accepted = constructor_trace([0, 1, 2, 3]);
     let repeated_arguments = constructor_trace([7, 7, 7, 7]);
     let minimal_constructor = minimal_constructor_trace([0, 1, 2, 3]);
@@ -163,6 +163,12 @@ fn cases() -> [Case; 11] {
         method: MethodHash([2, 1, 1, 1]),
         arguments: vec![1, 2, 3, 4].into(),
     };
+    let yield_from_coordinator = Trace::new([
+        Step::YieldBegin,
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+    ]);
 
     [
         Case {
@@ -230,6 +236,12 @@ fn cases() -> [Case; 11] {
             trace: method_call_trace(false),
             expected: Outcome::Reject,
             rejected_step: Some(6),
+        },
+        Case {
+            name: "yield from coordinator",
+            trace: yield_from_coordinator,
+            expected: Outcome::Reject,
+            rejected_step: Some(0),
         },
     ]
 }
