@@ -67,6 +67,15 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         }
     }
 
+    if let Some(expected_method) = &input.expected_method {
+        for (col, value) in COL_CALL_STACK_EXPECTED_METHOD_VALUE
+            .iter()
+            .zip(expected_method)
+        {
+            wit[*col] = *value;
+        }
+    }
+
     range_checks
         .assign_bits(&mut wit)
         .expect("base witness matches the range-check layout");
