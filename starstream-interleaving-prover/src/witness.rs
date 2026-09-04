@@ -18,10 +18,40 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         Opcode::EnterMethod => wit[COL_SEL_ENTER_METHOD] = F::ONE,
     }
 
+    wit[COL_CURR_BEFORE] = input.curr_before.field();
+    wit[COL_CURR_AFTER] = input.curr_after.field();
     wit[COL_CURR_PHASE_BEFORE] = F::new(input.curr_phase_before.value() as u64);
     wit[COL_CURR_PHASE_AFTER] = F::new(input.curr_phase_after.value() as u64);
     wit[COL_CALL_SP_BEFORE] = input.call_sp_before;
     wit[COL_CALL_SP_AFTER] = input.call_sp_after;
+    wit[COL_CALL_TARGET] = input.call_target.field();
+    wit[COL_NEXT_UTXO_ID_BEFORE] = F::new(u64::from(input.next_utxo_id_before));
+    wit[COL_NEXT_UTXO_ID_AFTER] = F::new(u64::from(input.next_utxo_id_after));
+
+    assign_pending_constructor_key(
+        &mut wit,
+        input.pending_ctor_key_before,
+        COL_PENDING_CTOR_PRESENT_BEFORE,
+        COL_PENDING_CTOR_HOLDER_BEFORE,
+        COL_PENDING_CTOR_HANDLE_BEFORE,
+    );
+    assign_pending_constructor_key(
+        &mut wit,
+        input.pending_ctor_key_after,
+        COL_PENDING_CTOR_PRESENT_AFTER,
+        COL_PENDING_CTOR_HOLDER_AFTER,
+        COL_PENDING_CTOR_HANDLE_AFTER,
+    );
+
+    wit[COL_RESOURCE_RESOLVER_ADDR_CID] = input.resolver_address.0.field();
+    wit[COL_RESOURCE_RESOLVER_ADDR_HANDLE] = F::new(u64::from(input.resolver_address.1.0));
+    wit[COL_RESOURCE_RESOLVER_VALUE] = input.resolver_value.field();
+    wit[COL_RESOURCE_RESOLVER_READ] = if input.resolver_read { F::ONE } else { F::ZERO };
+    wit[COL_RESOURCE_RESOLVER_WRITE] = if input.resolver_write {
+        F::ONE
+    } else {
+        F::ZERO
+    };
 
     if input.opcode.pushes_to_call_stack() {
         wit[COL_CALL_STACK_PUSH] = F::ONE;
@@ -90,4 +120,21 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         .expect("base witness matches the range-check layout");
 
     wit
+}
+
+fn assign_pending_constructor_key(
+    wit: &mut [F],
+    key: Option<(
+        crate::ivc_state::CoroutineId,
+        starstream_interleaving_spec::ResourceHandle,
+    )>,
+    present_column: usize,
+    holder_column: usize,
+    handle_column: usize,
+) {
+    if let Some((holder, handle)) = key {
+        wit[present_column] = F::ONE;
+        wit[holder_column] = holder.field();
+        wit[handle_column] = F::new(u64::from(handle.0));
+    }
 }

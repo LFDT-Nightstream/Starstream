@@ -93,6 +93,19 @@ impl Opcode {
         }
     }
 
+    /// Whether this opcode transfers control to `COL_CALL_TARGET`.
+    pub fn switches_curr(&self) -> bool {
+        match self {
+            Opcode::NewUtxo => true,
+            Opcode::EnterConstructor => false,
+            Opcode::YieldBegin => false,
+            Opcode::RegisterMethod => false,
+            Opcode::Return => true,
+            Opcode::CallMethod => true,
+            Opcode::EnterMethod => false,
+        }
+    }
+
     pub fn selector(&self) -> usize {
         match self {
             Opcode::NewUtxo => COL_SEL_NEW_UTXO,

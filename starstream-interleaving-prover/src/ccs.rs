@@ -10,12 +10,19 @@ use crate::{
         layout::{
             COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8,
             COL_CALL_STACK_MUL_STRIDE_4, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH,
-            COL_CALL_STACK_TOP, COL_CURR_BEFORE, COL_CURR_BEFORE_STRIDE_4, COL_CURR_PHASE_AFTER,
-            COL_CURR_PHASE_BEFORE, COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO, SELECTORS,
-            range_check_layout,
+            COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER, COL_CURR_BEFORE,
+            COL_CURR_BEFORE_STRIDE_4, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE,
+            COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE, COL_PENDING_CTOR_HANDLE_AFTER,
+            COL_PENDING_CTOR_HANDLE_BEFORE, COL_PENDING_CTOR_HOLDER_AFTER,
+            COL_PENDING_CTOR_HOLDER_BEFORE, COL_PENDING_CTOR_PRESENT_AFTER,
+            COL_PENDING_CTOR_PRESENT_BEFORE, COL_RESOURCE_RESOLVER_ADDR_CID,
+            COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
+            COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD,
+            COL_SEL_NEW_UTXO, COL_SEL_RETURN, SELECTORS, range_check_layout,
         },
         tags::{ConstraintScope, always, opcode_tag, opcode_tags},
     },
+    ivc_state::CoroutineKind,
     opcode::Opcode,
 };
 
@@ -39,6 +46,22 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         );
     });
 
+    let curr_switching_opcodes = Opcode::all()
+        .iter()
+        .copied()
+        .filter(Opcode::switches_curr)
+        .collect::<Vec<_>>();
+
+    b.with_tag(always("current coroutine transition"), |b| {
+        b.push_row(
+            curr_switching_opcodes
+                .iter()
+                .map(|opcode| (opcode.selector(), F::ONE)),
+            [(COL_CALL_TARGET, F::ONE), (COL_CURR_BEFORE, -F::ONE)],
+            [(COL_CURR_AFTER, F::ONE), (COL_CURR_BEFORE, -F::ONE)],
+        );
+    });
+
     b.with_tag(
         opcode_tags(
             "call stack push global condition: true if new_utxo or call_method",
@@ -52,6 +75,26 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             ]);
         },
     );
+
+    b.with_tag(always("next UTXO allocator transition"), |b| {
+        b.push_linear_zero([
+            (COL_NEXT_UTXO_ID_AFTER, F::ONE),
+            (COL_NEXT_UTXO_ID_BEFORE, -F::ONE),
+            (COL_SEL_NEW_UTXO, -F::ONE),
+        ]);
+    });
+
+    b.with_tag(always("resource resolver access flags"), |b| {
+        b.push_linear_zero([
+            (COL_RESOURCE_RESOLVER_READ, F::ONE),
+            (COL_SEL_CALL_METHOD, -F::ONE),
+        ]);
+        b.push_row(
+            [(COL_SEL_RETURN, F::ONE)],
+            [(COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE)],
+            [(COL_RESOURCE_RESOLVER_WRITE, F::ONE)],
+        );
+    });
 
     // TODO(perf): Consider gating these call-stack address derivations and
     // assigning zero on rows without a call-stack memory access. Nightstream's
@@ -295,20 +338,78 @@ fn phase_bits(column: usize) -> [usize; 2] {
     [bits.start, bits.start + 1]
 }
 
-fn visit_enter_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
-    require_phase_before(
+fn low_bit(column: usize) -> usize {
+    range_check_layout()
+        .bit_columns_for(column)
+        .expect("packed coroutine ID column has decomposition bits")
+        .start
+}
+
+fn require_coroutine_kind(
+    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+    opcode: Opcode,
+    column: usize,
+    expected: CoroutineKind,
+) {
+    push_gated_linear_zero(
         b,
-        Opcode::EnterMethod,
-        crate::ivc_state::CurrPhase::MethodEnterPending,
-    );
-    require_phase_after(
-        b,
-        Opcode::EnterMethod,
-        crate::ivc_state::CurrPhase::Executing,
+        opcode.selector(),
+        [
+            (low_bit(column), F::ONE),
+            (COL_ONE, -F::new(u64::from(expected.tag()))),
+        ],
     );
 }
 
+fn require_equal(
+    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+    opcode: Opcode,
+    left: usize,
+    right: usize,
+) {
+    push_gated_linear_zero(b, opcode.selector(), [(left, F::ONE), (right, -F::ONE)]);
+}
+
+fn preserve_pending_constructor_key(
+    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+    opcode: Opcode,
+) {
+    for (after, before) in [
+        (
+            COL_PENDING_CTOR_PRESENT_AFTER,
+            COL_PENDING_CTOR_PRESENT_BEFORE,
+        ),
+        (
+            COL_PENDING_CTOR_HOLDER_AFTER,
+            COL_PENDING_CTOR_HOLDER_BEFORE,
+        ),
+        (
+            COL_PENDING_CTOR_HANDLE_AFTER,
+            COL_PENDING_CTOR_HANDLE_BEFORE,
+        ),
+    ] {
+        require_equal(b, opcode, after, before);
+    }
+}
+
+fn visit_enter_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_coroutine_kind(b, Opcode::EnterMethod, COL_CURR_BEFORE, CoroutineKind::Utxo);
+    require_phase_before(
+        b,
+        Opcode::EnterMethod,
+        crate::ivc_state::CurrPhase::MethodEnterPending,
+    );
+    require_phase_after(
+        b,
+        Opcode::EnterMethod,
+        crate::ivc_state::CurrPhase::Executing,
+    );
+    preserve_pending_constructor_key(b, Opcode::EnterMethod);
+}
+
 fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_coroutine_kind(b, Opcode::CallMethod, COL_CURR_BEFORE, CoroutineKind::Coord);
+    require_coroutine_kind(b, Opcode::CallMethod, COL_CALL_TARGET, CoroutineKind::Utxo);
     require_phase_before(
         b,
         Opcode::CallMethod,
@@ -319,6 +420,19 @@ fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::CallMethod,
         crate::ivc_state::CurrPhase::MethodEnterPending,
     );
+    require_equal(
+        b,
+        Opcode::CallMethod,
+        COL_RESOURCE_RESOLVER_ADDR_CID,
+        COL_CURR_BEFORE,
+    );
+    require_equal(
+        b,
+        Opcode::CallMethod,
+        COL_RESOURCE_RESOLVER_VALUE,
+        COL_CALL_TARGET,
+    );
+    preserve_pending_constructor_key(b, Opcode::CallMethod);
 }
 
 fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -330,9 +444,46 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         [(phase_before[0], F::ONE), (phase_before[1], -F::ONE)],
     );
     require_phase_after(b, Opcode::Return, crate::ivc_state::CurrPhase::Executing);
+    require_coroutine_kind(b, Opcode::Return, COL_CURR_AFTER, CoroutineKind::Coord);
+
+    // These Boolean/U32 values sum to at most 2^33 - 1, below the field
+    // modulus, so a zero sum forces every component of `None` to be zero.
+    push_gated_linear_zero(
+        b,
+        Opcode::Return.selector(),
+        [
+            (COL_PENDING_CTOR_PRESENT_AFTER, F::ONE),
+            (COL_PENDING_CTOR_HOLDER_AFTER, F::ONE),
+            (COL_PENDING_CTOR_HANDLE_AFTER, F::ONE),
+        ],
+    );
+
+    for (resolver_column, pending_column) in [
+        (
+            COL_RESOURCE_RESOLVER_ADDR_CID,
+            COL_PENDING_CTOR_HOLDER_BEFORE,
+        ),
+        (
+            COL_RESOURCE_RESOLVER_ADDR_HANDLE,
+            COL_PENDING_CTOR_HANDLE_BEFORE,
+        ),
+        (COL_RESOURCE_RESOLVER_VALUE, COL_CURR_BEFORE),
+    ] {
+        push_gated_linear_zero(
+            b,
+            COL_RESOURCE_RESOLVER_WRITE,
+            [(resolver_column, F::ONE), (pending_column, -F::ONE)],
+        );
+    }
 }
 
 fn visit_register_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_coroutine_kind(
+        b,
+        Opcode::RegisterMethod,
+        COL_CURR_BEFORE,
+        CoroutineKind::Utxo,
+    );
     require_phase_before(
         b,
         Opcode::RegisterMethod,
@@ -343,18 +494,27 @@ fn visit_register_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::RegisterMethod,
         crate::ivc_state::CurrPhase::Yield,
     );
+    preserve_pending_constructor_key(b, Opcode::RegisterMethod);
 }
 
 fn visit_yield_begin(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_coroutine_kind(b, Opcode::YieldBegin, COL_CURR_BEFORE, CoroutineKind::Utxo);
     require_phase_before(
         b,
         Opcode::YieldBegin,
         crate::ivc_state::CurrPhase::Executing,
     );
     require_phase_after(b, Opcode::YieldBegin, crate::ivc_state::CurrPhase::Yield);
+    preserve_pending_constructor_key(b, Opcode::YieldBegin);
 }
 
 fn visit_enter_constructor(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_coroutine_kind(
+        b,
+        Opcode::EnterConstructor,
+        COL_CURR_BEFORE,
+        CoroutineKind::Utxo,
+    );
     require_phase_before(
         b,
         Opcode::EnterConstructor,
@@ -365,13 +525,60 @@ fn visit_enter_constructor(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::EnterConstructor,
         crate::ivc_state::CurrPhase::Executing,
     );
+    push_gated_linear_zero(
+        b,
+        Opcode::EnterConstructor.selector(),
+        [
+            (COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE),
+            (COL_ONE, -F::ONE),
+        ],
+    );
+    preserve_pending_constructor_key(b, Opcode::EnterConstructor);
 }
 
 fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_coroutine_kind(b, Opcode::NewUtxo, COL_CURR_BEFORE, CoroutineKind::Coord);
     require_phase_before(b, Opcode::NewUtxo, crate::ivc_state::CurrPhase::Executing);
     require_phase_after(
         b,
         Opcode::NewUtxo,
         crate::ivc_state::CurrPhase::CtorEnterPending,
+    );
+    push_gated_linear_zero(
+        b,
+        Opcode::NewUtxo.selector(),
+        [
+            (COL_CALL_TARGET, F::ONE),
+            (COL_NEXT_UTXO_ID_BEFORE, -F::new(2)),
+            (COL_ONE, -F::ONE),
+        ],
+    );
+    push_gated_linear_zero(
+        b,
+        Opcode::NewUtxo.selector(),
+        [(COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE)],
+    );
+    push_gated_linear_zero(
+        b,
+        Opcode::NewUtxo.selector(),
+        [(COL_PENDING_CTOR_PRESENT_AFTER, F::ONE), (COL_ONE, -F::ONE)],
+    );
+    require_equal(
+        b,
+        Opcode::NewUtxo,
+        COL_PENDING_CTOR_HOLDER_AFTER,
+        COL_CURR_BEFORE,
+    );
+    require_equal(
+        b,
+        Opcode::NewUtxo,
+        COL_PENDING_CTOR_HANDLE_AFTER,
+        COL_RESOURCE_RESOLVER_ADDR_HANDLE,
+    );
+    require_equal(
+        b,
+        Opcode::NewUtxo,
+        COL_RESOURCE_RESOLVER_ADDR_CID,
+        COL_CURR_BEFORE,
     );
 }
