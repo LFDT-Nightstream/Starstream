@@ -50,6 +50,8 @@ pub enum EnvelopeReadError {
     Reencode(coset::CoseError),
     #[error("envelope must not contain unprotected headers")]
     UnprotectedHeader,
+    #[error("envelope must not contain critical headers")]
+    CriticalHeader,
     #[error("protected `alg` header must be EdDSA")]
     Algorithm,
     #[error("protected `kid` header must be a raw 32-byte Ed25519 public key")]
@@ -68,6 +70,7 @@ impl EnvelopeReadError {
             | Self::Body(..)
             | Self::CoseSign1Parsing(..)
             | Self::UnprotectedHeader
+            | Self::CriticalHeader
             | Self::Algorithm
             | Self::KeyIdFormat
             | Self::Key(..) => http::StatusCode::BAD_REQUEST,

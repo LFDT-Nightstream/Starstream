@@ -125,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
     })
     .await;
     info!("shutting down");
-    http_shutdown.notify_waiters();
+    http_shutdown.notify_one();
     if !http_ready {
         match timeout(shutdown_timeout, http).await {
             Ok(Ok(())) => {}

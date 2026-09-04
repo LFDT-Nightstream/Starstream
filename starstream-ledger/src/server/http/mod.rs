@@ -15,7 +15,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use headers_accept::Accept;
 use headers_core::Header as _;
 use http::HeaderValue;
-use http::header::{ACCEPT, ALLOW, CONTENT_LENGTH, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
+use http::header::{ACCEPT, ALLOW, CONTENT_LENGTH, CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
 use http_body::Body as _;
 use http_body_util::BodyExt as _;
 use hyper::service::service_fn;
@@ -101,6 +101,9 @@ async fn read_signed_envelope<const MAX: u64>(
         .map_err(EnvelopeReadError::CoseSign1Parsing)?;
     if !sign1.unprotected.is_empty() {
         return Err(EnvelopeReadError::UnprotectedHeader);
+    }
+    if !sign1.protected.header.crit.is_empty() {
+        return Err(EnvelopeReadError::CriticalHeader);
     }
     if sign1.protected.header.alg != Some(coset::Algorithm::Assigned(iana::Algorithm::EdDSA)) {
         return Err(EnvelopeReadError::Algorithm);
@@ -205,13 +208,14 @@ impl Ledger {
             .get(&digest)
             .ok_or(ContractGetError::ContractNotFound)?;
 
+        let res = http::Response::builder()
+            .header(VARY, ACCEPT.as_str())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff");
         if accept == Some(&APPLICATION_WASM) {
-            http::Response::builder()
-                .header(CONTENT_TYPE, APPLICATION_WASM.to_string())
+            res.header(CONTENT_TYPE, APPLICATION_WASM.to_string())
                 .body(http_body_util::Full::new(contract.wasm.clone()))
         } else {
-            http::Response::builder()
-                .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
+            res.header(CONTENT_TYPE, APPLICATION_COSE.to_string())
                 .body(http_body_util::Full::new(contract.envelope.clone()))
         }
         .map_err(ContractGetError::Http)
@@ -235,13 +239,14 @@ impl Ledger {
             .get(&digest)
             .ok_or(ContractGetError::ContractNotFound)?;
 
+        let res = http::Response::builder()
+            .header(VARY, ACCEPT.as_str())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff");
         if accept == Some(&APPLICATION_WASM) {
-            http::Response::builder()
-                .header(CONTENT_TYPE, APPLICATION_WASM.to_string())
+            res.header(CONTENT_TYPE, APPLICATION_WASM.to_string())
                 .header(CONTENT_LENGTH, contract.wasm.len())
         } else {
-            http::Response::builder()
-                .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
+            res.header(CONTENT_TYPE, APPLICATION_COSE.to_string())
                 .header(CONTENT_LENGTH, contract.envelope.len())
         }
         .body(http_body_util::Full::default())
@@ -446,6 +451,10 @@ impl Ledger {
     }
 
     /// Bind `address` and return the future serving the ledger HTTP API.
+    ///
+    /// Calling [`Notify::notify_one`] on the returned handle shuts the server
+    /// down; [`Notify::notify_waiters`] is lost if it races the first poll of
+    /// the future.
     #[instrument(skip_all)]
     pub async fn handle_http(
         self: Arc<Self>,

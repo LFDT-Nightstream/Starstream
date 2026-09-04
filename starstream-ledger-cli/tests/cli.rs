@@ -141,6 +141,6 @@ async fn cli() -> anyhow::Result<()> {
     .await?;
     assert_eq!(stdout, b"");
 
-    shutdown.notify_waiters();
+    shutdown.notify_one();
     ledger.await.context("ledger task panicked")
 }

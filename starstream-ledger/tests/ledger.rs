@@ -7,7 +7,9 @@ use std::sync::{Arc, LazyLock};
 
 use anyhow::Context as _;
 use bytes::Bytes;
-use ed25519_dalek::SigningKey;
+use coset::{CoseSign1Builder, HeaderBuilder, TaggedCborSerializable as _, iana};
+use ed25519_dalek::{Signer as _, SigningKey};
+use http::header::{CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
 use http::{StatusCode, Uri};
 use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -17,6 +19,7 @@ use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::client::http::{
     ClientBuilder, build_contract_get_request, build_contract_publish_request, build_fund_request,
 };
+use starstream_ledger::encode_digest;
 use starstream_ledger::server::Ledger;
 use tokio::net::TcpListener;
 
@@ -109,6 +112,31 @@ async fn http() -> anyhow::Result<()> {
         "account ID `2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12` not found"
     );
 
+    let protected = HeaderBuilder::new()
+        .algorithm(iana::Algorithm::EdDSA)
+        .key_id(ADMIN.verifying_key().to_bytes().into())
+        .add_critical(iana::HeaderParameter::Alg)
+        .build();
+    let crit_envelope = CoseSign1Builder::new()
+        .protected(protected)
+        .payload(Vec::default())
+        .create_signature(b"", |data| ADMIN.sign(data).to_bytes().into())
+        .build()
+        .to_tagged_vec()
+        .context("failed to serialize envelope")?;
+    let req = http::Request::builder()
+        .method(http::Method::PUT)
+        .uri(format!(
+            "http://{addr}/contracts/{}",
+            encode_digest(&SCORE_WASM_DIGEST)
+        ))
+        .header(CONTENT_TYPE, "application/cose")
+        .body(Full::new(Bytes::from(crit_envelope)))?;
+    let (http::response::Parts { status, .. }, body) = http_request(&http, req).await?;
+    let body = String::from_utf8_lossy(&body);
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body, "envelope must not contain critical headers");
+
     let score_publish_cost = score_publish_envelope.len();
     let balance = score_publish_cost.saturating_sub(1000);
 
@@ -168,10 +196,23 @@ async fn http() -> anyhow::Result<()> {
     assert_eq!(envelope, score_publish_envelope);
 
     let req = build_contract_get_request(&api_base, &SCORE_WASM_DIGEST, None)?;
-    let (http::response::Parts { status, .. }, body) = http_request(&http, req).await?;
+    let (
+        http::response::Parts {
+            status, headers, ..
+        },
+        body,
+    ) = http_request(&http, req).await?;
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     assert_eq!(body, score_publish_envelope);
+    assert_eq!(
+        headers.get(VARY).map(|v| v.as_bytes()),
+        Some(b"accept".as_slice())
+    );
+    assert_eq!(
+        headers.get(X_CONTENT_TYPE_OPTIONS).map(|v| v.as_bytes()),
+        Some(b"nosniff".as_slice())
+    );
 
-    shutdown.notify_waiters();
+    shutdown.notify_one();
     ledger.await.context("ledger task panicked")
 }
