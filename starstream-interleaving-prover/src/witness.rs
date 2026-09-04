@@ -40,7 +40,9 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         .enumerate()
         .for_each(|(i, col)| {
             wit[*col] =
-                (wit[COL_CALL_SP_BEFORE] - wit[COL_CALL_STACK_TOP]) * F::new(4) + F::new(i as u64)
+                (wit[COL_CALL_SP_BEFORE] - wit[COL_CALL_STACK_TOP] - wit[COL_CALL_STACK_POP])
+                    * F::new(4)
+                    + F::new(i as u64)
         });
 
     COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8
@@ -73,6 +75,13 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
             .zip(expected_method)
         {
             wit[*col] = *value;
+        }
+    }
+
+    if let Some(expected_result) = &input.expected_result {
+        debug_assert!(expected_result.len() <= COL_CALL_STACK_EXPECTED_RESULT_VALUE.len());
+        for (offset, col) in COL_CALL_STACK_EXPECTED_RESULT_VALUE.iter().enumerate() {
+            wit[*col] = expected_result.get(offset).copied().unwrap_or(F::ZERO);
         }
     }
 

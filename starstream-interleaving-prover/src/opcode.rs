@@ -118,4 +118,20 @@ mod test {
             (0..all.len() as u8).collect::<Vec<_>>()
         );
     }
+
+    #[test]
+    fn call_stack_access_modes_are_disjoint() {
+        for opcode in Opcode::all() {
+            let modes = [
+                opcode.pushes_to_call_stack(),
+                opcode.pops_from_call_stack(),
+                opcode.peeks_call_stack_top(),
+            ];
+
+            assert!(
+                modes.into_iter().filter(|active| *active).count() <= 1,
+                "{opcode:?} has overlapping call-stack access modes"
+            );
+        }
+    }
 }

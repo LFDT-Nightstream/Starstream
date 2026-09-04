@@ -72,6 +72,18 @@ fn repeated_constructor_entry_trace(arguments: [u32; 4]) -> Trace {
 }
 
 fn method_call_trace(enter_method: bool) -> Trace {
+    method_call_result_trace(
+        enter_method,
+        StarstreamValue::default(),
+        StarstreamValue::default(),
+    )
+}
+
+fn method_call_result_trace(
+    enter_method: bool,
+    expected_result: StarstreamValue,
+    actual_result: StarstreamValue,
+) -> Trace {
     let method = MethodHash([1, 1, 1, 1]);
     let method_arguments = StarstreamValue::from(vec![1, 2, 3, 4]);
     let mut steps = vec![
@@ -91,7 +103,7 @@ fn method_call_trace(enter_method: bool) -> Trace {
             resource: ResourceHandle(0),
             method,
             arguments: method_arguments.clone(),
-            result: StarstreamValue::default().into(),
+            result: expected_result.into(),
         },
     ];
 
@@ -104,7 +116,7 @@ fn method_call_trace(enter_method: bool) -> Trace {
 
     steps.extend([
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: actual_result.into(),
         },
         Step::Return {
             result: StarstreamValue::default().into(),
@@ -114,7 +126,7 @@ fn method_call_trace(enter_method: bool) -> Trace {
     Trace::new(steps)
 }
 
-fn cases() -> [Case; 9] {
+fn cases() -> [Case; 10] {
     let accepted = constructor_trace([0, 1, 2, 3]);
     let repeated_arguments = constructor_trace([7, 7, 7, 7]);
     let minimal_constructor = minimal_constructor_trace([0, 1, 2, 3]);
@@ -175,8 +187,8 @@ fn cases() -> [Case; 9] {
             rejected_step: Some(2),
         },
         Case {
-            name: "method call after entering method",
-            trace: method_call_trace(true),
+            name: "method call with expected result",
+            trace: method_call_result_trace(true, vec![7, 8].into(), vec![7, 8].into()),
             expected: Outcome::Accept,
             rejected_step: None,
         },
@@ -185,6 +197,12 @@ fn cases() -> [Case; 9] {
             trace: wrong_enter_method,
             expected: Outcome::Reject,
             rejected_step: Some(6),
+        },
+        Case {
+            name: "return with wrong result",
+            trace: method_call_result_trace(true, vec![7, 8].into(), vec![7, 9].into()),
+            expected: Outcome::Reject,
+            rejected_step: Some(7),
         },
         Case {
             name: "return without entering method",
