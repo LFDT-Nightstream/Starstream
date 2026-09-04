@@ -52,6 +52,21 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
     ])
 }
 
+fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
+    Trace::new([
+        Step::NewUtxo {
+            arguments: arguments.to_vec().into(),
+            resource: ResourceHandle(0).into(),
+        },
+        Step::EnterConstructor {
+            arguments: arguments.to_vec().into(),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+    ])
+}
+
 fn repeated_constructor_entry_trace(arguments: [u32; 4]) -> Trace {
     Trace::new([
         Step::NewUtxo {
@@ -135,6 +150,16 @@ fn accepts_repeated_constructor_arguments() {
 #[test]
 fn accepts_minimal_utxo_constructor() {
     verify_sat(&minimal_constructor_trace([0, 1, 2, 3])).unwrap();
+}
+
+#[test]
+fn rejects_nonempty_terminal_call_stack() {
+    assert!(matches!(
+        verify_sat(&incomplete_constructor_trace([0, 1, 2, 3])),
+        Err(Error::Unsatisfied(
+            Unsatisfied::TerminalCallStackNotEmpty { .. }
+        ))
+    ));
 }
 
 #[test]

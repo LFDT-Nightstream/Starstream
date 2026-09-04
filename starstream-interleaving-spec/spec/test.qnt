@@ -21,6 +21,13 @@ module replay_trace {
     .then(enter_constructor(List(42)))
     .fail()
 
+  run test_incomplete_execution_fails = init
+    .then(new_utxo(List(42), { value: 0 }))
+    .then(enter_constructor(List(42)))
+    .then(return({ value: List() }))
+    .then(execution_complete)
+    .fail()
+
   run test_call_method_success =
     init
     .then(new_utxo(List(42), { value: 0 }))
