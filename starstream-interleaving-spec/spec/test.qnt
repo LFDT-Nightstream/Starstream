@@ -4,6 +4,7 @@ module replay_trace {
   action init = { state' = new_tx }
 
   def method = "0000000000000001000000000000000100000000000000010000000000000001";
+  def other_method = "0000000000000002000000000000000100000000000000010000000000000001";
 
   run test_execution_satisfies_spec = init
     .then(new_utxo(List(42), { value: 0 }))
@@ -43,5 +44,16 @@ module replay_trace {
     .then(call_method(0, method, List(42), {value: List()}))
     .then(enter_method(method, List(42)))
     .then(enter_method(method, List(42)))
+    .fail()
+
+  run test_enter_method_with_wrong_method_fails =
+    init
+    .then(new_utxo(List(42), { value: 0 }))
+    .then(enter_constructor(List(42)))
+    .then(yield_begin)
+    .then(register_method(method))
+    .then(return({ value: List() }))
+    .then(call_method(0, method, List(42), {value: List()}))
+    .then(enter_method(other_method, List(42)))
     .fail()
 }
