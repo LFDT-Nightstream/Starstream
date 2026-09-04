@@ -80,11 +80,15 @@ module starstream {
     | RegisterMethod
 
   def action_allowed(op: Opcode): bool =
-    match state.curr_cid_phase {
-      | CtorEnterPending => op == EnterConstructor
-      | MethodEnterPending => op == EnterMethod
-      | Yield => op == RegisterMethod or op == Return
-      | _ => true
+    match op {
+      | NewUtxo => state.curr_cid_phase == Executing
+      | EnterConstructor => state.curr_cid_phase == CtorEnterPending
+      | CallMethod => state.curr_cid_phase == Executing
+      | EnterMethod => state.curr_cid_phase == MethodEnterPending
+      | Return =>
+          state.curr_cid_phase == Executing or state.curr_cid_phase == Yield
+      | YieldBegin => state.curr_cid_phase == Executing
+      | RegisterMethod => state.curr_cid_phase == Yield
     }
 
   pure def is_utxo(cid: CoroutineId): bool =
@@ -187,7 +191,6 @@ module starstream {
     //
     // it may or may not be too restrictive, review later with the runtime/lang
     // integration
-    state.curr_cid_phase == Executing,
 
     state' = {
       curr_cid_phase: Yield,
@@ -202,7 +205,6 @@ module starstream {
   action register_method(method: MethodHash): bool = all {
     action_allowed(RegisterMethod),
     state.curr.is_utxo(),
-    state.curr_cid_phase == Yield,
     // this forbids registering the same method twice
     //
     // it may or may not be too restrictive, review later with the runtime/lang
@@ -278,7 +280,6 @@ module starstream {
       action_allowed(CallMethod),
       // utxos can't call utxos
       state.curr.is_coord(),
-      state.curr_cid_phase == Executing,
       state.enabled_methods.get(target).contains(method),
       state.utxo_lifecycle.get(target) == Live,
 
@@ -291,6 +292,8 @@ module starstream {
       state' = {
         curr: target,
         call_stack: state.call_stack.append(frame),
+        curr_cid_phase: MethodEnterPending,
+
         ...state
       }
     }
@@ -313,6 +316,8 @@ module starstream {
     state.call_stack.last().expected_method == Some(method),
 
     state' = {
+      curr_cid_phase: Executing,
+
       ...state
     }
   }
