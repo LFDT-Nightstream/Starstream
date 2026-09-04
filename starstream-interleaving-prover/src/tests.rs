@@ -143,6 +143,26 @@ fn accepts_method_call_after_entering_method() {
 }
 
 #[test]
+fn rejects_enter_method_with_wrong_method() {
+    let mut trace = method_call_trace(true);
+    trace.0[6] = Step::EnterMethod {
+        method: MethodHash([2, 1, 1, 1]),
+        arguments: vec![1, 2, 3, 4].into(),
+    };
+
+    assert!(matches!(
+        verify_sat(&trace),
+        Err(Error::Unsatisfied(Unsatisfied::Memory(
+            MemoryCheckError::ReadMismatch {
+                memory: MemoryId::CallStackExpectedMethod,
+                row: 6,
+                ..
+            }
+        )))
+    ));
+}
+
+#[test]
 fn rejects_return_without_entering_method() {
     assert!(matches!(
         verify_sat(&method_call_trace(false)),
