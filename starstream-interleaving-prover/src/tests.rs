@@ -6,8 +6,8 @@ use starstream_interleaving_spec::{MethodHash, ResourceHandle, StarstreamValue, 
 use super::{Error, Unsatisfied, build_witness_rows, verify_sat, verify_witness_rows};
 use crate::{
     ccs::layout::{
-        COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_CURR_AFTER, COL_CURR_BEFORE,
-        COL_NEXT_UTXO_ID_BEFORE, COL_SEL_ENTER_CONSTRUCTOR, range_check_layout,
+        COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE,
+        COL_SEL_ENTER_CONSTRUCTOR, COL_UTXO_LIFECYCLE_ADDR, range_check_layout,
     },
     memory::MemoryId,
 };
@@ -205,6 +205,24 @@ fn rejects_enter_method_with_wrong_method() {
 }
 
 #[test]
+fn rejects_call_through_unbound_resource_handle() {
+    let mut trace = method_call_trace(true);
+    let Step::CallMethod { resource, .. } = &mut trace.0[5] else {
+        panic!("method-call trace has a call at step 5");
+    };
+    *resource = ResourceHandle(1);
+
+    assert!(matches!(
+        verify_sat(&trace),
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 5,
+            constraint: "call method constraints",
+            ..
+        }))
+    ));
+}
+
+#[test]
 fn rejects_return_with_wrong_result() {
     assert!(matches!(
         verify_sat(&method_call_result_trace(
@@ -257,6 +275,25 @@ fn rejects_return_before_entering_constructor() {
 }
 
 #[test]
+fn rejects_yield_from_coordinator() {
+    let trace = Trace::new([
+        Step::YieldBegin,
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+    ]);
+
+    assert!(matches!(
+        verify_sat(&trace),
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 0,
+            constraint: "yield begin constraints",
+            ..
+        }))
+    ));
+}
+
+#[test]
 fn rejects_constructor_with_mismatched_arguments() {
     let mut trace = constructor_trace([1, 2, 3, 4]);
     trace.0[1] = Step::EnterConstructor {
@@ -298,14 +335,14 @@ fn rejects_out_of_range_witness_column() {
     let trace = constructor_trace([0, 1, 2, 3]);
     let mut rows = build_witness_rows(&trace);
 
-    rows[0][COL_NEXT_UTXO_ID_BEFORE] = F::new(1 << 32);
+    rows[0][COL_UTXO_LIFECYCLE_ADDR] = F::new(1 << 32);
     range_check_layout().assign_bits(&mut rows[0]).unwrap();
 
     assert!(matches!(
         verify_witness_rows(&rows),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 0,
-            constraint: "COL_NEXT_UTXO_ID_BEFORE",
+            constraint: "COL_UTXO_LIFECYCLE_ADDR",
             ..
         }))
     ));
@@ -340,17 +377,20 @@ fn rejects_tampered_continuity_value() {
     let mut rows = build_witness_rows(&trace);
     verify_witness_rows(&rows).unwrap();
 
-    rows[0][COL_CURR_AFTER] += F::ONE;
-    range_check_layout().assign_bits(&mut rows[0]).unwrap();
+    for row in &mut rows[1..] {
+        row[COL_NEXT_UTXO_ID_BEFORE] += F::ONE;
+        row[COL_NEXT_UTXO_ID_AFTER] += F::ONE;
+        range_check_layout().assign_bits(row).unwrap();
+    }
 
     assert!(matches!(
         verify_witness_rows(&rows),
         Err(Error::Unsatisfied(Unsatisfied::Continuity(
             ContinuityCheckError::Mismatch {
                 boundary: 0,
-                group_name: "curr_continuity",
-                previous_step_column: COL_CURR_AFTER,
-                next_step_column: COL_CURR_BEFORE,
+                group_name: "next_utxo_id_continuity",
+                previous_step_column: COL_NEXT_UTXO_ID_AFTER,
+                next_step_column: COL_NEXT_UTXO_ID_BEFORE,
                 ..
             }
         )))
