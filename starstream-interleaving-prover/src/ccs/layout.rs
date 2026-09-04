@@ -1,4 +1,6 @@
-use neo_application::{ColumnRegistry, define_column_region};
+use std::sync::OnceLock;
+
+use neo_application::{RangeCheckBitFamily, RangeCheckLayout, define_column_region};
 
 pub const PUBLIC_INPUTS: usize = 1;
 
@@ -65,9 +67,8 @@ define_column_region! {
     families: pub IVC_COLUMN_FAMILIES,
     indices: pub,
     columns: [
-        // TODO: this could be smaller
-        COL_CURR_PHASE_BEFORE: Byte => "internal phase of curr for enforcing cross-step consistency",
-        COL_CURR_PHASE_AFTER: Byte => "internal phase of curr in the next step",
+        COL_CURR_PHASE_BEFORE: (Bits(2)) => "internal phase of curr for enforcing cross-step consistency",
+        COL_CURR_PHASE_AFTER: (Bits(2)) => "internal phase of curr in the next step",
         COL_CALL_SP_BEFORE: U32 => "call stack pointer before",
         COL_CALL_SP_AFTER: U32 => "call stack pointer after",
         COL_NEXT_UTXO_ID_BEFORE: U32 => "utxo id allocator",
@@ -99,14 +100,22 @@ pub const SELECTORS: [usize; 7] = [
     COL_SEL_ENTER_METHOD,
 ];
 
-// TODO: mnemoize?
-pub(crate) fn full_column_registry() -> ColumnRegistry {
-    ColumnRegistry::new(
-        MAIN_COLUMN_FAMILIES
-            .iter()
-            .copied()
-            .chain(IVC_COLUMN_FAMILIES.iter().copied())
-            .chain(TRACE_COMM_COLUMN_FAMILIES.iter().copied()),
-    )
-    .expect("valid column registry")
+pub(crate) fn range_check_layout() -> &'static RangeCheckLayout {
+    static LAYOUT: OnceLock<RangeCheckLayout> = OnceLock::new();
+
+    LAYOUT.get_or_init(|| {
+        RangeCheckLayout::new(
+            MAIN_COLUMN_FAMILIES
+                .iter()
+                .copied()
+                .chain(IVC_COLUMN_FAMILIES.iter().copied())
+                .chain(TRACE_COMM_COLUMN_FAMILIES.iter().copied()),
+            RangeCheckBitFamily {
+                region: "range_check_bits",
+                name: "RANGE_CHECK_BITS",
+                role: "Boolean decomposition bits for bounded columns",
+            },
+        )
+        .expect("valid range-check layout")
+    })
 }
