@@ -2211,7 +2211,7 @@ dependencies = [
 [[package]]
 name = "neo-ajtai"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=43eb2d05371ad7aaf663aaa65bb8316a54dcc179#43eb2d05371ad7aaf663aaa65bb8316a54dcc179"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=d05b3ce8a8c815f230d296338d0f637f023a6db0#d05b3ce8a8c815f230d296338d0f637f023a6db0"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2229,7 +2229,7 @@ dependencies = [
 [[package]]
 name = "neo-application"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=43eb2d05371ad7aaf663aaa65bb8316a54dcc179#43eb2d05371ad7aaf663aaa65bb8316a54dcc179"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=d05b3ce8a8c815f230d296338d0f637f023a6db0#d05b3ce8a8c815f230d296338d0f637f023a6db0"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2243,7 +2243,7 @@ dependencies = [
 [[package]]
 name = "neo-ccs"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=43eb2d05371ad7aaf663aaa65bb8316a54dcc179#43eb2d05371ad7aaf663aaa65bb8316a54dcc179"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=d05b3ce8a8c815f230d296338d0f637f023a6db0#d05b3ce8a8c815f230d296338d0f637f023a6db0"
 dependencies = [
  "neo-math",
  "neo-params",
@@ -2265,7 +2265,7 @@ dependencies = [
 [[package]]
 name = "neo-fold-clean"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=43eb2d05371ad7aaf663aaa65bb8316a54dcc179#43eb2d05371ad7aaf663aaa65bb8316a54dcc179"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=d05b3ce8a8c815f230d296338d0f637f023a6db0#d05b3ce8a8c815f230d296338d0f637f023a6db0"
 dependencies = [
  "bellpepper-core",
  "ff",
@@ -2288,7 +2288,7 @@ dependencies = [
 [[package]]
 name = "neo-math"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=43eb2d05371ad7aaf663aaa65bb8316a54dcc179#43eb2d05371ad7aaf663aaa65bb8316a54dcc179"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=d05b3ce8a8c815f230d296338d0f637f023a6db0#d05b3ce8a8c815f230d296338d0f637f023a6db0"
 dependencies = [
  "neo-params",
  "p3-field",
@@ -2303,7 +2303,7 @@ dependencies = [
 [[package]]
 name = "neo-params"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=43eb2d05371ad7aaf663aaa65bb8316a54dcc179#43eb2d05371ad7aaf663aaa65bb8316a54dcc179"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=d05b3ce8a8c815f230d296338d0f637f023a6db0#d05b3ce8a8c815f230d296338d0f637f023a6db0"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
@@ -2312,7 +2312,7 @@ dependencies = [
 [[package]]
 name = "neo-reductions"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=43eb2d05371ad7aaf663aaa65bb8316a54dcc179#43eb2d05371ad7aaf663aaa65bb8316a54dcc179"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=d05b3ce8a8c815f230d296338d0f637f023a6db0#d05b3ce8a8c815f230d296338d0f637f023a6db0"
 dependencies = [
  "bincode",
  "neo-ajtai",
@@ -2337,7 +2337,7 @@ dependencies = [
 [[package]]
 name = "neo-transcript"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=43eb2d05371ad7aaf663aaa65bb8316a54dcc179#43eb2d05371ad7aaf663aaa65bb8316a54dcc179"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=d05b3ce8a8c815f230d296338d0f637f023a6db0#d05b3ce8a8c815f230d296338d0f637f023a6db0"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -3363,7 +3363,7 @@ dependencies = [
 [[package]]
 name = "spartan2"
 version = "0.4.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=43eb2d05371ad7aaf663aaa65bb8316a54dcc179#43eb2d05371ad7aaf663aaa65bb8316a54dcc179"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=d05b3ce8a8c815f230d296338d0f637f023a6db0#d05b3ce8a8c815f230d296338d0f637f023a6db0"
 dependencies = [
  "bellpepper",
  "bellpepper-core",

@@ -55,11 +55,11 @@ wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8
 wit-component = "0.254.0"
 wit-parser = "0.254.0"
 
-neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "43eb2d05371ad7aaf663aaa65bb8316a54dcc179" }
-neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "43eb2d05371ad7aaf663aaa65bb8316a54dcc179" }
-neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "43eb2d05371ad7aaf663aaa65bb8316a54dcc179" }
-neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "43eb2d05371ad7aaf663aaa65bb8316a54dcc179" }
-neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "43eb2d05371ad7aaf663aaa65bb8316a54dcc179" }
+neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }
+neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }
+neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }
+neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }
+neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }
 
 [profile.dev.package]
 insta.opt-level = 3
