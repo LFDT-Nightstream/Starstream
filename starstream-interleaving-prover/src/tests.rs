@@ -68,6 +68,18 @@ fn repeated_constructor_entry_trace(arguments: [u32; 4]) -> Trace {
 }
 
 fn method_call_trace(enter_method: bool) -> Trace {
+    method_call_result_trace(
+        enter_method,
+        StarstreamValue::default(),
+        StarstreamValue::default(),
+    )
+}
+
+fn method_call_result_trace(
+    enter_method: bool,
+    expected_result: StarstreamValue,
+    actual_result: StarstreamValue,
+) -> Trace {
     let method = MethodHash([1, 1, 1, 1]);
     let method_arguments = StarstreamValue::from(vec![1, 2, 3, 4]);
     let mut steps = vec![
@@ -87,7 +99,7 @@ fn method_call_trace(enter_method: bool) -> Trace {
             resource: ResourceHandle(0),
             method,
             arguments: method_arguments.clone(),
-            result: StarstreamValue::default().into(),
+            result: expected_result.into(),
         },
     ];
 
@@ -100,7 +112,7 @@ fn method_call_trace(enter_method: bool) -> Trace {
 
     steps.extend([
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: actual_result.into(),
         },
         Step::Return {
             result: StarstreamValue::default().into(),
@@ -138,8 +150,13 @@ fn rejects_repeated_constructor_entry() {
 }
 
 #[test]
-fn accepts_method_call_after_entering_method() {
-    verify_sat(&method_call_trace(true)).unwrap();
+fn accepts_method_call_with_expected_result() {
+    verify_sat(&method_call_result_trace(
+        true,
+        vec![7, 8].into(),
+        vec![7, 8].into(),
+    ))
+    .unwrap();
 }
 
 #[test]
@@ -156,6 +173,24 @@ fn rejects_enter_method_with_wrong_method() {
             MemoryCheckError::ReadMismatch {
                 memory: MemoryId::CallStackExpectedMethod,
                 row: 6,
+                ..
+            }
+        )))
+    ));
+}
+
+#[test]
+fn rejects_return_with_wrong_result() {
+    assert!(matches!(
+        verify_sat(&method_call_result_trace(
+            true,
+            vec![7, 8].into(),
+            vec![7, 9].into(),
+        )),
+        Err(Error::Unsatisfied(Unsatisfied::Memory(
+            MemoryCheckError::ReadMismatch {
+                memory: MemoryId::CallStackExpectedResult,
+                row: 7,
                 ..
             }
         )))
