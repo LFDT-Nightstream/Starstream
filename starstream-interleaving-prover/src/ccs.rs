@@ -59,8 +59,9 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     // the commitment savings may outweigh the cost of gated constraints.
     // Benchmark both layouts once proof batching is wired.
     //
-    // A push writes at the next free address (`sp`), while a peek reads the
-    // current top (`sp - 1`). `COL_CALL_STACK_TOP` selects the latter case.
+    // A push writes at the next free address (`sp`), while peeks and pops read
+    // the current top (`sp - 1`). The corresponding access flag selects the
+    // latter address.
     b.with_tag(always("call stack mul stride (4)"), |b| {
         COL_CALL_STACK_MUL_STRIDE_4
             .iter()
@@ -69,6 +70,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
                 b.push_linear_zero([
                     (COL_CALL_SP_BEFORE, F::new(4)),
                     (COL_CALL_STACK_TOP, -F::new(4)),
+                    (COL_CALL_STACK_POP, -F::new(4)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);

@@ -28,9 +28,9 @@ module replay_trace {
     .then(yield_begin)
     .then(register_method(method))
     .then(return({ value: List() }))
-    .then(call_method(0, method, List(42), {value: List()}))
+    .then(call_method(0, method, List(42), {value: List(7, 8)}))
     .then(enter_method(method, List(42)))
-    .then(return({ value: List() }))
+    .then(return({ value: List(7, 8) }))
     .then(return({ value: List() }))
     .then(execution_complete)
 
@@ -55,5 +55,17 @@ module replay_trace {
     .then(return({ value: List() }))
     .then(call_method(0, method, List(42), {value: List()}))
     .then(enter_method(other_method, List(42)))
+    .fail()
+
+  run test_return_with_wrong_result_fails =
+    init
+    .then(new_utxo(List(42), { value: 0 }))
+    .then(enter_constructor(List(42)))
+    .then(yield_begin)
+    .then(register_method(method))
+    .then(return({ value: List() }))
+    .then(call_method(0, method, List(42), {value: List(7, 8)}))
+    .then(enter_method(method, List(42)))
+    .then(return({ value: List(7, 9) }))
     .fail()
 }
