@@ -9,12 +9,6 @@ use tracing::instrument;
 use wasmtime::component::{Resource, ResourceTable, Val};
 use wasmtime::{AsContextMut as _, StoreContextMut, bail};
 
-/// Compile a single Starstream contract source to a core Wasm module in-process.
-///
-/// Mirrors the browser sandbox's compile path: parse the source, typecheck it,
-/// then emit the contract. The result carries a `component-type` custom section,
-/// so `Contract::new`'s `componentize` step wraps it into a component at run
-/// time.
 pub fn compile_contract(source: &str) -> Vec<u8> {
     let (program, errors) = parse_program(source).into_output_errors();
     assert!(errors.is_empty(), "parsing failed: {errors:?}");
@@ -30,9 +24,6 @@ pub fn compile_contract(source: &str) -> Vec<u8> {
     result.wasm.expect("compiling produced no Wasm")
 }
 
-/// The ABI method identity hash the guest reports via `implements-method`:
-/// the SHA-256 of the method name, split into four little-endian `u64`s. Mirrors
-/// the codegen in `starstream-to-wasm`.
 pub fn method_hash(name: &str) -> (u64, u64, u64, u64) {
     let digest = Sha256::digest(name.as_bytes());
     let mut chunks = digest

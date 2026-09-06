@@ -1,0 +1,40 @@
+[package]
+name = "starstream-ledger-node"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = [
+    "color",
+    "derive",
+    "error-context",
+    "help",
+    "std",
+    "string",
+    "suggestions",
+    "usage",
+] }
+ed25519-dalek = { workspace = true, features = ["fast", "zeroize"] }
+hex = { workspace = true, features = ["std"] }
+sha2 = { workspace = true }
+starstream-ledger = { workspace = true, features = ["server"] }
+tokio = { workspace = true, features = [
+    "macros",
+    "rt-multi-thread",
+    "signal",
+    "time",
+] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = [
+    "ansi",
+    "env-filter",
+    "fmt",
+    "smallvec",
+    "tracing-log",
+] }
+wasmtime = { workspace = true }

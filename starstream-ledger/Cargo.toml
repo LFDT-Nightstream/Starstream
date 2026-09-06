@@ -1,0 +1,74 @@
+[package]
+name = "starstream-ledger"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[features]
+default = ["client", "server"]
+client = ["hyper-util/client", "hyper-util/client-legacy"]
+server = [
+    "dep:headers-accept",
+    "dep:headers-core",
+    "dep:hex",
+    "dep:http-body",
+    "dep:hyper",
+    "dep:starstream-runtime-next",
+    "dep:tokio",
+    "dep:wasmtime",
+    "dep:wasmtime-wizer",
+    "hyper-util/server",
+    "hyper-util/server-auto",
+    "hyper-util/server-graceful",
+    "hyper-util/tokio",
+]
+
+[dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+ciborium = { workspace = true, features = ["std"] }
+coset = { workspace = true, features = ["std"] }
+ed25519-dalek = { workspace = true, features = ["fast", "std", "zeroize"] }
+headers-accept = { workspace = true, optional = true }
+headers-core = { workspace = true, optional = true }
+hex = { workspace = true, optional = true, features = ["std"] }
+http = { workspace = true, features = ["std"] }
+http-body = { workspace = true, optional = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true, optional = true, features = ["server"] }
+hyper-util = { workspace = true, features = ["http1", "http2"] }
+mediatype = { workspace = true }
+multibase = { workspace = true, features = ["std"] }
+multihash = { workspace = true, features = ["std"] }
+sha2 = { workspace = true }
+starstream-runtime-next = { workspace = true, optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true, features = [
+    "net",
+    "rt",
+    "sync",
+    "time",
+] }
+tracing = { workspace = true, features = ["attributes"] }
+wasmtime = { workspace = true, optional = true, features = [
+    "anyhow",
+    "async",
+    "component-model",
+    "cranelift",
+] }
+wasmtime-wizer = { workspace = true, optional = true, features = [
+    "component-model",
+    "wasmtime",
+] }
+
+[dev-dependencies]
+starstream-compiler = { workspace = true }
+starstream-to-wasm = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-util",
+    "macros",
+    "rt-multi-thread",
+] }
