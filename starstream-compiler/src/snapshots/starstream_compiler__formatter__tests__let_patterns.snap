@@ -1,0 +1,10 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn main(result: Result<i64, i64>, pair: (i64, bool)) {\n    let(left,right)=pair;\n    let Result::Ok(value)=result else{return;};\n}\n"
+---
+fn main(result: Result<i64, i64>, pair: (i64, bool)) {
+    let (left, right) = pair;
+    let Result::Ok(value) = result else {
+        return;
+    };
+}

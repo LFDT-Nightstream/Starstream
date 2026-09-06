@@ -1,0 +1,15 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn unwrap(result: Result<i64, i64>) -> i64 {\n    let Result::Ok(value) = result;\n    value\n}\n"
+---
+E0057 (https://starstream.nightstream.dev/errors/E0057)
+
+  x refutable pattern in `let` binding
+   ,-[test.star:2:29]
+ 1 | fn unwrap(result: Result<i64, i64>) -> i64 {
+ 2 |     let Result::Ok(value) = result;
+   :                             ^^^|^^
+   :                                `-- this value may not match the pattern
+ 3 |     value
+   `----
+  help: add an `else` block to handle unmatched values such as `Err(_)`

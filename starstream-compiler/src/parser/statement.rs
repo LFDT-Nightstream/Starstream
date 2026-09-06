@@ -31,18 +31,22 @@ pub fn statement<'a>(
         .padded()
         .ignore_then(just("pub").padded().or_not())
         .then(just("mut").padded().or_not())
-        .then(primitives::identifier())
+        .then(pattern())
         .then(just(":").ignore_then(type_annotation::parser()).or_not())
         .then_ignore(just('=').padded())
         .then(expr.clone())
+        .then(just("else").padded().ignore_then(block.clone()).or_not())
         .then_ignore(just(';').padded())
         .map(
-            |((((public, mutable), name), ty), value)| Statement::VariableDeclaration {
-                public: public.is_some(),
-                mutable: mutable.is_some(),
-                name,
-                ty,
-                value,
+            |(((((public, mutable), pattern), ty), value), else_branch)| {
+                Statement::VariableDeclaration {
+                    public: public.is_some(),
+                    mutable: mutable.is_some(),
+                    pattern,
+                    ty,
+                    value,
+                    else_branch,
+                }
             },
         );
 
@@ -161,6 +165,16 @@ mod tests {
     #[test]
     fn let_pub_mut_binding() {
         assert_statement_snapshot!("let pub mut answer = 42;");
+    }
+
+    #[test]
+    fn let_pattern() {
+        assert_statement_snapshot!("let (left, right) = pair;");
+    }
+
+    #[test]
+    fn let_else_pattern() {
+        assert_statement_snapshot!("let Result::Ok(value) = result else { return; };");
     }
     #[test]
     fn assignment() {

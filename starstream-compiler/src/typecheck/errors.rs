@@ -188,6 +188,12 @@ pub enum TypeErrorKind {
         arity: usize,
         found: Type,
     },
+    /// A `let` without `else` uses a pattern that can fail to match.
+    RefutableLetPattern {
+        missing_patterns: Vec<String>,
+    },
+    /// A `let ... else` fallback can continue to the following statement.
+    LetElseDoesNotDiverge,
     /// Pattern matching is not exhaustive; some cases are not covered.
     NonExhaustiveMatch {
         missing_patterns: Vec<String>,
@@ -359,6 +365,8 @@ impl TypeErrorKind {
             TypeErrorKind::EnumPayloadMismatch { .. } => error_code!(E0024),
             TypeErrorKind::PatternEnumMismatch { .. } => error_code!(E0025),
             TypeErrorKind::PatternTupleMismatch { .. } => error_code!(E0056),
+            TypeErrorKind::RefutableLetPattern { .. } => error_code!(E0057),
+            TypeErrorKind::LetElseDoesNotDiverge => error_code!(E0058),
             // E0026 was UnsupportedTypeFeature
             TypeErrorKind::NonExhaustiveMatch { .. } => error_code!(E0027),
             TypeErrorKind::UnreachablePattern => error_code!(E0028),
@@ -598,6 +606,12 @@ impl fmt::Display for TypeErrorKind {
                 "pattern expects a tuple with {arity} elements but scrutinee has type `{}`",
                 found.compact_display()
             ),
+            TypeErrorKind::RefutableLetPattern { .. } => {
+                write!(f, "refutable pattern in `let` binding")
+            }
+            TypeErrorKind::LetElseDoesNotDiverge => {
+                write!(f, "`let ... else` fallback must diverge")
+            }
             TypeErrorKind::NonExhaustiveMatch { .. } => {
                 write!(f, "non-exhaustive match")
             }

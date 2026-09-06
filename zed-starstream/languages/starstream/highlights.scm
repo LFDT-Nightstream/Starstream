@@ -72,7 +72,7 @@
 (function_parameter (identifier) @parameter)
 (parameter (identifier) @parameter)
 (parameter ":" @operator)
-(variable_declaration (identifier) @variable.declaration)
+(variable_declaration (pattern (scoped_name (identifier) @variable.declaration)))
 (assignment (identifier) @variable.modification)
 (struct_definition (identifier) @type.definition)
 (struct_field (identifier) @variable.member)

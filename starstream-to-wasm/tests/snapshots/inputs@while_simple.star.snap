@@ -24,10 +24,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: true,
-                                    name: Identifier {
-                                        name: "foo",
-                                        span: 31..34,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "foo",
+                                                span: 31..34,
+                                            },
+                                        ],
+                                    ),
                                     ty: None,
                                     value: Spanned {
                                         node: Literal(
@@ -40,6 +44,7 @@ Program {
                                         ),
                                         span: 37..38,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 23..44,
                             },
@@ -179,10 +184,12 @@ TypedProgram {
                         VariableDeclaration {
                             public: false,
                             mutable: true,
-                            name: Identifier {
-                                name: "foo",
-                                span: 31..34,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "foo",
+                                    span: 31..34,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Int(
@@ -199,6 +206,7 @@ TypedProgram {
                                 },
                                 span: 37..38,
                             },
+                            else_branch: None,
                         },
                         While {
                             condition: Spanned {
@@ -338,19 +346,21 @@ TypedProgram {
         (unreachable)))
   )
   (func (;2;) (type 2)
-    (local i64)
+    (local i64 i64)
     (local.set 0
       (i64.const 0))
+    (local.set 1
+      (local.get 0))
     (block ;; label = @1
       (loop ;; label = @2
         (br_if 1 (;@1;)
           (i32.eqz
             (i64.lt_s
-              (local.get 0)
+              (local.get 1)
               (i64.const 10))))
-        (local.set 0
+        (local.set 1
           (call 1
-            (local.get 0)
+            (local.get 1)
             (i64.const 1)))
         (br 0 (;@2;))))
   )

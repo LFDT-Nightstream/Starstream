@@ -131,7 +131,9 @@ utxo Foo {
         (identifier)))
     (block
       (variable_declaration
-        (identifier)
+        (pattern
+          (scoped_name
+            (identifier)))
         (type_annotation
           (scoped_name
             (identifier))
@@ -147,7 +149,9 @@ utxo Foo {
               (scoped_name
                 (identifier))))))
       (variable_declaration
-        (identifier)
+        (pattern
+          (scoped_name
+            (identifier)))
         (expression
           (struct_constructor
             (scoped_name

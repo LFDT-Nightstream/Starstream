@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn invalid(result: Result<i64, i64>) {\n    let Result::Ok(value) = result else { let fallback = 0; };\n}\n"
+---
+E0058 (https://starstream.nightstream.dev/errors/E0058)
+
+  x `let ... else` fallback must diverge
+   ,-[test.star:2:41]
+ 1 | fn invalid(result: Result<i64, i64>) {
+ 2 |     let Result::Ok(value) = result else { let fallback = 0; };
+   :                                         ^^^^^^^^^^^^^^^^^^^^^
+ 3 | }
+   `----
+  help: make the `else` block exit control flow with `return` or `resume`

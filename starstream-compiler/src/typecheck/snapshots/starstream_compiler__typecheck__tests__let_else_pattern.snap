@@ -1,0 +1,18 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn unwrap_or_return(result: Result<i64, i64>) -> i64 {\n    let Result::Ok(value) = result else { return 0; };\n    value\n}\n"
+---
+T-Fn: unwrap_or_return => i64
+  T-Let: {result: Result<i64, i64>, unwrap_or_return: fn(result: Result<i64, i64>) -> i64} ⊢ let Result::Ok(value) = result else {
+    return 0;
+}; ⇒ Result<i64, i64>
+    T-Var: {result: Result<i64, i64>, unwrap_or_return: fn(result: Result<i64, i64>) -> i64} ⊢ result ⇒ Result<i64, i64>
+    T-Return: {result: Result<i64, i64>, unwrap_or_return: fn(result: Result<i64, i64>) -> i64} ⊢ return 0; ⇒ i64
+      T-Int: {result: Result<i64, i64>, unwrap_or_return: fn(result: Result<i64, i64>) -> i64} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t3}
+    Unify-Enum: Result<i64, i64> ~ Result => {i64/t1, i64/t2}
+      Unify-Var: i64 ~ t1 => {i64/t1}
+      Unify-Var: i64 ~ t2 => {i64/t2}
+  T-ReturnTail: value => i64
+    T-Var: {result: Result<i64, i64>, unwrap_or_return: fn(result: Result<i64, i64>) -> i64, value: i64} ⊢ value ⇒ i64
+    Unify-Const: i64 ~ i64 => {}

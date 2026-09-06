@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn invalid(result: Result<i64, i64>) -> i64 {\n    let Result::Ok(value) = result else { return 0; };\n}\n"
+---
+E0010 (https://starstream.nightstream.dev/errors/E0010)
+
+  x missing return of type `i64`
+   ,-[test.star:1:4]
+ 1 | fn invalid(result: Result<i64, i64>) -> i64 {
+   :    ^^^^^^^
+ 2 |     let Result::Ok(value) = result else { return 0; };
+   `----
+  help: add a `return` or tail expression to satisfy the signature
