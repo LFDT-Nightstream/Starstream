@@ -68,6 +68,42 @@ module replay_trace {
     .then(enter_method(other_method, List(42)))
     .fail()
 
+  run test_call_unregistered_method_fails =
+    init
+    .then(new_utxo(List(42), { value: 0 }))
+    .then(enter_constructor(List(42)))
+    .then(yield_begin)
+    .then(register_method(method))
+    .then(return({ value: List() }))
+    .then(call_method(0, other_method, List(42), { value: List() }))
+    .fail()
+
+  run test_duplicate_method_registration_is_idempotent =
+    init
+    .then(new_utxo(List(42), { value: 0 }))
+    .then(enter_constructor(List(42)))
+    .then(yield_begin)
+    .then(register_method(method))
+    .then(register_method(method))
+    .then(return({ value: List() }))
+    .then(return({ value: List() }))
+    .then(execution_complete)
+
+  run test_stale_method_after_yield_fails =
+    init
+    .then(new_utxo(List(42), { value: 0 }))
+    .then(enter_constructor(List(42)))
+    .then(yield_begin)
+    .then(register_method(method))
+    .then(return({ value: List() }))
+    .then(call_method(0, method, List(42), { value: List() }))
+    .then(enter_method(method, List(42)))
+    .then(yield_begin)
+    .then(register_method(other_method))
+    .then(return({ value: List() }))
+    .then(call_method(0, method, List(42), { value: List() }))
+    .fail()
+
   run test_return_with_wrong_result_fails =
     init
     .then(new_utxo(List(42), { value: 0 }))
