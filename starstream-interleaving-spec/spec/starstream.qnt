@@ -177,7 +177,9 @@ module starstream {
       state.pending_ctor_key.is_some(),
 
       state' = {
-        curr_cid_phase: Executing,
+        // Constructors establish generation zero without a preceding runtime
+        // `resume` call, so constructor entry opens the initial ABI window.
+        curr_cid_phase: Yield,
         ...state
       }
     }

@@ -9,7 +9,6 @@ module replay_trace {
   run test_execution_satisfies_spec = init
     .then(new_utxo(List(42), { value: 0 }))
     .then(enter_constructor(List(42)))
-    .then(yield_begin)
     .then(register_method(method))
     .then(return({ value: List() }))
     .then(return({ value: List() }))
@@ -36,7 +35,6 @@ module replay_trace {
     init
     .then(new_utxo(List(42), { value: 0 }))
     .then(enter_constructor(List(42)))
-    .then(yield_begin)
     .then(register_method(method))
     .then(return({ value: List() }))
     .then(call_method(0, method, List(42), {value: List(7, 8)}))
@@ -49,7 +47,6 @@ module replay_trace {
     init
     .then(new_utxo(List(42), { value: 0 }))
     .then(enter_constructor(List(42)))
-    .then(yield_begin)
     .then(register_method(method))
     .then(return({ value: List() }))
     .then(call_method(0, method, List(42), {value: List()}))
@@ -61,7 +58,6 @@ module replay_trace {
     init
     .then(new_utxo(List(42), { value: 0 }))
     .then(enter_constructor(List(42)))
-    .then(yield_begin)
     .then(register_method(method))
     .then(return({ value: List() }))
     .then(call_method(0, method, List(42), {value: List()}))
@@ -72,7 +68,6 @@ module replay_trace {
     init
     .then(new_utxo(List(42), { value: 0 }))
     .then(enter_constructor(List(42)))
-    .then(yield_begin)
     .then(register_method(method))
     .then(return({ value: List() }))
     .then(call_method(0, other_method, List(42), { value: List() }))
@@ -82,7 +77,6 @@ module replay_trace {
     init
     .then(new_utxo(List(42), { value: 0 }))
     .then(enter_constructor(List(42)))
-    .then(yield_begin)
     .then(register_method(method))
     .then(register_method(method))
     .then(return({ value: List() }))
@@ -93,7 +87,6 @@ module replay_trace {
     init
     .then(new_utxo(List(42), { value: 0 }))
     .then(enter_constructor(List(42)))
-    .then(yield_begin)
     .then(register_method(method))
     .then(return({ value: List() }))
     .then(call_method(0, method, List(42), { value: List() }))
@@ -108,7 +101,6 @@ module replay_trace {
     init
     .then(new_utxo(List(42), { value: 0 }))
     .then(enter_constructor(List(42)))
-    .then(yield_begin)
     .then(register_method(method))
     .then(return({ value: List() }))
     .then(call_method(0, method, List(42), {value: List(7, 8)}))
