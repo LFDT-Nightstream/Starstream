@@ -205,13 +205,9 @@ module starstream {
   action register_method(method: MethodHash): bool = all {
     action_allowed(RegisterMethod),
     state.curr.is_utxo(),
-    // this forbids registering the same method twice
-    //
-    // it may or may not be too restrictive, review later with the runtime/lang
-    // integration
-    not(state.enabled_methods.get(state.curr).contains(method)),
 
     state' = {
+      // Set insertion makes repeated registrations semantically idempotent.
       enabled_methods:
         state.enabled_methods.setBy(state.curr, prev => prev.insert(method)),
       ...state
