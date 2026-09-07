@@ -8,15 +8,43 @@ use crate::{
     opcode::Opcode,
 };
 
-fn encode_method_hash(method: MethodHash) -> [F; 8] {
+pub(crate) fn method_hash_words(method: MethodHash) -> [u32; 8] {
     std::array::from_fn(|word| {
         let limb = method.0[word / 2];
         let shift = (word % 2) * 32;
-        F::new((limb >> shift) & u64::from(u32::MAX))
+        ((limb >> shift) & u64::from(u32::MAX)) as u32
     })
 }
 
-pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
+fn encode_method_hash(method: MethodHash) -> [F; 8] {
+    method_hash_words(method).map(|word| F::new(u64::from(word)))
+}
+
+pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
+    let mut method_table = trace
+        .0
+        .iter()
+        .filter_map(|step| match step {
+            Step::RegisterMethod { method }
+            | Step::CallMethod { method, .. }
+            | Step::EnterMethod { method, .. } => Some(*method),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    method_table.sort_unstable_by_key(|method| method.0);
+    method_table.dedup();
+
+    let method_indices = method_table
+        .iter()
+        .enumerate()
+        .map(|(index, method)| {
+            (
+                *method,
+                u32::try_from(index).expect("the trace-local method table fits in u32"),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
     let mut wit: Vec<Wit> = vec![];
     let mut curr = CoroutineId::Coord(1);
     let mut curr_phase = CurrPhase::Executing;
@@ -26,12 +54,16 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
     let mut next_utxo_id = 0u32;
     let mut pending_ctor_key = None;
     let mut resource_resolver = HashMap::new();
+    let mut abi_generations: HashMap<CoroutineId, u32> = HashMap::new();
+    let mut enabled_method_log: Vec<(CoroutineId, u32, u32)> = vec![];
 
     for step in &trace.0 {
         let opcode = Opcode::from(step);
         let curr_before = curr;
         let curr_phase_before = curr_phase;
         let next_utxo_id_before = next_utxo_id;
+        let enabled_method_log_len_before =
+            u32::try_from(enabled_method_log.len()).expect("the enabled-method log fits in u32");
         let pending_ctor_key_before = pending_ctor_key;
         let curr_phase_after = match opcode {
             Opcode::NewUtxo => CurrPhase::CtorEnterPending,
@@ -53,14 +85,21 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
         call_sp = call_sp_after;
 
         let mut expected_arguments = None;
-        let mut expected_method = None;
+        let mut method_hash = None;
         let mut expected_result = None;
+        let mut method_index = 0;
         let mut curr_after = curr_before;
         let mut call_target = CoroutineId::Coord(0);
         let mut resolver_address = (CoroutineId::Coord(0), ResourceHandle(0));
         let mut resolver_value = CoroutineId::Coord(0);
         let mut resolver_read = false;
         let mut resolver_write = false;
+        let mut abi_generation_address = CoroutineId::Coord(0);
+        let mut abi_generation_before = 0;
+        let mut abi_generation_after = 0;
+        let mut enabled_method_log_address = 0;
+        let mut enabled_method_log_utxo = CoroutineId::Coord(0);
+        let mut enabled_method_log_generation = 0;
 
         match step {
             Step::NewUtxo {
@@ -82,8 +121,24 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
             Step::EnterConstructor { arguments } => {
                 expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
             }
-            Step::YieldBegin => {}
-            Step::RegisterMethod { method: _ } => {}
+            Step::YieldBegin => {
+                abi_generation_address = curr_before;
+                abi_generation_before = abi_generations.get(&curr_before).copied().unwrap_or(0);
+                abi_generation_after = abi_generation_before
+                    .checked_add(1)
+                    .expect("the UTXO ABI generation fits in u32");
+                abi_generations.insert(curr_before, abi_generation_after);
+            }
+            Step::RegisterMethod { method } => {
+                method_hash.replace(encode_method_hash(*method));
+                method_index = method_indices[method];
+                abi_generation_address = curr_before;
+                abi_generation_before = abi_generations.get(&curr_before).copied().unwrap_or(0);
+                enabled_method_log_address = enabled_method_log_len_before;
+                enabled_method_log_utxo = curr_before;
+                enabled_method_log_generation = abi_generation_before;
+                enabled_method_log.push((curr_before, method_index, abi_generation_before));
+            }
             Step::Return { result } => {
                 expected_result.replace(result.0.0.iter().map(|&x| F::new(x as u64)).collect());
 
@@ -109,8 +164,9 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
                 result,
             } => {
                 expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
-                expected_method.replace(encode_method_hash(*method));
+                method_hash.replace(encode_method_hash(*method));
                 expected_result.replace(result.0.0.iter().map(|&x| F::new(x as u64)).collect());
+                method_index = method_indices[method];
 
                 let key = (curr_before, *resource);
                 let target = resource_resolver
@@ -123,10 +179,20 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
                 resolver_address = key;
                 resolver_value = target;
                 resolver_read = true;
+
+                abi_generation_address = target;
+                abi_generation_before = abi_generations.get(&target).copied().unwrap_or(0);
+                enabled_method_log_utxo = target;
+                enabled_method_log_generation = abi_generation_before;
+                enabled_method_log_address = enabled_method_log
+                    .iter()
+                    .rposition(|entry| *entry == (target, method_index, abi_generation_before))
+                    .map(|index| u32::try_from(index).expect("the enabled-method log fits in u32"))
+                    .unwrap_or(enabled_method_log_len_before);
             }
             Step::EnterMethod { method, arguments } => {
                 expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
-                expected_method.replace(encode_method_hash(*method));
+                method_hash.replace(encode_method_hash(*method));
             }
         }
 
@@ -135,8 +201,9 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
         wit.push(Wit {
             opcode,
             expected_arguments,
-            expected_method,
+            method_hash,
             expected_result,
+            method_index,
             curr_before,
             curr_after,
             curr_phase_before,
@@ -146,23 +213,41 @@ pub(crate) fn normalize(trace: &Trace) -> Vec<Wit> {
             call_target,
             next_utxo_id_before,
             next_utxo_id_after: next_utxo_id,
+            enabled_method_log_len_before,
+            enabled_method_log_len_after: u32::try_from(enabled_method_log.len())
+                .expect("the enabled-method log fits in u32"),
             pending_ctor_key_before,
             pending_ctor_key_after: pending_ctor_key,
             resolver_address,
             resolver_value,
             resolver_read,
             resolver_write,
+            abi_generation_address,
+            abi_generation_before,
+            abi_generation_after,
+            enabled_method_log_address,
+            enabled_method_log_utxo,
+            enabled_method_log_generation,
         })
     }
 
-    wit
+    NormalizedTrace {
+        steps: wit,
+        method_table,
+    }
+}
+
+pub(crate) struct NormalizedTrace {
+    pub(crate) steps: Vec<Wit>,
+    pub(crate) method_table: Vec<MethodHash>,
 }
 
 pub(crate) struct Wit {
     pub(crate) opcode: Opcode,
     pub(crate) expected_arguments: Option<Vec<F>>,
-    pub(crate) expected_method: Option<[F; 8]>,
+    pub(crate) method_hash: Option<[F; 8]>,
     pub(crate) expected_result: Option<Vec<F>>,
+    pub(crate) method_index: u32,
     pub(crate) curr_before: CoroutineId,
     pub(crate) curr_after: CoroutineId,
     pub(crate) curr_phase_before: CurrPhase,
@@ -172,10 +257,18 @@ pub(crate) struct Wit {
     pub(crate) call_target: CoroutineId,
     pub(crate) next_utxo_id_before: u32,
     pub(crate) next_utxo_id_after: u32,
+    pub(crate) enabled_method_log_len_before: u32,
+    pub(crate) enabled_method_log_len_after: u32,
     pub(crate) pending_ctor_key_before: Option<(CoroutineId, ResourceHandle)>,
     pub(crate) pending_ctor_key_after: Option<(CoroutineId, ResourceHandle)>,
     pub(crate) resolver_address: (CoroutineId, ResourceHandle),
     pub(crate) resolver_value: CoroutineId,
     pub(crate) resolver_read: bool,
     pub(crate) resolver_write: bool,
+    pub(crate) abi_generation_address: CoroutineId,
+    pub(crate) abi_generation_before: u32,
+    pub(crate) abi_generation_after: u32,
+    pub(crate) enabled_method_log_address: u32,
+    pub(crate) enabled_method_log_utxo: CoroutineId,
+    pub(crate) enabled_method_log_generation: u32,
 }

@@ -141,7 +141,91 @@ fn method_call_result_trace(
     Trace::new(steps)
 }
 
-fn cases() -> [Case; 12] {
+fn unregistered_method_call_trace() -> Trace {
+    let mut trace = method_call_trace(true);
+    let unregistered_method = MethodHash([2, 1, 1, 1]);
+
+    let Step::CallMethod { method, .. } = &mut trace.0[5] else {
+        panic!("method-call trace has a call at step 5");
+    };
+    *method = unregistered_method;
+
+    let Step::EnterMethod { method, .. } = &mut trace.0[6] else {
+        panic!("method-call trace enters the method at step 6");
+    };
+    *method = unregistered_method;
+
+    trace
+}
+
+fn duplicate_method_registration_trace() -> Trace {
+    let mut trace = constructor_trace([0, 1, 2, 3]);
+    trace.0.insert(
+        4,
+        Step::RegisterMethod {
+            method: MethodHash([1, 1, 1, 1]),
+        },
+    );
+    trace
+}
+
+fn method_reyield_trace(final_method: MethodHash) -> Trace {
+    let first_method = MethodHash([1, 1, 1, 1]);
+    let second_method = MethodHash([2, 1, 1, 1]);
+    let arguments = StarstreamValue::from(vec![1, 2, 3, 4]);
+
+    Trace::new([
+        Step::NewUtxo {
+            arguments: vec![0, 1, 2, 3].into(),
+            resource: ResourceHandle(0).into(),
+        },
+        Step::EnterConstructor {
+            arguments: vec![0, 1, 2, 3].into(),
+        },
+        Step::YieldBegin,
+        Step::RegisterMethod {
+            method: first_method,
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+        Step::CallMethod {
+            resource: ResourceHandle(0),
+            method: first_method,
+            arguments: arguments.clone(),
+            result: StarstreamValue::default().into(),
+        },
+        Step::EnterMethod {
+            method: first_method,
+            arguments: arguments.clone(),
+        },
+        Step::YieldBegin,
+        Step::RegisterMethod {
+            method: second_method,
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+        Step::CallMethod {
+            resource: ResourceHandle(0),
+            method: final_method,
+            arguments: arguments.clone(),
+            result: StarstreamValue::default().into(),
+        },
+        Step::EnterMethod {
+            method: final_method,
+            arguments,
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+    ])
+}
+
+fn cases() -> [Case; 16] {
     let accepted = constructor_trace([0, 1, 2, 3]);
     let repeated_arguments = constructor_trace([7, 7, 7, 7]);
     let minimal_constructor = minimal_constructor_trace([0, 1, 2, 3]);
@@ -224,6 +308,30 @@ fn cases() -> [Case; 12] {
             trace: wrong_enter_method,
             expected: Outcome::Reject,
             rejected_step: Some(6),
+        },
+        Case {
+            name: "call to unregistered method",
+            trace: unregistered_method_call_trace(),
+            expected: Outcome::Reject,
+            rejected_step: Some(5),
+        },
+        Case {
+            name: "duplicate method registration is idempotent",
+            trace: duplicate_method_registration_trace(),
+            expected: Outcome::Accept,
+            rejected_step: None,
+        },
+        Case {
+            name: "method replacement after yield",
+            trace: method_reyield_trace(MethodHash([2, 1, 1, 1])),
+            expected: Outcome::Accept,
+            rejected_step: None,
+        },
+        Case {
+            name: "stale method after yield",
+            trace: method_reyield_trace(MethodHash([1, 1, 1, 1])),
+            expected: Outcome::Reject,
+            rejected_step: Some(10),
         },
         Case {
             name: "return with wrong result",
