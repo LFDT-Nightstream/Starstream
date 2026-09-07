@@ -21,7 +21,6 @@ fn constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::EnterConstructor {
             arguments: arguments.to_vec().into(),
         },
-        Step::YieldBegin,
         Step::RegisterMethod {
             method: MethodHash([1, 1, 1, 1]),
         },
@@ -105,7 +104,6 @@ fn method_call_result_trace(
         Step::EnterConstructor {
             arguments: vec![0, 1, 2, 3].into(),
         },
-        Step::YieldBegin,
         Step::RegisterMethod { method },
         Step::Return {
             result: StarstreamValue::default().into(),
@@ -141,13 +139,13 @@ fn unregistered_method_call_trace() -> Trace {
     let mut trace = method_call_trace(true);
     let unregistered_method = MethodHash([2, 1, 1, 1]);
 
-    let Step::CallMethod { method, .. } = &mut trace.0[5] else {
-        panic!("method-call trace has a call at step 5");
+    let Step::CallMethod { method, .. } = &mut trace.0[4] else {
+        panic!("method-call trace has a call at step 4");
     };
     *method = unregistered_method;
 
-    let Step::EnterMethod { method, .. } = &mut trace.0[6] else {
-        panic!("method-call trace enters the method at step 6");
+    let Step::EnterMethod { method, .. } = &mut trace.0[5] else {
+        panic!("method-call trace enters the method at step 5");
     };
     *method = unregistered_method;
 
@@ -157,7 +155,7 @@ fn unregistered_method_call_trace() -> Trace {
 fn duplicate_method_registration_trace() -> Trace {
     let mut trace = constructor_trace([0, 1, 2, 3]);
     trace.0.insert(
-        4,
+        3,
         Step::RegisterMethod {
             method: MethodHash([1, 1, 1, 1]),
         },
@@ -178,7 +176,6 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
         Step::EnterConstructor {
             arguments: vec![0, 1, 2, 3].into(),
         },
-        Step::YieldBegin,
         Step::RegisterMethod {
             method: first_method,
         },
@@ -281,7 +278,7 @@ fn accepts_method_replacement_after_yield() {
 #[test]
 fn rejects_enter_method_with_wrong_method() {
     let mut trace = method_call_trace(true);
-    trace.0[6] = Step::EnterMethod {
+    trace.0[5] = Step::EnterMethod {
         method: MethodHash([2, 1, 1, 1]),
         arguments: vec![1, 2, 3, 4].into(),
     };
@@ -291,7 +288,7 @@ fn rejects_enter_method_with_wrong_method() {
         Err(Error::Unsatisfied(Unsatisfied::Memory(
             MemoryCheckError::ReadMismatch {
                 memory: MemoryId::CallStackExpectedMethod,
-                row: 6,
+                row: 5,
                 ..
             }
         )))
@@ -307,7 +304,7 @@ fn rejects_call_to_unregistered_method() {
             &error,
             Error::Unsatisfied(Unsatisfied::Memory(MemoryCheckError::ZeroReadMismatch {
                 memory: MemoryId::EnabledMethodLogUtxo,
-                row: 5,
+                row: 4,
                 ..
             }))
         ),
@@ -324,7 +321,7 @@ fn rejects_stale_method_after_yield() {
             &error,
             Error::Unsatisfied(Unsatisfied::Memory(MemoryCheckError::ZeroReadMismatch {
                 memory: MemoryId::EnabledMethodLogUtxo,
-                row: 10,
+                row: 9,
                 ..
             }))
         ),
@@ -335,15 +332,15 @@ fn rejects_stale_method_after_yield() {
 #[test]
 fn rejects_call_through_unbound_resource_handle() {
     let mut trace = method_call_trace(true);
-    let Step::CallMethod { resource, .. } = &mut trace.0[5] else {
-        panic!("method-call trace has a call at step 5");
+    let Step::CallMethod { resource, .. } = &mut trace.0[4] else {
+        panic!("method-call trace has a call at step 4");
     };
     *resource = ResourceHandle(1);
 
     assert!(matches!(
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
-            step: 5,
+            step: 4,
             constraint: "call method constraints",
             ..
         }))
@@ -361,7 +358,7 @@ fn rejects_return_with_wrong_result() {
         Err(Error::Unsatisfied(Unsatisfied::Memory(
             MemoryCheckError::ReadMismatch {
                 memory: MemoryId::CallStackExpectedResult,
-                row: 7,
+                row: 6,
                 ..
             }
         )))
@@ -373,7 +370,7 @@ fn rejects_return_without_entering_method() {
     assert!(matches!(
         verify_sat(&method_call_trace(false)),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
-            step: 6,
+            step: 5,
             constraint: "return constraints",
             ..
         }))
