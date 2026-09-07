@@ -25,7 +25,6 @@ fn constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::EnterConstructor {
             arguments: arguments.to_vec().into(),
         },
-        Step::YieldBegin,
         Step::RegisterMethod {
             method: MethodHash([1, 1, 1, 1]),
         },
@@ -109,7 +108,6 @@ fn method_call_result_trace(
         Step::EnterConstructor {
             arguments: vec![0, 1, 2, 3].into(),
         },
-        Step::YieldBegin,
         Step::RegisterMethod { method },
         Step::Return {
             result: StarstreamValue::default().into(),
@@ -145,13 +143,13 @@ fn unregistered_method_call_trace() -> Trace {
     let mut trace = method_call_trace(true);
     let unregistered_method = MethodHash([2, 1, 1, 1]);
 
-    let Step::CallMethod { method, .. } = &mut trace.0[5] else {
-        panic!("method-call trace has a call at step 5");
+    let Step::CallMethod { method, .. } = &mut trace.0[4] else {
+        panic!("method-call trace has a call at step 4");
     };
     *method = unregistered_method;
 
-    let Step::EnterMethod { method, .. } = &mut trace.0[6] else {
-        panic!("method-call trace enters the method at step 6");
+    let Step::EnterMethod { method, .. } = &mut trace.0[5] else {
+        panic!("method-call trace enters the method at step 5");
     };
     *method = unregistered_method;
 
@@ -161,7 +159,7 @@ fn unregistered_method_call_trace() -> Trace {
 fn duplicate_method_registration_trace() -> Trace {
     let mut trace = constructor_trace([0, 1, 2, 3]);
     trace.0.insert(
-        4,
+        3,
         Step::RegisterMethod {
             method: MethodHash([1, 1, 1, 1]),
         },
@@ -182,7 +180,6 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
         Step::EnterConstructor {
             arguments: vec![0, 1, 2, 3].into(),
         },
-        Step::YieldBegin,
         Step::RegisterMethod {
             method: first_method,
         },
@@ -243,7 +240,7 @@ fn cases() -> [Case; 16] {
         },
     ]);
     let mut wrong_enter_method = method_call_trace(true);
-    wrong_enter_method.0[6] = Step::EnterMethod {
+    wrong_enter_method.0[5] = Step::EnterMethod {
         method: MethodHash([2, 1, 1, 1]),
         arguments: vec![1, 2, 3, 4].into(),
     };
@@ -307,13 +304,13 @@ fn cases() -> [Case; 16] {
             name: "enter method with wrong method",
             trace: wrong_enter_method,
             expected: Outcome::Reject,
-            rejected_step: Some(6),
+            rejected_step: Some(5),
         },
         Case {
             name: "call to unregistered method",
             trace: unregistered_method_call_trace(),
             expected: Outcome::Reject,
-            rejected_step: Some(5),
+            rejected_step: Some(4),
         },
         Case {
             name: "duplicate method registration is idempotent",
@@ -331,19 +328,19 @@ fn cases() -> [Case; 16] {
             name: "stale method after yield",
             trace: method_reyield_trace(MethodHash([1, 1, 1, 1])),
             expected: Outcome::Reject,
-            rejected_step: Some(10),
+            rejected_step: Some(9),
         },
         Case {
             name: "return with wrong result",
             trace: method_call_result_trace(true, vec![7, 8].into(), vec![7, 9].into()),
             expected: Outcome::Reject,
-            rejected_step: Some(7),
+            rejected_step: Some(6),
         },
         Case {
             name: "return without entering method",
             trace: method_call_trace(false),
             expected: Outcome::Reject,
-            rejected_step: Some(6),
+            rejected_step: Some(5),
         },
         Case {
             name: "yield from coordinator",
