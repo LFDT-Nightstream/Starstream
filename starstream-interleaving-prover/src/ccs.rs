@@ -8,17 +8,21 @@ pub(crate) use crate::ccs::layout::{COL_ONE, PUBLIC_INPUTS};
 use crate::{
     ccs::{
         layout::{
+            COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
             COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8,
             COL_CALL_STACK_MUL_STRIDE_4, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH,
             COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER, COL_CURR_BEFORE,
             COL_CURR_BEFORE_STRIDE_4, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE,
-            COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE, COL_PENDING_CTOR_HANDLE_AFTER,
-            COL_PENDING_CTOR_HANDLE_BEFORE, COL_PENDING_CTOR_HOLDER_AFTER,
-            COL_PENDING_CTOR_HOLDER_BEFORE, COL_PENDING_CTOR_PRESENT_AFTER,
-            COL_PENDING_CTOR_PRESENT_BEFORE, COL_RESOURCE_RESOLVER_ADDR_CID,
-            COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
-            COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD,
-            COL_SEL_NEW_UTXO, COL_SEL_RETURN, SELECTORS, range_check_layout,
+            COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
+            COL_ENABLED_METHOD_LOG_LEN_AFTER, COL_ENABLED_METHOD_LOG_LEN_BEFORE,
+            COL_ENABLED_METHOD_LOG_UTXO, COL_METHOD_INDEX, COL_METHOD_LOOKUP,
+            COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE,
+            COL_PENDING_CTOR_HANDLE_AFTER, COL_PENDING_CTOR_HANDLE_BEFORE,
+            COL_PENDING_CTOR_HOLDER_AFTER, COL_PENDING_CTOR_HOLDER_BEFORE,
+            COL_PENDING_CTOR_PRESENT_AFTER, COL_PENDING_CTOR_PRESENT_BEFORE,
+            COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE,
+            COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
+            COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO, COL_SEL_RETURN, SELECTORS, range_check_layout,
         },
         tags::{ConstraintScope, always, opcode_tag, opcode_tags},
     },
@@ -94,6 +98,32 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             [(COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE)],
             [(COL_RESOURCE_RESOLVER_WRITE, F::ONE)],
         );
+    });
+
+    b.with_tag(always("enabled method log transition"), |b| {
+        b.push_linear_zero([
+            (COL_METHOD_LOOKUP, F::ONE),
+            (Opcode::RegisterMethod.selector(), -F::ONE),
+            (Opcode::CallMethod.selector(), -F::ONE),
+        ]);
+        b.push_linear_zero([
+            (COL_ENABLED_METHOD_LOG_LEN_AFTER, F::ONE),
+            (COL_ENABLED_METHOD_LOG_LEN_BEFORE, -F::ONE),
+            (Opcode::RegisterMethod.selector(), -F::ONE),
+        ]);
+    });
+
+    b.with_tag(always("method table lookup addresses"), |b| {
+        for (offset, address) in COL_METHOD_TABLE_ADDR.iter().enumerate() {
+            b.push_row(
+                [(COL_METHOD_LOOKUP, F::ONE)],
+                [
+                    (COL_METHOD_INDEX, F::new(8)),
+                    (COL_ONE, F::new(offset as u64)),
+                ],
+                [(*address, F::ONE)],
+            );
+        }
     });
 
     // TODO(perf): Consider gating these call-stack address derivations and
@@ -421,6 +451,24 @@ fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         COL_RESOURCE_RESOLVER_VALUE,
         COL_CALL_TARGET,
     );
+    require_equal(
+        b,
+        Opcode::CallMethod,
+        COL_ABI_GENERATION_ADDR,
+        COL_CALL_TARGET,
+    );
+    require_equal(
+        b,
+        Opcode::CallMethod,
+        COL_ENABLED_METHOD_LOG_UTXO,
+        COL_CALL_TARGET,
+    );
+    require_equal(
+        b,
+        Opcode::CallMethod,
+        COL_ENABLED_METHOD_LOG_GENERATION,
+        COL_ABI_GENERATION_BEFORE,
+    );
     preserve_pending_constructor_key(b, Opcode::CallMethod);
 }
 
@@ -480,6 +528,30 @@ fn visit_register_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::RegisterMethod,
         crate::ivc_state::CurrPhase::Yield,
     );
+    require_equal(
+        b,
+        Opcode::RegisterMethod,
+        COL_ABI_GENERATION_ADDR,
+        COL_CURR_BEFORE,
+    );
+    require_equal(
+        b,
+        Opcode::RegisterMethod,
+        COL_ENABLED_METHOD_LOG_ADDR,
+        COL_ENABLED_METHOD_LOG_LEN_BEFORE,
+    );
+    require_equal(
+        b,
+        Opcode::RegisterMethod,
+        COL_ENABLED_METHOD_LOG_UTXO,
+        COL_CURR_BEFORE,
+    );
+    require_equal(
+        b,
+        Opcode::RegisterMethod,
+        COL_ENABLED_METHOD_LOG_GENERATION,
+        COL_ABI_GENERATION_BEFORE,
+    );
     preserve_pending_constructor_key(b, Opcode::RegisterMethod);
 }
 
@@ -491,6 +563,20 @@ fn visit_yield_begin(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         crate::ivc_state::CurrPhase::Executing,
     );
     require_phase_after(b, Opcode::YieldBegin, crate::ivc_state::CurrPhase::Yield);
+    require_equal(
+        b,
+        Opcode::YieldBegin,
+        COL_ABI_GENERATION_ADDR,
+        COL_CURR_BEFORE,
+    );
+    b.push_gated_linear_zero(
+        Opcode::YieldBegin.selector(),
+        [
+            (COL_ABI_GENERATION_AFTER, F::ONE),
+            (COL_ABI_GENERATION_BEFORE, -F::ONE),
+            (COL_ONE, -F::ONE),
+        ],
+    );
     preserve_pending_constructor_key(b, Opcode::YieldBegin);
 }
 

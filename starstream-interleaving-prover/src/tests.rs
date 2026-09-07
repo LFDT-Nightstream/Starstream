@@ -137,6 +137,90 @@ fn method_call_result_trace(
     Trace::new(steps)
 }
 
+fn unregistered_method_call_trace() -> Trace {
+    let mut trace = method_call_trace(true);
+    let unregistered_method = MethodHash([2, 1, 1, 1]);
+
+    let Step::CallMethod { method, .. } = &mut trace.0[5] else {
+        panic!("method-call trace has a call at step 5");
+    };
+    *method = unregistered_method;
+
+    let Step::EnterMethod { method, .. } = &mut trace.0[6] else {
+        panic!("method-call trace enters the method at step 6");
+    };
+    *method = unregistered_method;
+
+    trace
+}
+
+fn duplicate_method_registration_trace() -> Trace {
+    let mut trace = constructor_trace([0, 1, 2, 3]);
+    trace.0.insert(
+        4,
+        Step::RegisterMethod {
+            method: MethodHash([1, 1, 1, 1]),
+        },
+    );
+    trace
+}
+
+fn method_reyield_trace(final_method: MethodHash) -> Trace {
+    let first_method = MethodHash([1, 1, 1, 1]);
+    let second_method = MethodHash([2, 1, 1, 1]);
+    let arguments = StarstreamValue::from(vec![1, 2, 3, 4]);
+
+    Trace::new([
+        Step::NewUtxo {
+            arguments: vec![0, 1, 2, 3].into(),
+            resource: ResourceHandle(0).into(),
+        },
+        Step::EnterConstructor {
+            arguments: vec![0, 1, 2, 3].into(),
+        },
+        Step::YieldBegin,
+        Step::RegisterMethod {
+            method: first_method,
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+        Step::CallMethod {
+            resource: ResourceHandle(0),
+            method: first_method,
+            arguments: arguments.clone(),
+            result: StarstreamValue::default().into(),
+        },
+        Step::EnterMethod {
+            method: first_method,
+            arguments: arguments.clone(),
+        },
+        Step::YieldBegin,
+        Step::RegisterMethod {
+            method: second_method,
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+        Step::CallMethod {
+            resource: ResourceHandle(0),
+            method: final_method,
+            arguments: arguments.clone(),
+            result: StarstreamValue::default().into(),
+        },
+        Step::EnterMethod {
+            method: final_method,
+            arguments,
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+    ])
+}
+
 #[test]
 fn accepts_utxo_constructor() {
     verify_sat(&constructor_trace([0, 1, 2, 3])).unwrap();
@@ -185,6 +269,16 @@ fn accepts_method_call_with_expected_result() {
 }
 
 #[test]
+fn accepts_duplicate_method_registration() {
+    verify_sat(&duplicate_method_registration_trace()).unwrap();
+}
+
+#[test]
+fn accepts_method_replacement_after_yield() {
+    verify_sat(&method_reyield_trace(MethodHash([2, 1, 1, 1]))).unwrap();
+}
+
+#[test]
 fn rejects_enter_method_with_wrong_method() {
     let mut trace = method_call_trace(true);
     trace.0[6] = Step::EnterMethod {
@@ -202,6 +296,40 @@ fn rejects_enter_method_with_wrong_method() {
             }
         )))
     ));
+}
+
+#[test]
+fn rejects_call_to_unregistered_method() {
+    let error = verify_sat(&unregistered_method_call_trace()).unwrap_err();
+
+    assert!(
+        matches!(
+            &error,
+            Error::Unsatisfied(Unsatisfied::Memory(MemoryCheckError::ZeroReadMismatch {
+                memory: MemoryId::EnabledMethodLogUtxo,
+                row: 5,
+                ..
+            }))
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn rejects_stale_method_after_yield() {
+    let error = verify_sat(&method_reyield_trace(MethodHash([1, 1, 1, 1]))).unwrap_err();
+
+    assert!(
+        matches!(
+            &error,
+            Error::Unsatisfied(Unsatisfied::Memory(MemoryCheckError::ZeroReadMismatch {
+                memory: MemoryId::EnabledMethodLogUtxo,
+                row: 10,
+                ..
+            }))
+        ),
+        "{error:?}"
+    );
 }
 
 #[test]
@@ -315,13 +443,13 @@ fn rejects_constructor_with_mismatched_arguments() {
 #[test]
 fn rejects_tampered_opcode_selector() {
     let trace = constructor_trace([0, 1, 2, 3]);
-    let mut rows = build_witness_rows(&trace);
-    verify_witness_rows(&rows).unwrap();
+    let (mut rows, preload) = build_witness_rows(&trace);
+    verify_witness_rows(&rows, &preload).unwrap();
 
     rows[0][COL_SEL_ENTER_CONSTRUCTOR] = F::ONE;
 
     assert!(matches!(
-        verify_witness_rows(&rows),
+        verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 0,
             constraint: "opcode selectors are one-hot",
@@ -333,13 +461,13 @@ fn rejects_tampered_opcode_selector() {
 #[test]
 fn rejects_out_of_range_witness_column() {
     let trace = constructor_trace([0, 1, 2, 3]);
-    let mut rows = build_witness_rows(&trace);
+    let (mut rows, preload) = build_witness_rows(&trace);
 
     rows[0][COL_UTXO_LIFECYCLE_ADDR] = F::new(1 << 32);
     range_check_layout().assign_bits(&mut rows[0]).unwrap();
 
     assert!(matches!(
-        verify_witness_rows(&rows),
+        verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 0,
             constraint: "COL_UTXO_LIFECYCLE_ADDR",
@@ -351,13 +479,13 @@ fn rejects_out_of_range_witness_column() {
 #[test]
 fn rejects_tampered_memory_value() {
     let trace = constructor_trace([0, 1, 2, 3]);
-    let mut rows = build_witness_rows(&trace);
-    verify_witness_rows(&rows).unwrap();
+    let (mut rows, preload) = build_witness_rows(&trace);
+    verify_witness_rows(&rows, &preload).unwrap();
 
     rows[1][COL_CALL_STACK_EXPECTED_ARG_VALUE[0]] += F::ONE;
     range_check_layout().assign_bits(&mut rows[1]).unwrap();
 
-    let error = verify_witness_rows(&rows).unwrap_err();
+    let error = verify_witness_rows(&rows, &preload).unwrap_err();
     assert!(
         matches!(
             &error,
@@ -374,8 +502,8 @@ fn rejects_tampered_memory_value() {
 #[test]
 fn rejects_tampered_continuity_value() {
     let trace = constructor_trace([0, 1, 2, 3]);
-    let mut rows = build_witness_rows(&trace);
-    verify_witness_rows(&rows).unwrap();
+    let (mut rows, preload) = build_witness_rows(&trace);
+    verify_witness_rows(&rows, &preload).unwrap();
 
     for row in &mut rows[1..] {
         row[COL_NEXT_UTXO_ID_BEFORE] += F::ONE;
@@ -384,7 +512,7 @@ fn rejects_tampered_continuity_value() {
     }
 
     assert!(matches!(
-        verify_witness_rows(&rows),
+        verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Continuity(
             ContinuityCheckError::Mismatch {
                 boundary: 0,

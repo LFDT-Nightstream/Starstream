@@ -27,6 +27,15 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
     wit[COL_CALL_TARGET] = input.call_target.field();
     wit[COL_NEXT_UTXO_ID_BEFORE] = F::new(u64::from(input.next_utxo_id_before));
     wit[COL_NEXT_UTXO_ID_AFTER] = F::new(u64::from(input.next_utxo_id_after));
+    wit[COL_ENABLED_METHOD_LOG_LEN_BEFORE] = F::new(u64::from(input.enabled_method_log_len_before));
+    wit[COL_ENABLED_METHOD_LOG_LEN_AFTER] = F::new(u64::from(input.enabled_method_log_len_after));
+    wit[COL_METHOD_INDEX] = F::new(u64::from(input.method_index));
+    wit[COL_ABI_GENERATION_ADDR] = input.abi_generation_address.field();
+    wit[COL_ABI_GENERATION_BEFORE] = F::new(u64::from(input.abi_generation_before));
+    wit[COL_ABI_GENERATION_AFTER] = F::new(u64::from(input.abi_generation_after));
+    wit[COL_ENABLED_METHOD_LOG_ADDR] = F::new(u64::from(input.enabled_method_log_address));
+    wit[COL_ENABLED_METHOD_LOG_UTXO] = input.enabled_method_log_utxo.field();
+    wit[COL_ENABLED_METHOD_LOG_GENERATION] = F::new(u64::from(input.enabled_method_log_generation));
 
     assign_pending_constructor_key(
         &mut wit,
@@ -52,6 +61,16 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
     } else {
         F::ZERO
     };
+
+    if matches!(input.opcode, Opcode::RegisterMethod | Opcode::CallMethod) {
+        wit[COL_METHOD_LOOKUP] = F::ONE;
+    }
+
+    if wit[COL_METHOD_LOOKUP] == F::ONE {
+        for (offset, address) in COL_METHOD_TABLE_ADDR.iter().enumerate() {
+            wit[*address] = F::new(u64::from(input.method_index) * 8 + offset as u64);
+        }
+    }
 
     if input.opcode.pushes_to_call_stack() {
         wit[COL_CALL_STACK_PUSH] = F::ONE;
@@ -99,11 +118,8 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         }
     }
 
-    if let Some(expected_method) = &input.expected_method {
-        for (col, value) in COL_CALL_STACK_EXPECTED_METHOD_VALUE
-            .iter()
-            .zip(expected_method)
-        {
+    if let Some(method_hash) = &input.method_hash {
+        for (col, value) in COL_METHOD_HASH_VALUE.iter().zip(method_hash) {
             wit[*col] = *value;
         }
     }

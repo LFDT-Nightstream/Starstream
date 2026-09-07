@@ -33,19 +33,21 @@ define_column_region! {
         // using 8 limbs for exact sha256 repr for now (in 32-bit limbs), we
         // could improve this, but the memory argument as currently implemented
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
-        COL_CALL_STACK_EXPECTED_METHOD_VALUE: [U32; 8] => "call_stack[COL_CALL_STACK_EXPECTED_ADDR[i]].expected_method",
+        COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: call-stack expected-method value and method-table ROM lookup value",
+        COL_METHOD_INDEX: (Bits(29)) => "trace-local compact index for the method hash",
+        COL_METHOD_LOOKUP: Boolean => "true when RegisterMethod or CallMethod resolves a method hash",
+        COL_METHOD_TABLE_ADDR: [U32; 8] => "method_index * 8 + hash limb offset",
         COL_CALL_TARGET: U32 => "packed coroutine id that gets control in the next step",
         COL_UTXO_LIFECYCLE_ADDR: U32 => "key for lifecycle read/write (can be target or curr)",
         COL_UTXO_LIFECYCLE_VALUE: Byte => "value for lifecycle read/write (can be target or curr)",
         COL_UTXO_LIFECYCLE_WRITE: Boolean => "true (1) if the current opcode writes to the lifecycle map (utxo_id -> live|dead)",
         COL_UTXO_LIFECYCLE_READ: Boolean => "true (1) if the current opcode reads the lifecycle map (utxo_id -> live|dead)",
-
-
-        // maybe unify with COL_UTXO_LIFECYCLE_ADDR? check if possible
-        COL_ENABLED_METHOD_ADDR: U32 => "key for the enabled method map (can be target or curr)",
-        COL_ENABLED_METHOD_VALUE: Byte => "value for lifecycle read/write (can be target or curr)",
-        COL_ENABLED_METHOD_WRITE: Boolean => "true (1) if the current opcode writes to the enabled_method map (utxo_id -> Set[method])",
-        COL_ENABLED_METHOD_READ: Boolean => "true (1) if the current opcode reads to the the enabled_method map (utxo_id -> Set[method])",
+        COL_ENABLED_METHOD_LOG_ADDR: U32 => "append-log entry written by RegisterMethod or selected by CallMethod",
+        COL_ENABLED_METHOD_LOG_UTXO: U32 => "packed UTXO id stored in the enabled-method log entry",
+        COL_ENABLED_METHOD_LOG_GENERATION: U32 => "ABI generation stored in the enabled-method log entry",
+        COL_ABI_GENERATION_ADDR: U32 => "packed UTXO id whose current ABI generation is accessed",
+        COL_ABI_GENERATION_BEFORE: U32 => "current ABI generation read from memory",
+        COL_ABI_GENERATION_AFTER: U32 => "next ABI generation written by YieldBegin",
 
         COL_RESOURCE_RESOLVER_ADDR_CID: U32 => "packed holder coroutine id in the resource key",
         COL_RESOURCE_RESOLVER_ADDR_HANDLE: U32 => "resource handle in the resource key",
@@ -73,6 +75,8 @@ define_column_region! {
         COL_CALL_SP_AFTER: U32 => "call stack pointer after",
         COL_NEXT_UTXO_ID_BEFORE: U32 => "utxo id allocator",
         COL_NEXT_UTXO_ID_AFTER: U32 => "utxo id allocator",
+        COL_ENABLED_METHOD_LOG_LEN_BEFORE: U32 => "next free enabled-method append-log entry",
+        COL_ENABLED_METHOD_LOG_LEN_AFTER: U32 => "next free enabled-method append-log entry after this step",
         COL_PENDING_CTOR_PRESENT_BEFORE: Boolean => "whether a constructor resource key is pending",
         COL_PENDING_CTOR_PRESENT_AFTER: Boolean => "whether a constructor resource key remains pending",
         COL_PENDING_CTOR_HOLDER_BEFORE: U32 => "packed holder coroutine id in the pending constructor key",
