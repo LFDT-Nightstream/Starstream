@@ -488,7 +488,6 @@ mod tests {
             EnterConstructor {
                 arguments: vec![0, 1, 2, 3].into(),
             },
-            YieldBegin,
             RegisterMethod {
                 method: MethodHash([1, 1, 1, 1]),
             },
