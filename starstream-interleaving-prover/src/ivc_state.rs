@@ -98,6 +98,14 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
             links: vec![link(COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE)],
         },
         ContinuityGroup {
+            name: "enabled_method_log_length_continuity",
+            role: "the next free enabled-method log entry must carry across adjacent rows",
+            links: vec![link(
+                COL_ENABLED_METHOD_LOG_LEN_AFTER,
+                COL_ENABLED_METHOD_LOG_LEN_BEFORE,
+            )],
+        },
+        ContinuityGroup {
             name: "pending_constructor_key_continuity",
             role: "the pending constructor resource key must carry across adjacent rows",
             links: vec![

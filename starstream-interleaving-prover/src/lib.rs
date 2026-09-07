@@ -66,8 +66,8 @@ pub enum Unsatisfied {
 /// This is the pre-proof-system validation surface. Once proof construction is
 /// wired in, it should remain useful for diagnostics and tests.
 pub fn verify_sat(trace: &Trace) -> Result<(), Error> {
-    let rows = build_witness_rows(trace);
-    verify_witness_rows(&rows)?;
+    let (rows, preload) = build_witness_rows(trace);
+    verify_witness_rows(&rows, &preload)?;
     verify_execution_statement(&rows)
 }
 
@@ -108,14 +108,18 @@ fn verify_execution_statement(rows: &[Vec<F>]) -> Result<(), Error> {
     Ok(())
 }
 
-fn build_witness_rows(trace: &Trace) -> Vec<Vec<F>> {
-    step::normalize(trace)
-        .iter()
-        .map(build_witness_vector)
-        .collect()
+fn build_witness_rows(trace: &Trace) -> (Vec<Vec<F>>, neo_application::MemoryPreload<MemoryId>) {
+    let normalized = step::normalize(trace);
+    let preload = memory::preload_tables(&normalized.method_table);
+    let rows = normalized.steps.iter().map(build_witness_vector).collect();
+
+    (rows, preload)
 }
 
-fn verify_witness_rows(rows: &[Vec<F>]) -> Result<(), Error> {
+fn verify_witness_rows(
+    rows: &[Vec<F>],
+    preload: &neo_application::MemoryPreload<MemoryId>,
+) -> Result<(), Error> {
     let relation = build_relation()?;
     let memory = crate::memory::build_memory_layout();
     let continuity =
@@ -141,9 +145,8 @@ fn verify_witness_rows(rows: &[Vec<F>]) -> Result<(), Error> {
     }
 
     let policy = crate::memory::sanity_checking_policy(&memory);
-    let preload = crate::memory::preload_tables();
 
-    check_memory_rows(&memory, relation.columns(), rows, &preload, &policy)
+    check_memory_rows(&memory, relation.columns(), rows, preload, &policy)
         .map_err(Unsatisfied::Memory)?;
 
     match check_continuity_rows(&continuity, rows) {
