@@ -595,7 +595,7 @@ fn visit_enter_constructor(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_phase_after(
         b,
         Opcode::EnterConstructor,
-        crate::ivc_state::CurrPhase::Executing,
+        crate::ivc_state::CurrPhase::Yield,
     );
     b.push_gated_linear_zero(
         Opcode::EnterConstructor.selector(),

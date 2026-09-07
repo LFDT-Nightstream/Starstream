@@ -68,7 +68,8 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let curr_phase_after = match opcode {
             Opcode::NewUtxo => CurrPhase::CtorEnterPending,
             Opcode::CallMethod => CurrPhase::MethodEnterPending,
-            Opcode::EnterConstructor | Opcode::EnterMethod | Opcode::Return => CurrPhase::Executing,
+            Opcode::EnterConstructor => CurrPhase::Yield,
+            Opcode::EnterMethod | Opcode::Return => CurrPhase::Executing,
             Opcode::YieldBegin => CurrPhase::Yield,
             Opcode::RegisterMethod => curr_phase_before,
         };
