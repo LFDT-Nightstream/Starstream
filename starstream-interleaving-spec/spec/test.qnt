@@ -43,6 +43,22 @@ module replay_trace {
     .then(return({ value: List() }))
     .then(execution_complete)
 
+  // Returning from a method without `resume` preserves the current ABI.
+  run test_method_call_without_resume_preserves_abi =
+    init
+    .then(new_utxo(List(42), { value: 0 }))
+    .then(enter_constructor(List(42)))
+    .then(register_method(method))
+    .then(return({ value: List() }))
+    .then(call_method(0, method, List(42), {value: List()}))
+    .then(enter_method(method, List(42)))
+    .then(return({ value: List() }))
+    .then(call_method(0, method, List(42), {value: List()}))
+    .then(enter_method(method, List(42)))
+    .then(return({ value: List() }))
+    .then(return({ value: List() }))
+    .then(execution_complete)
+
   run test_enter_method_twice_fails =
     init
     .then(new_utxo(List(42), { value: 0 }))
