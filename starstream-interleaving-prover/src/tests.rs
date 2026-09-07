@@ -135,6 +135,31 @@ fn method_call_result_trace(
     Trace::new(steps)
 }
 
+fn repeated_method_call_without_resume_trace() -> Trace {
+    let method = MethodHash([1, 1, 1, 1]);
+    let arguments = StarstreamValue::from(vec![1, 2, 3, 4]);
+    let mut trace = method_call_trace(true);
+    let final_coordinator_return = trace.0.len() - 1;
+
+    trace.0.splice(
+        final_coordinator_return..final_coordinator_return,
+        [
+            Step::CallMethod {
+                resource: ResourceHandle(0),
+                method,
+                arguments: arguments.clone(),
+                result: StarstreamValue::default().into(),
+            },
+            Step::EnterMethod { method, arguments },
+            Step::Return {
+                result: StarstreamValue::default().into(),
+            },
+        ],
+    );
+
+    trace
+}
+
 fn unregistered_method_call_trace() -> Trace {
     let mut trace = method_call_trace(true);
     let unregistered_method = MethodHash([2, 1, 1, 1]);
@@ -263,6 +288,11 @@ fn accepts_method_call_with_expected_result() {
         vec![7, 8].into(),
     ))
     .unwrap();
+}
+
+#[test]
+fn accepts_repeated_method_call_without_resume() {
+    verify_sat(&repeated_method_call_without_resume_trace()).unwrap();
 }
 
 #[test]
