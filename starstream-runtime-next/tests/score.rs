@@ -5,17 +5,19 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use starstream_runtime_next::{
     Contract, CoordinationScriptExport, Host, MethodExport, StorageExport, Utxo, UtxoExport,
-    UtxoMainExport,
+    UtxoMainExport, get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span, instrument};
-use wasmtime::component::{Resource, ResourceTable, Val};
+use wasmtime::component::{Component, Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{Store, bail};
 
-use crate::common::{Ctx, Event, NoopContractLookup, UtxoCtx, compile_contract, method_hash};
+use crate::common::{
+    Ctx, ENGINE, Event, NoopContractLookup, UtxoCtx, compile_contract, method_hash,
+};
 
-static CONTRACT: LazyLock<Vec<u8>> =
-    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
+static CONTRACT: LazyLock<Component> =
+    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")).unwrap());
 
 /// The methods of the `Score` ABI, in declaration (and `yield`) order.
 static METHODS: LazyLock<[(u64, u64, u64, u64); 4]> =
@@ -365,16 +367,15 @@ async fn assert_call_finish(
 
 #[test_log::test(tokio::test)]
 async fn score_main_new() -> wasmtime::Result<()> {
-    let engine = wasmtime::Engine::default();
-    let contract = Contract::new(&engine, NoopContractLookup, CONTRACT.as_slice())
-        .context("failed to create contract")?;
+    let contract =
+        Contract::new(&CONTRACT, NoopContractLookup).context("failed to create contract")?;
     let ty = assert_progress_utxo(&contract)?;
 
     let mut table = ResourceTable::default();
     let utxo_cx = Arc::new(Mutex::new(UtxoCtx::default()));
     let utxo_cx_res = table.push(Arc::clone(&utxo_cx))?;
     let mut store = wasmtime::Store::new(
-        &engine,
+        &ENGINE,
         Ctx {
             table,
             events: Vec::default(),
@@ -549,13 +550,16 @@ async fn score_main_new() -> wasmtime::Result<()> {
 
 #[test_log::test(tokio::test)]
 async fn score_script_example() -> wasmtime::Result<()> {
-    let engine = wasmtime::Engine::default();
-    let contract = Contract::new(&engine, NoopContractLookup, CONTRACT.as_slice())
-        .context("failed to create contract")?;
+    let ty = CONTRACT.component_type();
+    assert!(get_coordination_script_instance_import(&ENGINE, &ty).is_none());
+    assert!(utxo_imports(&ENGINE, &ty).next().is_none());
+
+    let contract =
+        Contract::new(&CONTRACT, NoopContractLookup).context("failed to create contract")?;
     let ty = assert_progress_utxo(&contract)?;
 
     let mut store = wasmtime::Store::new(
-        &engine,
+        &ENGINE,
         Ctx {
             table: ResourceTable::default(),
             events: Vec::default(),

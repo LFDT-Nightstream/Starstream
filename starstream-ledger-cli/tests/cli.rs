@@ -1,43 +1,48 @@
 use core::net::Ipv6Addr;
 
-use std::process::Output;
+use std::ffi::OsStr;
+use std::process::{Output, Stdio};
 use std::sync::{Arc, LazyLock};
-use std::{ffi::OsStr, process::Stdio};
 
-use anyhow::Context as _;
+use anyhow::{Context as _, anyhow, ensure};
 use ed25519_dalek::SigningKey;
+use starstream_compiler::typecheck::TypecheckSuccess;
+use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
 use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::server::Ledger;
+use starstream_to_wasm::CompileResult;
 use tempfile::NamedTempFile;
 use tokio::fs;
 use tokio::net::TcpListener;
 use tokio::process::Command;
+use wit_component::ComponentEncoder;
 
-fn compile_contract(source: &str) -> Vec<u8> {
-    let (program, errors) = starstream_compiler::parse_program(source).into_output_errors();
-    assert!(errors.is_empty(), "parsing failed: {errors:?}");
-    let program = program.expect("parser produced no program");
-    let typed = starstream_compiler::typecheck_program(&program, Default::default())
-        .unwrap_or_else(|failure| panic!("typechecking failed: {:?}", failure.errors));
-    let result = starstream_to_wasm::compile(&typed.program);
-    assert!(
-        result.errors.is_empty(),
-        "compiling failed: {:?}",
-        result.errors
-    );
-    let wasm = result.wasm.expect("compiling produced no Wasm");
-    wit_component::ComponentEncoder::default()
+fn compile_contract(source: &str) -> anyhow::Result<Vec<u8>> {
+    let (program, errs) = parse_program(source).into_output_errors();
+    ensure!(errs.is_empty(), "failed to parse program: {errs:?}");
+    let program = program.context("parser did not produce a program")?;
+
+    let TypecheckSuccess { program, .. } = typecheck_program(&program, TypecheckOptions::default())
+        .map_err(|TypecheckFailure { errors, .. }| {
+            anyhow!("failed to typecheck program: {:?}", errors)
+        })?;
+
+    let CompileResult { errors, wasm, .. } = starstream_to_wasm::compile(&program);
+    ensure!(errors.is_empty(), "failed to compile program: {errors:?}");
+
+    let wasm = wasm.context("compilation did not produce Wasm")?;
+    ComponentEncoder::default()
         .validate(true)
         .module(&wasm)
-        .expect("failed to set core component module")
+        .context("failed to set core component module")?
         .encode()
-        .expect("failed to encode a component")
+        .context("failed to encode a component")
 }
 
 const NETWORK: &str = "starstream:test";
 
 static SCORE_WASM: LazyLock<Vec<u8>> =
-    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
+    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")).unwrap());
 
 static ADMIN: LazyLock<SigningKey> = LazyLock::new(|| SigningKey::from_bytes(&[0x42; 32]));
 

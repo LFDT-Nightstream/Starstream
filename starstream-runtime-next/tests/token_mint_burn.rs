@@ -3,18 +3,22 @@ pub mod common;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-use starstream_runtime_next::{Contract, Host, StorageExport, Token, TokenFunctionExport};
+use starstream_runtime_next::{
+    Contract, Host, StorageExport, Token, TokenFunctionExport,
+    get_coordination_script_instance_import, utxo_imports,
+};
 use tracing::{Instrument as _, info_span};
-use wasmtime::component::{ResourceTable, Val};
+use wasmtime::component::{Component, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{Store, bail};
 
-use crate::common::{Ctx, NoopContractLookup, compile_contract};
+use crate::common::{Ctx, ENGINE, NoopContractLookup, compile_contract};
 
-static CONTRACT: LazyLock<Vec<u8>> = LazyLock::new(|| {
+static CONTRACT: LazyLock<Component> = LazyLock::new(|| {
     compile_contract(include_str!(
         "../../starstream-to-wasm/tests/inputs/token_mint_burn.star"
     ))
+    .unwrap()
 });
 
 struct MyToken {
@@ -93,13 +97,16 @@ async fn get_my_token_storage(
 
 #[test_log::test(tokio::test)]
 async fn token_mint_burn() -> wasmtime::Result<()> {
-    let engine = wasmtime::Engine::default();
-    let contract = Contract::new(&engine, NoopContractLookup, CONTRACT.as_slice())
-        .context("failed to create contract")?;
+    let ty = CONTRACT.component_type();
+    assert!(get_coordination_script_instance_import(&ENGINE, &ty).is_none());
+    assert!(utxo_imports(&ENGINE, &ty).next().is_none());
+
+    let contract =
+        Contract::new(&CONTRACT, NoopContractLookup).context("failed to create contract")?;
     let ty = assert_my_token(&contract)?;
 
     let mut store = Store::new(
-        &engine,
+        &ENGINE,
         Ctx {
             table: ResourceTable::default(),
             events: Vec::default(),

@@ -3934,6 +3934,7 @@ dependencies = [
  "tracing",
  "wasmtime",
  "wasmtime-wizer",
+ "wit-component 0.254.0",
 ]
 
 [[package]]
@@ -3987,7 +3988,6 @@ dependencies = [
  "test-log",
  "tokio",
  "tracing",
- "wasmparser 0.254.0",
  "wasmtime",
  "wit-component 0.254.0",
 ]

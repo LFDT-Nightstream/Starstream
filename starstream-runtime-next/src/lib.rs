@@ -1,4 +1,5 @@
-use std::pin::Pin;
+use core::pin::Pin;
+
 use std::sync::{Arc, OnceLock};
 
 use tracing::{debug, instrument};
@@ -7,7 +8,7 @@ use wasmtime::component::{
     LinkerInstance, Resource, ResourceAny, ResourceTable, ResourceType, Type, Val, types,
 };
 use wasmtime::error::Context as _;
-use wasmtime::{AsContextMut, Engine, StoreContextMut, bail, ensure};
+use wasmtime::{AsContextMut, Engine, StoreContextMut, bail, ensure, format_err};
 
 pub mod bindings {
     // NOTE: `starstream:std/{builtin,utxo-context}` bindings are hand-written
@@ -24,6 +25,103 @@ pub mod bindings {
             default: tracing | trappable,
         }
     });
+}
+
+#[derive(Clone, Debug)]
+pub struct UtxoImport<'a> {
+    pub name: &'a str,
+    pub external_id: &'a str,
+    pub ty: types::ComponentInstance,
+}
+
+/// Iterate over UTXOs imported by this [Contract].
+#[instrument(level = "trace", skip_all)]
+pub fn utxo_imports<'a>(
+    engine: &'a Engine,
+    ty: &'a types::Component,
+) -> impl Iterator<Item = wasmtime::Result<UtxoImport<'a>>> {
+    ty.imports(engine).filter_map(
+        |(
+            name,
+            types::ComponentExtern {
+                ty, external_id, ..
+            },
+        )| {
+            let types::ComponentItem::ComponentInstance(ty) = ty else {
+                return None;
+            };
+            let ("starstream:utxo", name) = name.split_once('/')? else {
+                return None;
+            };
+            if let Some(external_id) = external_id {
+                Some(Ok(UtxoImport {
+                    name,
+                    external_id,
+                    ty,
+                }))
+            } else {
+                Some(Err(format_err!(
+                    "`external-id` missing for UTXO import `{name}`"
+                )))
+            }
+        },
+    )
+}
+
+#[derive(Clone, Debug)]
+pub struct CoordinationScriptImport<'a> {
+    pub name: &'a str,
+    pub external_id: &'a str,
+    pub ty: types::ComponentFunc,
+}
+
+pub struct CoordinationScriptInstanceImport<'a> {
+    engine: &'a Engine,
+    ty: types::ComponentInstance,
+}
+
+impl<'a> CoordinationScriptInstanceImport<'a> {
+    /// Iterate over coordination scripts exported by this [ContractInstanceImport].
+    pub fn coordination_scripts<'b: 'a>(
+        &'b self,
+    ) -> impl Iterator<Item = wasmtime::Result<CoordinationScriptImport<'b>>> {
+        self.ty.exports(self.engine).filter_map(
+            |(
+                name,
+                types::ComponentExtern {
+                    ty, external_id, ..
+                },
+            )| {
+                let types::ComponentItem::ComponentFunc(ty) = ty else {
+                    return None;
+                };
+                if let Some(external_id) = external_id {
+                    Some(Ok(CoordinationScriptImport {
+                        name,
+                        external_id,
+                        ty,
+                    }))
+                } else {
+                    Some(Err(format_err!(
+                        "`external-id` missing for coordination script import `{name}`"
+                    )))
+                }
+            },
+        )
+    }
+}
+
+/// Lookup a `starstream:contract` instance import.
+#[instrument(level = "trace", skip_all)]
+pub fn get_coordination_script_instance_import<'a>(
+    engine: &'a Engine,
+    ty: &types::Component,
+) -> Option<CoordinationScriptInstanceImport<'a>> {
+    let types::ComponentExtern { ty, .. } = ty.get_import(engine, "starstream:contract/scripts")?;
+    let types::ComponentItem::ComponentInstance(ty) = ty else {
+        return None;
+    };
+    Some(CoordinationScriptInstanceImport { engine, ty })
 }
 
 pub trait ContractLookup<T> {
@@ -82,28 +180,6 @@ pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'stati
         name: &Arc<str>,
         params: &[Val],
     ) -> wasmtime::Result<()>;
-}
-
-pub fn componentize(wasm: impl AsRef<[u8]>) -> anyhow::Result<Vec<u8>> {
-    use anyhow::Context as _;
-
-    wit_component::ComponentEncoder::default()
-        .validate(true)
-        .module(wasm.as_ref())
-        .context("failed to set core component module")?
-        .encode()
-        .context("failed to encode a component")
-}
-
-#[instrument(level = "trace", skip_all)]
-fn load_component(engine: &Engine, wasm: impl AsRef<[u8]>) -> wasmtime::Result<Component> {
-    let wasm = wasm.as_ref();
-    if wasmparser::Parser::is_core_wasm(wasm) {
-        let wasm = componentize(wasm).map_err(wasmtime::Error::from_anyhow)?;
-        Component::from_binary(engine, &wasm)
-    } else {
-        Component::from_binary(engine, wasm)
-    }
 }
 
 enum ContractImportTarget<'a, T: 'static> {
@@ -816,33 +892,25 @@ fn lookup_get_storage_export(
 impl<T: Host> Contract<T> {
     /// Compile and pre-instantiate a Starstream [Contract]
     #[instrument(level = "trace", skip_all)]
-    pub fn new(
-        engine: &Engine,
-        contracts: impl ContractLookup<T>,
-        wasm: impl AsRef<[u8]>,
-    ) -> wasmtime::Result<Self> {
-        let wasm = wasm.as_ref();
-
-        debug!("loading component");
-        let component = load_component(engine, wasm)?;
+    pub fn new(component: &Component, contracts: impl ContractLookup<T>) -> wasmtime::Result<Self> {
         let contract = Arc::default();
 
-        let mut linker = Linker::new(engine);
+        let mut linker = Linker::new(component.engine());
 
         debug!("linking component imports");
         bindings::Host_::add_to_linker::<_, HasSelf<_>>(&mut linker, |cx| cx)
             .context("failed to link generated bindings")?;
         link_builtin(&mut linker).context("failed to link `starstream:std/builtin`")?;
         link_utxo_context(&mut linker).context("failed to link `starstream:std/utxo-context`")?;
-        link_imports(&contract, &component, &mut linker, &contracts)?;
+        link_imports(&contract, component, &mut linker, &contracts)?;
 
         let ty = linker
-            .substituted_component_type(&component)
+            .substituted_component_type(component)
             .context("failed to derive component type")?;
 
         debug!("pre-instantiating component");
         let pre = linker
-            .instantiate_pre(&component)
+            .instantiate_pre(component)
             .context("failed to pre-instantiate component")?;
 
         let this = Self { pre, ty };
