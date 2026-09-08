@@ -43,6 +43,10 @@ enum Command {
     #[command(subcommand)]
     Account(AccountCommand),
 
+    /// Query ledger blocks.
+    #[command(subcommand)]
+    Block(BlockCommand),
+
     /// Manage published contracts.
     #[command(subcommand)]
     Contract(ContractCommand),
@@ -78,6 +82,12 @@ enum AccountCommand {
         /// Amount to credit the account with.
         amount: u64,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum BlockCommand {
+    /// Get the height of the latest ledger block.
+    Height,
 }
 
 #[derive(Debug, Subcommand)]
@@ -152,6 +162,13 @@ async fn main() -> anyhow::Result<()> {
         }) => {
             let key = read_signing_key(&key).await?;
             client.fund(key, nonce, &account, amount).await
+        }
+        Command::Block(BlockCommand::Height) => {
+            let height = client.block_height().await?;
+            stdout()
+                .write_all(height.to_string().as_bytes())
+                .await
+                .context("failed to write height to stdout")
         }
         Command::Contract(ContractCommand::Digest { wasm }) => {
             let wasm = fs::read(&wasm)
