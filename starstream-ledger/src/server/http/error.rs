@@ -200,6 +200,36 @@ impl AccountFundError {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum RpcPostError {
+    #[error("failed to read wRPC invocation header: {0}")]
+    Header(wrpc_transport::frame::HeaderReadError),
+    #[error("instance `{0}` not found")]
+    InstanceNotFound(String),
+    #[error("function `{name}` not found in instance `{instance}`")]
+    FunctionNotFound { instance: String, name: String },
+    #[error("failed to encode result: {0}")]
+    ResultEncoding(std::io::Error),
+    #[error("failed to encode response frame: {0}")]
+    FrameEncoding(std::io::Error),
+    #[error(transparent)]
+    Http(http::Error),
+}
+
+impl RpcPostError {
+    pub fn http_status_code(&self) -> http::StatusCode {
+        match self {
+            Self::Header(..) => http::StatusCode::BAD_REQUEST,
+            Self::InstanceNotFound(..) | Self::FunctionNotFound { .. } => {
+                http::StatusCode::NOT_FOUND
+            }
+            Self::ResultEncoding(..) | Self::FrameEncoding(..) | Self::Http(..) => {
+                http::StatusCode::INTERNAL_SERVER_ERROR
+            }
+        }
+    }
+}
+
 fn format_media_types(available: &[MediaType<'_>]) -> String {
     available
         .iter()

@@ -9,7 +9,7 @@ use std::collections::{HashMap, hash_map};
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use bytes::{Buf, Bytes};
+use bytes::{Buf, Bytes, BytesMut};
 use coset::{CborSerializable as _, CoseSign1, TaggedCborSerializable as _, iana};
 use ed25519_dalek::{Signature, VerifyingKey};
 use headers_accept::Accept;
@@ -30,7 +30,9 @@ use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
+use tokio_util::codec::Encoder as _;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
+use wasm_tokio::cm::U64Codec;
 use wasmtime::component::Component;
 
 use crate::server::lookup::ContractLookup;
@@ -41,6 +43,11 @@ use crate::{
 
 mod error;
 use error::*;
+
+const APPLICATION_OCTET_STREAM: MediaType = MediaType::new(
+    mediatype::names::APPLICATION,
+    mediatype::names::OCTET_STREAM,
+);
 
 const MAX_CONTRACT_PUT_BODY_SIZE: u64 = 1 << 20;
 const MAX_FUND_POST_BODY_SIZE: u64 = 1 << 10;
@@ -492,6 +499,47 @@ impl Ledger {
         build_text_response(http::StatusCode::OK, "").map_err(AccountFundError::Http)
     }
 
+    async fn handle_rpc_post(
+        &self,
+        body: hyper::body::Incoming,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcPostError> {
+        let mut body = wrpc_http::data_reader_from_incoming(body);
+        let wrpc_transport::frame::Header { instance, name } =
+            wrpc_transport::frame::Header::read(&mut body)
+                .await
+                .map_err(RpcPostError::Header)?;
+        let mut data = BytesMut::new();
+        match instance.as_str() {
+            "starstream:ledger/block" => match name.as_str() {
+                "height" => {
+                    let height = self.blocks.read().await.len();
+                    let height = u64::try_from(height)
+                        .map_err(|err| RpcPostError::ResultEncoding(std::io::Error::other(err)))?;
+                    U64Codec
+                        .encode(height, &mut data)
+                        .map_err(RpcPostError::ResultEncoding)?;
+                }
+                _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
+            },
+            _ => return Err(RpcPostError::InstanceNotFound(instance)),
+        }
+        let mut buf = BytesMut::with_capacity(data.len().saturating_add(1 + 10));
+        wrpc_transport::FrameEncoder
+            .encode(
+                wrpc_transport::FrameRef {
+                    path: &[],
+                    data: &data,
+                },
+                &mut buf,
+            )
+            .map_err(RpcPostError::FrameEncoding)?;
+        http::Response::builder()
+            .header(CONTENT_TYPE, APPLICATION_OCTET_STREAM.to_string())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .body(http_body_util::Full::new(buf.freeze()))
+            .map_err(RpcPostError::Http)
+    }
+
     /// Bind `address` and return the future serving the ledger HTTP API.
     ///
     /// Calling [`Notify::notify_one`] on the returned handle shuts the server
@@ -595,6 +643,14 @@ impl Ledger {
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
                     (_, Some("fund"), None, ..) => {
+                        build_method_not_allowed("POST", &method, pq.path())
+                    }
+
+                    ("POST", Some("rpc"), None, ..) => match ledger.handle_rpc_post(body).await {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    },
+                    (_, Some("rpc"), None, ..) => {
                         build_method_not_allowed("POST", &method, pq.path())
                     }
 

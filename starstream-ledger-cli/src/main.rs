@@ -6,6 +6,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::Uri;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
@@ -139,8 +140,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
-    let client = ClientBuilder::new(http, url).network(network).build();
+    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
+    let client = ClientBuilder::new(http, HttpConnector::new(), url)
+        .network(network)
+        .build();
     match command {
         Command::Account(AccountCommand::Fund {
             signing: SigningArgs { key, nonce },

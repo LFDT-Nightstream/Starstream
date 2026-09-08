@@ -5,11 +5,12 @@ use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Method, Request, Uri};
 use http_body_util::{BodyExt as _, Full};
+use hyper_util::client::legacy::connect::Connect;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
 use tracing::{instrument, warn};
 
-use crate::client::{build_fund_envelope, build_publish_envelope};
+use crate::client::{bindings, build_fund_envelope, build_publish_envelope};
 use crate::{APPLICATION_COSE, APPLICATION_WASM, PUBLISH_CONTEXT, encode_digest};
 
 /// Default network used by the client
@@ -83,20 +84,23 @@ pub fn build_contract_get_request(
     req.body(Full::default()).context("failed to build request")
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ClientBuilder<C> {
-    http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
+    http: hyper_util::client::legacy::Builder,
+    connect: C,
     api_base: Uri,
     network: Box<str>,
 }
 
 impl<C> ClientBuilder<C> {
     pub fn new(
-        http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
+        http: hyper_util::client::legacy::Builder,
+        connect: C,
         api_base: impl Into<Uri>,
     ) -> Self {
         Self {
             http,
+            connect,
             api_base: api_base.into(),
             network: DEFAULT_NETWORK.into(),
         }
@@ -107,26 +111,37 @@ impl<C> ClientBuilder<C> {
         self
     }
 
-    pub fn build(self) -> Client<C> {
+    pub fn build(self) -> Client<C>
+    where
+        C: Connect + Clone + Send + Sync + 'static,
+    {
         self.into()
     }
 }
 
 pub struct Client<C> {
+    wrpc: wrpc_http::Client<hyper_util::client::legacy::Client<C, wrpc_http::OutgoingBody>>,
     http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
     api_base: Uri,
     network: Box<str>,
 }
 
-impl<C> From<ClientBuilder<C>> for Client<C> {
+impl<C> From<ClientBuilder<C>> for Client<C>
+where
+    C: Connect + Clone + Send + Sync + 'static,
+{
     fn from(
         ClientBuilder {
             http,
+            connect,
             api_base,
             network,
         }: ClientBuilder<C>,
     ) -> Self {
+        let wrpc = wrpc_http::Client::new(http.build(connect.clone()));
+        let http = http.build(connect.clone());
         Self {
+            wrpc,
             http,
             api_base,
             network,
@@ -134,18 +149,22 @@ impl<C> From<ClientBuilder<C>> for Client<C> {
     }
 }
 
-impl<C> Client<C> {
+impl<C> Client<C>
+where
+    C: Connect + Clone + Send + Sync + 'static,
+{
     pub fn new(
-        http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
+        http: hyper_util::client::legacy::Builder,
+        connect: C,
         api_base: impl Into<Uri>,
     ) -> Self {
-        ClientBuilder::new(http, api_base).build()
+        ClientBuilder::new(http, connect, api_base).build()
     }
 }
 
 impl<C> Client<C>
 where
-    C: hyper_util::client::legacy::connect::Connect + Clone + Send + Sync + 'static,
+    C: Connect + Clone + Send + Sync + 'static,
 {
     #[instrument(skip_all)]
     async fn request(
@@ -163,6 +182,18 @@ where
             .await
             .context("failed to receive response body")?;
         Ok((parts, body.to_bytes()))
+    }
+
+    /// Get the height of the latest ledger block.
+    #[instrument(skip_all)]
+    pub async fn block_height(&self) -> anyhow::Result<u64> {
+        let uri = endpoint_uri(&self.api_base, "rpc")?;
+        let (cx, ()) = Request::builder()
+            .uri(uri)
+            .body(())
+            .context("failed to build request")?
+            .into_parts();
+        bindings::starstream::ledger::block::height(&self.wrpc, cx).await
     }
 
     #[instrument(skip_all)]
