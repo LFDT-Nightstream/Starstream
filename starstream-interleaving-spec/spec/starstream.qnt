@@ -79,7 +79,11 @@ module starstream {
     | YieldBegin
     | RegisterMethod
 
-  def action_allowed(op: Opcode): bool =
+  def action_allowed(op: Opcode): bool = all {
+    // the call stack starts with length = 1 (as a sentinel/top level coord
+    // script to make the logic more uniform)
+    // so an empty call stack is a termination condition
+    state.call_stack.length() > 0,
     match op {
       | NewUtxo => state.curr_cid_phase == Executing
       | EnterConstructor => state.curr_cid_phase == CtorEnterPending
@@ -90,6 +94,7 @@ module starstream {
       | YieldBegin => state.curr_cid_phase == Executing
       | RegisterMethod => state.curr_cid_phase == Yield
     }
+  }
 
   pure def is_utxo(cid: CoroutineId): bool =
     match cid {
@@ -143,7 +148,6 @@ module starstream {
     all {
       action_allowed(NewUtxo),
       caller.is_coord(),
-      state.call_stack.length() > 0,
       state' = {
         curr: target,
         call_stack: state.call_stack.append(
@@ -222,7 +226,6 @@ module starstream {
   // need different semantics
   action return(result: Output[StarstreamValue]): bool = all {
     action_allowed(Return),
-    state.call_stack.length() > 0,
     val frame = state.call_stack.last()
 
     val resource_resolver = match state.pending_ctor_key {
