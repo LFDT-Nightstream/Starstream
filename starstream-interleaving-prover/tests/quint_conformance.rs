@@ -264,7 +264,94 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
     ])
 }
 
-fn cases() -> [Case; 18] {
+// Leave the coordinator active after constructing two UTXOs with independent ABIs.
+fn two_utxo_trace(first_method: MethodHash, second_method: MethodHash) -> Trace {
+    let mut steps = Vec::new();
+    for (handle, method) in [(0, first_method), (1, second_method)] {
+        steps.extend([
+            Step::NewUtxo {
+                arguments: StarstreamValue::default(),
+                resource: ResourceHandle(handle).into(),
+            },
+            Step::EnterConstructor {
+                arguments: StarstreamValue::default(),
+            },
+            Step::RegisterMethod { method },
+            Step::Return {
+                result: StarstreamValue::default().into(),
+            },
+        ]);
+    }
+    Trace::new(steps)
+}
+
+fn call_other_utxos_method_trace() -> Trace {
+    let first_method = MethodHash([1, 1, 1, 1]);
+    let second_method = MethodHash([2, 1, 1, 1]);
+    let mut trace = two_utxo_trace(first_method, second_method);
+    trace.0.extend([
+        Step::CallMethod {
+            resource: ResourceHandle(1),
+            method: first_method,
+            arguments: StarstreamValue::default(),
+            result: StarstreamValue::default().into(),
+        },
+        Step::EnterMethod {
+            method: first_method,
+            arguments: StarstreamValue::default(),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+    ]);
+    trace
+}
+
+fn yield_preserves_other_utxos_abi_trace() -> Trace {
+    let method = MethodHash([1, 1, 1, 1]);
+    let mut trace = two_utxo_trace(method, method);
+    trace.0.extend([
+        Step::CallMethod {
+            resource: ResourceHandle(0),
+            method,
+            arguments: StarstreamValue::default(),
+            result: StarstreamValue::default().into(),
+        },
+        Step::EnterMethod {
+            method,
+            arguments: StarstreamValue::default(),
+        },
+        Step::YieldBegin,
+        Step::RegisterMethod {
+            method: MethodHash([2, 1, 1, 1]),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+        Step::CallMethod {
+            resource: ResourceHandle(1),
+            method,
+            arguments: StarstreamValue::default(),
+            result: StarstreamValue::default().into(),
+        },
+        Step::EnterMethod {
+            method,
+            arguments: StarstreamValue::default(),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+    ]);
+    trace
+}
+
+fn cases() -> [Case; 20] {
     let accepted = constructor_trace([0, 1, 2, 3]);
     let repeated_arguments = constructor_trace([7, 7, 7, 7]);
     let minimal_constructor = minimal_constructor_trace([0, 1, 2, 3]);
@@ -383,6 +470,18 @@ fn cases() -> [Case; 18] {
             trace: method_reyield_trace(MethodHash([1, 1, 1, 1])),
             expected: Outcome::Reject,
             rejected_step: Some(9),
+        },
+        Case {
+            name: "method registered only by another UTXO",
+            trace: call_other_utxos_method_trace(),
+            expected: Outcome::Reject,
+            rejected_step: Some(8),
+        },
+        Case {
+            name: "yield preserves another UTXO's ABI",
+            trace: yield_preserves_other_utxos_abi_trace(),
+            expected: Outcome::Accept,
+            rejected_step: None,
         },
         Case {
             name: "return with wrong result",
