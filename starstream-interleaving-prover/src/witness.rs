@@ -1,6 +1,6 @@
 use crate::{ccs::layout::*, opcode::Opcode, step::Wit};
 use neo_math::F;
-use p3_field::PrimeCharacteristicRing;
+use p3_field::{Field, PrimeCharacteristicRing};
 
 pub fn build_witness_vector(input: &Wit) -> Vec<F> {
     let range_checks = range_check_layout();
@@ -24,6 +24,7 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
     wit[COL_CURR_PHASE_AFTER] = F::new(input.curr_phase_after.value() as u64);
     wit[COL_CALL_SP_BEFORE] = input.call_sp_before;
     wit[COL_CALL_SP_AFTER] = input.call_sp_after;
+    wit[COL_CALL_SP_BEFORE_INVERSE] = input.call_sp_before.try_inverse().unwrap_or(F::ZERO);
     wit[COL_CALL_TARGET] = input.call_target.field();
     wit[COL_NEXT_UTXO_ID_BEFORE] = F::new(u64::from(input.next_utxo_id_before));
     wit[COL_NEXT_UTXO_ID_AFTER] = F::new(u64::from(input.next_utxo_id_after));

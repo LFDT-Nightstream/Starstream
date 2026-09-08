@@ -24,6 +24,7 @@ define_column_region! {
         COL_CALL_STACK_PUSH: Boolean => "true when a call happens and we need to keep track of the caller's context",
         COL_CALL_STACK_POP: Boolean => "true when returning from a call",
         COL_CALL_STACK_TOP: Boolean => "true when peeking at the top of the call stack without popping",
+        COL_CALL_SP_BEFORE_INVERSE: Field => "inverse proving that an execution row starts with a nonempty call stack",
         // TODO: limit sp so that this doesn't overflow
         COL_CALL_STACK_MUL_STRIDE_4: [U32; 4] => "SP * 4 + i",
         // TODO: limit sp so that this doesn't overflow
