@@ -97,6 +97,40 @@ module replay_trace {
     .then(call_method(0, other_method, List(42), { value: List() }))
     .fail()
 
+  // A shared method dictionary does not make registrations global.
+  run test_method_registered_only_by_another_utxo_fails = init
+    .then(new_utxo(List(), { value: 0 }))
+    .then(enter_constructor(List()))
+    .then(register_method(method))
+    .then(return({ value: List() }))
+    .then(new_utxo(List(), { value: 1 }))
+    .then(enter_constructor(List()))
+    .then(register_method(other_method))
+    .then(return({ value: List() }))
+    .then(call_method(1, method, List(), { value: List() }))
+    .fail()
+
+  // Both UTXOs expose the same hash; resuming A must not reset B's ABI.
+  run test_yield_preserves_another_utxos_abi = init
+    .then(new_utxo(List(), { value: 0 }))
+    .then(enter_constructor(List()))
+    .then(register_method(method))
+    .then(return({ value: List() }))
+    .then(new_utxo(List(), { value: 1 }))
+    .then(enter_constructor(List()))
+    .then(register_method(method))
+    .then(return({ value: List() }))
+    .then(call_method(0, method, List(), { value: List() }))
+    .then(enter_method(method, List()))
+    .then(yield_begin)
+    .then(register_method(other_method))
+    .then(return({ value: List() }))
+    .then(call_method(1, method, List(), { value: List() }))
+    .then(enter_method(method, List()))
+    .then(return({ value: List() }))
+    .then(return({ value: List() }))
+    .then(execution_complete)
+
   run test_duplicate_method_registration_is_idempotent =
     init
     .then(new_utxo(List(42), { value: 0 }))
