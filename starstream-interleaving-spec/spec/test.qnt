@@ -27,6 +27,14 @@ module replay_trace {
     .then(execution_complete)
     .fail()
 
+  run test_opcode_after_terminal_return_fails = init
+    .then(new_utxo(List(42), { value: 0 }))
+    .then(enter_constructor(List(42)))
+    .then(return({ value: List() }))
+    .then(return({ value: List() }))
+    .then(new_utxo(List(7), { value: 1 }))
+    .fail()
+
   run test_yield_from_coordinator_fails = init
     .then(yield_begin)
     .fail()

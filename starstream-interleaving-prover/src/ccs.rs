@@ -9,10 +9,10 @@ use crate::{
     ccs::{
         layout::{
             COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
-            COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8,
-            COL_CALL_STACK_MUL_STRIDE_4, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH,
-            COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER, COL_CURR_BEFORE,
-            COL_CURR_BEFORE_STRIDE_4, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE,
+            COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_SP_BEFORE_INVERSE,
+            COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8, COL_CALL_STACK_MUL_STRIDE_4, COL_CALL_STACK_POP,
+            COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER,
+            COL_CURR_BEFORE, COL_CURR_BEFORE_STRIDE_4, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE,
             COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
             COL_ENABLED_METHOD_LOG_LEN_AFTER, COL_ENABLED_METHOD_LOG_LEN_BEFORE,
             COL_ENABLED_METHOD_LOG_UTXO, COL_METHOD_INDEX, COL_METHOD_LOOKUP,
@@ -46,6 +46,15 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         b.push_row(
             SELECTORS.iter().map(|col| (*col, F::ONE)),
             [(COL_ONE, F::ONE)],
+            [(COL_ONE, F::ONE)],
+        );
+    });
+
+    b.with_tag(always("execution requires nonempty call stack"), |b| {
+        // NOTE: adding aux rows for finalization may require excluding them here
+        b.push_row(
+            [(COL_CALL_SP_BEFORE, F::ONE)],
+            [(COL_CALL_SP_BEFORE_INVERSE, F::ONE)],
             [(COL_ONE, F::ONE)],
         );
     });
