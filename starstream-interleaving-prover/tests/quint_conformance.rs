@@ -85,6 +85,23 @@ fn repeated_constructor_entry_trace(arguments: [u32; 4]) -> Trace {
     ])
 }
 
+fn opcode_after_terminal_return_trace() -> Trace {
+    let mut trace = minimal_constructor_trace([0, 1, 2, 3]);
+    trace.0.extend([
+        Step::NewUtxo {
+            arguments: vec![7].into(),
+            resource: ResourceHandle(1).into(),
+        },
+        Step::EnterConstructor {
+            arguments: vec![7].into(),
+        },
+        Step::Return {
+            result: StarstreamValue::default().into(),
+        },
+    ]);
+    trace
+}
+
 fn method_call_trace(enter_method: bool) -> Trace {
     method_call_result_trace(
         enter_method,
@@ -247,7 +264,7 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
     ])
 }
 
-fn cases() -> [Case; 17] {
+fn cases() -> [Case; 18] {
     let accepted = constructor_trace([0, 1, 2, 3]);
     let repeated_arguments = constructor_trace([7, 7, 7, 7]);
     let minimal_constructor = minimal_constructor_trace([0, 1, 2, 3]);
@@ -300,6 +317,12 @@ fn cases() -> [Case; 17] {
             trace: incomplete_constructor_trace([0, 1, 2, 3]),
             expected: Outcome::Reject,
             rejected_step: None,
+        },
+        Case {
+            name: "opcode after terminal return",
+            trace: opcode_after_terminal_return_trace(),
+            expected: Outcome::Reject,
+            rejected_step: Some(4),
         },
         Case {
             name: "constructor arguments disagree",
