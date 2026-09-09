@@ -65,14 +65,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let enabled_method_log_len_before =
             u32::try_from(enabled_method_log.len()).expect("the enabled-method log fits in u32");
         let pending_ctor_key_before = pending_ctor_key;
-        let curr_phase_after = match opcode {
-            Opcode::NewUtxo => CurrPhase::CtorEnterPending,
-            Opcode::CallMethod => CurrPhase::MethodEnterPending,
-            Opcode::EnterConstructor => CurrPhase::Yield,
-            Opcode::EnterMethod | Opcode::Return => CurrPhase::Executing,
-            Opcode::YieldBegin => CurrPhase::Yield,
-            Opcode::RegisterMethod => curr_phase_before,
-        };
+        let curr_phase_after = opcode.phase_after(curr_phase_before);
         curr_phase = curr_phase_after;
 
         let call_sp_before = call_sp;
@@ -272,4 +265,41 @@ pub(crate) struct Wit {
     pub(crate) enabled_method_log_address: u32,
     pub(crate) enabled_method_log_utxo: CoroutineId,
     pub(crate) enabled_method_log_generation: u32,
+}
+
+impl Wit {
+    /// A circuit-only fixed point of the carried state, with inactive buses
+    /// assigned zero. It goes through the same column assigner as execution.
+    pub(crate) fn padding_after(&self) -> Self {
+        Self {
+            opcode: Opcode::Padding,
+            expected_arguments: None,
+            method_hash: None,
+            expected_result: None,
+            method_index: 0,
+            curr_before: self.curr_after,
+            curr_after: self.curr_after,
+            curr_phase_before: self.curr_phase_after,
+            curr_phase_after: Opcode::Padding.phase_after(self.curr_phase_after),
+            call_sp_before: self.call_sp_after,
+            call_sp_after: self.call_sp_after,
+            call_target: CoroutineId::Coord(0),
+            next_utxo_id_before: self.next_utxo_id_after,
+            next_utxo_id_after: self.next_utxo_id_after,
+            enabled_method_log_len_before: self.enabled_method_log_len_after,
+            enabled_method_log_len_after: self.enabled_method_log_len_after,
+            pending_ctor_key_before: self.pending_ctor_key_after,
+            pending_ctor_key_after: self.pending_ctor_key_after,
+            resolver_address: (CoroutineId::Coord(0), ResourceHandle(0)),
+            resolver_value: CoroutineId::Coord(0),
+            resolver_read: false,
+            resolver_write: false,
+            abi_generation_address: CoroutineId::Coord(0),
+            abi_generation_before: 0,
+            abi_generation_after: 0,
+            enabled_method_log_address: 0,
+            enabled_method_log_utxo: CoroutineId::Coord(0),
+            enabled_method_log_generation: 0,
+        }
+    }
 }
