@@ -1735,9 +1735,9 @@ impl<T> Utxo<T> {
     }
 
     #[instrument(level = "trace", skip_all)]
-    pub async fn drop(self, mut store: impl AsContextMut<Data: Send>) -> wasmtime::Result<()> {
+    pub async fn drop(self, mut store: impl AsContextMut<Data: Send>) -> wasmtime::Result<T> {
         self.resource.resource_drop_async(&mut store).await?;
-        Ok(())
+        Ok(self.cx)
     }
 }
 
