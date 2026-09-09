@@ -16,6 +16,7 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         Opcode::Return => wit[COL_SEL_RETURN] = F::ONE,
         Opcode::CallMethod => wit[COL_SEL_CALL_METHOD] = F::ONE,
         Opcode::EnterMethod => wit[COL_SEL_ENTER_METHOD] = F::ONE,
+        Opcode::Padding => wit[COL_SEL_PADDING] = F::ONE,
     }
 
     wit[COL_CURR_BEFORE] = input.curr_before.field();
@@ -24,7 +25,9 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
     wit[COL_CURR_PHASE_AFTER] = F::new(input.curr_phase_after.value() as u64);
     wit[COL_CALL_SP_BEFORE] = input.call_sp_before;
     wit[COL_CALL_SP_AFTER] = input.call_sp_after;
-    wit[COL_CALL_SP_BEFORE_INVERSE] = input.call_sp_before.try_inverse().unwrap_or(F::ZERO);
+    if input.opcode.is_execution() {
+        wit[COL_CALL_SP_BEFORE_INVERSE] = input.call_sp_before.try_inverse().unwrap_or(F::ZERO);
+    }
     wit[COL_CALL_TARGET] = input.call_target.field();
     wit[COL_NEXT_UTXO_ID_BEFORE] = F::new(u64::from(input.next_utxo_id_before));
     wit[COL_NEXT_UTXO_ID_AFTER] = F::new(u64::from(input.next_utxo_id_after));
@@ -85,28 +88,7 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         wit[COL_CALL_STACK_TOP] = F::ONE;
     }
 
-    COL_CALL_STACK_MUL_STRIDE_4
-        .iter()
-        .enumerate()
-        .for_each(|(i, col)| {
-            wit[*col] =
-                (wit[COL_CALL_SP_BEFORE] - wit[COL_CALL_STACK_TOP] - wit[COL_CALL_STACK_POP])
-                    * F::new(4)
-                    + F::new(i as u64)
-        });
-
-    COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8
-        .iter()
-        .enumerate()
-        .for_each(|(i, col)| {
-            wit[*col] =
-                (wit[COL_CALL_SP_BEFORE] - wit[COL_CALL_STACK_TOP]) * F::new(8) + F::new(i as u64)
-        });
-
-    COL_CURR_BEFORE_STRIDE_4
-        .iter()
-        .enumerate()
-        .for_each(|(i, col)| wit[*col] = wit[COL_CURR_BEFORE] * F::new(4) + F::new(i as u64));
+    assign_stride_columns(&mut wit);
 
     if let Some(expected_arg) = &input.expected_arguments {
         for (offset, col) in COL_CALL_STACK_EXPECTED_ARG_VALUE.iter().enumerate() {
@@ -137,6 +119,24 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         .expect("base witness matches the range-check layout");
 
     wit
+}
+
+/// Derive the memory address columns from the call-stack pointer, its access
+/// flags, and the current coroutine, matching the stride constraints in
+/// `ccs.rs`. Shared with batch padding so the two cannot drift apart.
+pub(crate) fn assign_stride_columns(wit: &mut [F]) {
+    let call_stack_top = wit[COL_CALL_SP_BEFORE] - wit[COL_CALL_STACK_TOP];
+    let call_stack_access = call_stack_top - wit[COL_CALL_STACK_POP];
+
+    for (i, col) in COL_CALL_STACK_MUL_STRIDE_4.iter().enumerate() {
+        wit[*col] = call_stack_access * F::new(4) + F::new(i as u64);
+    }
+    for (i, col) in COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8.iter().enumerate() {
+        wit[*col] = call_stack_top * F::new(8) + F::new(i as u64);
+    }
+    for (i, col) in COL_CURR_BEFORE_STRIDE_4.iter().enumerate() {
+        wit[*col] = wit[COL_CURR_BEFORE] * F::new(4) + F::new(i as u64);
+    }
 }
 
 fn assign_pending_constructor_key(
