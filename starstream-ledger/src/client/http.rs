@@ -9,8 +9,9 @@ use hyper_util::client::legacy::connect::Connect;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
 use tracing::{instrument, warn};
+use wrpc_transport::{Invoke as _, InvokeExt as _, TupleDecode, TupleEncode};
 
-use crate::client::{bindings, build_fund_envelope, build_publish_envelope};
+use crate::client::{bindings, build_fund_envelope, build_publish_envelope, contract_instance};
 use crate::{APPLICATION_COSE, APPLICATION_WASM, PUBLISH_CONTEXT, encode_digest};
 
 /// Default network used by the client
@@ -25,6 +26,16 @@ fn endpoint_uri(base: &Uri, endpoint: impl AsRef<str>) -> anyhow::Result<String>
     let base = base.to_string();
     let base = base.trim_end_matches('/');
     Ok(format!("{base}/{endpoint}"))
+}
+
+fn wrpc_context(base: &Uri) -> anyhow::Result<http::request::Parts> {
+    let uri = endpoint_uri(base, "rpc")?;
+    let req = Request::builder()
+        .uri(uri)
+        .body(())
+        .context("failed to build request")?;
+    let (cx, ()) = req.into_parts();
+    Ok(cx)
 }
 
 /// Build a signed fund request.
@@ -160,12 +171,54 @@ where
     ) -> Self {
         ClientBuilder::new(http, connect, api_base).build()
     }
-}
 
-impl<C> Client<C>
-where
-    C: Connect + Clone + Send + Sync + 'static,
-{
+    /// Get the height of the latest ledger block.
+    #[instrument(skip_all)]
+    pub async fn block_height(&self) -> anyhow::Result<u64> {
+        let cx = wrpc_context(&self.api_base)?;
+        bindings::starstream::ledger::block::height(&self.wrpc, cx).await
+    }
+
+    /// Call the coordination script `name` exported by the contract
+    /// identified by `digest` with encoded `args`.
+    #[instrument(skip_all)]
+    pub async fn call_coordination_script(
+        &self,
+        digest: &[u8; 32],
+        name: &str,
+        args: Bytes,
+    ) -> anyhow::Result<wrpc_transport::frame::Incoming> {
+        let cx = wrpc_context(&self.api_base)?;
+        let instance = contract_instance(digest);
+        let (tx, rx) = self.wrpc.invoke(cx, &instance, name, args, [[]]).await?;
+        drop(tx);
+        Ok(rx)
+    }
+
+    /// Call the coordination script `name` exported by the contract
+    /// identified by `digest` with typed `args`.
+    #[instrument(skip_all)]
+    pub async fn call_coordination_script_typed<Params, Results>(
+        &self,
+        digest: &[u8; 32],
+        name: &str,
+        args: Params,
+    ) -> anyhow::Result<Results>
+    where
+        Params: TupleEncode + Send,
+        Results: TupleDecode + Send,
+        <Params::Encoder as tokio_util::codec::Encoder<Params>>::Error:
+            std::error::Error + Send + Sync + 'static,
+        <Results::Decoder as tokio_util::codec::Decoder>::Error:
+            std::error::Error + Send + Sync + 'static,
+    {
+        let cx = wrpc_context(&self.api_base)?;
+        let instance = contract_instance(digest);
+        self.wrpc
+            .invoke_values_blocking(cx, &instance, name, args, [[]])
+            .await
+    }
+
     #[instrument(skip_all)]
     async fn request(
         &self,
@@ -182,18 +235,6 @@ where
             .await
             .context("failed to receive response body")?;
         Ok((parts, body.to_bytes()))
-    }
-
-    /// Get the height of the latest ledger block.
-    #[instrument(skip_all)]
-    pub async fn block_height(&self) -> anyhow::Result<u64> {
-        let uri = endpoint_uri(&self.api_base, "rpc")?;
-        let (cx, ()) = Request::builder()
-            .uri(uri)
-            .body(())
-            .context("failed to build request")?
-            .into_parts();
-        bindings::starstream::ledger::block::height(&self.wrpc, cx).await
     }
 
     #[instrument(skip_all)]

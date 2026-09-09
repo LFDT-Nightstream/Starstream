@@ -24,6 +24,7 @@ use starstream_ledger::client::http::{
 use starstream_ledger::encode_digest;
 use starstream_ledger::server::Ledger;
 use starstream_to_wasm::CompileResult;
+use tokio::io::AsyncReadExt as _;
 use tokio::net::TcpListener;
 use wit_component::ComponentEncoder;
 
@@ -231,6 +232,18 @@ async fn http() -> anyhow::Result<()> {
 
     let height = client.block_height().await?;
     assert_eq!(height, 3);
+
+    let mut rx = client
+        .call_coordination_script(&SCORE_WASM_DIGEST, "example", Bytes::default())
+        .await?;
+    let mut buf = [0];
+    let n = rx.read(&mut buf).await?;
+    assert_eq!(n, 0);
+    assert_eq!(buf, [0]);
+
+    () = client
+        .call_coordination_script_typed(&SCORE_WASM_DIGEST, "example", ())
+        .await?;
 
     shutdown.notify_one();
     ledger.await.context("ledger task panicked")

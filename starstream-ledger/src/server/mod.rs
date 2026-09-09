@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use ed25519_dalek::VerifyingKey;
-use starstream_runtime_next::{CoordinationScriptExport, UtxoExport};
+use starstream_runtime_next::{CoordinationScriptExport, Utxo, UtxoExport};
 use tokio::sync::{RwLock, Semaphore};
 use wasmtime::component::ResourceTable;
 use wasmtime_wizer::Wizer;
@@ -18,6 +18,7 @@ use crate::Block;
 mod host;
 mod http;
 mod lookup;
+mod wrpc;
 
 /// The ledger-side state of a publishing account, identified by its Ed25519
 /// public key.
@@ -40,15 +41,21 @@ struct AdminAccount {
     last_nonce: AtomicU64,
 }
 
+#[derive(Debug, Default)]
 struct Ctx {
     table: ResourceTable,
+    outputs: Vec<Utxo<<Self as starstream_runtime_next::Host>::UtxoContext>>,
+}
+
+#[derive(Debug, Default)]
+struct UtxoCtx {
+    methods: Vec<(u64, u64, u64, u64)>,
 }
 
 struct Contract {
     contract: starstream_runtime_next::Contract<Ctx>,
     #[expect(unused, reason = "TODO")]
     contract_wasm: Bytes,
-    #[expect(unused, reason = "TODO")]
     scripts: HashMap<Box<str>, CoordinationScriptExport>,
     #[expect(unused, reason = "TODO")]
     utxos: HashMap<Box<str>, UtxoExport>,

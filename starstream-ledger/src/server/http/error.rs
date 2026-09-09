@@ -4,8 +4,7 @@ use ed25519_dalek::VerifyingKey;
 use mediatype::MediaType;
 use thiserror::Error;
 
-use crate::server::http::APPLICATION_COSE;
-use crate::{DigestParseError, FUND_CONTEXT, PUBLISH_CONTEXT, encode_digest};
+use crate::{APPLICATION_COSE, DigestParseError, FUND_CONTEXT, PUBLISH_CONTEXT, encode_digest};
 
 #[derive(Debug, Error)]
 pub enum ContractGetError {
@@ -208,8 +207,18 @@ pub enum RpcPostError {
     InstanceNotFound(String),
     #[error("function `{name}` not found in instance `{instance}`")]
     FunctionNotFound { instance: String, name: String },
+    #[error("failed to parse contract digest: {0}")]
+    ContractDigestParsing(DigestParseError),
+    #[error("contract not found")]
+    ContractNotFound,
+    #[error("failed to decode parameters: {0}")]
+    ParameterDecoding(std::io::Error),
+    #[error("runtime failed: {0:#}")]
+    Runtime(wasmtime::Error),
     #[error("failed to encode result: {0}")]
     ResultEncoding(std::io::Error),
+    #[error("failed to encode call result: {0:#}")]
+    CallResultEncoding(wasmtime::Error),
     #[error("failed to encode response frame: {0}")]
     FrameEncoding(std::io::Error),
     #[error(transparent)]
@@ -219,13 +228,17 @@ pub enum RpcPostError {
 impl RpcPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::Header(..) => http::StatusCode::BAD_REQUEST,
-            Self::InstanceNotFound(..) | Self::FunctionNotFound { .. } => {
+            Self::Header(..) | Self::ContractDigestParsing(..) | Self::ParameterDecoding(..) => {
+                http::StatusCode::BAD_REQUEST
+            }
+            Self::InstanceNotFound(..) | Self::FunctionNotFound { .. } | Self::ContractNotFound => {
                 http::StatusCode::NOT_FOUND
             }
-            Self::ResultEncoding(..) | Self::FrameEncoding(..) | Self::Http(..) => {
-                http::StatusCode::INTERNAL_SERVER_ERROR
-            }
+            Self::Runtime(..)
+            | Self::ResultEncoding(..)
+            | Self::CallResultEncoding(..)
+            | Self::FrameEncoding(..)
+            | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

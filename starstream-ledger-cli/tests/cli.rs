@@ -152,6 +152,21 @@ async fn cli() -> anyhow::Result<()> {
     let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"]).await?;
     assert_eq!(stdout, b"2");
 
+    let digest = run_cli(["contract", "digest", &wasm.path().to_string_lossy()]).await?;
+    let digest = str::from_utf8(&digest).context("contract digest is not valid UTF-8")?;
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "contract",
+        "script",
+        "call",
+        digest,
+        "example",
+    ])
+    .await?;
+    assert_eq!(stdout, b"()");
+
     shutdown.notify_one();
     ledger.await.context("ledger task panicked")
 }
