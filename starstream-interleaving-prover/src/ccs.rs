@@ -31,7 +31,7 @@ use crate::{
 };
 
 pub(crate) mod layout;
-mod tags;
+pub(crate) mod tags;
 
 type R1csBuilder = neo_application::R1csBuilder<ConstraintScope>;
 
@@ -55,8 +55,38 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         b.push_row(
             [(COL_CALL_SP_BEFORE, F::ONE)],
             [(COL_CALL_SP_BEFORE_INVERSE, F::ONE)],
-            [(COL_ONE, F::ONE)],
+            Opcode::all()
+                .into_iter()
+                .filter(Opcode::is_execution)
+                .map(|opcode| (opcode.selector(), F::ONE)),
         );
+    });
+
+    b.with_tag(
+        opcode_tag("padding preserves state", Opcode::Padding),
+        |b| {
+            // The commitment write port is disabled on padding, so `COL_IN`
+            // and `COL_OUT` are free cells there and need no relation.
+            for group in crate::ivc_state::build_ivc_state_continuity_links() {
+                for link in group.links {
+                    require_equal(
+                        b,
+                        Opcode::Padding,
+                        link.previous_step_column,
+                        link.next_step_column,
+                    );
+                }
+            }
+        },
+    );
+
+    // Lifecycle ports are placeholders until lifecycle semantics are wired.
+    // Both flags are Boolean, so one zero-sum constraint disables both.
+    b.with_tag(always("unused lifecycle ports are disabled"), |b| {
+        b.push_linear_zero([
+            (layout::COL_UTXO_LIFECYCLE_READ, F::ONE),
+            (layout::COL_UTXO_LIFECYCLE_WRITE, F::ONE),
+        ]);
     });
 
     let curr_switching_opcodes = Opcode::all()

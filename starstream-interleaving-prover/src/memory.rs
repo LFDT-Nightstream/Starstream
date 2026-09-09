@@ -13,9 +13,9 @@ use crate::ccs::layout::{
     COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_OUT,
     COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
     COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD,
-    COL_SEL_ENTER_METHOD, COL_SEL_REGISTER_METHOD, COL_SEL_YIELD_BEGIN, COL_UTXO_LIFECYCLE_ADDR,
-    COL_UTXO_LIFECYCLE_READ, COL_UTXO_LIFECYCLE_VALUE, COL_UTXO_LIFECYCLE_WRITE,
-    range_check_layout,
+    COL_SEL_ENTER_METHOD, COL_SEL_PADDING, COL_SEL_REGISTER_METHOD, COL_SEL_YIELD_BEGIN,
+    COL_UTXO_LIFECYCLE_ADDR, COL_UTXO_LIFECYCLE_READ, COL_UTXO_LIFECYCLE_VALUE,
+    COL_UTXO_LIFECYCLE_WRITE, range_check_layout,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -68,7 +68,7 @@ fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 1] {
                 kind: MemoryPortKind::Write {
                     value_before_column: Some(value_before),
                 },
-                activation: MemoryPortActivation::Always,
+                activation: MemoryPortActivation::Unless(COL_SEL_PADDING),
             })
             .collect(),
     }]

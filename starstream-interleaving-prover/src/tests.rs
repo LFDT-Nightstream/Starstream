@@ -1,3 +1,75 @@
+mod padding {
+    use super::*;
+    use crate::{
+        ccs::layout::*, memory::build_memory_layout, step::normalize, witness::build_witness_vector,
+    };
+    use neo_application::MemoryPortActivation;
+
+    #[test]
+    fn memory_gates_exclude_padding_structurally() {
+        // Explicitly reviewed derived gates, each constrained to execution
+        // selectors (or globally zero). New activation schemes need review.
+        let derived = [
+            COL_CALL_STACK_PUSH,
+            COL_CALL_STACK_POP,
+            COL_CALL_STACK_TOP,
+            COL_METHOD_LOOKUP,
+            COL_RESOURCE_RESOLVER_READ,
+            COL_RESOURCE_RESOLVER_WRITE,
+            COL_UTXO_LIFECYCLE_READ,
+            COL_UTXO_LIFECYCLE_WRITE,
+        ];
+        for memory in build_memory_layout().entries() {
+            for port in &memory.ports {
+                let excludes_padding = match port.activation {
+                    MemoryPortActivation::Always => false,
+                    MemoryPortActivation::When(gate) => {
+                        crate::opcode::Opcode::all()
+                            .iter()
+                            .any(|op| op.is_execution() && op.selector() == gate)
+                            || derived.contains(&gate)
+                    }
+                    MemoryPortActivation::Unless(gate) => gate == COL_SEL_PADDING,
+                };
+                assert!(
+                    excludes_padding,
+                    "unreviewed padding activation: {:?}: {port:?}",
+                    memory.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn padding_does_not_access_memory() {
+        let normalized = normalize(&method_call_trace(true));
+        let preload = crate::memory::preload_tables(&normalized.method_table);
+        let memory = build_memory_layout();
+        let mut rows = Vec::new();
+        for step in normalized.steps {
+            let mut pad = build_witness_vector(&step.padding_after());
+            // Assignment regression check; the structural test above audits
+            // which selector-derived gates the memory layout may use.
+            for entry in memory.entries() {
+                for port in &entry.ports {
+                    let active = match port.activation {
+                        MemoryPortActivation::Always => true,
+                        MemoryPortActivation::When(gate) => pad[gate] != F::ZERO,
+                        MemoryPortActivation::Unless(gate) => pad[gate] == F::ZERO,
+                    };
+                    assert!(!active, "padding activates {:?}: {port:?}", entry.id);
+                }
+            }
+            // Unused commitment buses need not match RAM contents.
+            for column in COL_IN.into_iter().chain(COL_OUT) {
+                pad[column] = F::new(7);
+            }
+            rows.extend([build_witness_vector(&step), pad]);
+        }
+        verify_witness_rows(&rows, &preload).unwrap();
+    }
+}
+
 use neo_application::{ContinuityCheckError, MemoryCheckError};
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
@@ -12,7 +84,7 @@ use crate::{
     memory::MemoryId,
 };
 
-fn constructor_trace(arguments: [u32; 4]) -> Trace {
+pub(super) fn constructor_trace(arguments: [u32; 4]) -> Trace {
     Trace::new([
         Step::NewUtxo {
             arguments: arguments.to_vec().into(),
@@ -98,7 +170,7 @@ fn opcode_after_terminal_return_trace() -> Trace {
     trace
 }
 
-fn method_call_trace(enter_method: bool) -> Trace {
+pub(super) fn method_call_trace(enter_method: bool) -> Trace {
     method_call_result_trace(
         enter_method,
         StarstreamValue::default(),
