@@ -9,7 +9,7 @@ pub(crate) enum ConstraintScope {
     Opcodes(Box<[Opcode]>),
 }
 
-pub(super) fn always(arg: &'static str) -> ConstraintTag<ConstraintScope> {
+pub(crate) fn always(arg: &'static str) -> ConstraintTag<ConstraintScope> {
     // TODO: maybe just expose the fields
     ConstraintTag::new(arg, ConstraintScope::Always)
 }
