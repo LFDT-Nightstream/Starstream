@@ -19,6 +19,7 @@ define_column_region! {
         COL_SEL_RETURN: Boolean => "selector for the Return action",
         COL_SEL_CALL_METHOD: Boolean => "selector for the CallMethod action",
         COL_SEL_ENTER_METHOD: Boolean => "selector for the EnterMethod action",
+        COL_SEL_PADDING: Boolean => "state-preserving circuit-only padding slot",
         COL_CURR_BEFORE: U32 => "packed coroutine id that has the turn",
         COL_CURR_AFTER: U32 => "packed coroutine id that has the turn in the next step",
         COL_CALL_STACK_PUSH: Boolean => "true when a call happens and we need to keep track of the caller's context",
@@ -99,7 +100,7 @@ define_column_region! {
     ]
 }
 
-pub const SELECTORS: [usize; 7] = [
+pub const SELECTORS: [usize; 8] = [
     COL_SEL_NEW_UTXO,
     COL_SEL_ENTER_CONSTRUCTOR,
     COL_SEL_YIELD_BEGIN,
@@ -107,6 +108,7 @@ pub const SELECTORS: [usize; 7] = [
     COL_SEL_RETURN,
     COL_SEL_CALL_METHOD,
     COL_SEL_ENTER_METHOD,
+    COL_SEL_PADDING,
 ];
 
 pub(crate) fn range_check_layout() -> &'static RangeCheckLayout {

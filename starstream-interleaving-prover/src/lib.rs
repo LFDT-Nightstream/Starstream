@@ -1,3 +1,4 @@
+mod batch;
 mod ccs;
 mod ivc_state;
 mod memory;
@@ -5,23 +6,21 @@ mod opcode;
 mod step;
 mod witness;
 
-use neo_application::{
-    ContinuityCatalog, ContinuityCheckError, MemoryCheckError, check_continuity_rows,
-    check_memory_rows,
-};
+use neo_application::{ContinuityCheckError, MemoryCheckError};
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
 use starstream_interleaving_spec::Trace;
 
-use crate::{
-    ccs::{PUBLIC_INPUTS, build_relation},
-    ivc_state::build_ivc_state_continuity_links,
-    memory::MemoryId,
-    witness::build_witness_vector,
-};
+use crate::memory::MemoryId;
+
+pub use batch::verify_sat_batched;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("batch size must be positive and its dimensions must fit usize")]
+    InvalidBatchSize,
+    #[error(transparent)]
+    MemoryCatalogError(#[from] neo_application::MemoryCatalogError),
     #[error(transparent)]
     Unsatisfied(#[from] Unsatisfied),
     #[error(transparent)]
@@ -40,20 +39,62 @@ pub enum Error {
         #[source]
         source: neo_ccs::CcsError,
     },
+    #[error("failed to check CCS batch {batch} (size {batch_size}): {source}")]
+    BatchedCcsCheck {
+        batch: usize,
+        batch_size: usize,
+        #[source]
+        source: neo_ccs::CcsError,
+    },
+    #[error("continuity checker failed in batch coordinates (size {batch_size}): {source}")]
+    BatchedContinuityCheck {
+        batch_size: usize,
+        #[source]
+        source: ContinuityCheckError,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Unsatisfied {
     #[error("constraint {constraint:?} failed at relation row {row} for step {step}")]
     Constraint {
+        /// Index in the original trace, never an index of a padding slot.
         step: usize,
+        /// Constraint row in the relation used by this invocation.
         row: usize,
         constraint: &'static str,
     },
+    #[error(
+        "constraint {constraint:?} failed in padding at batch {batch}, slot {slot} (size {batch_size}), relation row {row}"
+    )]
+    PaddingConstraint {
+        batch: usize,
+        slot: usize,
+        batch_size: usize,
+        row: usize,
+        constraint: &'static str,
+    },
+    /// Single-step coordinates: source boundary and columns refer to the
+    /// unbatched witness.
     #[error(transparent)]
     Continuity(ContinuityCheckError),
+    /// Single-step coordinates: source row is a trace step.
     #[error(transparent)]
     Memory(#[from] MemoryCheckError<MemoryId>),
+    /// Source row is a batch index; source columns use the batched layout.
+    #[error("memory failure in batch coordinates (size {batch_size}): {source}")]
+    BatchedMemory {
+        batch_size: usize,
+        #[source]
+        source: MemoryCheckError<MemoryId>,
+    },
+    /// Source boundary is between batches, not between individual steps.
+    #[error("continuity failure in batch coordinates (size {batch_size}): {source}")]
+    BatchedContinuity {
+        batch_size: usize,
+        #[source]
+        source: ContinuityCheckError,
+    },
     #[error("terminal call-stack pointer must be zero, got {actual:?}")]
     TerminalCallStackNotEmpty { actual: F },
     #[error("terminal coroutine must be a coordinator, got packed id {actual:?}")]
@@ -66,9 +107,7 @@ pub enum Unsatisfied {
 /// This is the pre-proof-system validation surface. Once proof construction is
 /// wired in, it should remain useful for diagnostics and tests.
 pub fn verify_sat(trace: &Trace) -> Result<(), Error> {
-    let (rows, preload) = build_witness_rows(trace);
-    verify_witness_rows(&rows, &preload)?;
-    verify_execution_statement(&rows)
+    verify_sat_batched(trace, 1)
 }
 
 fn verify_execution_statement(rows: &[Vec<F>]) -> Result<(), Error> {
@@ -108,59 +147,25 @@ fn verify_execution_statement(rows: &[Vec<F>]) -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(test)]
 fn build_witness_rows(trace: &Trace) -> (Vec<Vec<F>>, neo_application::MemoryPreload<MemoryId>) {
     let normalized = step::normalize(trace);
     let preload = memory::preload_tables(&normalized.method_table);
-    let rows = normalized.steps.iter().map(build_witness_vector).collect();
+    let rows = normalized
+        .steps
+        .iter()
+        .map(witness::build_witness_vector)
+        .collect();
 
     (rows, preload)
 }
 
+#[cfg(test)]
 fn verify_witness_rows(
     rows: &[Vec<F>],
     preload: &neo_application::MemoryPreload<MemoryId>,
 ) -> Result<(), Error> {
-    let relation = build_relation()?;
-    let memory = crate::memory::build_memory_layout();
-    let continuity =
-        ContinuityCatalog::new(build_ivc_state_continuity_links(), relation.columns())?;
-
-    for (step, row_assignment) in rows.iter().enumerate() {
-        match neo_ccs::check_ccs_rowwise_zero(
-            relation.r1cs().structure(),
-            &row_assignment[0..PUBLIC_INPUTS],
-            &row_assignment[PUBLIC_INPUTS..],
-        ) {
-            Ok(()) => {}
-            Err(neo_ccs::CcsError::RowFail { row }) => {
-                return Err(Unsatisfied::Constraint {
-                    step,
-                    row,
-                    constraint: relation.r1cs().catalog().rows()[row].tag().label(),
-                }
-                .into());
-            }
-            Err(source) => return Err(Error::CcsCheck { step, source }),
-        }
-    }
-
-    let policy = crate::memory::sanity_checking_policy(&memory);
-
-    check_memory_rows(&memory, relation.columns(), rows, preload, &policy)
-        .map_err(Unsatisfied::Memory)?;
-
-    match check_continuity_rows(&continuity, rows) {
-        Ok(()) => {}
-        Err(source @ ContinuityCheckError::Mismatch { .. }) => {
-            return Err(Unsatisfied::Continuity(source).into());
-        }
-        Err(source) => return Err(Error::ContinuityCheckError(source)),
-    }
-
-    // TODO: The eventual proof/batching path must enforce the continuity links
-    // as constraints rather than relying on this diagnostic check.
-
-    Ok(())
+    batch::check_single_rows(rows, preload)
 }
 
 #[cfg(test)]

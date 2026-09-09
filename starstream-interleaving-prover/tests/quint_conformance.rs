@@ -1,4 +1,4 @@
-use starstream_interleaving_prover::{Error, verify_sat};
+use starstream_interleaving_prover::{Error, verify_sat, verify_sat_batched};
 use starstream_interleaving_spec::{
     MethodHash, QuintError, QuintVerifier, ResourceHandle, StarstreamValue, Step, Trace,
 };
@@ -542,6 +542,16 @@ fn circuit_and_quint_agree() {
     let verifier = QuintVerifier::new().expect("repository-pinned Quint is available");
 
     for case in cases() {
+        // Exercise both internal RAM dependencies and cross-batch boundaries,
+        // with non-divisors also testing final padding.
+        for size in [1, 3, 8] {
+            let outcome = match verify_sat_batched(&case.trace, size) {
+                Ok(()) => Outcome::Accept,
+                Err(Error::Unsatisfied(_)) => Outcome::Reject,
+                Err(error) => panic!("{}: batch size {size}: {error}", case.name),
+            };
+            assert_eq!(outcome, case.expected, "{}: batch size {size}", case.name);
+        }
         let quint = quint_outcome(&verifier, &case);
         let circuit = circuit_outcome(&case);
 

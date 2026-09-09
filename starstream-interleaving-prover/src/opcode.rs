@@ -1,6 +1,6 @@
 use crate::ccs::layout::{
     COL_SEL_CALL_METHOD, COL_SEL_ENTER_CONSTRUCTOR, COL_SEL_ENTER_METHOD, COL_SEL_NEW_UTXO,
-    COL_SEL_REGISTER_METHOD, COL_SEL_RETURN, COL_SEL_YIELD_BEGIN,
+    COL_SEL_PADDING, COL_SEL_REGISTER_METHOD, COL_SEL_RETURN, COL_SEL_YIELD_BEGIN,
 };
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -13,6 +13,7 @@ pub(crate) enum Opcode {
     Return,
     CallMethod,
     EnterMethod,
+    Padding,
 }
 
 impl From<&starstream_interleaving_spec::Step> for Opcode {
@@ -45,6 +46,21 @@ impl From<&starstream_interleaving_spec::Step> for Opcode {
 }
 
 impl Opcode {
+    pub fn is_execution(&self) -> bool {
+        !matches!(self, Self::Padding)
+    }
+
+    pub fn phase_after(&self, before: crate::ivc_state::CurrPhase) -> crate::ivc_state::CurrPhase {
+        use crate::ivc_state::CurrPhase;
+        match self {
+            Self::NewUtxo => CurrPhase::CtorEnterPending,
+            Self::CallMethod => CurrPhase::MethodEnterPending,
+            Self::EnterConstructor | Self::YieldBegin => CurrPhase::Yield,
+            Self::EnterMethod | Self::Return => CurrPhase::Executing,
+            Self::RegisterMethod | Self::Padding => before,
+        }
+    }
+
     pub fn all() -> Vec<Self> {
         vec![
             Opcode::NewUtxo,
@@ -54,11 +70,13 @@ impl Opcode {
             Opcode::Return,
             Opcode::CallMethod,
             Opcode::EnterMethod,
+            Opcode::Padding,
         ]
     }
 
     pub fn pushes_to_call_stack(&self) -> bool {
         match self {
+            Opcode::Padding => false,
             Opcode::NewUtxo => true,
             Opcode::EnterConstructor => false,
             Opcode::YieldBegin => false,
@@ -71,6 +89,7 @@ impl Opcode {
 
     pub fn pops_from_call_stack(&self) -> bool {
         match self {
+            Opcode::Padding => false,
             Opcode::NewUtxo => false,
             Opcode::EnterConstructor => false,
             Opcode::YieldBegin => false,
@@ -83,6 +102,7 @@ impl Opcode {
 
     pub fn peeks_call_stack_top(&self) -> bool {
         match self {
+            Opcode::Padding => false,
             Opcode::NewUtxo => false,
             Opcode::EnterConstructor => true,
             Opcode::YieldBegin => false,
@@ -96,6 +116,7 @@ impl Opcode {
     /// Whether this opcode transfers control to `COL_CALL_TARGET`.
     pub fn switches_curr(&self) -> bool {
         match self {
+            Opcode::Padding => false,
             Opcode::NewUtxo => true,
             Opcode::EnterConstructor => false,
             Opcode::YieldBegin => false,
@@ -108,6 +129,7 @@ impl Opcode {
 
     pub fn selector(&self) -> usize {
         match self {
+            Opcode::Padding => COL_SEL_PADDING,
             Opcode::NewUtxo => COL_SEL_NEW_UTXO,
             Opcode::EnterConstructor => COL_SEL_ENTER_CONSTRUCTOR,
             Opcode::YieldBegin => COL_SEL_YIELD_BEGIN,
