@@ -76,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut config = wasmtime::Config::default();
     config.wasm_component_model_implements(true);
+    config.wasm_component_model_nested_names(true);
     let engine = wasmtime::Engine::new(&config)?;
 
     let ledger = Ledger::new(engine, max_requests, network, admin);

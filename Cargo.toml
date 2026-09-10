@@ -75,8 +75,8 @@ tracing-subscriber = { version = "0.3.23", default-features = false }
 wasm-encoder = "0.254.0"
 wasmprinter = "0.254.0"
 wasmparser = "0.254.0"
-wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
-wasmtime-wizer = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
+wasmtime = { git = "https://github.com/rvolosatovs/wasmtime", rev = "6feef10795b32369f75220f241d08d896901cfb2", default-features = false }
+wasmtime-wizer = { git = "https://github.com/rvolosatovs/wasmtime", rev = "6feef10795b32369f75220f241d08d896901cfb2", default-features = false }
 wit-component = "0.254.0"
 wit-parser = "0.254.0"
 zeroize = { version = "1.8.2", default-features = false }

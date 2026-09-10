@@ -5,7 +5,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use starstream_runtime_next::{
     Contract, CoordinationScriptExport, Host, MethodExport, StorageExport, Utxo, UtxoExport,
-    UtxoMainExport, get_coordination_script_instance_import, utxo_imports,
+    UtxoMainExport, coordination_script_imports, utxo_imports,
 };
 use tracing::{Instrument as _, info_span, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val};
@@ -551,7 +551,7 @@ async fn score_main_new() -> wasmtime::Result<()> {
 #[test_log::test(tokio::test)]
 async fn score_script_example() -> wasmtime::Result<()> {
     let ty = CONTRACT.component_type();
-    assert!(get_coordination_script_instance_import(&ENGINE, &ty).is_none());
+    assert!(coordination_script_imports(&ENGINE, &ty).next().is_none());
     assert!(utxo_imports(&ENGINE, &ty).next().is_none());
 
     let contract =

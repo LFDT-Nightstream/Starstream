@@ -51,6 +51,42 @@ fn compile_contract(source: &str) -> anyhow::Result<Vec<u8>> {
 
 const NETWORK: &str = "starstream:test";
 
+fn build_importing_component(contract_id: &str) -> Vec<u8> {
+    use wasm_encoder::{
+        ComponentImportSection, ComponentTypeRef, ComponentTypeSection, ComponentValType,
+        InstanceType, TypeBounds,
+    };
+
+    let mut component = wasm_encoder::Component::new();
+
+    let mut types = ComponentTypeSection::new();
+    let mut utxo = InstanceType::new();
+    utxo.export("utxo", ComponentTypeRef::Type(TypeBounds::SubResource));
+    types.instance(&utxo);
+    let mut scripts = InstanceType::new();
+    scripts
+        .ty()
+        .function()
+        .params([] as [(&str, ComponentValType); 0])
+        .result(None);
+    scripts.export("example", ComponentTypeRef::Func(0));
+    types.instance(&scripts);
+    component.section(&types);
+
+    let mut imports = ComponentImportSection::new();
+    imports.import(
+        format!("starstream:contract/{contract_id}/utxo/score-progress"),
+        ComponentTypeRef::Instance(0),
+    );
+    imports.import(
+        format!("starstream:contract/{contract_id}/scripts"),
+        ComponentTypeRef::Instance(1),
+    );
+    component.section(&imports);
+
+    component.finish()
+}
+
 static SCORE_WASM: LazyLock<Vec<u8>> =
     LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")).unwrap());
 static SCORE_WASM_DIGEST: LazyLock<[u8; 32]> =
@@ -86,6 +122,7 @@ async fn http() -> anyhow::Result<()> {
 
     let mut config = wasmtime::Config::default();
     config.wasm_component_model_implements(true);
+    config.wasm_component_model_nested_names(true);
     let engine = wasmtime::Engine::new(&config)?;
 
     let ledger = Ledger::new(engine, 128, NETWORK, ADMIN.verifying_key());
@@ -221,6 +258,36 @@ async fn http() -> anyhow::Result<()> {
         headers.get(X_CONTENT_TYPE_OPTIONS).map(|v| v.as_bytes()),
         Some(b"nosniff".as_slice())
     );
+
+    let importing_wasm = build_importing_component(&encode_digest(&SCORE_WASM_DIGEST));
+    let importing_cost =
+        build_publish_envelope(ADMIN.clone(), NETWORK, 3, importing_wasm.as_slice())?.len();
+    client
+        .fund(
+            ADMIN.clone(),
+            3,
+            &ADMIN.verifying_key(),
+            (importing_cost * 2 + 1024) as _,
+        )
+        .await?;
+    client
+        .publish_contract(ADMIN.clone(), 3, importing_wasm.as_slice())
+        .await
+        .context("failed to publish contract importing score")?;
+
+    let unknown_id = encode_digest(&[0x55; 32]);
+    let missing_import_wasm = build_importing_component(&unknown_id);
+    let req = build_contract_publish_request(
+        &api_base,
+        ADMIN.clone(),
+        NETWORK,
+        4,
+        missing_import_wasm.as_slice(),
+    )?;
+    let (http::response::Parts { status, .. }, body) = http_request(&http, req).await?;
+    let body = String::from_utf8_lossy(&body);
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body, format!("imported contract `{unknown_id}` not found"));
 
     shutdown.notify_one();
     ledger.await.context("ledger task panicked")

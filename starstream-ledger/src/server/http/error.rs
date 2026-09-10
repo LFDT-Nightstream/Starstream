@@ -116,9 +116,9 @@ pub enum ContractPutError {
     Http(http::Error),
     #[error("instrumentation failed: {0:#}")]
     Wizer(wasmtime::Error),
-    #[error("failed to parse `external-id` `{0}` as multibase multihash: {1}")]
+    #[error("failed to parse contract id `{0}` as multibase multihash: {1}")]
     ContractImportDigestParsing(Box<str>, DigestParseError),
-    #[error("contract import identified by `external-id` `{0}` not found")]
+    #[error("imported contract `{0}` not found")]
     ContractImportNotFound(Box<str>),
 }
 

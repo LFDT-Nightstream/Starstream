@@ -67,6 +67,7 @@ wasmtime-wizer = { workspace = true, optional = true, features = [
 [dev-dependencies]
 starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
+wasm-encoder = { workspace = true }
 tokio = { workspace = true, features = [
     "io-util",
     "macros",

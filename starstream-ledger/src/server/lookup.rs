@@ -11,11 +11,11 @@ pub struct ContractLookup<'a>(pub &'a HashMap<&'a str, Arc<Contract>>);
 impl starstream_runtime_next::ContractLookup<Ctx> for ContractLookup<'_> {
     fn get_contract(
         &self,
-        external_id: &str,
+        contract_id: &str,
     ) -> wasmtime::Result<starstream_runtime_next::Contract<Ctx>> {
-        let contract = self.0.get(external_id).with_context(|| {
-            error!(external_id, "unresolved contract import");
-            format!("contract identified by `external-id` `{external_id}` not found")
+        let contract = self.0.get(contract_id).with_context(|| {
+            error!(contract_id, "unresolved contract import");
+            format!("imported contract `{contract_id}` not found")
         })?;
         Ok(contract.contract.clone())
     }

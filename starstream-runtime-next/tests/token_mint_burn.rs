@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use starstream_runtime_next::{
-    Contract, Host, StorageExport, Token, TokenFunctionExport,
-    get_coordination_script_instance_import, utxo_imports,
+    Contract, Host, StorageExport, Token, TokenFunctionExport, coordination_script_imports,
+    utxo_imports,
 };
 use tracing::{Instrument as _, info_span};
 use wasmtime::component::{Component, ResourceTable, Val};
@@ -98,7 +98,7 @@ async fn get_my_token_storage(
 #[test_log::test(tokio::test)]
 async fn token_mint_burn() -> wasmtime::Result<()> {
     let ty = CONTRACT.component_type();
-    assert!(get_coordination_script_instance_import(&ENGINE, &ty).is_none());
+    assert!(coordination_script_imports(&ENGINE, &ty).next().is_none());
     assert!(utxo_imports(&ENGINE, &ty).next().is_none());
 
     let contract =

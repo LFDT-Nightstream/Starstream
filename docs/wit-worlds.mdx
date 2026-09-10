@@ -16,15 +16,21 @@ and coordination scripts defined in the contract.
 The shape of those imports and exports are described here and define the
 interface between the Starstream runtime (host) and Starstream contract (guest).
 
-Imports from other contracts use [`@external-id`][external-id] nodes containing
-the digest of the other contract in a form similar to `"sha256:$HEXDIGEST"`,
-followed by `:` and extra data if needed.
+Imports from other contracts use [nested interface names][nested-names] rooted
+at `starstream:contract/<contract-id>`, where `<contract-id>` is the digest of
+the other contract encoded as the [multibase] base32-lower encoding of its
+sha2-256 [multihash] — a 56-character lowercase alphanumeric label starting
+with `b`.
 
-{/* TODO: use https://multiformats.io/multihash/ ? */}
+Note that nested interface names are only expressible in the component binary
+format — the WIT text format does not support them, so the examples below use
+them in interface names as illustrative notation only.
 
 [raw-wit]: https://github.com/LFDT-Nightstream/Starstream/tree/main/starstream-to-wasm/wit
 [world]: https://component-model.bytecodealliance.org/design/worlds.html
-[external-id]: https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#import-and-export-definitions
+[nested-names]: https://github.com/WebAssembly/component-model/pull/372
+[multibase]: https://github.com/multiformats/multibase
+[multihash]: https://multiformats.io/multihash/
 
 ## Global builtins
 
@@ -66,8 +72,9 @@ world root {
 
 ## Importing Utxos
 
-Contracts which import Utxos do so by importing interfaces from `starstream:utxo`
-with the Utxo's name containing a `resource utxo`.
+Contracts which import Utxos do so by importing interfaces named
+`starstream:contract/<contract-id>/utxo/<utxo-name>` containing a
+`resource utxo`.
 If needed, the import may also include `downcast` and `upcast` methods, which
 the runtime will provide.
 
@@ -75,21 +82,18 @@ For example:
 
 ```wit
 world root {
-    import starstream:utxo/my-utxo;
+    import starstream:contract/bciqnar…omq/utxo/my-utxo;
 }
 
-package starstream:utxo {
-    @external-id("0123456789abcdef")
-    interface my-utxo {
-        use starstream:std/builtin.{utxo as builtin-utxo};
+interface starstream:contract/bciqnar…omq/utxo/my-utxo {
+    use starstream:std/builtin.{utxo as builtin-utxo};
 
-        resource utxo {
-            my-main-fn: static func() -> utxo;
-        }
-
-        downcast: func(self: borrow<builtin-utxo>) -> option<utxo>;
-        upcast: func(self: borrow<utxo>) -> builtin-utxo;
+    resource utxo {
+        my-main-fn: static func() -> utxo;
     }
+
+    downcast: func(self: borrow<builtin-utxo>) -> option<utxo>;
+    upcast: func(self: borrow<utxo>) -> builtin-utxo;
 }
 ```
 
@@ -99,8 +103,11 @@ will both export and import the Utxo interface.
 Using a Utxo from a coordination script in the same contract imports
 `starstream:self/<utxo-name>`.
 
-Importing a Utxo from another contract imports `starstream:utxo/<utxo-name>` and
-supplies `@external-id` on the `interface` with that contract's digest.
+Importing a Utxo from another contract imports
+`starstream:contract/<contract-id>/utxo/<utxo-name>`, where `<contract-id>` is
+that contract's digest and `<utxo-name>` is the name the Utxo is exported as by
+that contract. Nesting the contract digest in the interface name lets a
+contract import Utxos with the same name from multiple different contracts.
 
 ## Importing ABIs
 
@@ -170,20 +177,22 @@ world root {
 
 ## Importing coordination scripts
 
-Cross-contract coordination scripts are imported from an interface named
-`starstream:contract/scripts` with all coordination script functions needed.
-Each function has an `@external-id` with the digest of the contract it belongs
-to. For example:
+Cross-contract coordination scripts are imported from one interface per
+contract, named `starstream:contract/<contract-id>/scripts` and containing all
+coordination script functions needed from the contract with that digest.
+For example:
 
 ```wit
-interface starstream:contract/scripts {
-    @external-id("0123456789abcdef")
+interface starstream:contract/bciqnar…omq/scripts {
     foobar: func() -> s32;
 }
 world root {
-    import starstream:contract/scripts;
+    import starstream:contract/bciqnar…omq/scripts;
 }
 ```
+
+Nesting the contract digest in the interface name lets a contract import
+coordination scripts with the same name from multiple different contracts.
 
 ## Cardano support
 

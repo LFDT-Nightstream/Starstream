@@ -46,13 +46,27 @@ struct UtxoCtx {
 struct Imports(HashMap<String, Contract<Ctx>>);
 
 impl ContractLookup<Ctx> for &Imports {
-    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<Ctx>> {
+    fn get_contract(&self, contract_id: &str) -> wasmtime::Result<Contract<Ctx>> {
         let contract = self
             .0
-            .get(external_id)
-            .with_context(|| format!("contract `{external_id}` not found"))?;
+            .get(contract_id)
+            .with_context(|| format!("contract `{contract_id}` not found"))?;
         Ok(contract.clone())
     }
+}
+
+/// The [multihash] code of sha2-256.
+///
+/// [multihash]: https://github.com/multiformats/multihash
+const MULTIHASH_SHA2_256: u64 = 0x12;
+
+/// Encode a raw SHA-256 contract digest in the canonical contract id form: the
+/// multibase base32-lower encoding of its sha2-256 multihash.
+fn contract_id(digest: &[u8; 32]) -> String {
+    let Ok(digest) = multihash::Multihash::<32>::wrap(MULTIHASH_SHA2_256, digest) else {
+        unreachable!();
+    };
+    multibase::encode(multibase::Base::Base32Lower, digest.to_bytes())
 }
 
 impl bindings::starstream::std::cardano::Host for Ctx {
@@ -180,6 +194,7 @@ async fn exec(
 ) -> wasmtime::Result<()> {
     let mut config = wasmtime::Config::new();
     config.wasm_component_model_implements(true);
+    config.wasm_component_model_nested_names(true);
     let engine = wasmtime::Engine::new(&config)?;
 
     let mut lookup = Imports::default();
@@ -191,10 +206,9 @@ async fn exec(
             Component::new(&engine, &wasm).context("failed to compile import contract")?;
         let contract = Contract::new(&component, &lookup)
             .with_context(|| format!("failed to load import contract `{}`", import.display()))?;
-        let digest = Sha256::digest(&wasm);
-        let digest = format!("{digest:02x}");
-        debug!(?digest, path = %import.display(), "imported contract");
-        lookup.0.insert(digest, contract);
+        let contract_id = contract_id(&Sha256::digest(&wasm).into());
+        debug!(?contract_id, path = %import.display(), "imported contract");
+        lookup.0.insert(contract_id, contract);
     }
 
     let wasm = fs::read(&wasm).await.context("failed to read contract")?;

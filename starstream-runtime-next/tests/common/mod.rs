@@ -15,6 +15,7 @@ use wit_component::ComponentEncoder;
 pub static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(|| {
     let mut config = wasmtime::Config::default();
     let config = config.wasm_component_model_implements(true);
+    let config = config.wasm_component_model_nested_names(true);
     wasmtime::Engine::new(config).expect("failed to construct engine")
 });
 
@@ -61,8 +62,8 @@ pub fn method_hash(name: &str) -> (u64, u64, u64, u64) {
 pub struct NoopContractLookup;
 
 impl<T> ContractLookup<T> for NoopContractLookup {
-    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>> {
-        bail!("contract with external_id `{external_id}` unknown")
+    fn get_contract(&self, contract_id: &str) -> wasmtime::Result<Contract<T>> {
+        bail!("contract `{contract_id}` unknown")
     }
 }
 

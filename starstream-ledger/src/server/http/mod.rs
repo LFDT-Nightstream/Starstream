@@ -24,7 +24,7 @@ use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
 use starstream_runtime_next::{
-    CoordinationScriptImport, UtxoImport, get_coordination_script_instance_import, utxo_imports,
+    CoordinationScriptsImport, UtxoImport, coordination_script_imports, utxo_imports,
 };
 use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
@@ -338,7 +338,6 @@ impl Ledger {
         let component = Component::from_binary(&self.engine, &contract_wasm)
             .map_err(ContractPutError::Runtime)?;
         let ty = component.component_type();
-        let script_instance = get_coordination_script_instance_import(&self.engine, &ty);
         let mut imports = HashMap::default();
         {
             let contracts = self.contracts.read().await;
@@ -346,36 +345,22 @@ impl Ledger {
                 return build_text_response(http::StatusCode::OK, "")
                     .map_err(ContractPutError::Http);
             }
-            for import in utxo_imports(&self.engine, &ty) {
-                let UtxoImport { external_id, .. } = import.map_err(ContractPutError::Runtime)?;
-                if imports.contains_key(external_id) {
+            let utxos =
+                utxo_imports(&self.engine, &ty).map(|UtxoImport { contract_id, .. }| contract_id);
+            let scripts = coordination_script_imports(&self.engine, &ty)
+                .map(|CoordinationScriptsImport { contract_id, .. }| contract_id);
+            for contract_id in utxos.chain(scripts) {
+                if imports.contains_key(contract_id) {
                     continue;
                 }
 
-                let digest = parse_digest(external_id).map_err(|err| {
-                    ContractPutError::ContractImportDigestParsing(external_id.into(), err)
+                let digest = parse_digest(contract_id).map_err(|err| {
+                    ContractPutError::ContractImportDigestParsing(contract_id.into(), err)
                 })?;
                 let contract = contracts
                     .get(&digest)
-                    .ok_or_else(|| ContractPutError::ContractImportNotFound(external_id.into()))?;
-                imports.insert(external_id, Arc::clone(contract));
-            }
-            if let Some(script_instance) = &script_instance {
-                for import in script_instance.coordination_scripts() {
-                    let CoordinationScriptImport { external_id, .. } =
-                        import.map_err(ContractPutError::Runtime)?;
-                    if imports.contains_key(external_id) {
-                        continue;
-                    }
-
-                    let digest = parse_digest(external_id).map_err(|err| {
-                        ContractPutError::ContractImportDigestParsing(external_id.into(), err)
-                    })?;
-                    let contract = contracts.get(&digest).ok_or_else(|| {
-                        ContractPutError::ContractImportNotFound(external_id.into())
-                    })?;
-                    imports.insert(external_id, Arc::clone(contract));
-                }
+                    .ok_or_else(|| ContractPutError::ContractImportNotFound(contract_id.into()))?;
+                imports.insert(contract_id, Arc::clone(contract));
             }
         }
 

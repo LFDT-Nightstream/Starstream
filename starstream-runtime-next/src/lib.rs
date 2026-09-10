@@ -8,7 +8,7 @@ use wasmtime::component::{
     LinkerInstance, Resource, ResourceAny, ResourceTable, ResourceType, Type, Val, types,
 };
 use wasmtime::error::Context as _;
-use wasmtime::{AsContextMut, Engine, StoreContextMut, bail, ensure, format_err};
+use wasmtime::{AsContextMut, Engine, StoreContextMut, bail, ensure};
 
 pub mod bindings {
     // NOTE: `starstream:std/{builtin,utxo-context}` bindings are hand-written
@@ -27,10 +27,48 @@ pub mod bindings {
     });
 }
 
+/// Cross-contract imports use nested interface names rooted at the
+/// `starstream:contract` package:
+///
+/// - `starstream:contract/<contract-id>/utxo/<name>` — the typed UTXO exported
+///   as `<name>` by the dependency contract identified by `<contract-id>`.
+/// - `starstream:contract/<contract-id>/scripts` — the coordination scripts of
+///   the dependency contract identified by `<contract-id>`, exported as plain
+///   functions by the imported instance.
+///
+/// `<contract-id>` is the canonical contract digest label: the multibase
+/// base32-lower encoding of the sha2-256 multihash of the contract Wasm.
+/// The runtime treats it as an opaque string and passes it to
+/// [`ContractLookup::get_contract`] verbatim.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ContractImportName<'a> {
+    Utxo { contract_id: &'a str, name: &'a str },
+    Scripts { contract_id: &'a str },
+}
+
+fn parse_contract_import_name(name: &str) -> Option<ContractImportName<'_>> {
+    let rest = name.strip_prefix("starstream:contract/")?;
+    let mut segments = rest.split('/');
+    match (
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+    ) {
+        (Some(contract_id), Some("scripts"), None, None) => {
+            Some(ContractImportName::Scripts { contract_id })
+        }
+        (Some(contract_id), Some("utxo"), Some(name), None) => {
+            Some(ContractImportName::Utxo { contract_id, name })
+        }
+        _ => None,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct UtxoImport<'a> {
     pub name: &'a str,
-    pub external_id: &'a str,
+    pub contract_id: &'a str,
     pub ty: types::ComponentInstance,
 }
 
@@ -39,94 +77,53 @@ pub struct UtxoImport<'a> {
 pub fn utxo_imports<'a>(
     engine: &'a Engine,
     ty: &'a types::Component,
-) -> impl Iterator<Item = wasmtime::Result<UtxoImport<'a>>> {
-    ty.imports(engine).filter_map(
-        |(
-            name,
-            types::ComponentExtern {
-                ty, external_id, ..
-            },
-        )| {
+) -> impl Iterator<Item = UtxoImport<'a>> {
+    ty.imports(engine)
+        .filter_map(|(name, types::ComponentExtern { ty, .. })| {
             let types::ComponentItem::ComponentInstance(ty) = ty else {
                 return None;
             };
-            let ("starstream:utxo", name) = name.split_once('/')? else {
-                return None;
-            };
-            if let Some(external_id) = external_id {
-                Some(Ok(UtxoImport {
+            match parse_contract_import_name(name)? {
+                ContractImportName::Utxo { contract_id, name } => Some(UtxoImport {
                     name,
-                    external_id,
+                    contract_id,
                     ty,
-                }))
-            } else {
-                Some(Err(format_err!(
-                    "`external-id` missing for UTXO import `{name}`"
-                )))
+                }),
+                ContractImportName::Scripts { .. } => None,
             }
-        },
-    )
+        })
 }
 
 #[derive(Clone, Debug)]
-pub struct CoordinationScriptImport<'a> {
-    pub name: &'a str,
-    pub external_id: &'a str,
-    pub ty: types::ComponentFunc,
+pub struct CoordinationScriptsImport<'a> {
+    pub contract_id: &'a str,
+    pub ty: types::ComponentInstance,
 }
 
-pub struct CoordinationScriptInstanceImport<'a> {
-    engine: &'a Engine,
-    ty: types::ComponentInstance,
-}
-
-impl<'a> CoordinationScriptInstanceImport<'a> {
-    /// Iterate over coordination scripts exported by this [ContractInstanceImport].
-    pub fn coordination_scripts<'b: 'a>(
-        &'b self,
-    ) -> impl Iterator<Item = wasmtime::Result<CoordinationScriptImport<'b>>> {
-        self.ty.exports(self.engine).filter_map(
-            |(
-                name,
-                types::ComponentExtern {
-                    ty, external_id, ..
-                },
-            )| {
-                let types::ComponentItem::ComponentFunc(ty) = ty else {
-                    return None;
-                };
-                if let Some(external_id) = external_id {
-                    Some(Ok(CoordinationScriptImport {
-                        name,
-                        external_id,
-                        ty,
-                    }))
-                } else {
-                    Some(Err(format_err!(
-                        "`external-id` missing for coordination script import `{name}`"
-                    )))
-                }
-            },
-        )
-    }
-}
-
-/// Lookup a `starstream:contract` instance import.
+/// Iterate over per-contract coordination script instances imported by this
+/// [Contract].
 #[instrument(level = "trace", skip_all)]
-pub fn get_coordination_script_instance_import<'a>(
+pub fn coordination_script_imports<'a>(
     engine: &'a Engine,
-    ty: &types::Component,
-) -> Option<CoordinationScriptInstanceImport<'a>> {
-    let types::ComponentExtern { ty, .. } = ty.get_import(engine, "starstream:contract/scripts")?;
-    let types::ComponentItem::ComponentInstance(ty) = ty else {
-        return None;
-    };
-    Some(CoordinationScriptInstanceImport { engine, ty })
+    ty: &'a types::Component,
+) -> impl Iterator<Item = CoordinationScriptsImport<'a>> {
+    ty.imports(engine)
+        .filter_map(|(name, types::ComponentExtern { ty, .. })| {
+            let types::ComponentItem::ComponentInstance(ty) = ty else {
+                return None;
+            };
+            match parse_contract_import_name(name)? {
+                ContractImportName::Scripts { contract_id } => {
+                    Some(CoordinationScriptsImport { contract_id, ty })
+                }
+                ContractImportName::Utxo { .. } => None,
+            }
+        })
 }
 
 pub trait ContractLookup<T> {
-    /// Lookup a contract by `external_id`
-    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>>;
+    /// Lookup a contract by `contract_id`
+    fn get_contract(&self, contract_id: &str) -> wasmtime::Result<Contract<T>>;
 }
 
 pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
@@ -618,30 +615,18 @@ fn link_coordination_script_function<T: Host>(
 }
 
 /// Link coordination script instance in a [`LinkerInstance`].
-#[instrument(level = "trace", skip(engine, linker, contracts, ty))]
+#[instrument(level = "trace", skip(engine, linker, contract, ty))]
 fn link_coordination_script_instance<T: Host>(
     engine: &Engine,
     linker: &mut LinkerInstance<T>,
-    contracts: &impl ContractLookup<T>,
+    contract: &Contract<T>,
     ty: &types::ComponentInstance,
 ) -> wasmtime::Result<()> {
-    for (
-        name,
-        types::ComponentExtern {
-            ty, external_id, ..
-        },
-    ) in ty.exports(engine)
-    {
+    for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
         debug!(name, "linking coordination script instance item");
         match ty {
             types::ComponentItem::ComponentFunc(..) => {
-                let external_id = external_id.with_context(|| {
-                    format!("`external-id` missing for coordination script import `{name}`")
-                })?;
-                let contract = contracts.get_contract(external_id).with_context(|| {
-                    format!("failed to get contract for coordination script import `{name}`")
-                })?;
-                link_coordination_script_function(contract, linker, name)?;
+                link_coordination_script_function(contract.clone(), linker, name)?;
             }
             types::ComponentItem::CoreFunc(..) => {
                 bail!("coordination script instance core function imports unsupported")
@@ -673,7 +658,6 @@ fn link_instance<T: Host>(
     contracts: &impl ContractLookup<T>,
     ty: &types::ComponentInstance,
     name: &str,
-    external_id: Option<&str>,
 ) -> wasmtime::Result<()> {
     debug_assert!(!name.starts_with("starstream:std"));
 
@@ -683,15 +667,6 @@ fn link_instance<T: Host>(
         ty.get_export(engine, "utxo"),
         ty.get_export(engine, "token"),
     ) {
-        (Some(("starstream:utxo", name)), ..) => {
-            let external_id = external_id
-                .with_context(|| format!("`external-id` missing for typed UTXO import `{name}`"))?;
-            let contract = contracts.get_contract(external_id).with_context(|| {
-                format!("failed to get contract for typed UTXO import `{name}`")
-            })?;
-            link_typed_utxo_instance(ContractImportTarget::External(contract), linker, ty, name)
-        }
-
         (
             Some(("starstream:self", name)),
             Some(types::ComponentExtern {
@@ -744,9 +719,21 @@ fn link_instance<T: Host>(
             link_dynamic_utxo_instance(engine, linker, ty)
         }
 
-        (Some(("starstream:contract", "scripts")), ..) => {
-            link_coordination_script_instance(engine, linker, contracts, ty)
-        }
+        (Some(("starstream:contract", ..)), ..) => match parse_contract_import_name(name) {
+            Some(ContractImportName::Utxo { contract_id, name }) => {
+                let contract = contracts.get_contract(contract_id).with_context(|| {
+                    format!("failed to get contract `{contract_id}` for typed UTXO import `{name}`")
+                })?;
+                link_typed_utxo_instance(ContractImportTarget::External(contract), linker, ty, name)
+            }
+            Some(ContractImportName::Scripts { contract_id }) => {
+                let contract = contracts.get_contract(contract_id).with_context(|| {
+                    format!("failed to get contract `{contract_id}` for coordination script import")
+                })?;
+                link_coordination_script_instance(engine, linker, &contract, ty)
+            }
+            None => bail!("unexpected `starstream:contract` instance import `{name}`"),
+        },
 
         _ => bail!("unexpected instance import `{name}`"),
     }
@@ -760,12 +747,8 @@ fn link_imports<T: Host>(
     linker: &mut Linker<T>,
     contracts: &impl ContractLookup<T>,
 ) -> wasmtime::Result<()> {
-    for (
-        name,
-        types::ComponentExtern {
-            ty, external_id, ..
-        },
-    ) in component.component_type().imports(component.engine())
+    for (name, types::ComponentExtern { ty, .. }) in
+        component.component_type().imports(component.engine())
     {
         match ty {
             types::ComponentItem::ComponentFunc(..) => {
@@ -785,15 +768,7 @@ fn link_imports<T: Host>(
                     .instance(name)
                     .with_context(|| format!("failed to instantiate `{name}` in the linker"))?;
                 debug!(?name, "linking root instance");
-                link_instance(
-                    contract,
-                    component,
-                    &mut linker,
-                    contracts,
-                    &ty,
-                    name,
-                    external_id,
-                )?;
+                link_instance(contract, component, &mut linker, contracts, &ty, name)?;
             }
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) => {
