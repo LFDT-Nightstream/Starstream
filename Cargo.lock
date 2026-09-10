@@ -3501,7 +3501,9 @@ version = "0.0.0"
 dependencies = [
  "neo-application",
  "neo-ccs",
+ "neo-fold-clean",
  "neo-math",
+ "neo-params",
  "p3-field",
  "starstream-interleaving-spec",
  "thiserror 2.0.17",
