@@ -96,11 +96,15 @@ async fn http() -> anyhow::Result<()> {
         .context("failed to handle HTTP")?;
     let ledger = tokio::spawn(ledger);
 
-    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
+    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}"))?;
-    let client = ClientBuilder::new(http.clone(), api_base.clone())
+    let client = ClientBuilder::new(http.clone(), HttpConnector::new(), api_base.clone())
         .network(NETWORK)
         .build();
+    let http = http.build_http();
+
+    let height = client.block_height().await?;
+    assert_eq!(height, 0);
 
     let score_publish_envelope =
         build_publish_envelope(ADMIN.clone(), NETWORK, 1, SCORE_WASM.as_slice())?;
@@ -152,6 +156,9 @@ async fn http() -> anyhow::Result<()> {
     client
         .fund(ADMIN.clone(), 1, &ADMIN.verifying_key(), balance as _)
         .await?;
+
+    let height = client.block_height().await?;
+    assert_eq!(height, 1);
 
     let req = build_fund_request(
         &api_base,
@@ -221,6 +228,9 @@ async fn http() -> anyhow::Result<()> {
         headers.get(X_CONTENT_TYPE_OPTIONS).map(|v| v.as_bytes()),
         Some(b"nosniff".as_slice())
     );
+
+    let height = client.block_height().await?;
+    assert_eq!(height, 3);
 
     shutdown.notify_one();
     ledger.await.context("ledger task panicked")

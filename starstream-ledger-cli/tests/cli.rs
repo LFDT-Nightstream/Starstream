@@ -113,6 +113,9 @@ async fn cli() -> anyhow::Result<()> {
         build_publish_envelope(account.clone(), NETWORK, 1, SCORE_WASM.as_slice())?;
     let publish_cost = publish_envelope.len();
 
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"]).await?;
+    assert_eq!(stdout, b"0");
+
     let stdout = run_cli([
         "--url",
         &format!("http://{addr}"),
@@ -145,6 +148,9 @@ async fn cli() -> anyhow::Result<()> {
     ])
     .await?;
     assert_eq!(stdout, b"");
+
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"]).await?;
+    assert_eq!(stdout, b"2");
 
     shutdown.notify_one();
     ledger.await.context("ledger task panicked")

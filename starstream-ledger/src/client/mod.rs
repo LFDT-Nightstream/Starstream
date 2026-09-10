@@ -8,6 +8,11 @@ use crate::{FUND_CONTEXT, PUBLISH_CONTEXT};
 
 pub mod http;
 
+/// Ledger wRPC bindings.
+pub mod bindings {
+    wit_bindgen_wrpc::generate!();
+}
+
 /// Build a signed envelope.
 fn build_envelope(key: SigningKey, payload: impl Into<Vec<u8>>) -> anyhow::Result<Vec<u8>> {
     let protected = coset::HeaderBuilder::new()

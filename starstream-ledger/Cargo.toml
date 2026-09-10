@@ -9,7 +9,12 @@ license.workspace = true
 
 [features]
 default = ["client", "server"]
-client = ["hyper-util/client", "hyper-util/client-legacy"]
+client = [
+    "dep:wit-bindgen-wrpc",
+    "hyper-util/client",
+    "hyper-util/client-legacy",
+    "wrpc-http/client-legacy",
+]
 server = [
     "dep:headers-accept",
     "dep:headers-core",
@@ -18,6 +23,8 @@ server = [
     "dep:hyper",
     "dep:starstream-runtime-next",
     "dep:tokio",
+    "dep:tokio-util",
+    "dep:wasm-tokio",
     "dep:wasmtime",
     "dep:wasmtime-wizer",
     "hyper-util/server",
@@ -52,7 +59,9 @@ tokio = { workspace = true, optional = true, features = [
     "sync",
     "time",
 ] }
+tokio-util = { workspace = true, optional = true, features = ["codec"] }
 tracing = { workspace = true, features = ["attributes"] }
+wasm-tokio = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true, features = [
     "anyhow",
     "async",
@@ -63,6 +72,9 @@ wasmtime-wizer = { workspace = true, optional = true, features = [
     "component-model",
     "wasmtime",
 ] }
+wit-bindgen-wrpc = { workspace = true, optional = true }
+wrpc-http = { workspace = true }
+wrpc-transport = { workspace = true }
 
 [dev-dependencies]
 starstream-compiler = { workspace = true }

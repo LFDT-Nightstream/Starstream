@@ -6,6 +6,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::Uri;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
@@ -42,6 +43,10 @@ enum Command {
     #[command(subcommand)]
     Account(AccountCommand),
 
+    /// Query ledger blocks.
+    #[command(subcommand)]
+    Block(BlockCommand),
+
     /// Manage published contracts.
     #[command(subcommand)]
     Contract(ContractCommand),
@@ -77,6 +82,12 @@ enum AccountCommand {
         /// Amount to credit the account with.
         amount: u64,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum BlockCommand {
+    /// Get the height of the latest ledger block.
+    Height,
 }
 
 #[derive(Debug, Subcommand)]
@@ -139,8 +150,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
-    let client = ClientBuilder::new(http, url).network(network).build();
+    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
+    let client = ClientBuilder::new(http, HttpConnector::new(), url)
+        .network(network)
+        .build();
     match command {
         Command::Account(AccountCommand::Fund {
             signing: SigningArgs { key, nonce },
@@ -149,6 +162,13 @@ async fn main() -> anyhow::Result<()> {
         }) => {
             let key = read_signing_key(&key).await?;
             client.fund(key, nonce, &account, amount).await
+        }
+        Command::Block(BlockCommand::Height) => {
+            let height = client.block_height().await?;
+            stdout()
+                .write_all(height.to_string().as_bytes())
+                .await
+                .context("failed to write height to stdout")
         }
         Command::Contract(ContractCommand::Digest { wasm }) => {
             let wasm = fs::read(&wasm)
