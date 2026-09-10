@@ -373,6 +373,7 @@ TypedProgram {
                 ty: TokenType {
                     name: "MyToken",
                     id: NameId(4),
+                    methods: [],
                 },
             },
         ),
