@@ -1396,7 +1396,7 @@ TypedProgram {
   (func (;12;) (type 8)
     (local i32 i64)
     (local.set 0
-      (call 6))
+      (call 4))
     (call 1
       (i64.const 10))
     (local.set 1

@@ -1504,7 +1504,7 @@ impl Compiler {
         });
 
         // Visit each Utxo part.
-        let mut coordination_script_callables = HashMap::new();
+        let old_callables = self.callables.clone();
         let mut utxo_storage = HashMap::new();
         let start_global = self.globals.len();
         for part in &utxo.parts {
@@ -1518,13 +1518,6 @@ impl Compiler {
                     }
                 }
                 TypedUtxoPart::Function(function) => {
-                    // Hack: if pre_visit_utxo created a callable for this function,
-                    // restore it after we finish with the utxo, so coordination scripts
-                    // see the "import" version.
-                    if let Some(c) = self.callables.get(&function.id) {
-                        coordination_script_callables.insert(function.id, *c);
-                    }
-
                     if let Some(FunctionExport::UtxoMain) = function.export {
                         let core = self.visit_function(
                             None,
@@ -1628,7 +1621,7 @@ impl Compiler {
             .export_interface(&export_interface_name, &iface);
 
         // Restore old scope.
-        self.callables.extend(coordination_script_callables);
+        self.callables = old_callables;
         self.star_to_component
             .insert(this_ty, old_resource.unwrap());
         self.current_resource = None;
@@ -1796,6 +1789,7 @@ impl Compiler {
         });
 
         // Visit each token part.
+        let old_callables = self.callables.clone();
         let mut token_storage = HashMap::new();
         let start_global = self.globals.len();
         for part in &token.parts {
@@ -1947,6 +1941,7 @@ impl Compiler {
             .export_interface(&export_interface_name, &iface);
 
         // Restore old scope.
+        self.callables = old_callables;
         self.star_to_component
             .insert(this_ty, old_resource.unwrap());
         self.current_resource = None;
