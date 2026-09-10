@@ -74,7 +74,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let engine = wasmtime::Engine::default();
+    let mut config = wasmtime::Config::default();
+    config.wasm_component_model_implements(true);
+    let engine = wasmtime::Engine::new(&config)?;
 
     let ledger = Ledger::new(engine, max_requests, network, admin);
     let ledger = Arc::new(ledger);

@@ -116,6 +116,10 @@ pub enum ContractPutError {
     Http(http::Error),
     #[error("instrumentation failed: {0:#}")]
     Wizer(wasmtime::Error),
+    #[error("failed to parse `external-id` `{0}` as multibase multihash: {1}")]
+    ContractImportDigestParsing(Box<str>, DigestParseError),
+    #[error("contract import identified by `external-id` `{0}` not found")]
+    ContractImportNotFound(Box<str>),
 }
 
 impl ContractPutError {
@@ -130,12 +134,14 @@ impl ContractPutError {
             | Self::NonceOverflow
             | Self::DigestMismatch(..)
             | Self::Runtime(..)
+            | Self::ContractImportDigestParsing(..)
             | Self::Wizer(..) => http::StatusCode::BAD_REQUEST,
             Self::Envelope(err) => err.http_status_code(),
             Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::AccountNotFound(..) | Self::InsufficientBalance { .. } => {
                 http::StatusCode::PAYMENT_REQUIRED
             }
+            Self::ContractImportNotFound { .. } => http::StatusCode::NOT_FOUND,
             Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }

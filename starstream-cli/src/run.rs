@@ -11,7 +11,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_runtime_next::{Contract, ContractLookup, Host, Utxo, bindings};
 use tokio::fs;
 use tracing::{debug, info, instrument};
-use wasmtime::component::{Resource, ResourceTable, Val};
+use wasmtime::component::{Component, Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, Store, StoreContextMut, ensure};
 
@@ -187,7 +187,9 @@ async fn exec(
         let wasm = fs::read(&import)
             .await
             .with_context(|| format!("failed to read import contract `{}`", import.display()))?;
-        let contract = Contract::new(&engine, &lookup, &wasm)
+        let component =
+            Component::new(&engine, &wasm).context("failed to compile import contract")?;
+        let contract = Contract::new(&component, &lookup)
             .with_context(|| format!("failed to load import contract `{}`", import.display()))?;
         let digest = Sha256::digest(&wasm);
         let digest = format!("{digest:02x}");
@@ -196,7 +198,8 @@ async fn exec(
     }
 
     let wasm = fs::read(&wasm).await.context("failed to read contract")?;
-    let contract = Contract::new(&engine, &lookup, wasm).context("failed to load contract")?;
+    let component = Component::new(&engine, &wasm).context("failed to compile contract")?;
+    let contract = Contract::new(&component, &lookup).context("failed to load contract")?;
     let mut store = Store::new(
         &engine,
         Ctx {

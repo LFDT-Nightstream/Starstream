@@ -5,7 +5,7 @@ use core::str::FromStr as _;
 
 use std::sync::{Arc, LazyLock};
 
-use anyhow::Context as _;
+use anyhow::{Context as _, anyhow, ensure};
 use bytes::Bytes;
 use coset::{CoseSign1Builder, HeaderBuilder, TaggedCborSerializable as _, iana};
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -15,34 +15,44 @@ use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use sha2::{Digest as _, Sha256};
+use starstream_compiler::typecheck::TypecheckSuccess;
+use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
 use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::client::http::{
     ClientBuilder, build_contract_get_request, build_contract_publish_request, build_fund_request,
 };
 use starstream_ledger::encode_digest;
 use starstream_ledger::server::Ledger;
+use starstream_to_wasm::CompileResult;
 use tokio::net::TcpListener;
+use wit_component::ComponentEncoder;
 
-fn compile_contract(source: &str) -> Vec<u8> {
-    let (program, errors) = starstream_compiler::parse_program(source).into_output_errors();
-    assert!(errors.is_empty(), "parsing failed: {errors:?}");
-    let program = program.expect("parser produced no program");
-    let typed = starstream_compiler::typecheck_program(&program, Default::default())
-        .unwrap_or_else(|failure| panic!("typechecking failed: {:?}", failure.errors));
-    let result = starstream_to_wasm::compile(&typed.program);
-    assert!(
-        result.errors.is_empty(),
-        "compiling failed: {:?}",
-        result.errors
-    );
-    let wasm = result.wasm.expect("compiling produced no Wasm");
-    starstream_runtime_next::componentize(wasm).expect("failed to componentize contract")
+fn compile_contract(source: &str) -> anyhow::Result<Vec<u8>> {
+    let (program, errs) = parse_program(source).into_output_errors();
+    ensure!(errs.is_empty(), "failed to parse program: {errs:?}");
+    let program = program.context("parser did not produce a program")?;
+
+    let TypecheckSuccess { program, .. } = typecheck_program(&program, TypecheckOptions::default())
+        .map_err(|TypecheckFailure { errors, .. }| {
+            anyhow!("failed to typecheck program: {:?}", errors)
+        })?;
+
+    let CompileResult { errors, wasm, .. } = starstream_to_wasm::compile(&program);
+    ensure!(errors.is_empty(), "failed to compile program: {errors:?}");
+
+    let wasm = wasm.context("compilation did not produce Wasm")?;
+    ComponentEncoder::default()
+        .validate(true)
+        .module(&wasm)
+        .context("failed to set core component module")?
+        .encode()
+        .context("failed to encode a component")
 }
 
 const NETWORK: &str = "starstream:test";
 
 static SCORE_WASM: LazyLock<Vec<u8>> =
-    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
+    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")).unwrap());
 static SCORE_WASM_DIGEST: LazyLock<[u8; 32]> =
     LazyLock::new(|| Sha256::digest(&*SCORE_WASM).into());
 
@@ -74,12 +84,11 @@ async fn http() -> anyhow::Result<()> {
             .context("failed to get TCP listener local address")?
     };
 
-    let ledger = Ledger::new(
-        wasmtime::Engine::default(),
-        128,
-        NETWORK,
-        ADMIN.verifying_key(),
-    );
+    let mut config = wasmtime::Config::default();
+    config.wasm_component_model_implements(true);
+    let engine = wasmtime::Engine::new(&config)?;
+
+    let ledger = Ledger::new(engine, 128, NETWORK, ADMIN.verifying_key());
     let ledger = Arc::new(ledger);
     let (ledger, shutdown) = ledger
         .handle_http(addr)

@@ -23,11 +23,15 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
+use starstream_runtime_next::{
+    CoordinationScriptImport, UtxoImport, get_coordination_script_instance_import, utxo_imports,
+};
 use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
+use wasmtime::component::Component;
 
 use crate::server::lookup::ContractLookup;
 use crate::server::{Contract, Ledger};
@@ -319,45 +323,83 @@ impl Ledger {
                 });
             }
         }
-
-        let envelope = Bytes::from(envelope);
         {
             let contracts = self.contracts.read().await;
             if contracts.contains_key(&digest) {
                 return build_text_response(http::StatusCode::OK, "")
                     .map_err(ContractPutError::Http);
             }
+        }
 
-            // TODO: Split component
-
-            let (_wizer_cx, contract_wasm) = self
-                .wizer
-                .instrument_component(&wasm)
-                .map_err(ContractPutError::Wizer)?;
-            let contract = starstream_runtime_next::Contract::new(
-                &self.engine,
-                ContractLookup(&contracts),
-                &contract_wasm,
-            )
+        let (_wizer_cx, contract_wasm) = self
+            .wizer
+            .instrument_component(&wasm)
+            .map_err(ContractPutError::Wizer)?;
+        let component = Component::from_binary(&self.engine, &contract_wasm)
             .map_err(ContractPutError::Runtime)?;
-            drop(contracts);
-
-            let mut scripts = HashMap::default();
-            for (name, export) in contract.coordination_scripts() {
-                let export = export.map_err(ContractPutError::Runtime)?;
-                scripts.insert(name.into(), export);
+        let ty = component.component_type();
+        let script_instance = get_coordination_script_instance_import(&self.engine, &ty);
+        let mut imports = HashMap::default();
+        {
+            let contracts = self.contracts.read().await;
+            if contracts.contains_key(&digest) {
+                return build_text_response(http::StatusCode::OK, "")
+                    .map_err(ContractPutError::Http);
             }
-            let mut utxos = HashMap::default();
-            for (name, export) in contract.utxos() {
-                let export = export.map_err(ContractPutError::Runtime)?;
-                utxos.insert(name.into(), export);
-            }
+            for import in utxo_imports(&self.engine, &ty) {
+                let UtxoImport { external_id, .. } = import.map_err(ContractPutError::Runtime)?;
+                if imports.contains_key(external_id) {
+                    continue;
+                }
 
+                let digest = parse_digest(external_id).map_err(|err| {
+                    ContractPutError::ContractImportDigestParsing(external_id.into(), err)
+                })?;
+                let contract = contracts
+                    .get(&digest)
+                    .ok_or_else(|| ContractPutError::ContractImportNotFound(external_id.into()))?;
+                imports.insert(external_id, Arc::clone(contract));
+            }
+            if let Some(script_instance) = &script_instance {
+                for import in script_instance.coordination_scripts() {
+                    let CoordinationScriptImport { external_id, .. } =
+                        import.map_err(ContractPutError::Runtime)?;
+                    if imports.contains_key(external_id) {
+                        continue;
+                    }
+
+                    let digest = parse_digest(external_id).map_err(|err| {
+                        ContractPutError::ContractImportDigestParsing(external_id.into(), err)
+                    })?;
+                    let contract = contracts.get(&digest).ok_or_else(|| {
+                        ContractPutError::ContractImportNotFound(external_id.into())
+                    })?;
+                    imports.insert(external_id, Arc::clone(contract));
+                }
+            }
+        }
+
+        let contract = starstream_runtime_next::Contract::new(&component, ContractLookup(&imports))
+            .map_err(ContractPutError::Runtime)?;
+        let mut scripts = HashMap::default();
+        for (name, export) in contract.coordination_scripts() {
+            let export = export.map_err(ContractPutError::Runtime)?;
+            scripts.insert(name.into(), export);
+        }
+        let mut utxos = HashMap::default();
+        for (name, export) in contract.utxos() {
+            let export = export.map_err(ContractPutError::Runtime)?;
+            utxos.insert(name.into(), export);
+        }
+
+        let envelope = Bytes::from(envelope);
+        {
             let mut contracts = self.contracts.write().await;
             let hash_map::Entry::Vacant(entry) = contracts.entry(digest) else {
                 return build_text_response(http::StatusCode::OK, "")
                     .map_err(ContractPutError::Http);
             };
+            // TODO: Split component
             entry.insert(Arc::new(Contract {
                 contract,
                 contract_wasm: contract_wasm.into(),
