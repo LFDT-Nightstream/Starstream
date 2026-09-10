@@ -7,21 +7,18 @@
 
 Ledger/sandbox/CLI features:
 
-- runtime
+- mock ledger
+  - [ ] sandbox shows current "input" ledger state (starts empty)
+  - [ ] sandbox allows calling coordination scripts with arguments, can pass existing UTXOs as input (JS console?)
+  - [ ] sandbox shows "output" ledger state after running, with "save" button that copies it to the "input"
   - [ ] split and recombine code/state for compression of Utxo storage
   - [ ] deduplication
     - Optimized storage for duplicated nested components
     - Compiler keeps structure to make this possible
-- [ ] mock ledger
-  - [ ] sandbox shows current "input" ledger state (starts empty)
-  - [ ] sandbox allows calling coordination scripts with arguments, can pass existing UTXOs as input (JS console?)
-  - [ ] sandbox shows "output" ledger state after running, with "save" button that copies it to the "input"
-- [ ] web sandbox
+- web sandbox
   - [ ] "run" and/or "test" support
-- [ ] CLI
-  - `--import other.wasm`
-  - Can import code from `artifacts/` directory
-  - State directory or DB file for mock ledger state
+- CLI
+  - [ ] State directory or DB file for mock ledger state
 - [ ] JS frontend
 
 Language features:
@@ -84,6 +81,8 @@ Language features:
 
 Low priority / waiting:
 
+- mock ledger/CLI conveniences
+  - [ ] automatically import compiled contracts from `artifacts/` directory
 - [ ] typedefs
   - [ ] basic `type A = B;`
   - [ ] export `pub type A = B;` to WIT
@@ -92,7 +91,7 @@ Low priority / waiting:
   - Waiting on Lazy Lowering and/or component GC support
   - [ ] `string` and string literals (WIT support)
   - [ ] builtin container `List<T>` (WIT support)
-- [ ] pattern matching miscellany
+- pattern matching miscellany
   - [ ] maybe allow exhaustive patterns as LHS of function parameters?
   - [ ] positional field access (`t.0`)
 
