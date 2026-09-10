@@ -97,6 +97,64 @@ fn let_binding_traces() {
 }
 
 #[test]
+fn irrefutable_let_pattern() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn swap(pair: (i64, bool)) -> (bool, i64) {
+            let (number, flag) = pair;
+            (flag, number)
+        }
+        "#
+    );
+}
+
+#[test]
+fn refutable_let_pattern_requires_else() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn unwrap(result: Result<i64, i64>) -> i64 {
+            let Result::Ok(value) = result;
+            value
+        }
+        "#
+    );
+}
+
+#[test]
+fn let_else_pattern() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn unwrap_or_return(result: Result<i64, i64>) -> i64 {
+            let Result::Ok(value) = result else { return 0; };
+            value
+        }
+        "#
+    );
+}
+
+#[test]
+fn let_else_must_diverge() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn invalid(result: Result<i64, i64>) {
+            let Result::Ok(value) = result else { let fallback = 0; };
+        }
+        "#
+    );
+}
+
+#[test]
+fn let_else_return_does_not_cover_success_path() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn invalid(result: Result<i64, i64>) -> i64 {
+            let Result::Ok(value) = result else { return 0; };
+        }
+        "#
+    );
+}
+
+#[test]
 fn binary_add_traces() {
     assert_typecheck_snapshot!(
         r#"

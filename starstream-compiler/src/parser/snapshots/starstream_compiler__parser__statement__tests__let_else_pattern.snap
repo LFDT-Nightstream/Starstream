@@ -1,0 +1,56 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nlet Result::Ok(value) = result else { return; };"
+---
+VariableDeclaration {
+    public: false,
+    mutable: false,
+    pattern: Tuple {
+        name: [
+            Identifier {
+                name: "Result",
+                span: 4..10,
+            },
+            Identifier {
+                name: "Ok",
+                span: 12..14,
+            },
+        ],
+        fields: [
+            Name(
+                [
+                    Identifier {
+                        name: "value",
+                        span: 15..20,
+                    },
+                ],
+            ),
+        ],
+    },
+    ty: None,
+    value: Spanned {
+        node: ScopedName(
+            [
+                Identifier {
+                    name: "result",
+                    span: 24..30,
+                },
+            ],
+        ),
+        span: 24..31,
+    },
+    else_branch: Some(
+        Block {
+            statements: [
+                Spanned {
+                    node: Return(
+                        None,
+                    ),
+                    span: 38..46,
+                },
+            ],
+            tail_expression: None,
+            span: 36..47,
+        },
+    ),
+}

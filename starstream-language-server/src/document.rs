@@ -1042,25 +1042,15 @@ impl DocumentState {
             TypedStatement::VariableDeclaration {
                 public: _,
                 mutable: _,
-                name,
+                pattern,
                 value,
+                else_branch,
             } => {
                 self.collect_expr(value, scopes);
-
-                if let Some(span) = name.opt_span() {
-                    self.definition_entries.push(DefinitionEntry {
-                        usage: span,
-                        target: span,
-                    });
-
-                    if let Some(scope) = scopes.last_mut() {
-                        scope.insert(name.to_string(), span);
-                    }
+                if let Some(block) = else_branch {
+                    self.collect_block(block, scopes);
                 }
-
-                if let Some(span) = name.opt_span() {
-                    self.add_hover_span(span, &value.node.ty);
-                }
+                self.collect_pattern(pattern, scopes, Some(value.node.ty.clone()));
             }
             TypedStatement::Assignment { target, value } => {
                 self.collect_expr(value, scopes);
@@ -1746,11 +1736,19 @@ impl DocumentState {
 
     fn collect_statement_annotations_from_ast(&mut self, statement: &untyped_ast::Statement) {
         match statement {
-            untyped_ast::Statement::VariableDeclaration { ty, value, .. } => {
+            untyped_ast::Statement::VariableDeclaration {
+                ty,
+                value,
+                else_branch,
+                ..
+            } => {
                 if let Some(ty) = ty {
                     self.collect_type_annotation_node(ty);
                 }
                 self.collect_expr_annotations_from_ast(&value.node);
+                if let Some(block) = else_branch {
+                    self.collect_block_annotations_from_ast(block);
+                }
             }
             untyped_ast::Statement::While { body, .. } => {
                 self.collect_block_annotations_from_ast(body);

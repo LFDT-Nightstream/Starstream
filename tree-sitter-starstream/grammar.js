@@ -255,10 +255,11 @@ module.exports = grammar({
         "let",
         optional("pub"),
         optional("mut"),
-        $.identifier,
+        $.pattern,
         optional(seq(":", $.type_annotation)),
         "=",
         $.expression,
+        optional(seq("else", $.block)),
         ";",
       ),
 
@@ -402,7 +403,7 @@ module.exports = grammar({
       ),
 
     if_expression: ($) =>
-      seq(
+      prec.right(seq(
         // First `if` branch.
         "if",
         $._if_condition,
@@ -411,7 +412,7 @@ module.exports = grammar({
         repeat(seq("else", "if", $._if_condition, $.block)),
         // Final `else` branch.
         optional(seq("else", $.block)),
-      ),
+      )),
 
     _if_condition: ($) => choice(seq("(", $.expression, ")"), $.is_condition),
 

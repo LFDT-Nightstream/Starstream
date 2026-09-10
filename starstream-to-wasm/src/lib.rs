@@ -1919,24 +1919,61 @@ impl Compiler {
                 TypedStatement::VariableDeclaration {
                     public: _,
                     mutable: _,
-                    name,
+                    pattern,
                     value,
+                    else_branch,
                 } => {
-                    // Allocate local space.
-                    let mut local_types = Vec::new();
-                    _ = self.star_to_core_types(value.span, &mut local_types, &value.node.ty);
-                    let local = func.add_locals(local_types.iter().copied());
-                    locals.insert(name.name.clone(), Var::Local(local));
-
-                    if self
-                        .visit_expr_stack(func, bb, &(parent, &locals), value.span, &value.node)
-                        .is_ok()
-                    {
-                        // Pop from stack to set locals in reverse order.
-                        for i in (0..local_types.len()).rev() {
-                            func.instructions(bb).local_set(local + (i as u32));
-                        }
+                    // Evaluate the initializer once and retain its flattened
+                    // representation while the pattern decision is made.
+                    self.visit_expr_stack(func, bb, &(parent, &locals), value.span, &value.node)?;
+                    let mut scrut_types = Vec::new();
+                    _ = self.star_to_core_types(value.span, &mut scrut_types, &value.node.ty);
+                    let scrut_base = func.add_locals(scrut_types.iter().copied());
+                    for i in (0..scrut_types.len()).rev() {
+                        func.instructions(bb).local_set(scrut_base + i as u32);
                     }
+
+                    let mut binding_types = Vec::new();
+                    Self::collect_pattern_binding_types(
+                        pattern,
+                        &value.node.ty,
+                        &mut binding_types,
+                    );
+                    let mut binding_locals = HashMap::new();
+                    for (name, ty) in binding_types {
+                        let mut core_types = Vec::new();
+                        _ = self.star_to_core_types(value.span, &mut core_types, &ty);
+                        let base = func.add_locals(core_types.iter().copied());
+                        binding_locals.insert(name.clone(), Var::Local(base));
+                        locals.insert(name, Var::Local(base));
+                    }
+
+                    let pat = self.lower_pattern(pattern, 0, &value.node.ty);
+                    let tree = decision_tree::compile(
+                        &Matrix {
+                            rows: vec![Row {
+                                pats: vec![pat],
+                                action: 0,
+                            }],
+                        },
+                        std::slice::from_ref(&value.node.ty),
+                    );
+                    let bb_end = func.cfg.add_block();
+                    self.emit_decision_tree(
+                        func,
+                        bb,
+                        &(parent, &locals),
+                        value.span,
+                        &tree,
+                        &[(scrut_base, value.node.ty.clone())],
+                        &[],
+                        &BulkBlockOutput::empty(),
+                        bb_end,
+                        Some(&binding_locals),
+                        else_branch.as_ref(),
+                    );
+                    func.cfg.seal(bb_end, BlockType::Empty);
+                    *bb = bb_end;
                 }
                 TypedStatement::Assignment { target, value } => {
                     if let Some(var) = (parent, &locals).get(&target.name) {
@@ -3286,6 +3323,8 @@ impl Compiler {
             arms,
             &bulk,
             bb_end,
+            None,
+            None,
         );
         func.cfg.seal(bb_end, bulk.block_type());
         *bb = bb_end;
@@ -3336,6 +3375,8 @@ impl Compiler {
             arms,
             &BulkBlockOutput::empty(),
             bb_end,
+            None,
+            None,
         );
         func.cfg.seal(bb_end, BlockType::Empty);
         *bb = bb_end;
@@ -3464,6 +3505,72 @@ impl Compiler {
         }
     }
 
+    fn collect_pattern_binding_types(
+        pattern: &TypedPattern,
+        ty: &Type,
+        bindings: &mut Vec<(String, Type)>,
+    ) {
+        match pattern {
+            TypedPattern::Binding(name) => bindings.push((name.name.clone(), ty.clone())),
+            TypedPattern::Wildcard | TypedPattern::Literal(_) | TypedPattern::Constant { .. } => {}
+            TypedPattern::Struct { name, fields } => {
+                let field_types: Vec<(&str, &Type)> = match ty {
+                    Type::Record(record) => record
+                        .fields
+                        .iter()
+                        .map(|field| (field.name.as_str(), &field.ty))
+                        .collect(),
+                    Type::Enum(enum_ty) => {
+                        let variant = enum_ty
+                            .variants
+                            .iter()
+                            .find(|variant| variant.name == name.last().unwrap().as_str())
+                            .expect("typed struct pattern variant must exist");
+                        let EnumVariantKind::Struct(field_types) = &variant.kind else {
+                            unreachable!("typed struct pattern must have a struct payload")
+                        };
+                        field_types
+                            .iter()
+                            .map(|field| (field.name.as_str(), &field.ty))
+                            .collect()
+                    }
+                    _ => unreachable!("typed struct pattern must match a record or enum"),
+                };
+                for field in fields {
+                    let field_ty = field_types
+                        .iter()
+                        .find_map(|(name, ty)| (*name == field.name.as_str()).then_some(*ty))
+                        .expect("typed struct pattern field must exist");
+                    Self::collect_pattern_binding_types(&field.pattern, field_ty, bindings);
+                }
+            }
+            TypedPattern::Tuple { name, fields } => {
+                let Type::Enum(enum_ty) = ty else {
+                    unreachable!("typed tuple pattern must match an enum")
+                };
+                let variant = enum_ty
+                    .variants
+                    .iter()
+                    .find(|variant| variant.name == name.last().unwrap().as_str())
+                    .expect("typed tuple pattern variant must exist");
+                let EnumVariantKind::Tuple(field_types) = &variant.kind else {
+                    unreachable!("typed tuple pattern must have a tuple payload")
+                };
+                for (field, field_ty) in fields.iter().zip(field_types) {
+                    Self::collect_pattern_binding_types(field, field_ty, bindings);
+                }
+            }
+            TypedPattern::AnonTuple { fields } => {
+                let Type::Tuple(field_types) = ty else {
+                    unreachable!("typed anonymous tuple pattern must match a tuple")
+                };
+                for (field, field_ty) in fields.iter().zip(field_types.iter()) {
+                    Self::collect_pattern_binding_types(field, field_ty, bindings);
+                }
+            }
+        }
+    }
+
     /// Recursively emit wasm for a decision tree node.
     fn emit_decision_tree(
         &mut self,
@@ -3476,9 +3583,27 @@ impl Compiler {
         arms: &[TypedMatchArm],
         bulk: &BulkBlockOutput,
         bb_end: usize,
+        let_bindings: Option<&HashMap<String, Var>>,
+        let_else: Option<&TypedBlock>,
     ) {
         match tree {
             DecisionTree::Leaf { action, bindings } => {
+                if let Some(binding_locals) = let_bindings {
+                    for binding in bindings {
+                        let Some(Var::Local(dest)) = binding_locals.get(&binding.name) else {
+                            continue;
+                        };
+                        let (source, ty) = &col_locals[binding.column];
+                        let mut core_types = Vec::new();
+                        _ = self.star_to_core_types(span, &mut core_types, ty);
+                        for index in 0..core_types.len() as u32 {
+                            func.instructions(bb).local_get(source + index);
+                            func.instructions(bb).local_set(dest + index);
+                        }
+                    }
+                    func.cfg.fill(*bb, Out::Next(bb_end));
+                    return;
+                }
                 // Resolve bindings: map variable names to wasm locals via col_locals.
                 let mut arm_locals = HashMap::new();
                 for b in bindings {
@@ -3507,7 +3632,16 @@ impl Compiler {
                 func.cfg.fill(*bb, Out::Next(bb_end));
             }
             DecisionTree::Fail => {
-                func.cfg.fill(*bb, Out::Unreachable);
+                if let_bindings.is_some() {
+                    if let Some(else_block) = let_else {
+                        _ = self.visit_block_drop(func, bb, locals, else_block);
+                    }
+                    if *bb != usize::MAX {
+                        func.cfg.fill(*bb, Out::Unreachable);
+                    }
+                } else {
+                    func.cfg.fill(*bb, Out::Unreachable);
+                }
             }
             DecisionTree::Switch {
                 column,
@@ -3519,8 +3653,22 @@ impl Compiler {
                 match col_type {
                     Type::Enum(enum_ty) => {
                         self.emit_enum_switch(
-                            func, bb, locals, span, *column, base_local, enum_ty, col_type, cases,
-                            default, col_locals, arms, bulk, bb_end,
+                            func,
+                            bb,
+                            locals,
+                            span,
+                            *column,
+                            base_local,
+                            enum_ty,
+                            col_type,
+                            cases,
+                            default,
+                            col_locals,
+                            arms,
+                            bulk,
+                            bb_end,
+                            let_bindings,
+                            let_else,
                         );
                     }
                     Type::Bool => {
@@ -3537,6 +3685,8 @@ impl Compiler {
                             arms,
                             bulk,
                             bb_end,
+                            let_bindings,
+                            let_else,
                             |func_inst, ctor, base| match ctor {
                                 Ctor::BoolTrue => {
                                     func_inst.local_get(base);
@@ -3564,6 +3714,8 @@ impl Compiler {
                             arms,
                             bulk,
                             bb_end,
+                            let_bindings,
+                            let_else,
                             move |func_inst, ctor, base| {
                                 if let Ctor::IntLiteral(n) = ctor {
                                     func_inst.local_get(base);
@@ -3597,6 +3749,8 @@ impl Compiler {
                                 arms,
                                 bulk,
                                 bb_end,
+                                let_bindings,
+                                let_else,
                             );
                         }
                     }
@@ -3613,6 +3767,8 @@ impl Compiler {
                                 arms,
                                 bulk,
                                 bb_end,
+                                let_bindings,
+                                let_else,
                             );
                         } else {
                             unreachable!();
@@ -3642,6 +3798,8 @@ impl Compiler {
         arms: &[TypedMatchArm],
         bulk: &BulkBlockOutput,
         bb_end: usize,
+        let_bindings: Option<&HashMap<String, Var>>,
+        let_else: Option<&TypedBlock>,
     ) {
         let mut enum_core_types = Vec::new();
         _ = self.star_to_core_types(span, &mut enum_core_types, col_type);
@@ -3698,6 +3856,8 @@ impl Compiler {
                 arms,
                 bulk,
                 bb_end,
+                let_bindings,
+                let_else,
             );
             *bb = bb_false;
         }
@@ -3714,6 +3874,8 @@ impl Compiler {
                 arms,
                 bulk,
                 bb_end,
+                let_bindings,
+                let_else,
             );
         } else {
             func.cfg.fill(*bb, Out::Unreachable);
@@ -3782,6 +3944,8 @@ impl Compiler {
         arms: &[TypedMatchArm],
         bulk: &BulkBlockOutput,
         bb_end: usize,
+        let_bindings: Option<&HashMap<String, Var>>,
+        let_else: Option<&TypedBlock>,
         emit_test: impl Fn(&mut InstructionSink<'_>, &Ctor, u32),
     ) {
         let new_col_locals = remove_col(col_locals, column);
@@ -3814,6 +3978,8 @@ impl Compiler {
                 arms,
                 bulk,
                 bb_end,
+                let_bindings,
+                let_else,
             );
             *bb = bb_false;
         }
@@ -3829,6 +3995,8 @@ impl Compiler {
                 arms,
                 bulk,
                 bb_end,
+                let_bindings,
+                let_else,
             );
         } else {
             func.cfg.fill(*bb, Out::Unreachable);

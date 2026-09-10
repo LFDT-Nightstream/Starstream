@@ -16,18 +16,26 @@ fn main() {
     (identifier)
     (block
       (variable_declaration
-        (identifier)
+        (pattern
+          (scoped_name
+            (identifier)))
         (expression
           (integer_literal)))
       (variable_declaration
-        (identifier)
+        (pattern
+          (scoped_name
+            (identifier)))
         (expression
           (integer_literal)))
       (variable_declaration
-        (identifier)
+        (pattern
+          (scoped_name
+            (identifier)))
         (expression
           (integer_literal)))
       (variable_declaration
-        (identifier)
+        (pattern
+          (scoped_name
+            (identifier)))
         (expression
           (integer_literal))))))

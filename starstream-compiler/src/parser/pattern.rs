@@ -12,6 +12,7 @@ pub fn pattern<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> + Clone {
 
         // Wildcard pattern: `_`
         let wildcard = just('_')
+            .then_ignore(text::ident().not())
             .map_with(|_, extra| Pattern::Wildcard { span: extra.span() })
             .padded();
 
