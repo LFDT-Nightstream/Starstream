@@ -2,6 +2,7 @@ use neo_application::{
     ApplicationRelation, ColumnRegistry, ContinuityCatalog, MemoryCatalog, MemoryPortActivation,
     MemoryPortKind, MemoryPreload, R1csBuilder, check_continuity_rows, check_memory_rows,
 };
+
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
 use starstream_interleaving_spec::Trace;
@@ -18,6 +19,9 @@ use crate::{
     step::{Wit, normalize},
     witness::build_witness_vector,
 };
+
+#[cfg(test)]
+mod proving;
 
 struct PackedWitness {
     rows: Vec<Vec<F>>,
