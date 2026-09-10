@@ -101,6 +101,7 @@
 (event_definition "event" @keyword)
 (effect_definition (identifier) @function.definition)
 (effect_definition "effect" @keyword)
+(test_definition "test" @keyword)
 
 ; Import definitions
 (import_wit_source

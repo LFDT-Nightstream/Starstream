@@ -50,6 +50,7 @@ definition ::=
   | utxo_definition
   | token_definition
   | abi_definition
+  | test_definition
 
 contract_definition ::= "contract" ";"
 
@@ -145,6 +146,9 @@ effect_definition ::=
 
 abi_fn_declaration ::=
   "fn" identifier "(" ( parameter ( "," parameter )* ","? )? ")" ( "->" type_annotation )? ";"
+
+test_definition ::=
+  "test" ( string_literal )? block
 
 (* Type syntax *)
 
@@ -499,6 +503,13 @@ just produce no wasm output.
 
 > For the user-facing commands that drive this model
 > (`starstream wasm`/`check`/`docs`/`build`/`lsp`), see [CLI](./cli.md).
+
+### Tests
+
+Each file in a contract may have one or more `test` blocks, optionally named,
+which contribute to the contract's list of tests. A contract which has tests
+also produces a `.test.wasm` file which imports the main contract and has a
+function for each test which can be executed to run the test.
 
 ## Imports
 

@@ -30,6 +30,7 @@ module.exports = grammar({
         $.enum_definition,
         $.utxo_definition,
         $.abi_definition,
+        $.test_definition,
       ),
 
     contract_definition: ($) => seq("contract", ";"),
@@ -204,6 +205,8 @@ module.exports = grammar({
         ";",
       ),
 
+    test_definition: ($) => seq("test", optional($.string_literal), $.block),
+
     // Type syntax
 
     type_annotation: ($) =>
@@ -272,13 +275,7 @@ module.exports = grammar({
     resume_statement: ($) => seq("resume", ";"),
 
     try_with_statement: ($) =>
-      seq(
-        "try",
-        $.block,
-        repeat(
-          seq("with", $.tuple_pattern, $.block),
-        ),
-      ),
+      seq("try", $.block, repeat(seq("with", $.tuple_pattern, $.block))),
 
     _expression_statement: ($) => seq($.expression, ";"),
 
@@ -403,16 +400,18 @@ module.exports = grammar({
       ),
 
     if_expression: ($) =>
-      prec.right(seq(
-        // First `if` branch.
-        "if",
-        $._if_condition,
-        $.block,
-        // Subsequent `else if` branches.
-        repeat(seq("else", "if", $._if_condition, $.block)),
-        // Final `else` branch.
-        optional(seq("else", $.block)),
-      )),
+      prec.right(
+        seq(
+          // First `if` branch.
+          "if",
+          $._if_condition,
+          $.block,
+          // Subsequent `else if` branches.
+          repeat(seq("else", "if", $._if_condition, $.block)),
+          // Final `else` branch.
+          optional(seq("else", $.block)),
+        ),
+      ),
 
     _if_condition: ($) => choice(seq("(", $.expression, ")"), $.is_condition),
 

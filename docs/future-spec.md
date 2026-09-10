@@ -97,3 +97,8 @@ Allow Utxo methods to `consume;` the Utxo.
 ### Allow resuming or consuming methods to also return values
 
 How should this look?
+
+## Tests
+
+* Tests that are intended to fail (cf. Rust `#[should_panic]`)
+* Tests that make assertions about the event log or output (not normally available to non-test code)
