@@ -1127,6 +1127,7 @@ impl Inferencer {
                             ty: Arc::new(ty),
                         });
                     }
+                    // TODO: `pub fn`s
                     _ => {}
                 },
                 _ => {}
