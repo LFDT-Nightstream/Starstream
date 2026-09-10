@@ -14,3 +14,7 @@ neo-application = { workspace = true }
 neo-math = { workspace = true }
 neo-ccs = { workspace = true }
 p3-field = "0.5.0"
+
+[dev-dependencies]
+neo-fold-clean = { workspace = true }
+neo-params = { workspace = true }
