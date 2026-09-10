@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeMap, rc::Rc};
 
-use starstream_types::{AbiType, Identifier, Type, TypedFunctionDef, TypedFunctionParam};
+use starstream_types::{AbiType, Identifier, Type, TypedFunctionParam};
 use wasm_encoder::{FuncType, InstanceType, ValType};
 
 use crate::{
