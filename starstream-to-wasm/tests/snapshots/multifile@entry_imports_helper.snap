@@ -2,4 +2,23 @@
 source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/multifile/entry_imports_helper
 ---
-
+==== Load workspace ====
+ModuleGraph {
+    modules.len(): 2,
+    topo_order: [
+        ModuleId(1),
+        ModuleId(0),
+    ],
+    edges: {
+        0: [
+            PathImport {
+                def_index: 1,
+                target: ModuleId(1),
+                span: 31..52,
+            },
+        ],
+    },
+    contract_entries: [
+        ModuleId(0),
+    ],
+}

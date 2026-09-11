@@ -3,7 +3,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::{fs, path::Path};
 
 use miette::{GraphicalReportHandler, GraphicalTheme, Report};
-use starstream_compiler::TypecheckOptions;
+use starstream_compiler::{TypecheckOptions, module_graph, typecheck};
+use starstream_types::FileSystem;
 use wasmprinter::Print;
 
 /// [Print] impl that expands contents of `component-type` custom sections.
@@ -212,6 +213,20 @@ fn inputs() {
 #[test]
 fn multifile() {
     try_paths("multifile/*", |path, output| {
+        let mut fs = FileSystem::new();
+        writeln!(output, "==== Load workspace ====").unwrap();
+        match module_graph::load_workspace(path, &mut fs) {
+            Err(err) => {
+                writeln!(output, "{:#?}", err).unwrap();
+            }
+            Ok(graph) => {
+                writeln!(output, "{:#?}", graph).unwrap();
+                assert!(!graph.contract_entries().is_empty());
+
+                // ...
+            }
+        }
+
         insta::with_settings!({
             omit_expression => true,
             prepend_module_to_snapshot => false,

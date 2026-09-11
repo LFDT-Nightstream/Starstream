@@ -25,12 +25,19 @@ use starstream_types::{
 use crate::parser::{self, ParseError};
 
 /// Stable identifier for a module within a `ModuleGraph`.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ModuleId(pub u32);
 
 impl ModuleId {
     pub fn index(self) -> usize {
         self.0 as usize
+    }
+}
+
+impl std::fmt::Debug for ModuleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Always put on one line, ignoring alternate formatting.
+        write!(f, "ModuleId({})", self.0)
     }
 }
 
@@ -123,6 +130,17 @@ impl ModuleGraph {
             }
         }
         order
+    }
+}
+
+impl std::fmt::Debug for ModuleGraph {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModuleGraph")
+            .field("modules.len()", &self.modules.len())
+            .field("topo_order", &self.topo_order)
+            .field("edges", &self.edges)
+            .field("contract_entries", &self.contract_entries)
+            .finish()
     }
 }
 

@@ -2,4 +2,11 @@
 source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/multifile/cross_contract
 ---
-
+==== Load workspace ====
+CrossContractImport {
+    importer: ModuleId(1),
+    importer_path: "/home/paima/starstream/starstream-to-wasm/tests/multifile/cross_contract/main.star",
+    target: ModuleId(0),
+    target_path: "/home/paima/starstream/starstream-to-wasm/tests/multifile/cross_contract/other.star",
+    span: 34..48,
+}
