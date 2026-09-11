@@ -23,3 +23,20 @@ ModuleGraph {
     ],
 }
 ==== nested.star ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
+  export run: func() -> s64;
+}
+package starstream:std {
+  interface builtin {
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
+
+    resource token;
+  }
+}

@@ -98,6 +98,32 @@ where
         .expect("failed to render diagnostic");
 }
 
+fn componentize(wasm: &[u8]) -> Vec<u8> {
+    wit_component::ComponentEncoder::default()
+        .validate(true)
+        .module(wasm)
+        .unwrap_or_else(|err| panic!("ComponentEncoder::module failed: {err:?}"))
+        .encode()
+        .expect("ComponentEncoder::encode failed")
+}
+
+fn wit(component_wasm: &[u8]) -> impl std::fmt::Display {
+    let decoded = wit_component::decode(&component_wasm).unwrap();
+    let mut printer = wit_component::WitPrinter::default();
+    printer.emit_docs(true);
+    let ids = decoded
+        .resolve()
+        .packages
+        .iter()
+        .map(|(id, _)| id)
+        .filter(|id| *id != decoded.package())
+        .collect::<Vec<_>>();
+    printer
+        .print(decoded.resolve(), decoded.package(), &ids)
+        .unwrap();
+    printer.output
+}
+
 #[test]
 fn inputs() {
     try_paths("inputs/*.star", |path, output| {
@@ -170,28 +196,8 @@ fn inputs() {
                         // Componentize and then extract WIT from the final component.
                         // Not printing component Wasm because it's mostly core Wasm but inside-out.
                         writeln!(output, "==== WIT ====").unwrap();
-                        let component_wasm = wit_component::ComponentEncoder::default()
-                            .validate(true)
-                            .module(&wasm)
-                            .unwrap_or_else(|err| {
-                                panic!("ComponentEncoder::module failed: {err:?}")
-                            })
-                            .encode()
-                            .expect("ComponentEncoder::encode failed");
-                        let decoded = wit_component::decode(&component_wasm).unwrap();
-                        let mut printer = wit_component::WitPrinter::default();
-                        printer.emit_docs(true);
-                        let ids = decoded
-                            .resolve()
-                            .packages
-                            .iter()
-                            .map(|(id, _)| id)
-                            .filter(|id| *id != decoded.package())
-                            .collect::<Vec<_>>();
-                        printer
-                            .print(decoded.resolve(), decoded.package(), &ids)
-                            .unwrap();
-                        writeln!(output, "{}\n", printer.output).unwrap();
+                        let component_wasm = componentize(&wasm);
+                        writeln!(output, "{}\n", wit(&component_wasm)).unwrap();
                     }
                 }
             }
@@ -255,7 +261,10 @@ fn multifile() {
                                 print_diagnostic(output, graph.source(entry_id), error);
                             }
 
-                            // TODO
+                            if let Some(wasm) = compile_result.wasm {
+                                let component_wasm = componentize(&wasm);
+                                writeln!(output, "{}\n", wit(&component_wasm)).unwrap();
+                            }
                         }
                     }
                 }
