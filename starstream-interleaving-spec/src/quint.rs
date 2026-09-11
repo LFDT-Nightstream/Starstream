@@ -399,15 +399,30 @@ fn source_line(location: &str) -> Option<usize> {
 /// Renders `T` as the Quint literal the specification expects.
 struct Qnt<T>(T);
 
+const FIELD_MODULUS: u64 = 0xffff_ffff_0000_0001;
+const FIELD_HALF: u64 = (FIELD_MODULUS - 1) / 2;
+
+fn centered_word(word: u64) -> i64 {
+    if word >= FIELD_MODULUS {
+        // Preserve rejection of malformed Rust traces: never reduce an invalid
+        // word modulo p. This out-of-domain sentinel still fits Quint's i64.
+        (FIELD_HALF + 1) as i64
+    } else if word > FIELD_HALF {
+        -((FIELD_MODULUS - word) as i64)
+    } else {
+        word as i64
+    }
+}
+
 impl fmt::Display for Qnt<&StarstreamValue> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("List(")?;
 
-        for (index, limb) in self.0.0.iter().enumerate() {
+        for (index, word) in self.0.0.iter().copied().enumerate() {
             if index > 0 {
                 f.write_str(", ")?;
             }
-            write!(f, "{limb}")?;
+            write!(f, "{}", centered_word(word))?;
         }
 
         f.write_str(")")
@@ -475,6 +490,27 @@ mod tests {
     use super::*;
     use crate::trace::{MethodHash, ResourceHandle, StarstreamValue};
 
+    #[test]
+    fn opaque_roots_use_canonical_centered_words() {
+        let root = StarstreamValue([0, FIELD_HALF, FIELD_HALF + 1, FIELD_MODULUS - 1]);
+        assert_eq!(
+            Qnt(&root).to_string(),
+            "List(0, 9223372034707292160, -9223372034707292160, -1)"
+        );
+        for word in [0, 1, FIELD_HALF, FIELD_HALF + 1, FIELD_MODULUS - 1] {
+            let centered = centered_word(word);
+            let restored = if centered < 0 {
+                i128::from(centered) + i128::from(FIELD_MODULUS)
+            } else {
+                i128::from(centered)
+            };
+            assert_eq!(restored, i128::from(word));
+        }
+        for invalid in [FIELD_MODULUS, u64::MAX] {
+            assert!(centered_word(invalid) > FIELD_HALF as i64);
+        }
+    }
+
     // Middleware smoke tests: one accepted trace and one rejected trace ensure
     // the Rust-to-Quint translation, CLI invocation, and error mapping work.
     #[test]
@@ -489,13 +525,13 @@ mod tests {
                 arguments: vec![0, 1, 2, 3].into(),
             },
             RegisterMethod {
-                method: MethodHash([1, 1, 1, 1]),
+                method: MethodHash([1, 0, 1, 0, 1, 0, 1, 0]),
             },
             Return {
-                result: StarstreamValue::from(vec![]).into(),
+                result: StarstreamValue::UNIT_VALUE.into(),
             },
             Return {
-                result: StarstreamValue::from(vec![]).into(),
+                result: StarstreamValue::UNIT_VALUE.into(),
             },
         ]);
 
@@ -514,7 +550,7 @@ mod tests {
                 resource: ResourceHandle(0).into(),
             },
             Return {
-                result: StarstreamValue::from(vec![]).into(),
+                result: StarstreamValue::UNIT_VALUE.into(),
             },
         ]);
 
