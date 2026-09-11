@@ -1504,7 +1504,7 @@ impl Compiler {
         });
 
         // Visit each Utxo part.
-        let mut coordination_script_callables = HashMap::new();
+        let old_callables = self.callables.clone();
         let mut utxo_storage = HashMap::new();
         let start_global = self.globals.len();
         for part in &utxo.parts {
@@ -1518,13 +1518,6 @@ impl Compiler {
                     }
                 }
                 TypedUtxoPart::Function(function) => {
-                    // Hack: if pre_visit_utxo created a callable for this function,
-                    // restore it after we finish with the utxo, so coordination scripts
-                    // see the "import" version.
-                    if let Some(c) = self.callables.get(&function.id) {
-                        coordination_script_callables.insert(function.id, *c);
-                    }
-
                     if let Some(FunctionExport::UtxoMain) = function.export {
                         let core = self.visit_function(
                             None,
@@ -1628,7 +1621,7 @@ impl Compiler {
             .export_interface(&export_interface_name, &iface);
 
         // Restore old scope.
-        self.callables.extend(coordination_script_callables);
+        self.callables = old_callables;
         self.star_to_component
             .insert(this_ty, old_resource.unwrap());
         self.current_resource = None;
@@ -1670,6 +1663,95 @@ impl Compiler {
 
         // When it's possible to call functions on tokens, this is where they'd
         // be inserted into `callables`.
+        // Allocate imports for `main fn`s and always-implemented ABI fns.
+        for part in &token.parts {
+            match part {
+                TypedTokenPart::Storage(..) => {}
+                TypedTokenPart::Function(function) => {
+                    if let Some(FunctionExport::TokenMint) = function.export {
+                        // `mint fn`. Ignore declared return, always return handle.
+                        // Core import.
+                        let mut params = Vec::with_capacity(16);
+                        for p in &function.ty.params {
+                            _ = self.star_to_core_types(
+                                p.name.span_or(function.name.span()),
+                                &mut params,
+                                &p.ty,
+                            );
+                        }
+                        let mut results = Vec::with_capacity(1);
+                        _ = self.star_to_core_types(
+                            function.name.span(),
+                            &mut results,
+                            &Type::Token(token.ty.clone()),
+                        );
+
+                        let wit_name = format!(
+                            "[static]{resource_name}.{}",
+                            to_kebab_case(function.name.as_str())
+                        );
+                        let idx = self.import_function(
+                            &import_interface_name,
+                            &wit_name,
+                            &FuncType::new(params, results),
+                        );
+                        self.callables.insert(function.id, idx);
+
+                        // Component import.
+                        iface.export_fn(
+                            &wit_name,
+                            &self.star_to_component_signature(None, &function.ty.params, &this_ty),
+                        );
+                    } else if let Some(FunctionExport::TokenBurn) = function.export {
+                        // `burn fn`. Method with implicit first parameter.
+                        // Core import.
+                        let mut params = Vec::with_capacity(16);
+                        _ = self.star_to_core_types(
+                            function.name.span(),
+                            &mut params,
+                            &Type::Token(token.ty.clone()),
+                        );
+                        for p in &function.ty.params {
+                            _ = self.star_to_core_types(
+                                p.name.span_or(function.name.span()),
+                                &mut params,
+                                &p.ty,
+                            );
+                        }
+                        let mut results = Vec::with_capacity(1);
+                        _ = self.star_to_core_types(
+                            function.name.span(),
+                            &mut results,
+                            &function.ty.result,
+                        );
+
+                        let wit_name = format!(
+                            "[static]{resource_name}.{}",
+                            to_kebab_case(function.name.as_str())
+                        );
+                        let idx = self.import_function(
+                            &import_interface_name,
+                            &wit_name,
+                            &FuncType::new(params, results),
+                        );
+                        self.method_callables
+                            .insert((this_ty.clone(), function.id), idx);
+
+                        // Component import.
+                        let mut sig = self.star_to_component_signature(
+                            Some(&this_ty),
+                            &function.ty.params,
+                            &function.ty.result,
+                        );
+                        // `burn fn`s accept `own<token>`
+                        sig.params[0].1 = sig.params[0].1.convert_resource_to_owned();
+                        iface.export_fn(&wit_name, &sig);
+                    }
+                }
+                // TODO: Token ABI impls
+                TypedTokenPart::AbiImpl { .. } => {}
+            }
+        }
 
         // Import interface.
         self.world_type
@@ -1707,6 +1789,7 @@ impl Compiler {
         });
 
         // Visit each token part.
+        let old_callables = self.callables.clone();
         let mut token_storage = HashMap::new();
         let start_global = self.globals.len();
         for part in &token.parts {
@@ -1858,6 +1941,7 @@ impl Compiler {
             .export_interface(&export_interface_name, &iface);
 
         // Restore old scope.
+        self.callables = old_callables;
         self.star_to_component
             .insert(this_ty, old_resource.unwrap());
         self.current_resource = None;

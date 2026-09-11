@@ -174,6 +174,8 @@ pub struct UtxoType {
 pub struct TokenType {
     pub name: String,
     pub id: NameId,
+    // TODO: ownership/linearity not reflected here
+    pub methods: Vec<TypedAbiMethodDecl>,
 }
 
 /// Type of an `abi`.

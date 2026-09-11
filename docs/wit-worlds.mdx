@@ -102,6 +102,23 @@ Using a Utxo from a coordination script in the same contract imports
 Importing a Utxo from another contract imports `starstream:utxo/<utxo-name>` and
 supplies `@external-id` on the `interface` with that contract's digest.
 
+## Exporting tokens
+
+Exporting tokens is similar to exporting Utxos, but the exported resource is named `token`,
+and there is no context resource.
+
+Token `mint fn`s work like UTXO `main fn`s and have the signature `static func(...) -> token`.
+
+Token `burn fn`s have the signature `static func(this: token) -> ...`.
+
+## Importing tokens
+
+Importing tokens is similar to importing Utxos, but the imported resource is named `token`.
+
+Token `mint fn`s work like UTXO `main fn`s and have the signature `static func(...) -> token`.
+
+Token `burn fn`s have the signature `static func(this: token) -> ...`.
+
 ## Importing ABIs
 
 ABIs can contain events, effects, and methods.

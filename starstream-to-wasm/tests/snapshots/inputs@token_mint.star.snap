@@ -373,6 +373,7 @@ TypedProgram {
                 ty: TokenType {
                     name: "MyToken",
                     id: NameId(4),
+                    methods: [],
                 },
             },
         ),
@@ -389,13 +390,14 @@ TypedProgram {
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
   (import "[export]my-token" "[resource-new]token" (func (;1;) (type 1)))
   (import "[export]my-token" "[resource-drop]token" (func (;2;) (type 2)))
+  (import "starstream:self/my-token" "[static]token.mint" (func (;3;) (type 3)))
   (global (;0;) (mut i32) (i32.const 0))
-  (export "my-token#[static]token.mint" (func 3))
-  (export "my-token#[method]token.attach" (func 4))
-  (export "my-token#[method]token.detach" (func 5))
-  (export "my-token#get-storage" (func 6))
-  (export "my-token#set-storage" (func 7))
-  (func (;3;) (type 3) (result i32)
+  (export "my-token#[static]token.mint" (func 4))
+  (export "my-token#[method]token.attach" (func 5))
+  (export "my-token#[method]token.detach" (func 6))
+  (export "my-token#get-storage" (func 7))
+  (export "my-token#set-storage" (func 8))
+  (func (;4;) (type 3) (result i32)
     (local i32)
     (local.set 0
       (call 1
@@ -404,12 +406,12 @@ TypedProgram {
       (i32.const 1))
     (local.get 0)
   )
-  (func (;4;) (type 4) (param i32 i32))
   (func (;5;) (type 4) (param i32 i32))
-  (func (;6;) (type 1) (param i32) (result i32)
+  (func (;6;) (type 4) (param i32 i32))
+  (func (;7;) (type 1) (param i32) (result i32)
     (global.get 0)
   )
-  (func (;7;) (type 1) (param i32) (result i32)
+  (func (;8;) (type 1) (param i32) (result i32)
     (global.set 0
       (local.get 0))
     (return_call 1
@@ -449,6 +451,8 @@ TypedProgram {
                   (export (;0;) "token" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (own 0))
+                  (type (;3;) (func (result 2)))
+                  (export (;0;) "[static]token.mint" (func (type 3)))
                 )
               )
               (import "starstream:self/my-token" (instance (;1;) (type 9)))
@@ -530,6 +534,8 @@ package starstream:std {
 
 package starstream:self {
   interface my-token {
-    resource token;
+    resource token {
+      mint: static func() -> token;
+    }
   }
 }

@@ -1115,20 +1115,70 @@ impl Inferencer {
     }
 
     fn register_token(&mut self, env: &mut TypeEnv, def: &TokenDef) -> Result<(), TypeError> {
+        let id = self.next_name_id.fresh();
+
+        let mut methods = Vec::new();
+        for part in &def.parts {
+            match part {
+                TokenPart::Function(function_def) => match function_def.export {
+                    Some(FunctionExport::TokenBurn) => {
+                        let ty = self.function_def_to_type(env, function_def)?;
+                        let Some(StaticFunction::Named(id)) = ty.callee else {
+                            unreachable!()
+                        };
+                        methods.push(TypedAbiMethodDecl {
+                            name: function_def.name.clone(),
+                            id,
+                            ty: Arc::new(ty),
+                        });
+                    }
+                    // TODO: `pub fn`s
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+
         let ty = Type::Token(Arc::new(TokenType {
             name: def.name.to_string(),
-            id: self.next_name_id.fresh(),
+            id,
+            methods,
         }));
         env.root.insert_type(
             &def.name,
             TypeEntry {
-                ty,
+                ty: ty.clone(),
                 span: def.name.span(),
                 type_params: vec![],
                 doc: None,
                 variant_docs: HashMap::new(),
             },
         )?;
+
+        let mut ns = Namespace::default();
+
+        for part in &def.parts {
+            match part {
+                TokenPart::Function(function_def) => match function_def.export {
+                    Some(FunctionExport::TokenMint) => {
+                        let mut func_ty = self.function_def_to_type(env, function_def)?;
+                        func_ty.result = ty.clone();
+                        ns.insert_constant(
+                            &function_def.name,
+                            ConstantInfo::new(function_def.name.span, Type::from(func_ty)),
+                        )?;
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+
+        // TODO: extraneous clone
+        env.root
+            .add_child(def.name.to_string())
+            .import_all_from(&ns)?;
+
         Ok(())
     }
 
@@ -3012,6 +3062,20 @@ impl Inferencer {
                         return Err(TypeError::new(
                             TypeErrorKind::AbiMethodNotFound {
                                 abi_name: utxo.name.to_string(),
+                                method_name: field.name.clone(),
+                            },
+                            field.span(),
+                        ));
+                    }
+                    Type::Token(token) => 'method: {
+                        if let Some(method) =
+                            token.methods.iter().find(|m| m.name.as_str() == field.name)
+                        {
+                            break 'method Type::Function(method.ty.clone());
+                        }
+                        return Err(TypeError::new(
+                            TypeErrorKind::AbiMethodNotFound {
+                                abi_name: token.name.to_string(),
                                 method_name: field.name.clone(),
                             },
                             field.span(),
