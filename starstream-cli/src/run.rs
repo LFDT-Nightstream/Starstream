@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use clap::Args;
 use miette::IntoDiagnostic as _;
 use sha2::{Digest as _, Sha256};
-use starstream_runtime_next::{Contract, ContractLookup, Host, Utxo, bindings};
+use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, bindings};
 use tokio::fs;
 use tracing::{debug, info, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val};
@@ -67,7 +67,6 @@ impl bindings::starstream::std::cardano::Host for Ctx {
 
 impl Host for Ctx {
     type UtxoContext = Arc<Mutex<UtxoCtx>>;
-    type Token = ();
 
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
@@ -108,7 +107,7 @@ impl Host for Ctx {
         utxo: Resource<Utxo<Self::UtxoContext>>,
     ) -> wasmtime::Result<()> {
         let Ctx { table, .. } = store.data_mut();
-        let _utxo = table.delete(utxo)?;
+        table.delete(utxo)?;
         Ok(())
     }
 
@@ -141,17 +140,17 @@ impl Host for Ctx {
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
         let Ctx { table, .. } = store.data_mut();
-        let _cx = table.delete(cx)?;
+        table.delete(cx)?;
         Ok(())
     }
 
     #[instrument(level = "debug", skip_all, ret)]
     fn drop_token(
         mut store: StoreContextMut<Self>,
-        token: Resource<Self::Token>,
+        token: Resource<Token>,
     ) -> wasmtime::Result<()> {
         let Ctx { table, .. } = store.data_mut();
-        () = table.delete(token)?;
+        table.delete(token)?;
         Ok(())
     }
 
