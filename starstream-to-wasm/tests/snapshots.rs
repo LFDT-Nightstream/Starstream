@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::{fs, path::Path};
 
-use miette::{GraphicalReportHandler, GraphicalTheme, Report};
-use starstream_compiler::{TypecheckOptions, module_graph, typecheck};
+use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, Report, SourceCode};
+use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
 use starstream_types::FileSystem;
 use wasmprinter::Print;
 
@@ -87,6 +87,17 @@ fn try_paths<F: Fn(&Path, &mut String)>(pattern: &str, func: F) {
     }
 }
 
+fn print_diagnostic<S, E>(output: &mut String, source: S, error: E)
+where
+    S: SourceCode + 'static,
+    E: Diagnostic + Send + Sync + 'static,
+{
+    let report = Report::new(error).with_source_code(source);
+    GraphicalReportHandler::new_themed(GraphicalTheme::none())
+        .render_report(output, report.as_ref())
+        .expect("failed to render diagnostic");
+}
+
 #[test]
 fn inputs() {
     try_paths("inputs/*.star", |path, output| {
@@ -96,10 +107,7 @@ fn inputs() {
         let (program, errors) = parse_output.into_output_errors();
         writeln!(output, "==== AST ====").unwrap();
         for error in errors {
-            let report = Report::new(error).with_source_code(source.clone());
-            GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                .render_report(output, report.as_ref())
-                .expect("failed to render diagnostic");
+            print_diagnostic(output, source.clone(), error);
         }
         if let Some(program) = program {
             writeln!(output, "{program:#?}\n").unwrap();
@@ -122,28 +130,19 @@ fn inputs() {
                     if !failure.warnings.is_empty() {
                         writeln!(output, "==== Type warnings ====").unwrap();
                         for warning in failure.warnings {
-                            let report = Report::new(warning).with_source_code(source.clone());
-                            GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                                .render_report(output, report.as_ref())
-                                .expect("failed to render diagnostic");
+                            print_diagnostic(output, source.clone(), warning);
                         }
                     }
                     writeln!(output, "==== Type error ====").unwrap();
                     for error in failure.errors {
-                        let report = Report::new(error).with_source_code(source.clone());
-                        GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                            .render_report(output, report.as_ref())
-                            .expect("failed to render diagnostic");
+                        print_diagnostic(output, source.clone(), error);
                     }
                 }
                 Ok(mut success) => {
                     if !success.warnings.is_empty() {
                         writeln!(output, "==== Type warnings ====").unwrap();
                         for warning in success.warnings.drain(..) {
-                            let report = Report::new(warning).with_source_code(source.clone());
-                            GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                                .render_report(output, report.as_ref())
-                                .expect("failed to render diagnostic");
+                            print_diagnostic(output, source.clone(), warning);
                         }
                     }
                     writeln!(
@@ -156,10 +155,7 @@ fn inputs() {
                     let compile_result = starstream_to_wasm::compile(&success.program);
                     writeln!(output, "==== Core WebAssembly ====").unwrap();
                     for error in compile_result.errors {
-                        let report = Report::new(error).with_source_code(source.clone());
-                        GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                            .render_report(output, report.as_ref())
-                            .expect("failed to render diagnostic");
+                        print_diagnostic(output, source.clone(), error);
                     }
                     if let Some(wasm) = compile_result.wasm {
                         wasmprinter::Config::new()
@@ -214,7 +210,7 @@ fn inputs() {
 fn multifile() {
     try_paths("multifile/*", |path, output| {
         let mut fs = FileSystem::new();
-        writeln!(output, "==== Load workspace ====").unwrap();
+        writeln!(output, "==== Workspace ====").unwrap();
         match module_graph::load_workspace(path, &mut fs) {
             Err(err) => {
                 writeln!(output, "{:#?}", err).unwrap();
@@ -223,7 +219,23 @@ fn multifile() {
                 writeln!(output, "{:#?}", graph).unwrap();
                 assert!(!graph.contract_entries().is_empty());
 
-                // ...
+                match typecheck_modules(&graph, Default::default()) {
+                    Err(failure) => {
+                        if !failure.warnings.is_empty() {
+                            writeln!(output, "==== Type warnings ====").unwrap();
+                            for (module, warning) in failure.warnings {
+                                print_diagnostic(output, graph.source(module), warning);
+                            }
+                        }
+                        writeln!(output, "==== Type error ====").unwrap();
+                        for (module, error) in failure.errors {
+                            print_diagnostic(output, graph.source(module), error);
+                        }
+                    }
+                    Ok(_) => {
+                        // TODO
+                    }
+                }
             }
         }
 

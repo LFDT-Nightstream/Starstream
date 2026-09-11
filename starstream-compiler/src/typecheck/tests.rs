@@ -9,7 +9,7 @@ macro_rules! assert_typecheck_snapshot {
     ($code:expr) => {{
         let source = indoc! { $code };
         let parse_output = crate::parser::parse_program(source);
-        let named = NamedSource::new("test.star", source.to_string());
+        let named = NamedSource::new("test.star", source.to_string()).with_language("starstream");
         let mut rendered = String::new();
 
         let result: Result<(), miette::Error> = (|| {

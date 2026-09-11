@@ -2,7 +2,7 @@
 source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/multifile/importer_relative
 ---
-==== Load workspace ====
+==== Workspace ====
 ModuleGraph {
     modules.len(): 2,
     topo_order: [

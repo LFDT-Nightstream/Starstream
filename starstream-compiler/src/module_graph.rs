@@ -62,6 +62,7 @@ impl Module {
 
     pub fn to_named_source(&self) -> NamedSource<Arc<str>> {
         NamedSource::new(self.abs_path.to_string_lossy(), self.source.clone())
+            .with_language("starstream")
     }
 }
 
