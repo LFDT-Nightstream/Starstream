@@ -1,4 +1,6 @@
 use core::future::poll_fn;
+use core::iter::zip;
+use core::mem;
 use core::net::SocketAddr;
 use core::pin::pin;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -12,6 +14,7 @@ use anyhow::Context as _;
 use bytes::{Buf, Bytes, BytesMut};
 use coset::{CborSerializable as _, CoseSign1, TaggedCborSerializable as _, iana};
 use ed25519_dalek::{Signature, VerifyingKey};
+use futures::{StreamExt as _, TryStreamExt as _};
 use headers_accept::Accept;
 use headers_core::Header as _;
 use http::HeaderValue;
@@ -30,13 +33,17 @@ use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
-use tokio_util::codec::Encoder as _;
+use tokio_util::codec::{Encoder as _, FramedRead};
+use tokio_util::io::StreamReader;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
 use wasm_tokio::cm::U64Codec;
-use wasmtime::component::Component;
+use wasmtime::component::{Component, Val};
+use wrpc_transport::FrameDecoder;
 
 use crate::server::lookup::ContractLookup;
-use crate::server::{Contract, Ledger};
+use crate::server::wrpc::{ValEncoder, read_value};
+use crate::server::{Contract, Ctx, Ledger};
+use crate::wrpc::{CONTRACT_PACKAGE, LEDGER_PACKAGE};
 use crate::{
     APPLICATION_COSE, APPLICATION_WASM, Action, Block, FUND_CONTEXT, PUBLISH_CONTEXT, parse_digest,
 };
@@ -509,8 +516,8 @@ impl Ledger {
                 .await
                 .map_err(RpcPostError::Header)?;
         let mut data = BytesMut::new();
-        match instance.as_str() {
-            "starstream:ledger/block" => match name.as_str() {
+        match instance.split_once('/') {
+            Some((LEDGER_PACKAGE, "block")) => match name.as_str() {
                 "height" => {
                     let height = self.blocks.read().await.len();
                     let height = u64::try_from(height)
@@ -521,6 +528,54 @@ impl Ledger {
                 }
                 _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
             },
+            Some((CONTRACT_PACKAGE, digest)) => {
+                let digest = parse_digest(digest).map_err(RpcPostError::ContractDigestParsing)?;
+                let contract = {
+                    let contracts = self.contracts.read().await;
+                    let contract = contracts
+                        .get(&digest)
+                        .ok_or(RpcPostError::ContractNotFound)?;
+                    Arc::clone(contract)
+                };
+                let Some(export) = contract.scripts.get(name.as_str()) else {
+                    return Err(RpcPostError::FunctionNotFound { instance, name });
+                };
+
+                let param_tys = export.ty().params();
+                let mut params = vec![Val::Bool(false); param_tys.len()];
+                let body = FramedRead::new(body, FrameDecoder::default()).map(|frame| {
+                    let wrpc_transport::Frame { path, data } = frame?;
+                    anyhow::ensure!(path.is_empty(), "async values not supported");
+                    Ok(data)
+                });
+                let mut body = StreamReader::new(body.map_err(std::io::Error::other));
+                for (v, (_, ty)) in zip(&mut params, param_tys) {
+                    read_value(&mut body, v, &ty)
+                        .await
+                        .map_err(RpcPostError::ParameterDecoding)?;
+                }
+
+                let result_tys = export.ty().results();
+                let mut results = vec![Val::Bool(false); result_tys.len()];
+                let mut store = wasmtime::Store::new(&self.engine, Ctx::default());
+                let contract = contract
+                    .instantiate(&mut store)
+                    .await
+                    .map_err(RpcPostError::Runtime)?;
+                contract
+                    .call_coordination_script(&mut store, export, &params, &mut results)
+                    .await
+                    .map_err(RpcPostError::Runtime)?;
+                for (v, ty) in zip(results, result_tys) {
+                    ValEncoder::new(&ty)
+                        .encode(&v, &mut data)
+                        .map_err(RpcPostError::CallResultEncoding)?;
+                }
+                let Ctx { outputs, .. } = store.data_mut();
+                for utxo in mem::take(outputs) {
+                    let _cx = utxo.drop(&mut store).await.map_err(RpcPostError::Runtime)?;
+                }
+            }
             _ => return Err(RpcPostError::InstanceNotFound(instance)),
         }
         let mut buf = BytesMut::with_capacity(data.len().saturating_add(1 + 10));

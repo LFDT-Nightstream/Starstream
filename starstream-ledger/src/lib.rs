@@ -9,6 +9,8 @@ pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
 
+pub mod wrpc;
+
 /// The domain-separation context every publish transaction must carry as its
 /// first element, binding the signature to this protocol.
 pub const PUBLISH_CONTEXT: &str = "starstream:publish";

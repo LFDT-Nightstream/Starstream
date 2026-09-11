@@ -3935,6 +3935,7 @@ dependencies = [
  "ciborium",
  "coset",
  "ed25519-dalek",
+ "futures",
  "headers-accept",
  "headers-core",
  "hex",
@@ -3968,6 +3969,7 @@ name = "starstream-ledger-cli"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap",
  "ed25519-dalek",
  "hex",
@@ -3980,10 +3982,14 @@ dependencies = [
  "starstream-to-wasm",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "wasm-wave",
  "wasmtime",
  "wit-component 0.254.0",
+ "wit-parser 0.258.0",
+ "wrpc-wave",
  "zeroize",
 ]
 
@@ -5604,6 +5610,21 @@ dependencies = [
  "tracing",
  "wasi 0.14.7+wasi-0.2.4",
  "wasm-tokio",
+]
+
+[[package]]
+name = "wrpc-wave"
+version = "0.1.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "wasm-tokio",
+ "wasm-wave",
+ "wrpc-transport",
 ]
 
 [[package]]

@@ -37,6 +37,7 @@ ciborium = { version = "0.2", default-features = false }
 clap = { version = "4.6.1", default-features = false }
 coset = { version = "0.3", default-features = false }
 ed25519-dalek = { version = "2", default-features = false }
+futures = { version = "0.3", default-features = false }
 headers-accept = { version = "0.3", default-features = false }
 headers-core = { version = "0.3", default-features = false }
 hex = { version = "0.4.3", default-features = false }
@@ -75,6 +76,7 @@ tracing = { version = "0.1.44", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false }
 wasm-encoder = "0.254.0"
 wasm-tokio = { version = "0.6", default-features = false }
+wasm-wave = { version = "0.258.0", default-features = false }
 wasmprinter = "0.254.0"
 wasmparser = "0.254.0"
 wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
@@ -84,6 +86,7 @@ wit-component = "0.254.0"
 wit-parser = "0.254.0"
 wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
 wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
+wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
 
 neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "675f2ce9d9b05553d518c7ccb36abe2eddbad048" }
