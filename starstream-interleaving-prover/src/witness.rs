@@ -92,11 +92,7 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
 
     if let Some(expected_arg) = &input.expected_arguments {
         for (offset, col) in COL_CALL_STACK_EXPECTED_ARG_VALUE.iter().enumerate() {
-            // TODO: tmp? limitation
-            //
-            // probably need to implement the opaque value support in
-            // nightstream for bigger than 4
-            debug_assert!(expected_arg.len() <= 4);
+            debug_assert_eq!(expected_arg.len(), 8);
             wit[*col] = expected_arg.get(offset).copied().unwrap_or(F::ZERO)
         }
     }
@@ -114,6 +110,7 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         }
     }
 
+    crate::commitment::assign(&mut wit, input);
     range_checks
         .assign_bits(&mut wit)
         .expect("base witness matches the range-check layout");
@@ -128,14 +125,14 @@ pub(crate) fn assign_stride_columns(wit: &mut [F]) {
     let call_stack_top = wit[COL_CALL_SP_BEFORE] - wit[COL_CALL_STACK_TOP];
     let call_stack_access = call_stack_top - wit[COL_CALL_STACK_POP];
 
-    for (i, col) in COL_CALL_STACK_MUL_STRIDE_4.iter().enumerate() {
-        wit[*col] = call_stack_access * F::new(4) + F::new(i as u64);
+    for (i, col) in COL_CALL_STACK_MUL_STRIDE_8.iter().enumerate() {
+        wit[*col] = call_stack_access * F::new(8) + F::new(i as u64);
     }
     for (i, col) in COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8.iter().enumerate() {
         wit[*col] = call_stack_top * F::new(8) + F::new(i as u64);
     }
-    for (i, col) in COL_CURR_BEFORE_STRIDE_4.iter().enumerate() {
-        wit[*col] = wit[COL_CURR_BEFORE] * F::new(4) + F::new(i as u64);
+    for (i, col) in COL_CURR_BEFORE_STRIDE_8.iter().enumerate() {
+        wit[*col] = wit[COL_CURR_BEFORE] * F::new(8) + F::new(i as u64);
     }
 }
 

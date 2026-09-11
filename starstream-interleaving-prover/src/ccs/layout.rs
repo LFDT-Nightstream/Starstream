@@ -27,11 +27,11 @@ define_column_region! {
         COL_CALL_STACK_TOP: Boolean => "true when peeking at the top of the call stack without popping",
         COL_CALL_SP_BEFORE_INVERSE: Field => "inverse proving that an execution row starts with a nonempty call stack",
         // TODO: limit sp so that this doesn't overflow
-        COL_CALL_STACK_MUL_STRIDE_4: [U32; 4] => "SP * 4 + i",
+        COL_CALL_STACK_MUL_STRIDE_8: [U32; 8] => "SP * 8 + i (push/pop/peek)",
         // TODO: limit sp so that this doesn't overflow
         COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8: [U32; 8] => "SP * 8 + i",
-        COL_CALL_STACK_EXPECTED_ARG_VALUE: [U32; 4] => "call_stack[COL_CALL_STACK_EXPECTED_ADDR[i]].expected_arg",
-        COL_CALL_STACK_EXPECTED_RESULT_VALUE: [U32; 4] => "call_stack[COL_CALL_STACK_EXPECTED_ADDR[i]].expected_result",
+        COL_CALL_STACK_EXPECTED_ARG_VALUE: [U32; 8] => "opaque argument root, little-endian 32-bit limbs; written on call, read on entry",
+        COL_CALL_STACK_EXPECTED_RESULT_VALUE: [U32; 8] => "opaque result root, little-endian 32-bit limbs; written on call, read on return",
         // using 8 limbs for exact sha256 repr for now (in 32-bit limbs), we
         // could improve this, but the memory argument as currently implemented
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
@@ -58,7 +58,7 @@ define_column_region! {
         COL_RESOURCE_RESOLVER_READ: Boolean => "1 if reading from the resource resolver map (on call_method)",
 
         // TODO: limit curr side so that this doesn't overflow
-        COL_CURR_BEFORE_STRIDE_4: [U32; 4] => "curr * 4 + i",
+        COL_CURR_BEFORE_STRIDE_8: [U32; 8] => "curr * 8 + i for trace digest RAM",
 
 
     ]
@@ -97,6 +97,15 @@ define_column_region! {
     columns: [
         COL_IN: [Field; 4] => "the carried 4-limb poseidon2 commitment",
         COL_OUT: [Field; 4] => "the carried 4-limb poseidon2 commitment",
+        COL_IN_WORDS: [U32; 8] => "canonical input digest limbs for trace RAM",
+        COL_OUT_WORDS: [U32; 8] => "canonical output digest limbs for trace RAM",
+        COL_ARGUMENT_ROOT: [Field; 4] => "opaque argument root reconstructed from call-stack bus",
+        COL_RESULT_ROOT: [Field; 4] => "opaque result root reconstructed from call-stack bus",
+        COL_CANONICAL_HIGH_MAX: [Boolean; 16] => "whether the high u32 limb equals 0xffffffff",
+        COL_CANONICAL_HIGH_INV: [Field; 16] => "inverse of high limb minus 0xffffffff",
+        COL_EVENT_BLOCKS: [Field; 24] => "up to three canonical outer event blocks",
+        COL_EVENT_HASHES: [Field; 12] => "unconditionally chained compression outputs; opcode block count selects the final root",
+        COL_EVENT_AUX: [Field; 3 * neo_application::EVENT_COMMITMENT_AUX_COLUMNS] => "Poseidon compression auxiliaries",
     ]
 }
 
