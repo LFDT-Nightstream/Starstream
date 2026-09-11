@@ -281,10 +281,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: false,
-                                    name: Identifier {
-                                        name: "t",
-                                        span: 376..377,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "t",
+                                                span: 376..377,
+                                            },
+                                        ],
+                                    ),
                                     ty: Some(
                                         Named {
                                             name: [
@@ -317,6 +321,7 @@ Program {
                                         },
                                         span: 389..407,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 372..413,
                             },
@@ -358,10 +363,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: false,
-                                    name: Identifier {
-                                        name: "ret",
-                                        span: 436..439,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "ret",
+                                                span: 436..439,
+                                            },
+                                        ],
+                                    ),
                                     ty: None,
                                     value: Spanned {
                                         node: Call {
@@ -389,6 +398,7 @@ Program {
                                         },
                                         span: 442..453,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 432..459,
                             },
@@ -939,10 +949,12 @@ TypedProgram {
                         VariableDeclaration {
                             public: false,
                             mutable: false,
-                            name: Identifier {
-                                name: "t",
-                                span: 376..377,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "t",
+                                    span: 376..377,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Token(
@@ -1039,6 +1051,7 @@ TypedProgram {
                                 },
                                 span: 389..405,
                             },
+                            else_branch: None,
                         },
                         Expression(
                             Spanned {
@@ -1112,10 +1125,12 @@ TypedProgram {
                         VariableDeclaration {
                             public: false,
                             mutable: false,
-                            name: Identifier {
-                                name: "ret",
-                                span: 436..439,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "ret",
+                                    span: 436..439,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Int(
@@ -1195,6 +1210,7 @@ TypedProgram {
                                 },
                                 span: 442..451,
                             },
+                            else_branch: None,
                         },
                         Expression(
                             Spanned {
@@ -1394,18 +1410,22 @@ TypedProgram {
       (i32.const 0))
   )
   (func (;12;) (type 8)
-    (local i32 i64)
+    (local i32 i32 i64 i64)
     (local.set 0
       (call 4))
+    (local.set 1
+      (local.get 0))
     (call 1
       (i64.const 10))
-    (local.set 1
+    (local.set 2
       (call 5
-        (local.get 0)))
+        (local.get 1)))
+    (local.set 3
+      (local.get 2))
     (call 1
       (i64.const 20))
     (call 1
-      (local.get 1))
+      (local.get 3))
   )
   (@custom "component-type"
     (component
