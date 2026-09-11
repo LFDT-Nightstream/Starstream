@@ -1,5 +1,5 @@
 use chumsky::prelude::*;
-use starstream_types::ast::{ImportDef, ImportItems, ImportNamedItem, ImportSource, StringLiteral};
+use starstream_types::ast::{ImportDef, ImportItems, ImportNamedItem, ImportSource};
 
 use crate::parser::{context::Extra, primitives};
 
@@ -35,27 +35,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, ImportDef, Extra<'a>> {
             interface,
         });
 
-    // Inline string literal: `"…"` with `\\`, `\"`, `\n`, `\r`, `\t` escapes.
-    let escape = just('\\').ignore_then(choice((
-        just('\\').to('\\'),
-        just('"').to('"'),
-        just('n').to('\n'),
-        just('r').to('\r'),
-        just('t').to('\t'),
-    )));
-    let string_char = escape.or(any().filter(|c: &char| *c != '"' && *c != '\\'));
-    let path_source = string_char
-        .repeated()
-        .collect::<String>()
-        .delimited_by(just('"'), just('"'))
-        .map_with(
-            |value, extra: &mut crate::parser::context::MapExtra<'_, '_>| {
-                ImportSource::Path(StringLiteral {
-                    value,
-                    span: extra.span(),
-                })
-            },
-        );
+    let path_source = primitives::string_literal().map(ImportSource::Path);
 
     let import_source = choice((wit_source, path_source));
 
