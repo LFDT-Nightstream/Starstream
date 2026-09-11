@@ -13,7 +13,14 @@ module starstream {
   // simulator are representative)
   import utils.* from "./utils"
 
+  // Opaque object root: four centered Goldilocks representatives in
+  // [-(p-1)/2, (p-1)/2], which fit the evaluator's signed 64-bit integers.
+  // The program proof owns schema/length framing and payload hashing.
   type StarstreamValue = List[int]
+  // Unit is emitted as four constants, not as an empty-object hash.
+  pure val UNIT_VALUE = List(0, 0, 0, 0)
+  // (p-1)/2, written directly to avoid evaluating 2^64 or p in Quint.
+  pure val FIELD_HALF = 9223372034707292160
   type ResourceHandle = int
   type MethodHash = str
   type CoroutineId = Coord(int) | Utxo(int)
@@ -25,8 +32,8 @@ module starstream {
 
   type CallFrame = {
     caller: CoroutineId,
-    expected_arguments: List[int],
-    expected_result: List[int],
+    expected_arguments: StarstreamValue,
+    expected_result: StarstreamValue,
     expected_method: Option[MethodHash],
   }
 
@@ -106,12 +113,8 @@ module starstream {
     not(is_utxo(cid))
 
   pure def is_valid(value: StarstreamValue): bool =
-    // because of Goldilocks <64bit restriction, values needing more than 32bits
-    // are split in 32bit limbs
-    //
-    // this is more of a circuit detail than a behaviour one, but better to
-    // enforce it here for the trace generation
-    value.foldl(true, (valid, limb) => valid and 0 <= limb and limb < 2^32)
+    value.length() == 4 and
+      value.foldl(true, (valid, word) => valid and -FIELD_HALF <= word and word <= FIELD_HALF)
 
   // the init action is in sim.qnt, or in the generated test modules
   //
@@ -124,8 +127,8 @@ module starstream {
       curr: cid,
       call_stack: List({
         caller: Coord(0),
-        expected_arguments: List(),
-        expected_result: List(),
+        expected_arguments: UNIT_VALUE,
+        expected_result: UNIT_VALUE,
         expected_method: None,
       }),
       curr_cid_phase: Executing,
@@ -147,6 +150,7 @@ module starstream {
 
     all {
       action_allowed(NewUtxo),
+      arguments.is_valid(),
       caller.is_coord(),
       state' = {
         curr: target,
@@ -154,7 +158,7 @@ module starstream {
           {
             caller: caller,
             expected_arguments: arguments,
-            expected_result: List(),
+            expected_result: UNIT_VALUE,
             expected_method: None,
           }
         ),
@@ -226,6 +230,7 @@ module starstream {
   // need different semantics
   action return(result: Output[StarstreamValue]): bool = all {
     action_allowed(Return),
+    result.value.is_valid(),
     val frame = state.call_stack.last()
 
     val resource_resolver = match state.pending_ctor_key {
@@ -279,6 +284,8 @@ module starstream {
 
     all {
       action_allowed(CallMethod),
+      arguments.is_valid(),
+      result.value.is_valid(),
       // utxos can't call utxos
       state.curr.is_coord(),
       state.enabled_methods.get(target).contains(method),
@@ -309,6 +316,7 @@ module starstream {
     arguments: StarstreamValue
   ): bool = all {
     action_allowed(EnterMethod),
+    arguments.is_valid(),
 
     // the utxo "calls" this
     state.curr.is_utxo(),
