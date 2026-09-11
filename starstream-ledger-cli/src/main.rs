@@ -1,19 +1,26 @@
 //! Starstream ledger client.
 
+use core::iter::zip;
+use core::pin::pin;
+
 use std::path::{Path, PathBuf};
 
-use anyhow::Context as _;
+use anyhow::{Context as _, bail, ensure};
+use bytes::BytesMut;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::Uri;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::http::ClientBuilder;
-use starstream_ledger::encode_digest;
+use starstream_ledger::{encode_digest, parse_digest};
 use tokio::fs;
 use tokio::io::{AsyncWriteExt as _, stdout};
+use tokio_util::codec::Encoder as _;
 use tracing::info;
+use wasm_wave::wasm::WasmFunc as _;
 use zeroize::Zeroizing;
 
 #[derive(Debug, Parser)]
@@ -41,6 +48,10 @@ enum Command {
     /// Manage accounts.
     #[command(subcommand)]
     Account(AccountCommand),
+
+    /// Query ledger blocks.
+    #[command(subcommand)]
+    Block(BlockCommand),
 
     /// Manage published contracts.
     #[command(subcommand)]
@@ -80,6 +91,12 @@ enum AccountCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum BlockCommand {
+    /// Get the height of the latest ledger block.
+    Height,
+}
+
+#[derive(Debug, Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum ContractCommand {
     /// Compute contract digest.
@@ -94,6 +111,25 @@ enum ContractCommand {
 
         /// Path to the contract.
         wasm: PathBuf,
+    },
+    /// Interact with contract coordination scripts.
+    #[command(subcommand)]
+    Script(ScriptCommand),
+}
+
+#[derive(Debug, Subcommand)]
+enum ScriptCommand {
+    /// Call a coordination script exported by a published contract.
+    Call {
+        /// Digest of the published contract.
+        #[arg(value_parser = parse_digest)]
+        digest: [u8; 32],
+
+        /// Script to call.
+        script: Box<str>,
+
+        /// WAVE-encoded script arguments.
+        args: Vec<Box<str>>,
     },
 }
 
@@ -139,8 +175,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
-    let client = ClientBuilder::new(http, url).network(network).build();
+    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
+    let client = ClientBuilder::new(http, HttpConnector::new(), url)
+        .network(network)
+        .build();
     match command {
         Command::Account(AccountCommand::Fund {
             signing: SigningArgs { key, nonce },
@@ -149,6 +187,13 @@ async fn main() -> anyhow::Result<()> {
         }) => {
             let key = read_signing_key(&key).await?;
             client.fund(key, nonce, &account, amount).await
+        }
+        Command::Block(BlockCommand::Height) => {
+            let height = client.block_height().await?;
+            stdout()
+                .write_all(height.to_string().as_bytes())
+                .await
+                .context("failed to write height to stdout")
         }
         Command::Contract(ContractCommand::Digest { wasm }) => {
             let wasm = fs::read(&wasm)
@@ -169,6 +214,65 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .with_context(|| format!("failed to read `{}`", wasm.display()))?;
             client.publish_contract(key, nonce, wasm).await
+        }
+        Command::Contract(ContractCommand::Script(ScriptCommand::Call {
+            digest,
+            script,
+            args,
+        })) => {
+            let wasm = client.get_contract_wasm(&digest).await?;
+            let wasm =
+                wit_parser::decoding::decode(&wasm).context("failed to decode contract Wasm")?;
+            let wit_parser::decoding::DecodedWasm::Component(resolve, world) = wasm else {
+                bail!("contract is not a component")
+            };
+            let world = &resolve.worlds[world];
+            let ty = world
+                .exports
+                .iter()
+                .find_map(|(name, item)| {
+                    let wit_parser::WorldKey::Name(name) = name else {
+                        return None;
+                    };
+                    let wit_parser::WorldItem::Function(ty) = item else {
+                        return None;
+                    };
+                    if *name == *script { Some(ty) } else { None }
+                })
+                .with_context(|| format!("coordination script `{script}` not found"))?;
+            let ty = wasm_wave::value::resolve_wit_func_type(&resolve, ty)
+                .context("failed to resolve coordination script function type")?;
+
+            let params_ty = zip(ty.param_names(), ty.params());
+            let mut args = args.into_iter();
+            let mut buf = BytesMut::new();
+            for (name, ty) in params_ty {
+                let v = args
+                    .next()
+                    .with_context(|| format!("missing value for parameter `{name}`"))?;
+                let v = wasm_wave::from_str::<wasm_wave::value::Value>(&ty, &v)
+                    .with_context(|| format!("failed to parse value for parameter `{name}`"))?;
+                wrpc_wave::WaveEncoder::new(&ty)
+                    .encode(&v, &mut buf)
+                    .with_context(|| format!("failed to encode value of parameter `{name}`"))?;
+            }
+            ensure!(args.next().is_none(), "trailing arguments");
+
+            let rx = client
+                .call_coordination_script(&digest, &script, buf.freeze())
+                .await?;
+            let mut rx = pin!(rx);
+
+            if let Some(ty) = wasm_wave::value::Type::tuple(ty.results().collect::<Box<_>>()) {
+                let v = wrpc_wave::read_value(&mut rx, &ty)
+                    .await
+                    .context("failed to read result tuple")?;
+                let s = wasm_wave::to_string(&v).context("failed to encode result tuple")?;
+                stdout().write_all(s.as_bytes()).await
+            } else {
+                stdout().write_all(b"()").await
+            }
+            .context("failed to write result tuple to stdout")
         }
         Command::Key(KeyCommand::Generate) => {
             let key = SigningKey::generate(&mut OsRng);

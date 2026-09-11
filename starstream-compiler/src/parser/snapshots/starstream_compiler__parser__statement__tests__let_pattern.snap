@@ -1,0 +1,42 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nlet (left, right) = pair;"
+---
+VariableDeclaration {
+    public: false,
+    mutable: false,
+    pattern: AnonTuple {
+        fields: [
+            Name(
+                [
+                    Identifier {
+                        name: "left",
+                        span: 5..9,
+                    },
+                ],
+            ),
+            Name(
+                [
+                    Identifier {
+                        name: "right",
+                        span: 11..16,
+                    },
+                ],
+            ),
+        ],
+        span: 4..18,
+    },
+    ty: None,
+    value: Spanned {
+        node: ScopedName(
+            [
+                Identifier {
+                    name: "pair",
+                    span: 20..24,
+                },
+            ],
+        ),
+        span: 20..24,
+    },
+    else_branch: None,
+}

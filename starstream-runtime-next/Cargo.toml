@@ -14,7 +14,6 @@ wasmtime-custom-virtual-memory = ["wasmtime/custom-virtual-memory"]
 [dependencies]
 anyhow = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
-wasmparser = { workspace = true }
 wasmtime = { workspace = true, features = [
     "anyhow",
     "async",
@@ -22,7 +21,6 @@ wasmtime = { workspace = true, features = [
     "cranelift",
     "runtime",
 ] }
-wit-component = { workspace = true }
 
 [dev-dependencies]
 sha2 = { workspace = true }
@@ -30,3 +28,4 @@ starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
 test-log = { workspace = true, features = ["color", "trace"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
+wit-component = { workspace = true }

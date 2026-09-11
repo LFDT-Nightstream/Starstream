@@ -5,7 +5,7 @@ use core::str::FromStr as _;
 
 use std::sync::{Arc, LazyLock};
 
-use anyhow::Context as _;
+use anyhow::{Context as _, anyhow, ensure};
 use bytes::Bytes;
 use coset::{CoseSign1Builder, HeaderBuilder, TaggedCborSerializable as _, iana};
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -15,34 +15,45 @@ use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use sha2::{Digest as _, Sha256};
+use starstream_compiler::typecheck::TypecheckSuccess;
+use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
 use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::client::http::{
     ClientBuilder, build_contract_get_request, build_contract_publish_request, build_fund_request,
 };
 use starstream_ledger::encode_digest;
 use starstream_ledger::server::Ledger;
+use starstream_to_wasm::CompileResult;
+use tokio::io::AsyncReadExt as _;
 use tokio::net::TcpListener;
+use wit_component::ComponentEncoder;
 
-fn compile_contract(source: &str) -> Vec<u8> {
-    let (program, errors) = starstream_compiler::parse_program(source).into_output_errors();
-    assert!(errors.is_empty(), "parsing failed: {errors:?}");
-    let program = program.expect("parser produced no program");
-    let typed = starstream_compiler::typecheck_program(&program, Default::default())
-        .unwrap_or_else(|failure| panic!("typechecking failed: {:?}", failure.errors));
-    let result = starstream_to_wasm::compile(&typed.program);
-    assert!(
-        result.errors.is_empty(),
-        "compiling failed: {:?}",
-        result.errors
-    );
-    let wasm = result.wasm.expect("compiling produced no Wasm");
-    starstream_runtime_next::componentize(wasm).expect("failed to componentize contract")
+fn compile_contract(source: &str) -> anyhow::Result<Vec<u8>> {
+    let (program, errs) = parse_program(source).into_output_errors();
+    ensure!(errs.is_empty(), "failed to parse program: {errs:?}");
+    let program = program.context("parser did not produce a program")?;
+
+    let TypecheckSuccess { program, .. } = typecheck_program(&program, TypecheckOptions::default())
+        .map_err(|TypecheckFailure { errors, .. }| {
+            anyhow!("failed to typecheck program: {:?}", errors)
+        })?;
+
+    let CompileResult { errors, wasm, .. } = starstream_to_wasm::compile(&program);
+    ensure!(errors.is_empty(), "failed to compile program: {errors:?}");
+
+    let wasm = wasm.context("compilation did not produce Wasm")?;
+    ComponentEncoder::default()
+        .validate(true)
+        .module(&wasm)
+        .context("failed to set core component module")?
+        .encode()
+        .context("failed to encode a component")
 }
 
 const NETWORK: &str = "starstream:test";
 
 static SCORE_WASM: LazyLock<Vec<u8>> =
-    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
+    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")).unwrap());
 static SCORE_WASM_DIGEST: LazyLock<[u8; 32]> =
     LazyLock::new(|| Sha256::digest(&*SCORE_WASM).into());
 
@@ -74,12 +85,11 @@ async fn http() -> anyhow::Result<()> {
             .context("failed to get TCP listener local address")?
     };
 
-    let ledger = Ledger::new(
-        wasmtime::Engine::default(),
-        128,
-        NETWORK,
-        ADMIN.verifying_key(),
-    );
+    let mut config = wasmtime::Config::default();
+    config.wasm_component_model_implements(true);
+    let engine = wasmtime::Engine::new(&config)?;
+
+    let ledger = Ledger::new(engine, 128, NETWORK, ADMIN.verifying_key());
     let ledger = Arc::new(ledger);
     let (ledger, shutdown) = ledger
         .handle_http(addr)
@@ -87,11 +97,15 @@ async fn http() -> anyhow::Result<()> {
         .context("failed to handle HTTP")?;
     let ledger = tokio::spawn(ledger);
 
-    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build_http();
+    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}"))?;
-    let client = ClientBuilder::new(http.clone(), api_base.clone())
+    let client = ClientBuilder::new(http.clone(), HttpConnector::new(), api_base.clone())
         .network(NETWORK)
         .build();
+    let http = http.build_http();
+
+    let height = client.block_height().await?;
+    assert_eq!(height, 0);
 
     let score_publish_envelope =
         build_publish_envelope(ADMIN.clone(), NETWORK, 1, SCORE_WASM.as_slice())?;
@@ -143,6 +157,9 @@ async fn http() -> anyhow::Result<()> {
     client
         .fund(ADMIN.clone(), 1, &ADMIN.verifying_key(), balance as _)
         .await?;
+
+    let height = client.block_height().await?;
+    assert_eq!(height, 1);
 
     let req = build_fund_request(
         &api_base,
@@ -212,6 +229,21 @@ async fn http() -> anyhow::Result<()> {
         headers.get(X_CONTENT_TYPE_OPTIONS).map(|v| v.as_bytes()),
         Some(b"nosniff".as_slice())
     );
+
+    let height = client.block_height().await?;
+    assert_eq!(height, 3);
+
+    let mut rx = client
+        .call_coordination_script(&SCORE_WASM_DIGEST, "example", Bytes::default())
+        .await?;
+    let mut buf = [0];
+    let n = rx.read(&mut buf).await?;
+    assert_eq!(n, 0);
+    assert_eq!(buf, [0]);
+
+    () = client
+        .call_coordination_script_typed(&SCORE_WASM_DIGEST, "example", ())
+        .await?;
 
     shutdown.notify_one();
     ledger.await.context("ledger task panicked")

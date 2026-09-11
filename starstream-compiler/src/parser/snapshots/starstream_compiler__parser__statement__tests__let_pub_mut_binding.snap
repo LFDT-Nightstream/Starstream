@@ -5,10 +5,14 @@ description: "Code:\n\nlet pub mut answer = 42;"
 VariableDeclaration {
     public: true,
     mutable: true,
-    name: Identifier {
-        name: "answer",
-        span: 12..18,
-    },
+    pattern: Name(
+        [
+            Identifier {
+                name: "answer",
+                span: 12..18,
+            },
+        ],
+    ),
     ty: None,
     value: Spanned {
         node: Literal(
@@ -21,4 +25,5 @@ VariableDeclaration {
         ),
         span: 21..23,
     },
+    else_branch: None,
 }

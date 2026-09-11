@@ -839,6 +839,23 @@ pub fn check_match(
     }
 }
 
+/// Return examples of values not covered by a single pattern. An empty result
+/// means the pattern is irrefutable for `scrutinee_type`.
+pub(super) fn missing_patterns(scrutinee_type: &Type, pattern: &TypedPattern) -> Vec<String> {
+    let mut matrix = Matrix::new(vec![scrutinee_type.clone()]);
+    matrix.push(vec![lower_pattern(pattern, scrutinee_type)]);
+
+    if !is_useful(&matrix, &[SimplePat::Wildcard]) {
+        return Vec::new();
+    }
+
+    collect_missing_patterns(&matrix, 1)
+        .iter()
+        .filter_map(|row| row.first().map(pattern_to_string))
+        .take(5)
+        .collect()
+}
+
 /// Gets the span of a TypedPattern for error reporting.
 /// For compound patterns, returns a span covering the entire pattern.
 fn pattern_span(pattern: &TypedPattern) -> Option<Span> {

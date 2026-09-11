@@ -1,4 +1,6 @@
 use core::future::poll_fn;
+use core::iter::zip;
+use core::mem;
 use core::net::SocketAddr;
 use core::pin::pin;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -9,9 +11,10 @@ use std::collections::{HashMap, hash_map};
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use bytes::{Buf, Bytes};
+use bytes::{Buf, Bytes, BytesMut};
 use coset::{CborSerializable as _, CoseSign1, TaggedCborSerializable as _, iana};
 use ed25519_dalek::{Signature, VerifyingKey};
+use futures::{StreamExt as _, TryStreamExt as _};
 use headers_accept::Accept;
 use headers_core::Header as _;
 use http::HeaderValue;
@@ -23,20 +26,35 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
+use starstream_runtime_next::{
+    CoordinationScriptImport, UtxoImport, get_coordination_script_instance_import, utxo_imports,
+};
 use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
+use tokio_util::codec::{Encoder as _, FramedRead};
+use tokio_util::io::StreamReader;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
+use wasm_tokio::cm::U64Codec;
+use wasmtime::component::{Component, Val};
+use wrpc_transport::FrameDecoder;
 
 use crate::server::lookup::ContractLookup;
-use crate::server::{Contract, Ledger};
+use crate::server::wrpc::{ValEncoder, read_value};
+use crate::server::{Contract, Ctx, Ledger};
+use crate::wrpc::{CONTRACT_PACKAGE, LEDGER_PACKAGE};
 use crate::{
     APPLICATION_COSE, APPLICATION_WASM, Action, Block, FUND_CONTEXT, PUBLISH_CONTEXT, parse_digest,
 };
 
 mod error;
 use error::*;
+
+const APPLICATION_OCTET_STREAM: MediaType = MediaType::new(
+    mediatype::names::APPLICATION,
+    mediatype::names::OCTET_STREAM,
+);
 
 const MAX_CONTRACT_PUT_BODY_SIZE: u64 = 1 << 20;
 const MAX_FUND_POST_BODY_SIZE: u64 = 1 << 10;
@@ -319,45 +337,83 @@ impl Ledger {
                 });
             }
         }
-
-        let envelope = Bytes::from(envelope);
         {
             let contracts = self.contracts.read().await;
             if contracts.contains_key(&digest) {
                 return build_text_response(http::StatusCode::OK, "")
                     .map_err(ContractPutError::Http);
             }
+        }
 
-            // TODO: Split component
-
-            let (_wizer_cx, contract_wasm) = self
-                .wizer
-                .instrument_component(&wasm)
-                .map_err(ContractPutError::Wizer)?;
-            let contract = starstream_runtime_next::Contract::new(
-                &self.engine,
-                ContractLookup(&contracts),
-                &contract_wasm,
-            )
+        let (_wizer_cx, contract_wasm) = self
+            .wizer
+            .instrument_component(&wasm)
+            .map_err(ContractPutError::Wizer)?;
+        let component = Component::from_binary(&self.engine, &contract_wasm)
             .map_err(ContractPutError::Runtime)?;
-            drop(contracts);
-
-            let mut scripts = HashMap::default();
-            for (name, export) in contract.coordination_scripts() {
-                let export = export.map_err(ContractPutError::Runtime)?;
-                scripts.insert(name.into(), export);
+        let ty = component.component_type();
+        let script_instance = get_coordination_script_instance_import(&self.engine, &ty);
+        let mut imports = HashMap::default();
+        {
+            let contracts = self.contracts.read().await;
+            if contracts.contains_key(&digest) {
+                return build_text_response(http::StatusCode::OK, "")
+                    .map_err(ContractPutError::Http);
             }
-            let mut utxos = HashMap::default();
-            for (name, export) in contract.utxos() {
-                let export = export.map_err(ContractPutError::Runtime)?;
-                utxos.insert(name.into(), export);
-            }
+            for import in utxo_imports(&self.engine, &ty) {
+                let UtxoImport { external_id, .. } = import.map_err(ContractPutError::Runtime)?;
+                if imports.contains_key(external_id) {
+                    continue;
+                }
 
+                let digest = parse_digest(external_id).map_err(|err| {
+                    ContractPutError::ContractImportDigestParsing(external_id.into(), err)
+                })?;
+                let contract = contracts
+                    .get(&digest)
+                    .ok_or_else(|| ContractPutError::ContractImportNotFound(external_id.into()))?;
+                imports.insert(external_id, Arc::clone(contract));
+            }
+            if let Some(script_instance) = &script_instance {
+                for import in script_instance.coordination_scripts() {
+                    let CoordinationScriptImport { external_id, .. } =
+                        import.map_err(ContractPutError::Runtime)?;
+                    if imports.contains_key(external_id) {
+                        continue;
+                    }
+
+                    let digest = parse_digest(external_id).map_err(|err| {
+                        ContractPutError::ContractImportDigestParsing(external_id.into(), err)
+                    })?;
+                    let contract = contracts.get(&digest).ok_or_else(|| {
+                        ContractPutError::ContractImportNotFound(external_id.into())
+                    })?;
+                    imports.insert(external_id, Arc::clone(contract));
+                }
+            }
+        }
+
+        let contract = starstream_runtime_next::Contract::new(&component, ContractLookup(&imports))
+            .map_err(ContractPutError::Runtime)?;
+        let mut scripts = HashMap::default();
+        for (name, export) in contract.coordination_scripts() {
+            let export = export.map_err(ContractPutError::Runtime)?;
+            scripts.insert(name.into(), export);
+        }
+        let mut utxos = HashMap::default();
+        for (name, export) in contract.utxos() {
+            let export = export.map_err(ContractPutError::Runtime)?;
+            utxos.insert(name.into(), export);
+        }
+
+        let envelope = Bytes::from(envelope);
+        {
             let mut contracts = self.contracts.write().await;
             let hash_map::Entry::Vacant(entry) = contracts.entry(digest) else {
                 return build_text_response(http::StatusCode::OK, "")
                     .map_err(ContractPutError::Http);
             };
+            // TODO: Split component
             entry.insert(Arc::new(Contract {
                 contract,
                 contract_wasm: contract_wasm.into(),
@@ -448,6 +504,95 @@ impl Ledger {
             });
         }
         build_text_response(http::StatusCode::OK, "").map_err(AccountFundError::Http)
+    }
+
+    async fn handle_rpc_post(
+        &self,
+        body: hyper::body::Incoming,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcPostError> {
+        let mut body = wrpc_http::data_reader_from_incoming(body);
+        let wrpc_transport::frame::Header { instance, name } =
+            wrpc_transport::frame::Header::read(&mut body)
+                .await
+                .map_err(RpcPostError::Header)?;
+        let mut data = BytesMut::new();
+        match instance.split_once('/') {
+            Some((LEDGER_PACKAGE, "block")) => match name.as_str() {
+                "height" => {
+                    let height = self.blocks.read().await.len();
+                    let height = u64::try_from(height)
+                        .map_err(|err| RpcPostError::ResultEncoding(std::io::Error::other(err)))?;
+                    U64Codec
+                        .encode(height, &mut data)
+                        .map_err(RpcPostError::ResultEncoding)?;
+                }
+                _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
+            },
+            Some((CONTRACT_PACKAGE, digest)) => {
+                let digest = parse_digest(digest).map_err(RpcPostError::ContractDigestParsing)?;
+                let contract = {
+                    let contracts = self.contracts.read().await;
+                    let contract = contracts
+                        .get(&digest)
+                        .ok_or(RpcPostError::ContractNotFound)?;
+                    Arc::clone(contract)
+                };
+                let Some(export) = contract.scripts.get(name.as_str()) else {
+                    return Err(RpcPostError::FunctionNotFound { instance, name });
+                };
+
+                let param_tys = export.ty().params();
+                let mut params = vec![Val::Bool(false); param_tys.len()];
+                let body = FramedRead::new(body, FrameDecoder::default()).map(|frame| {
+                    let wrpc_transport::Frame { path, data } = frame?;
+                    anyhow::ensure!(path.is_empty(), "async values not supported");
+                    Ok(data)
+                });
+                let mut body = StreamReader::new(body.map_err(std::io::Error::other));
+                for (v, (_, ty)) in zip(&mut params, param_tys) {
+                    read_value(&mut body, v, &ty)
+                        .await
+                        .map_err(RpcPostError::ParameterDecoding)?;
+                }
+
+                let result_tys = export.ty().results();
+                let mut results = vec![Val::Bool(false); result_tys.len()];
+                let mut store = wasmtime::Store::new(&self.engine, Ctx::default());
+                let contract = contract
+                    .instantiate(&mut store)
+                    .await
+                    .map_err(RpcPostError::Runtime)?;
+                contract
+                    .call_coordination_script(&mut store, export, &params, &mut results)
+                    .await
+                    .map_err(RpcPostError::Runtime)?;
+                for (v, ty) in zip(results, result_tys) {
+                    ValEncoder::new(&ty)
+                        .encode(&v, &mut data)
+                        .map_err(RpcPostError::CallResultEncoding)?;
+                }
+                let Ctx { outputs, .. } = store.data_mut();
+                for utxo in mem::take(outputs) {
+                    let _cx = utxo.drop(&mut store).await.map_err(RpcPostError::Runtime)?;
+                }
+            }
+            _ => return Err(RpcPostError::InstanceNotFound(instance)),
+        }
+        let mut buf = BytesMut::with_capacity(data.len().saturating_add(1 + 10));
+        wrpc_transport::FrameEncoder
+            .encode(
+                wrpc_transport::FrameRef {
+                    path: &[],
+                    data: &data,
+                },
+                &mut buf,
+            )
+            .map_err(RpcPostError::FrameEncoding)?;
+        http::Response::builder()
+            .header(CONTENT_TYPE, APPLICATION_OCTET_STREAM.to_string())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .body(http_body_util::Full::new(buf.freeze()))
+            .map_err(RpcPostError::Http)
     }
 
     /// Bind `address` and return the future serving the ledger HTTP API.
@@ -553,6 +698,14 @@ impl Ledger {
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
                     (_, Some("fund"), None, ..) => {
+                        build_method_not_allowed("POST", &method, pq.path())
+                    }
+
+                    ("POST", Some("rpc"), None, ..) => match ledger.handle_rpc_post(body).await {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    },
+                    (_, Some("rpc"), None, ..) => {
                         build_method_not_allowed("POST", &method, pq.path())
                     }
 

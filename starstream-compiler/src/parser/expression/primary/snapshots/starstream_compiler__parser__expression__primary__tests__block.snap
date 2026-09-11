@@ -10,10 +10,14 @@ Spanned {
                     node: VariableDeclaration {
                         public: false,
                         mutable: true,
-                        name: Identifier {
-                            name: "a",
-                            span: 10..11,
-                        },
+                        pattern: Name(
+                            [
+                                Identifier {
+                                    name: "a",
+                                    span: 10..11,
+                                },
+                            ],
+                        ),
                         ty: None,
                         value: Spanned {
                             node: Literal(
@@ -26,6 +30,7 @@ Spanned {
                             ),
                             span: 14..15,
                         },
+                        else_branch: None,
                     },
                     span: 2..17,
                 },

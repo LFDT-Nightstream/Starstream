@@ -34,10 +34,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: false,
-                                    name: Identifier {
-                                        name: "hex",
-                                        span: 34..37,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "hex",
+                                                span: 34..37,
+                                            },
+                                        ],
+                                    ),
                                     ty: Some(
                                         Named {
                                             name: [
@@ -60,6 +64,7 @@ Program {
                                         ),
                                         span: 45..49,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 30..55,
                             },
@@ -67,10 +72,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: false,
-                                    name: Identifier {
-                                        name: "octal",
-                                        span: 59..64,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "octal",
+                                                span: 59..64,
+                                            },
+                                        ],
+                                    ),
                                     ty: Some(
                                         Named {
                                             name: [
@@ -93,6 +102,7 @@ Program {
                                         ),
                                         span: 71..75,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 55..81,
                             },
@@ -100,10 +110,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: false,
-                                    name: Identifier {
-                                        name: "binary",
-                                        span: 85..91,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "binary",
+                                                span: 85..91,
+                                            },
+                                        ],
+                                    ),
                                     ty: Some(
                                         Named {
                                             name: [
@@ -126,6 +140,7 @@ Program {
                                         ),
                                         span: 99..105,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 81..111,
                             },
@@ -133,10 +148,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: false,
-                                    name: Identifier {
-                                        name: "masked",
-                                        span: 115..121,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "masked",
+                                                span: 115..121,
+                                            },
+                                        ],
+                                    ),
                                     ty: None,
                                     value: Spanned {
                                         node: Binary {
@@ -200,6 +219,7 @@ Program {
                                         },
                                         span: 124..144,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 111..150,
                             },
@@ -303,10 +323,12 @@ TypedProgram {
                         VariableDeclaration {
                             public: false,
                             mutable: false,
-                            name: Identifier {
-                                name: "hex",
-                                span: 34..37,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "hex",
+                                    span: 34..37,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Int(
@@ -323,14 +345,17 @@ TypedProgram {
                                 },
                                 span: 45..49,
                             },
+                            else_branch: None,
                         },
                         VariableDeclaration {
                             public: false,
                             mutable: false,
-                            name: Identifier {
-                                name: "octal",
-                                span: 59..64,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "octal",
+                                    span: 59..64,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Int(
@@ -347,14 +372,17 @@ TypedProgram {
                                 },
                                 span: 71..75,
                             },
+                            else_branch: None,
                         },
                         VariableDeclaration {
                             public: false,
                             mutable: false,
-                            name: Identifier {
-                                name: "binary",
-                                span: 85..91,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "binary",
+                                    span: 85..91,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Int(
@@ -371,14 +399,17 @@ TypedProgram {
                                 },
                                 span: 99..105,
                             },
+                            else_branch: None,
                         },
                         VariableDeclaration {
                             public: false,
                             mutable: false,
-                            name: Identifier {
-                                name: "masked",
-                                span: 115..121,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "masked",
+                                    span: 115..121,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Int(
@@ -476,6 +507,7 @@ TypedProgram {
                                 },
                                 span: 124..144,
                             },
+                            else_branch: None,
                         },
                     ],
                     tail_expression: Some(
@@ -562,14 +594,20 @@ TypedProgram {
         (unreachable)))
   )
   (func (;2;) (type 2) (result i64)
-    (local i64 i32 i32 i64)
+    (local i64 i64 i32 i32 i32 i32 i64 i64)
     (local.set 0
       (i64.const 255))
     (local.set 1
-      (i32.const 15))
+      (local.get 0))
     (local.set 2
-      (i32.const 10))
+      (i32.const 15))
     (local.set 3
+      (local.get 2))
+    (local.set 4
+      (i32.const 10))
+    (local.set 5
+      (local.get 4))
+    (local.set 6
       (call 1
         (call 1
           (call 1
@@ -577,9 +615,11 @@ TypedProgram {
             (i64.const 1))
           (i64.const 7))
         (i64.const 9)))
+    (local.set 7
+      (local.get 6))
     (call 1
-      (local.get 0)
-      (local.get 3))
+      (local.get 1)
+      (local.get 7))
   )
   (@custom "component-type"
     (component

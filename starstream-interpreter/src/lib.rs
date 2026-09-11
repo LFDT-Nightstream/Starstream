@@ -5,7 +5,7 @@ use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 
 use starstream_types::{
     BinaryOp, Literal, TypedBlock, TypedDefinition, TypedExpr, TypedExprKind, TypedFunctionDef,
-    TypedIfCondition, TypedProgram, TypedStatement, UnaryOp,
+    TypedIfCondition, TypedPattern, TypedProgram, TypedStatement, UnaryOp,
 };
 
 #[cfg(test)]
@@ -39,13 +39,21 @@ fn eval_block(block: &TypedBlock, locals: &Locals) -> ControlFlow<Value, Value> 
             TypedStatement::VariableDeclaration {
                 public: _,
                 mutable: _,
-                name,
+                pattern,
                 value,
+                else_branch,
             } => {
                 let value = eval(&value.node, &locals)?;
-                locals
-                    .vars
-                    .insert(name.name.clone(), Rc::new(Cell::new(value)));
+                if let Some(bindings) = match_pattern(pattern, &value) {
+                    for (name, value) in bindings {
+                        locals.vars.insert(name, Rc::new(Cell::new(value)));
+                    }
+                } else if let Some(else_branch) = else_branch {
+                    let _ = eval_block(else_branch, &locals)?;
+                    unreachable!("type checker requires a diverging `let ... else` block");
+                } else {
+                    unreachable!("type checker requires a plain `let` pattern to be irrefutable");
+                }
             }
             TypedStatement::Assignment { target, value } => {
                 let value = eval(&value.node, &locals)?;
@@ -76,6 +84,26 @@ fn eval_block(block: &TypedBlock, locals: &Locals) -> ControlFlow<Value, Value> 
         ControlFlow::Continue(eval(&expr.node, &locals)?)
     } else {
         ControlFlow::Continue(Value::Unit)
+    }
+}
+
+fn match_pattern(pattern: &TypedPattern, value: &Value) -> Option<Vec<(String, Value)>> {
+    match pattern {
+        TypedPattern::Binding(name) => Some(vec![(name.name.clone(), *value)]),
+        TypedPattern::Wildcard => Some(Vec::new()),
+        TypedPattern::Literal(Literal::Integer(integer)) => {
+            (*value == Value::Number(integer.value()? as i64)).then(Vec::new)
+        }
+        TypedPattern::Literal(Literal::Boolean(boolean)) => {
+            (*value == Value::Boolean(*boolean)).then(Vec::new)
+        }
+        TypedPattern::Literal(Literal::Unit) => (*value == Value::Unit).then(Vec::new),
+        TypedPattern::Struct { .. }
+        | TypedPattern::Tuple { .. }
+        | TypedPattern::AnonTuple { .. }
+        | TypedPattern::Constant { .. } => {
+            todo!("compound pattern values are not yet supported by the interpreter")
+        }
     }
 }
 
@@ -258,11 +286,12 @@ fn eval_locals() {
             TypedStatement::VariableDeclaration {
                 public: false,
                 mutable: true,
-                name: foo.clone(),
+                pattern: TypedPattern::Binding(foo.clone()),
                 value: Spanned::none(TypedExpr::new(
                     Type::int(),
                     TypedExprKind::Literal(Literal::Integer(IntegerLiteral::from(6))),
                 )),
+                else_branch: None,
             },
             TypedStatement::Assignment {
                 target: foo.clone(),

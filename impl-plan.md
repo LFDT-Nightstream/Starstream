@@ -5,62 +5,31 @@
 
 ## TODOs
 
-Components:
+Ledger/sandbox/CLI features:
 
-- [x] define grammar
-- [x] strip down parser and ast - @rvcas
-- [x] revamp snapshot test organization - @rvcas
-- [x] ditch op codes and make a tree-walking interpreter (ast nodes) - @SpaceManiac
-- [x] compile stripped down lang to wasm - @SpaceManiac
-- [x] single-binary CLI - @SpaceManiac
-- [x] formatter, including snapshot tests, included in CLI - @rvcas
-- [x] tree sitter grammar - @SpaceManiac
-- [x] type system setup
-  - [x] basics specs - @SpaceManiac
-  - [x] return lsp diagnostics to be displayed in editor - @rvcas
-  - [x] [Algorithm W](https://sdiehl.github.io/typechecker-zoo/algorithm-w/lambda-calculus.html) and typed AST - @rvcas
-- [x] LSP server, included in CLI - @rvcas
-- [x] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
-  - [x] run LSP with `cargo run`
-  - [x] compile & use wasm LSP
-- [x] web sandbox - @SpaceManiac
-  - [x] basic editor
-  - [x] highlighting and LSP via VSC web ext
-  - [x] compile to Wasm and show disassembly
-  - [ ] when language has some form of print(), run reference interpreter
-  - [ ] when Wasm ABI is known enough, run Wasm module
-- [x] zed extension - @rvcas dogfooding
-
-Language features:
-
-- [x] `else if`
-- [x] functions
-- [x] function call expressions
-- [x] if expressions
-- [x] block expressions
-- [x] make `let` const and add `let mut`
-- [x] type annotations on `let` bindings
-- [x] coordination script exports
-- [ ] mock ledger
+- mock ledger
   - [ ] sandbox shows current "input" ledger state (starts empty)
   - [ ] sandbox allows calling coordination scripts with arguments, can pass existing UTXOs as input (JS console?)
   - [ ] sandbox shows "output" ledger state after running, with "save" button that copies it to the "input"
-- [x] base-level ABI stuff
-  - [x] underlying callable ABI
+  - [ ] split and recombine code/state for compression of Utxo storage
+  - [ ] deduplication
+    - Optimized storage for duplicated nested components
+    - Compiler keeps structure to make this possible
+- web sandbox
+  - [ ] "run" and/or "test" support
+- CLI
+  - [ ] State directory or DB file for mock ledger state
+- [ ] JS frontend
+
+Language features:
+
 - [ ] `abi` elements
-  - [ ] plain methods
   - [ ] errors
     - [ ] throw(?) expr
     - [ ] fail the transaction
-  - [x] events
-    - [x] declarations
-    - [x] emit expr
-    - [ ] displayed as part of run output in sandbox and elsewhere
-  - [ ] effects
-    - [ ] declarations
-    - [ ] raise expr
-    - [ ] try/with blocks
-- [x] `runtime` expr for system imports
+- [ ] effect handling
+  - [ ] WIT World spec describing ABI
+  - [ ] implementing ABI in compiler and runtime
 - [ ] UTXO elements
   - [x] `storage` blocks to declare UTXO state (Wasm globals)
   - [x] basic `main fn`s
@@ -68,77 +37,68 @@ Language features:
   - [ ] public method `pub fn`s ?
   - [ ] abi impl blocks
   - [ ] coroutine support (yield/resume)
-- [x] UTXO handles
-  - [ ] generic `Utxo` handle
-  - [x] `utxo UtxoName` handle types
-  - [ ] `abi AbiName` handle types
-  - [ ] table-driven provable downcasting
-- [ ] tokens stuff
-- [ ] standard integer primitive types
-  - [x] `bool`
-  - [x] (i|u)(8|16|32|64)
-  - [ ] `char` (is it u32 or `Field<21>`?)
-  - ~~`f32` and `f64`~~ (determinism/proving trouble)
-  - [x] literals infer their type from context
+- [ ] tokens
+  - Linearity enforcement in typechecker
+  - Encode whether fn is `burn` or `mint` for runtime
+  - How do you call detach?
+  - Way for a Utxo to control attach/detach of tokens (currently only Token controls this)
 - [ ] variable privacy
   - [x] `disclose` builtin
   - [x] check that `if` conditions are disclosed
   - [ ] check that variables across yield points are disclosed
-- [ ] typedefs
-  - [ ] basic `type A = B;`
-  - [ ] export `pub type A = B;` to WIT
 - [ ] linear/affine typing
-- [x] struct types
-  - remember structural typing (see spec)
-  - [x] tuples
-  - [x] wasm codegen support as WIT records
-- [x] anonymous tuple syntax
-  - [x] tuple type annotations `(A, B)`, expressions `(a, b)`, and `match` patterns
-  - [x] exhaustiveness checking (single-constructor product)
-  - [x] wasm codegen (stack-flattened like records; WIT `tuple<...>`)
-  - [ ] positional field access (`t.0`)
-  - [ ] tuple patterns in `let` LHS (blocked on let patterns generally)
-- [x] enum (tagged union) types
-  - [x] wasm codegen support as WIT variants
-  - [x] builtin `Option<T>`, `Result<T, E>` (WIT support)
 - [x] patterns and pattern matching
-  - exhaustive patterns in arguments?
-  - [x] support literals in pattern
-  - [ ] patterns in `let` LHS (structs make sense, enums not so much)
-  - [x] exhaustiveness checking for `match`
   - [ ] improve diagnostics for pattern/type mismatches
   - [ ] flag inconsistent `match` arm return values (fallthrough semantics)
-- [ ] heap types
-  - maybe defer until components support GC?
-  - [ ] `string` and string literals (WIT support)
-  - [ ] builtin container `List<T>` (WIT support)
 - [ ] extra WIT functionality
   - [ ] owned and borrowed resource handles
   - [ ] flags types
   - [ ] declare intent to export a particular WIT world, compiler errors if it's not satisfied
+- [ ] prelude
+  - [ ] `Address` type
+  - [ ] `PublicKey` type
+  - [ ] `assert_transaction_signed_by` function
+  - [ ] `TokenReleased` effect
+    - [ ] definition
+    - [ ] runtime emits it on Utxo drop (req. effect handling)
 - [ ] imports
-  - [x] import hardcoded WIT declarations for runtime functions
-  - [ ] import externals from arbitrary .wit files
-    - how to advertise the need for these to be fulfilled by a runtime extension?
+  - import from `starstream:std`
+    - [ ] builtin cryptographic functions
+  - [x] import parts from non-contract `.star` files to form a single contract
+  - [ ] import abis, utxos, tokens, and script fns from other Starstream contracts
+  - [ ] embed `library fn`s from other `.star` files
+  - [ ] embed library code from component `.wasm`
+    - [ ] witness mode
+    - [ ] proven mode
+  - [ ] import externals from arbitrary `.wit` files
+    - use case: embedding in a ledger/chain/etc. that isn't hardcoded in the compiler
     - [ ] by path
     - [ ] by WIT package expression, follows standard(?) search path
-  - [ ] embed library code from component .wasm
-  - [ ] import utxo, tokens, and script fns from other Starstream contracts
-  - [ ] embed `library fn`s from other `.star` files
+    - [ ] runtime offers extension hooks to fulfill such imports
 - [ ] fields and foreign field arithmetic (important for interop)
   - maybe `Field<N>` or `Int<N>`, `UInt<N>`
   - how to implement?
 
+Low priority / waiting:
+
+- mock ledger/CLI conveniences
+  - [ ] automatically import compiled contracts from `artifacts/` directory
+- [ ] typedefs
+  - [ ] basic `type A = B;`
+  - [ ] export `pub type A = B;` to WIT
+- [ ] `char` type (is it u32 or `Field<21>`?)
+- [ ] heap types
+  - Waiting on Lazy Lowering and/or component GC support
+  - [ ] `string` and string literals (WIT support)
+  - [ ] builtin container `List<T>` (WIT support)
+- pattern matching miscellany
+  - [ ] maybe allow exhaustive patterns as LHS of function parameters?
+  - [ ] positional field access (`t.0`)
+
 Research:
 
 - try out [Verus](https://github.com/verus-lang/verus) as a way to verify the reference interpreter
-- specify (roughly) the Wasm ABI that the compiler must target (maybe use WIT?)
-  - this feeds the opcode and trace tables used by the interleaving proof and Nightstream-backed proving stack.
-  - Wasm + the rough shape of external calls
-    - how resource types (utxos, tokens) are named
-    - how freestanding functions are named
 - library/module/interop stuff
   - import `./another_file.star`
   - import `./external_module.wasm` (wasm target only?)
-  - JavaScript bindings (WIT?) so dApps can call into Starstream contracts compiled to Wasm
 - debugger

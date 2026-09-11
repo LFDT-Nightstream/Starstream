@@ -5,21 +5,16 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use starstream_runtime_next::{
     Contract, CoordinationScriptExport, Host, MethodExport, StorageExport, Utxo, UtxoExport,
-    UtxoMainExport,
+    UtxoMainExport, get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span, instrument};
 use wasmtime::component::{Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{Store, bail};
 
-use crate::common::{Ctx, Event, NoopContractLookup, UtxoCtx, compile_contract, method_hash};
-
-static CONTRACT: LazyLock<Vec<u8>> =
-    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")));
-
-/// The methods of the `Score` ABI, in declaration (and `yield`) order.
-static METHODS: LazyLock<[(u64, u64, u64, u64); 4]> =
-    LazyLock::new(|| ["plus_chips", "plus_mult", "mult_mult", "finish"].map(method_hash));
+use crate::common::{
+    Ctx, ENGINE, Event, NoopContractLookup, UtxoCtx, compile_contract, method_hash,
+};
 
 #[derive(Clone)]
 struct ProgressUtxo {
@@ -103,6 +98,21 @@ fn assert_progress_utxo<T: Host>(contract: &Contract<T>) -> wasmtime::Result<Pro
         example,
     })
 }
+
+static CONTRACT: LazyLock<Contract<Ctx>> = LazyLock::new(|| {
+    let component = compile_contract(include_str!("../../examples/score.star")).unwrap();
+    let ty = component.component_type();
+    assert!(get_coordination_script_instance_import(&ENGINE, &ty).is_none());
+    assert!(utxo_imports(&ENGINE, &ty).next().is_none());
+    Contract::new(&component, NoopContractLookup).expect("failed to create contract")
+});
+
+static PROGRESS_UTXO: LazyLock<ProgressUtxo> =
+    LazyLock::new(|| assert_progress_utxo(&CONTRACT).unwrap());
+
+/// The methods of the `Score` ABI, in declaration (and `yield`) order.
+static METHODS: LazyLock<[(u64, u64, u64, u64); 4]> =
+    LazyLock::new(|| ["plus_chips", "plus_mult", "mult_mult", "finish"].map(method_hash));
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct ProgressStorage {
@@ -364,17 +374,12 @@ async fn assert_call_finish(
 }
 
 #[test_log::test(tokio::test)]
-async fn score_main_new() -> wasmtime::Result<()> {
-    let engine = wasmtime::Engine::default();
-    let contract = Contract::new(&engine, NoopContractLookup, CONTRACT.as_slice())
-        .context("failed to create contract")?;
-    let ty = assert_progress_utxo(&contract)?;
-
+async fn load() -> wasmtime::Result<()> {
     let mut table = ResourceTable::default();
     let utxo_cx = Arc::new(Mutex::new(UtxoCtx::default()));
     let utxo_cx_res = table.push(Arc::clone(&utxo_cx))?;
     let mut store = wasmtime::Store::new(
-        &engine,
+        &ENGINE,
         Ctx {
             table,
             events: Vec::default(),
@@ -382,12 +387,12 @@ async fn score_main_new() -> wasmtime::Result<()> {
         },
     );
     let utxo_cx_res = utxo_cx_res.try_into_resource_any(&mut store)?;
-    let instance = contract.instantiate(&mut store).await?;
+    let instance = CONTRACT.instantiate(&mut store).await?;
     let utxo = instance
         .call_utxo_main(
             &mut store,
-            &ty.utxo,
-            &ty.new,
+            &PROGRESS_UTXO.utxo,
+            &PROGRESS_UTXO.new,
             Arc::clone(&utxo_cx),
             [Val::Resource(utxo_cx_res)],
         )
@@ -405,7 +410,7 @@ async fn score_main_new() -> wasmtime::Result<()> {
         r#yield,
         yield1,
         yield1_v1,
-    } = get_progress_storage(&mut store, &utxo, &ty.storage).await?;
+    } = get_progress_storage(&mut store, &utxo, &PROGRESS_UTXO.storage).await?;
     assert_eq!(chips, 0);
     assert_eq!(mult, 0);
     assert_eq!(r#yield, 1);
@@ -414,9 +419,9 @@ async fn score_main_new() -> wasmtime::Result<()> {
 
     assert_call_plus_chips(
         &mut store,
-        &contract,
+        &CONTRACT,
         &utxo,
-        &ty,
+        &PROGRESS_UTXO,
         1,
         &ProgressStorage {
             chips: 1,
@@ -429,9 +434,9 @@ async fn score_main_new() -> wasmtime::Result<()> {
     .await?;
     assert_call_plus_chips(
         &mut store,
-        &contract,
+        &CONTRACT,
         &utxo,
-        &ty,
+        &PROGRESS_UTXO,
         2,
         &ProgressStorage {
             chips: 3,
@@ -445,9 +450,9 @@ async fn score_main_new() -> wasmtime::Result<()> {
 
     assert_call_plus_mult(
         &mut store,
-        &contract,
+        &CONTRACT,
         &utxo,
-        &ty,
+        &PROGRESS_UTXO,
         3,
         &ProgressStorage {
             chips: 3,
@@ -460,9 +465,9 @@ async fn score_main_new() -> wasmtime::Result<()> {
     .await?;
     assert_call_plus_mult(
         &mut store,
-        &contract,
+        &CONTRACT,
         &utxo,
-        &ty,
+        &PROGRESS_UTXO,
         1,
         &ProgressStorage {
             chips: 3,
@@ -476,9 +481,9 @@ async fn score_main_new() -> wasmtime::Result<()> {
 
     assert_call_mult_mult(
         &mut store,
-        &contract,
+        &CONTRACT,
         &utxo,
-        &ty,
+        &PROGRESS_UTXO,
         100,
         &ProgressStorage {
             chips: 3,
@@ -492,9 +497,9 @@ async fn score_main_new() -> wasmtime::Result<()> {
 
     assert_call_mult_mult(
         &mut store,
-        &contract,
+        &CONTRACT,
         &utxo,
-        &ty,
+        &PROGRESS_UTXO,
         200,
         &ProgressStorage {
             chips: 3,
@@ -508,9 +513,9 @@ async fn score_main_new() -> wasmtime::Result<()> {
 
     assert_call_finish(
         &mut store,
-        &contract,
+        &CONTRACT,
         &utxo,
-        &ty,
+        &PROGRESS_UTXO,
         &ProgressStorage {
             chips: 3,
             mult: 8,
@@ -548,26 +553,21 @@ async fn score_main_new() -> wasmtime::Result<()> {
 }
 
 #[test_log::test(tokio::test)]
-async fn score_script_example() -> wasmtime::Result<()> {
-    let engine = wasmtime::Engine::default();
-    let contract = Contract::new(&engine, NoopContractLookup, CONTRACT.as_slice())
-        .context("failed to create contract")?;
-    let ty = assert_progress_utxo(&contract)?;
-
+async fn example() -> wasmtime::Result<()> {
     let mut store = wasmtime::Store::new(
-        &engine,
+        &ENGINE,
         Ctx {
             table: ResourceTable::default(),
             events: Vec::default(),
             outputs: Vec::default(),
         },
     );
-    let instance = contract
+    let instance = CONTRACT
         .instantiate(&mut store)
         .await
         .context("failed to instantiate contract")?;
     instance
-        .call_coordination_script(&mut store, &ty.example, [], [])
+        .call_coordination_script(&mut store, &PROGRESS_UTXO.example, [], [])
         .instrument(info_span!("example"))
         .await
         .context("failed to call `example` coordination script")?;
@@ -593,7 +593,7 @@ async fn score_script_example() -> wasmtime::Result<()> {
         r#yield,
         yield1,
         yield1_v1,
-    } = get_progress_storage(&mut store, &utxo, &ty.storage).await?;
+    } = get_progress_storage(&mut store, &utxo, &PROGRESS_UTXO.storage).await?;
     assert_eq!(chips, 42);
     assert_eq!(mult, 4);
     assert_eq!(r#yield, 1);

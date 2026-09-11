@@ -1016,8 +1016,13 @@ impl Inferencer {
     fn collect_yields<'a>(dest: &mut Vec<&'a Vec<Identifier>>, block: &'a Block) {
         for stmt in &block.statements {
             match &stmt.node {
-                Statement::VariableDeclaration { value, .. } => {
+                Statement::VariableDeclaration {
+                    value, else_branch, ..
+                } => {
                     Self::collect_yields_expr(dest, &value.node);
+                    if let Some(block) = else_branch {
+                        Self::collect_yields(dest, block);
+                    }
                 }
                 Statement::Assignment { value, .. } => {
                     Self::collect_yields_expr(dest, &value.node);
@@ -1588,6 +1593,8 @@ impl Inferencer {
         env: &mut TypeEnv,
         ident: &Identifier,
         ty: Type,
+        mutable: bool,
+        visibility: BindingVisibility,
     ) -> Result<(), TypeError> {
         if env.get_in_current_scope(&ident.name).is_some() {
             return Err(TypeError::new(
@@ -1602,10 +1609,10 @@ impl Inferencer {
             ident.name.clone(),
             Binding {
                 decl_span: ident.span(),
-                mutable: false,
-                scheme: Scheme::monomorphic(ty),
+                mutable,
+                scheme: self.generalize(env, &ty),
                 class: BindingClass::Local,
-                visibility: BindingVisibility::Private,
+                visibility,
             },
         );
         Ok(())
@@ -1617,6 +1624,8 @@ impl Inferencer {
         pattern: &Pattern,
         expected_ty: &Type,
         value_span: Span,
+        mutable: bool,
+        visibility: BindingVisibility,
     ) -> Result<(TypedPattern, Vec<InferenceTree>), TypeError> {
         match pattern {
             Pattern::Name(name) => {
@@ -1643,7 +1652,13 @@ impl Inferencer {
                     ))
                 } else if rest.is_empty() {
                     // Unscoped identifier not matching any constant is a binding.
-                    self.bind_pattern_identifier(env, last, expected_ty.clone())?;
+                    self.bind_pattern_identifier(
+                        env,
+                        last,
+                        expected_ty.clone(),
+                        mutable,
+                        visibility,
+                    )?;
                     Ok((TypedPattern::Binding(last.clone()), Vec::new()))
                 } else {
                     // Scoped identifier not matching any constant is not valid.
@@ -1736,8 +1751,14 @@ impl Inferencer {
                             )
                         })?;
 
-                    let (typed_pattern, mut pattern_traces) =
-                        self.infer_pattern(env, &field.pattern, &expected_field.ty, value_span)?;
+                    let (typed_pattern, mut pattern_traces) = self.infer_pattern(
+                        env,
+                        &field.pattern,
+                        &expected_field.ty,
+                        value_span,
+                        mutable,
+                        visibility,
+                    )?;
                     traces.append(&mut pattern_traces);
                     typed_fields.push(TypedStructPatternField {
                         name: field.name.clone(),
@@ -1817,8 +1838,8 @@ impl Inferencer {
                 let mut traces = vec![unify_trace];
                 let mut typed = Vec::with_capacity(fields.len());
                 for (pattern, param) in fields.iter().zip(&func.params) {
-                    let (typed_pattern, mut pattern_traces) =
-                        self.infer_pattern(env, pattern, &param.ty, value_span)?;
+                    let (typed_pattern, mut pattern_traces) = self
+                        .infer_pattern(env, pattern, &param.ty, value_span, mutable, visibility)?;
                     traces.append(&mut pattern_traces);
                     typed.push(typed_pattern);
                 }
@@ -1848,7 +1869,7 @@ impl Inferencer {
                 let mut typed = Vec::with_capacity(fields.len());
                 for (pattern, ty) in fields.iter().zip(&field_tys) {
                     let (typed_pattern, mut pattern_traces) =
-                        self.infer_pattern(env, pattern, ty, value_span)?;
+                        self.infer_pattern(env, pattern, ty, value_span, mutable, visibility)?;
                     traces.append(&mut pattern_traces);
                     typed.push(typed_pattern);
                 }
@@ -1987,11 +2008,18 @@ impl Inferencer {
             Statement::VariableDeclaration {
                 public,
                 mutable,
-                name,
+                pattern,
                 ty,
                 value,
+                else_branch,
             } => {
-                if let Some(previous_decl) = env.get_in_current_scope(&name.name) {
+                let simple_binding = match pattern {
+                    Pattern::Name(name) if name.len() == 1 => Some(&name[0]),
+                    _ => None,
+                };
+                if let Some(name) = simple_binding
+                    && let Some(previous_decl) = env.get_in_current_scope(&name.name)
+                {
                     return Err(TypeError::new(
                         TypeErrorKind::Redeclaration {
                             name: name.name.clone(),
@@ -2011,10 +2039,11 @@ impl Inferencer {
                     let (new_value_type, unify_trace) = self.unify(
                         &expected_type,
                         &value_type,
-                        name.span_or(value.span),
+                        simple_binding.map_or(value.span, |name| name.span_or(value.span)),
                         value.span,
                         TypeErrorKind::AssignmentMismatch {
-                            name: name.name.clone(),
+                            name: simple_binding
+                                .map_or_else(|| "pattern".to_string(), |name| name.name.clone()),
                             expected: self.apply_for_display(&expected_type),
                             found: self.apply_for_display(&value_type),
                         },
@@ -2031,36 +2060,88 @@ impl Inferencer {
                         format!(
                             "`{param_name}` is a private parameter; declare it as `pub {param_name}: ...` in the function signature if callers should provide a public value here.",
                         )
-                    } else {
+                    } else if let Some(name) = simple_binding {
                         format!(
                             "`{}` is public; wrap private RHS with `disclose(...)`, e.g., `let pub {} = disclose(expr);`",
                             name.name, name.name
                         )
+                    } else {
+                        "the pattern bindings are public; wrap the private RHS with `disclose(...)`"
+                            .to_string()
                     };
                     return Err(TypeError::new(
                         TypeErrorKind::ExplicitDisclosureRequiredForPublicBinding {
-                            variable_name: name.name.clone(),
+                            variable_name: simple_binding.map_or_else(
+                                || "pattern binding".to_string(),
+                                |name| name.name.clone(),
+                            ),
                         },
                         value.span,
                     )
                     .with_help(help));
                 }
 
-                let scheme = self.generalize(env, &value_type);
-                env.insert(
-                    name.name.clone(),
-                    Binding {
-                        decl_span: name.span_or(value.span),
-                        mutable: *mutable,
-                        scheme,
-                        class: BindingClass::Local,
-                        visibility: if *public {
-                            BindingVisibility::Public
-                        } else {
-                            BindingVisibility::Private
-                        },
-                    },
-                );
+                let typed_else_branch = if let Some(block) = else_branch {
+                    let saw_return_before_else = ctx.saw_return;
+                    let (typed_block, mut else_traces) =
+                        self.infer_block(env, block, ctx, false)?;
+                    // This return is conditional on the pattern failing; it
+                    // does not prove that the success path returns a value.
+                    ctx.saw_return = saw_return_before_else;
+                    children.append(&mut else_traces);
+                    if !Self::block_diverges(&typed_block) {
+                        return Err(TypeError::new(
+                            TypeErrorKind::LetElseDoesNotDiverge,
+                            block.span,
+                        )
+                        .with_help(
+                            "make the `else` block exit control flow with `return` or `resume`",
+                        ));
+                    }
+                    Some(typed_block)
+                } else {
+                    None
+                };
+
+                let visibility = if *public {
+                    BindingVisibility::Public
+                } else {
+                    BindingVisibility::Private
+                };
+                let (typed_pattern, mut pattern_traces) = self.infer_pattern(
+                    env,
+                    pattern,
+                    &value_type,
+                    value.span,
+                    *mutable,
+                    visibility,
+                )?;
+                children.append(&mut pattern_traces);
+
+                if typed_else_branch.is_none() {
+                    let missing = super::exhaustiveness::missing_patterns(
+                        &self.apply(&value_type),
+                        &typed_pattern,
+                    );
+                    if !missing.is_empty() {
+                        let examples = missing
+                            .iter()
+                            .take(5)
+                            .map(|pattern| format!("`{pattern}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        return Err(TypeError::new(
+                            TypeErrorKind::RefutableLetPattern {
+                                missing_patterns: missing,
+                            },
+                            value.span,
+                        )
+                        .with_primary_message("this value may not match the pattern")
+                        .with_help(format!(
+                            "add an `else` block to handle unmatched values such as {examples}"
+                        )));
+                    }
+                }
 
                 let value_type_repr = self.maybe_string(|| self.format_type(&value_type));
                 let tree = self.make_trace(
@@ -2075,8 +2156,9 @@ impl Inferencer {
                     TypedStatement::VariableDeclaration {
                         public: *public,
                         mutable: *mutable,
-                        name: name.clone(),
+                        pattern: typed_pattern,
                         value: typed_value,
+                        else_branch: typed_else_branch,
                     },
                     tree,
                 ))
@@ -2321,7 +2403,14 @@ impl Inferencer {
 
                     let mut typed_patterns = Vec::with_capacity(patterns.len());
                     for (param, pat) in func.params.iter().zip(patterns) {
-                        let (tp, trace) = self.infer_pattern(env, pat, &param.ty, DUMMY_SPAN)?;
+                        let (tp, trace) = self.infer_pattern(
+                            env,
+                            pat,
+                            &param.ty,
+                            DUMMY_SPAN,
+                            false,
+                            BindingVisibility::Private,
+                        )?;
                         typed_patterns.push(tp);
                         children.extend(trace);
                     }
@@ -2352,6 +2441,44 @@ impl Inferencer {
                     tree,
                 ))
             }
+        }
+    }
+
+    /// Whether evaluating this block is guaranteed not to continue with the
+    /// statement following it. This is deliberately structural: a `let ...
+    /// else` fallback must make its exit explicit on every control-flow path.
+    fn block_diverges(block: &TypedBlock) -> bool {
+        block.statements.iter().any(Self::statement_diverges)
+            || block
+                .tail_expression
+                .as_ref()
+                .is_some_and(|expr| Self::expr_diverges(&expr.node))
+    }
+
+    fn statement_diverges(statement: &TypedStatement) -> bool {
+        match statement {
+            TypedStatement::Return(_) | TypedStatement::Resume => true,
+            TypedStatement::Expression(expr) => Self::expr_diverges(&expr.node),
+            _ => false,
+        }
+    }
+
+    fn expr_diverges(expr: &TypedExpr) -> bool {
+        match &expr.kind {
+            TypedExprKind::Block(block) => Self::block_diverges(block),
+            TypedExprKind::If {
+                branches,
+                else_branch: Some(else_branch),
+            } => {
+                branches
+                    .iter()
+                    .all(|(_, block)| Self::block_diverges(block))
+                    && Self::block_diverges(else_branch)
+            }
+            TypedExprKind::Match { arms, .. } => {
+                !arms.is_empty() && arms.iter().all(|arm| Self::block_diverges(&arm.body))
+            }
+            _ => false,
         }
     }
 
@@ -3223,6 +3350,8 @@ impl Inferencer {
                         &arm.pattern,
                         &typed_scrutinee.node.ty,
                         scrutinee.span,
+                        false,
+                        BindingVisibility::Private,
                     )?;
                     children.append(&mut pattern_traces);
 
@@ -3884,8 +4013,13 @@ impl Inferencer {
     /// Visit a single statement and normalize any embedded type annotations.
     fn apply_statement(&self, statement: &mut TypedStatement) {
         match statement {
-            TypedStatement::VariableDeclaration { value, .. } => {
+            TypedStatement::VariableDeclaration {
+                value, else_branch, ..
+            } => {
                 self.apply_expr(value);
+                if let Some(block) = else_branch {
+                    self.apply_block(block);
+                }
             }
             TypedStatement::Assignment { value, .. } => {
                 self.apply_expr(value);

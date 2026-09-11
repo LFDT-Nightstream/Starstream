@@ -4,8 +4,7 @@ use ed25519_dalek::VerifyingKey;
 use mediatype::MediaType;
 use thiserror::Error;
 
-use crate::server::http::APPLICATION_COSE;
-use crate::{DigestParseError, FUND_CONTEXT, PUBLISH_CONTEXT, encode_digest};
+use crate::{APPLICATION_COSE, DigestParseError, FUND_CONTEXT, PUBLISH_CONTEXT, encode_digest};
 
 #[derive(Debug, Error)]
 pub enum ContractGetError {
@@ -116,6 +115,10 @@ pub enum ContractPutError {
     Http(http::Error),
     #[error("instrumentation failed: {0:#}")]
     Wizer(wasmtime::Error),
+    #[error("failed to parse `external-id` `{0}` as multibase multihash: {1}")]
+    ContractImportDigestParsing(Box<str>, DigestParseError),
+    #[error("contract import identified by `external-id` `{0}` not found")]
+    ContractImportNotFound(Box<str>),
 }
 
 impl ContractPutError {
@@ -130,12 +133,14 @@ impl ContractPutError {
             | Self::NonceOverflow
             | Self::DigestMismatch(..)
             | Self::Runtime(..)
+            | Self::ContractImportDigestParsing(..)
             | Self::Wizer(..) => http::StatusCode::BAD_REQUEST,
             Self::Envelope(err) => err.http_status_code(),
             Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::AccountNotFound(..) | Self::InsufficientBalance { .. } => {
                 http::StatusCode::PAYMENT_REQUIRED
             }
+            Self::ContractImportNotFound { .. } => http::StatusCode::NOT_FOUND,
             Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -190,6 +195,50 @@ impl AccountFundError {
             Self::NotAdmin(..) => http::StatusCode::FORBIDDEN,
             Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum RpcPostError {
+    #[error("failed to read wRPC invocation header: {0}")]
+    Header(wrpc_transport::frame::HeaderReadError),
+    #[error("instance `{0}` not found")]
+    InstanceNotFound(String),
+    #[error("function `{name}` not found in instance `{instance}`")]
+    FunctionNotFound { instance: String, name: String },
+    #[error("failed to parse contract digest: {0}")]
+    ContractDigestParsing(DigestParseError),
+    #[error("contract not found")]
+    ContractNotFound,
+    #[error("failed to decode parameters: {0}")]
+    ParameterDecoding(std::io::Error),
+    #[error("runtime failed: {0:#}")]
+    Runtime(wasmtime::Error),
+    #[error("failed to encode result: {0}")]
+    ResultEncoding(std::io::Error),
+    #[error("failed to encode call result: {0:#}")]
+    CallResultEncoding(wasmtime::Error),
+    #[error("failed to encode response frame: {0}")]
+    FrameEncoding(std::io::Error),
+    #[error(transparent)]
+    Http(http::Error),
+}
+
+impl RpcPostError {
+    pub fn http_status_code(&self) -> http::StatusCode {
+        match self {
+            Self::Header(..) | Self::ContractDigestParsing(..) | Self::ParameterDecoding(..) => {
+                http::StatusCode::BAD_REQUEST
+            }
+            Self::InstanceNotFound(..) | Self::FunctionNotFound { .. } | Self::ContractNotFound => {
+                http::StatusCode::NOT_FOUND
+            }
+            Self::Runtime(..)
+            | Self::ResultEncoding(..)
+            | Self::CallResultEncoding(..)
+            | Self::FrameEncoding(..)
+            | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

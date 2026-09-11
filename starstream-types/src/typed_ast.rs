@@ -132,8 +132,9 @@ pub enum TypedStatement {
     VariableDeclaration {
         public: bool,
         mutable: bool,
-        name: Identifier,
+        pattern: TypedPattern,
         value: Spanned<TypedExpr>,
+        else_branch: Option<TypedBlock>,
     },
     Assignment {
         target: Identifier,

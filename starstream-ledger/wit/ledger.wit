@@ -1,0 +1,9 @@
+package starstream:ledger;
+
+interface block {
+    height: func() -> u64;
+}
+
+world client {
+    import block;
+}

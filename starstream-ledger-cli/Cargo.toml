@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 anyhow = { workspace = true, features = ["std"] }
+bytes = { workspace = true }
 clap = { workspace = true, features = [
     "color",
     "derive",
@@ -37,6 +38,7 @@ tokio = { workspace = true, features = [
     "macros",
     "rt-multi-thread",
 ] }
+tokio-util = { workspace = true, features = ["codec"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "ansi",
@@ -45,6 +47,11 @@ tracing-subscriber = { workspace = true, features = [
     "smallvec",
     "tracing-log",
 ] }
+wasm-wave = { workspace = true, features = ["wit"] }
+wit-parser = { version = "0.258.0", default-features = false, features = [
+    "decoding",
+] }
+wrpc-wave = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
@@ -53,5 +60,5 @@ starstream-ledger = { workspace = true, features = ["server"] }
 starstream-to-wasm = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs", "net", "process"] }
-wit-component = { workspace = true }
 wasmtime = { workspace = true }
+wit-component = { workspace = true }

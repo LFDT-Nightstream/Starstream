@@ -169,7 +169,7 @@ statement ::=
   | try_with_statement
   | expression_statement
 
-variable_declaration ::= "let" ("pub")? ("mut")? identifier (":" type_annotation)? "=" expression ";"
+variable_declaration ::= "let" ("pub")? ("mut")? pattern (":" type_annotation)? "=" expression ( "else" block )? ";"
 
 assignment ::= identifier "=" expression ";"
 
@@ -649,8 +649,15 @@ visibility modifier:
 - `if` statements evaluate their condition, require it to be a boolean, and branch in the obvious way.
 - `while` expressions loop in the obvious way.
 - Blocks introduce a new child scope for `let` statements.
-- `let` statements add a new variable binding to the current scope and give it
-  an initial value based on its expression.
+- `let` statements match their initializer against a pattern and add every
+  binding introduced by that pattern to the current scope. Without an `else`
+  block, the pattern must be irrefutable (exhaustive for the initializer's
+  type). A refutable pattern requires `else { ... }`, and every path through
+  that fallback block must diverge with `return` or `resume` so the bindings
+  are guaranteed to exist after the statement.
+  - For example, `let (left, right) = pair;` is irrefutable, while
+    `let Result::Ok(value) = result else { return; };` handles the other enum
+    variant explicitly.
   - Variables may be integers (`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`), booleans, structs, or enums.
   - `let pub name = expr;` and `let pub mut name = expr;` require `expr` to already be public, or explicitly disclosed via `disclose(expr)`.
 - Assignment statements look up a variable in the stack of scopes and change its current value to the result of evaluating the right-hand side.

@@ -543,10 +543,14 @@ Program {
                                 node: VariableDeclaration {
                                     public: false,
                                     mutable: false,
-                                    name: Identifier {
-                                        name: "prog",
-                                        span: 707..711,
-                                    },
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "prog",
+                                                span: 707..711,
+                                            },
+                                        ],
+                                    ),
                                     ty: None,
                                     value: Spanned {
                                         node: Call {
@@ -569,6 +573,7 @@ Program {
                                         },
                                         span: 714..734,
                                     },
+                                    else_branch: None,
                                 },
                                 span: 703..740,
                             },
@@ -1926,10 +1931,12 @@ TypedProgram {
                         VariableDeclaration {
                             public: false,
                             mutable: false,
-                            name: Identifier {
-                                name: "prog",
-                                span: 707..711,
-                            },
+                            pattern: Binding(
+                                Identifier {
+                                    name: "prog",
+                                    span: 707..711,
+                                },
+                            ),
                             value: Spanned {
                                 node: TypedExpr {
                                     ty: Utxo(
@@ -2454,6 +2461,7 @@ TypedProgram {
                                 },
                                 span: 714..732,
                             },
+                            else_branch: None,
                         },
                         Expression(
                             Spanned {
@@ -3033,11 +3041,13 @@ TypedProgram {
       (i32.const 0))
   )
   (func (;28;) (type 7)
-    (local i32)
+    (local i32 i32)
     (local.set 0
       (call 11))
+    (local.set 1
+      (local.get 0))
     (call 12
-      (local.get 0)
+      (local.get 1)
       (i64.const 10))
   )
   (@custom "component-type"

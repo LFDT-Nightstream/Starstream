@@ -4,9 +4,20 @@ use anyhow::Context as _;
 use coset::{TaggedCborSerializable as _, iana};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 
-use crate::{FUND_CONTEXT, PUBLISH_CONTEXT};
+use crate::wrpc::CONTRACT_PACKAGE;
+use crate::{FUND_CONTEXT, PUBLISH_CONTEXT, encode_digest};
 
 pub mod http;
+
+/// Ledger wRPC bindings.
+pub mod bindings {
+    wit_bindgen_wrpc::generate!();
+}
+
+/// The wRPC instance name of the contract identified by `digest`.
+fn contract_instance(digest: &[u8; 32]) -> String {
+    format!("{CONTRACT_PACKAGE}/{}", encode_digest(digest))
+}
 
 /// Build a signed envelope.
 fn build_envelope(key: SigningKey, payload: impl Into<Vec<u8>>) -> anyhow::Result<Vec<u8>> {

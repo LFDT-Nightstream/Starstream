@@ -1293,7 +1293,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 2.0.106",
+ "syn 3.0.4",
 ]
 
 [[package]]
@@ -1746,7 +1746,7 @@ dependencies = [
  "cfg-if",
  "js-sys",
  "libc",
- "wasi",
+ "wasi 0.11.1+wasi-snapshot-preview1",
  "wasm-bindgen",
 ]
 
@@ -2306,6 +2306,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "leb128-tokio"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68e94e2f8143ae63a07c670a27f2fc42a333293c249566f8d4cd6609689656bb"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2509,7 +2520,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69d83b0086dc8ecf3ce9ae2874b2d1290252e2a30720bea58a5c6639b0092873"
 dependencies = [
  "libc",
- "wasi",
+ "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.61.2",
 ]
 
@@ -3117,6 +3128,16 @@ dependencies = [
  "arrayvec 0.5.2",
  "typed-arena",
  "unicode-width 0.2.2",
+]
+
+[[package]]
+name = "prettyplease"
+version = "0.2.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
+dependencies = [
+ "proc-macro2",
+ "syn 2.0.106",
 ]
 
 [[package]]
@@ -3914,6 +3935,7 @@ dependencies = [
  "ciborium",
  "coset",
  "ed25519-dalek",
+ "futures",
  "headers-accept",
  "headers-core",
  "hex",
@@ -3931,9 +3953,15 @@ dependencies = [
  "starstream-to-wasm",
  "thiserror 2.0.17",
  "tokio",
+ "tokio-util",
  "tracing",
+ "wasm-tokio",
  "wasmtime",
  "wasmtime-wizer",
+ "wit-bindgen-wrpc",
+ "wit-component 0.254.0",
+ "wrpc-http",
+ "wrpc-transport",
 ]
 
 [[package]]
@@ -3941,6 +3969,7 @@ name = "starstream-ledger-cli"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap",
  "ed25519-dalek",
  "hex",
@@ -3953,10 +3982,14 @@ dependencies = [
  "starstream-to-wasm",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "wasm-wave",
  "wasmtime",
  "wit-component 0.254.0",
+ "wit-parser 0.258.0",
+ "wrpc-wave",
  "zeroize",
 ]
 
@@ -3987,7 +4020,6 @@ dependencies = [
  "test-log",
  "tokio",
  "tracing",
- "wasmparser 0.254.0",
  "wasmtime",
  "wit-component 0.254.0",
 ]
@@ -4330,6 +4362,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-stream"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4549,10 +4592,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
+name = "unicode-xid"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
 name = "unsigned-varint"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb066959b24b5196ae73cb057f45598450d2c5f71460e98c49b738086eff9c06"
+
+[[package]]
+name = "utf8-tokio"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "692aa1d5479fe22dac6ce581e8c6e83a9f8d90238250c1036b0139019a783a87"
+dependencies = [
+ "tokio",
+ "tokio-util",
+]
 
 [[package]]
 name = "utf8parse"
@@ -4612,6 +4671,15 @@ name = "wasi"
 version = "0.11.1+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
+
+[[package]]
+name = "wasi"
+version = "0.14.7+wasi-0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "883478de20367e224c0090af9cf5f9fa85bed63a95c1abf3afc5c083ebc06e8c"
+dependencies = [
+ "wasip2",
+]
 
 [[package]]
 name = "wasip2"
@@ -4742,6 +4810,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-tokio"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a89e5174a1312bd31d081a1dd6db8e48e2dc680b2988aba43befabb8459ea999"
+dependencies = [
+ "leb128-tokio",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "utf8-tokio",
+]
+
+[[package]]
 name = "wasm-wave"
 version = "0.258.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4751,6 +4832,17 @@ dependencies = [
  "logos",
  "thiserror 2.0.17",
  "wit-parser 0.258.0",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.251.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "437970b35b1a85cfde9c74b2398352d8d653f3bd8e3a3db0c063ea8f5b4b36ff"
+dependencies = [
+ "bitflags 2.9.4",
+ "indexmap 2.14.0",
+ "semver",
 ]
 
 [[package]]
@@ -5327,6 +5419,61 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 
 [[package]]
+name = "wit-bindgen-core"
+version = "0.58.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4738d1c9a78e97bc7f664bfafd5d8e67d7bb26faa5c41e6d628e8bbdad3ec351"
+dependencies = [
+ "anyhow",
+ "heck",
+ "wit-parser 0.251.0",
+]
+
+[[package]]
+name = "wit-bindgen-wrpc"
+version = "0.11.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+dependencies = [
+ "anyhow",
+ "bitflags 2.9.4",
+ "bytes",
+ "futures",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "wasm-tokio",
+ "wit-bindgen-wrpc-rust-macro",
+ "wrpc-transport",
+]
+
+[[package]]
+name = "wit-bindgen-wrpc-rust"
+version = "0.11.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+dependencies = [
+ "anyhow",
+ "heck",
+ "prettyplease",
+ "syn 2.0.106",
+ "wit-bindgen-core",
+ "wrpc-introspect",
+]
+
+[[package]]
+name = "wit-bindgen-wrpc-rust-macro"
+version = "0.11.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+dependencies = [
+ "anyhow",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+ "wit-bindgen-core",
+ "wit-bindgen-wrpc-rust",
+]
+
+[[package]]
 name = "wit-component"
 version = "0.254.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5366,6 +5513,25 @@ dependencies = [
 
 [[package]]
 name = "wit-parser"
+version = "0.251.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e960732e824fab95099971a09e638979347c94ca48568d3c854c945729196947"
+dependencies = [
+ "anyhow",
+ "hashbrown 0.17.1",
+ "id-arena",
+ "indexmap 2.14.0",
+ "log",
+ "semver",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "unicode-xid",
+ "wasmparser 0.251.0",
+]
+
+[[package]]
+name = "wit-parser"
 version = "0.254.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1655131e4f7d3f0cb141f6eca71315ca40eff0f3d4de7cff0a82bacedd8c89b4"
@@ -5400,6 +5566,65 @@ dependencies = [
  "serde_json",
  "unicode-ident",
  "wasmparser 0.258.0",
+]
+
+[[package]]
+name = "wrpc-http"
+version = "0.1.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "wrpc-transport",
+]
+
+[[package]]
+name = "wrpc-introspect"
+version = "0.7.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+dependencies = [
+ "wit-parser 0.251.0",
+]
+
+[[package]]
+name = "wrpc-transport"
+version = "0.29.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "futures",
+ "pin-project-lite",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "wasi 0.14.7+wasi-0.2.4",
+ "wasm-tokio",
+]
+
+[[package]]
+name = "wrpc-wave"
+version = "0.1.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "wasm-tokio",
+ "wasm-wave",
+ "wrpc-transport",
 ]
 
 [[package]]

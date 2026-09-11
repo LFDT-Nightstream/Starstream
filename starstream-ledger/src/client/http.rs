@@ -5,11 +5,13 @@ use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Method, Request, Uri};
 use http_body_util::{BodyExt as _, Full};
+use hyper_util::client::legacy::connect::Connect;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
 use tracing::{instrument, warn};
+use wrpc_transport::{Invoke as _, InvokeExt as _, TupleDecode, TupleEncode};
 
-use crate::client::{build_fund_envelope, build_publish_envelope};
+use crate::client::{bindings, build_fund_envelope, build_publish_envelope, contract_instance};
 use crate::{APPLICATION_COSE, APPLICATION_WASM, PUBLISH_CONTEXT, encode_digest};
 
 /// Default network used by the client
@@ -24,6 +26,16 @@ fn endpoint_uri(base: &Uri, endpoint: impl AsRef<str>) -> anyhow::Result<String>
     let base = base.to_string();
     let base = base.trim_end_matches('/');
     Ok(format!("{base}/{endpoint}"))
+}
+
+fn wrpc_context(base: &Uri) -> anyhow::Result<http::request::Parts> {
+    let uri = endpoint_uri(base, "rpc")?;
+    let req = Request::builder()
+        .uri(uri)
+        .body(())
+        .context("failed to build request")?;
+    let (cx, ()) = req.into_parts();
+    Ok(cx)
 }
 
 /// Build a signed fund request.
@@ -83,20 +95,23 @@ pub fn build_contract_get_request(
     req.body(Full::default()).context("failed to build request")
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ClientBuilder<C> {
-    http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
+    http: hyper_util::client::legacy::Builder,
+    connect: C,
     api_base: Uri,
     network: Box<str>,
 }
 
 impl<C> ClientBuilder<C> {
     pub fn new(
-        http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
+        http: hyper_util::client::legacy::Builder,
+        connect: C,
         api_base: impl Into<Uri>,
     ) -> Self {
         Self {
             http,
+            connect,
             api_base: api_base.into(),
             network: DEFAULT_NETWORK.into(),
         }
@@ -107,26 +122,37 @@ impl<C> ClientBuilder<C> {
         self
     }
 
-    pub fn build(self) -> Client<C> {
+    pub fn build(self) -> Client<C>
+    where
+        C: Connect + Clone + Send + Sync + 'static,
+    {
         self.into()
     }
 }
 
 pub struct Client<C> {
+    wrpc: wrpc_http::Client<hyper_util::client::legacy::Client<C, wrpc_http::OutgoingBody>>,
     http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
     api_base: Uri,
     network: Box<str>,
 }
 
-impl<C> From<ClientBuilder<C>> for Client<C> {
+impl<C> From<ClientBuilder<C>> for Client<C>
+where
+    C: Connect + Clone + Send + Sync + 'static,
+{
     fn from(
         ClientBuilder {
             http,
+            connect,
             api_base,
             network,
         }: ClientBuilder<C>,
     ) -> Self {
+        let wrpc = wrpc_http::Client::new(http.build(connect.clone()));
+        let http = http.build(connect.clone());
         Self {
+            wrpc,
             http,
             api_base,
             network,
@@ -134,19 +160,65 @@ impl<C> From<ClientBuilder<C>> for Client<C> {
     }
 }
 
-impl<C> Client<C> {
-    pub fn new(
-        http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
-        api_base: impl Into<Uri>,
-    ) -> Self {
-        ClientBuilder::new(http, api_base).build()
-    }
-}
-
 impl<C> Client<C>
 where
-    C: hyper_util::client::legacy::connect::Connect + Clone + Send + Sync + 'static,
+    C: Connect + Clone + Send + Sync + 'static,
 {
+    pub fn new(
+        http: hyper_util::client::legacy::Builder,
+        connect: C,
+        api_base: impl Into<Uri>,
+    ) -> Self {
+        ClientBuilder::new(http, connect, api_base).build()
+    }
+
+    /// Get the height of the latest ledger block.
+    #[instrument(skip_all)]
+    pub async fn block_height(&self) -> anyhow::Result<u64> {
+        let cx = wrpc_context(&self.api_base)?;
+        bindings::starstream::ledger::block::height(&self.wrpc, cx).await
+    }
+
+    /// Call the coordination script `name` exported by the contract
+    /// identified by `digest` with encoded `args`.
+    #[instrument(skip_all)]
+    pub async fn call_coordination_script(
+        &self,
+        digest: &[u8; 32],
+        name: &str,
+        args: Bytes,
+    ) -> anyhow::Result<wrpc_transport::frame::Incoming> {
+        let cx = wrpc_context(&self.api_base)?;
+        let instance = contract_instance(digest);
+        let (tx, rx) = self.wrpc.invoke(cx, &instance, name, args, [[]]).await?;
+        drop(tx);
+        Ok(rx)
+    }
+
+    /// Call the coordination script `name` exported by the contract
+    /// identified by `digest` with typed `args`.
+    #[instrument(skip_all)]
+    pub async fn call_coordination_script_typed<Params, Results>(
+        &self,
+        digest: &[u8; 32],
+        name: &str,
+        args: Params,
+    ) -> anyhow::Result<Results>
+    where
+        Params: TupleEncode + Send,
+        Results: TupleDecode + Send,
+        <Params::Encoder as tokio_util::codec::Encoder<Params>>::Error:
+            std::error::Error + Send + Sync + 'static,
+        <Results::Decoder as tokio_util::codec::Decoder>::Error:
+            std::error::Error + Send + Sync + 'static,
+    {
+        let cx = wrpc_context(&self.api_base)?;
+        let instance = contract_instance(digest);
+        self.wrpc
+            .invoke_values_blocking(cx, &instance, name, args, [[]])
+            .await
+    }
+
     #[instrument(skip_all)]
     async fn request(
         &self,
