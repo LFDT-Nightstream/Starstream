@@ -3,8 +3,8 @@
 This package contains a Quint specification for the Starstream interleaving
 proof circuit.
 
-**NOTE**: The circuit is still unimplemented, for the previous version see the
-starstream-interleaving-proof-legacy directory.
+The corresponding WIP circuit is in `starstream-interleaving-prover`; the
+previous implementation is in `starstream-interleaving-proof-legacy`.
 
 Note that while the specification is designed as a reference for a zk circuit,
 it is also in a way a specification of the runtime, since those are necessarily
@@ -15,7 +15,8 @@ really about mechanisms. So this doesn't intend to model neither of:
 
 - WASM execution or semantics
 - WIT types (control flow irrelevant types are represented as the opaque
-StarstreamValue type, which is a list of u32 elements).
+StarstreamValue type: a four-field opaque root, represented in Quint as four
+centered signed field representatives to stay within its evaluator's integer range).
 - Circuit encodings
 
 The goal however is for every quint action to be mapped to a semantic "opcode"
@@ -24,6 +25,8 @@ in the circuit, roughly to a single step of execution.
 ## Layout
 
 The core specification is in the `spec/starstream.qnt` file.
+
+[`src/events.rs`](src/events.rs) defines the outer event encoding for program trace commitments.
 
 The `spec/sim.qnt` file wraps the specification with small domains for bounded
 model checking, plus with nondeterministic pickers for the simulator.

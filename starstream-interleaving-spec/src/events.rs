@@ -1,11 +1,11 @@
 //! Canonical outer event encoding shared by native replay and the relation.
 //!
-//! Each semantic step belongs to the coroutine executing it, before transfer.
-//! Tags are stable protocol discriminants, not Rust enum ordinals. Scalar words
-//! stream across blocks. Opaque roots occupy four consecutive words, with at
-//! most one root per block; pad before a root if necessary, and at event end.
-//! This matches neo-wasm's EventSequenceBuilder. Object-internal hashing is NOT
-//! included in the outer stream. Program bindings must use this same schema.
+//! Events advance the executing coroutine's chain (before control transfer),
+//! starting from zero. Program bindings must agree on the tags and schema below.
+//! Packing follows neo-wasm's EventSequenceBuilder: eight-word blocks, at most
+//! one four-field root per block, zero-padding before roots as needed and at
+//! event end. Continuation blocks have no extra tag. Roots are already encoded;
+//! object-internal hashing is excluded, and unit is four literal zero words.
 
 use crate::Step;
 

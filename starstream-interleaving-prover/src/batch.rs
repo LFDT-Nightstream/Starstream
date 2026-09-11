@@ -327,11 +327,34 @@ impl Batch {
 /// row/boundary and column indices refer to the batched witness.
 /// This does not construct a proof.
 pub fn verify_sat_batched(trace: &Trace, batch_size: usize) -> Result<(), Error> {
+    verify_sat_inner(trace, batch_size, None)
+}
+
+/// Check the relation and the exact final per-instance trace commitment map.
+/// The expected map is supplied by the caller, not derived from the witness.
+/// TODO(proof): Bind these RAM endpoints to the program proofs; the current
+/// relation-only proof smoke test does not authenticate RAM or this map.
+pub fn verify_sat_with_commitments(
+    trace: &Trace,
+    batch_size: usize,
+    expected: &crate::TraceCommitments,
+) -> Result<(), Error> {
+    verify_sat_inner(trace, batch_size, Some(expected))
+}
+
+fn verify_sat_inner(
+    trace: &Trace,
+    batch_size: usize,
+    expected: Option<&crate::TraceCommitments>,
+) -> Result<(), Error> {
     let batch = Batch::new(batch_size)?;
     let normalized = normalize(trace);
     let preload = crate::memory::preload_tables(&normalized.method_table);
     let packed = batch.pack(&normalized.steps);
     batch.check(&packed, &preload)?;
+    if let Some(expected) = expected {
+        check_commitment_statement(&batch, &packed, expected)?;
+    }
     // Check the actual final slot, including padding.
     let terminal = Vec::from_iter(packed.rows.last().map(|row| {
         (0..batch.single_width)
@@ -339,6 +362,30 @@ pub fn verify_sat_batched(trace: &Trace, batch_size: usize) -> Result<(), Error>
             .collect()
     }));
     crate::verify_execution_statement(&terminal)
+}
+
+fn check_commitment_statement(
+    batch: &Batch,
+    packed: &PackedWitness,
+    expected: &crate::TraceCommitments,
+) -> Result<(), Error> {
+    use p3_field::PrimeField64;
+    let mut actual = crate::TraceCommitments::new();
+    for (index, origin) in packed.origins.iter().enumerate() {
+        if origin.is_none() {
+            continue;
+        }
+        let row = &packed.rows[index / batch.size];
+        let at = |column: usize| row[column * batch.size + index % batch.size].as_canonical_u64();
+        actual.insert(
+            u32::try_from(at(COL_CURR_BEFORE)).expect("range-checked coroutine id"),
+            COL_OUT.map(at),
+        );
+    }
+    if &actual != expected {
+        return Err(Unsatisfied::TraceCommitments.into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -508,6 +555,7 @@ mod tests {
         let (mut rows, preload) = crate::build_witness_rows(&method_call_trace(true));
         let normalized = normalize(&method_call_trace(true));
         rows[5][COL_METHOD_HASH_VALUE[0]] += F::ONE;
+        crate::commitment::assign_from_bus(&mut rows[5], crate::opcode::Opcode::EnterMethod);
         range_check_layout().assign_bits(&mut rows[5]).unwrap();
         // Call is slot 4, entry is slot 5: different batches at size 5,
         // the same batch at size 8.

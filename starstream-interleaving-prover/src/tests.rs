@@ -64,6 +64,8 @@ mod padding {
             for column in COL_IN.into_iter().chain(COL_OUT) {
                 pad[column] = F::new(7);
             }
+            crate::commitment::assign_from_bus(&mut pad, crate::opcode::Opcode::Padding);
+            range_check_layout().assign_bits(&mut pad).unwrap();
             rows.extend([build_witness_vector(&step), pad]);
         }
         verify_witness_rows(&rows, &preload).unwrap();
@@ -94,13 +96,13 @@ pub(super) fn constructor_trace(arguments: [u32; 4]) -> Trace {
             arguments: arguments.to_vec().into(),
         },
         Step::RegisterMethod {
-            method: MethodHash([1, 1, 1, 1]),
+            method: MethodHash([1, 0, 1, 0, 1, 0, 1, 0]),
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
     ])
 }
@@ -115,10 +117,10 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
             arguments: arguments.to_vec().into(),
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
     ])
 }
@@ -133,7 +135,7 @@ fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
             arguments: arguments.to_vec().into(),
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
     ])
 }
@@ -164,27 +166,28 @@ fn opcode_after_terminal_return_trace() -> Trace {
             arguments: vec![7].into(),
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
     ]);
     trace
 }
 
 pub(super) fn method_call_trace(enter_method: bool) -> Trace {
-    method_call_result_trace(
+    method_call_trace_with_values(
         enter_method,
-        StarstreamValue::default(),
-        StarstreamValue::default(),
+        vec![1, 2, 3, 4].into(),
+        StarstreamValue::UNIT_VALUE,
+        StarstreamValue::UNIT_VALUE,
     )
 }
 
-fn method_call_result_trace(
+pub(super) fn method_call_trace_with_values(
     enter_method: bool,
+    method_arguments: StarstreamValue,
     expected_result: StarstreamValue,
     actual_result: StarstreamValue,
 ) -> Trace {
-    let method = MethodHash([1, 1, 1, 1]);
-    let method_arguments = StarstreamValue::from(vec![1, 2, 3, 4]);
+    let method = MethodHash([1, 0, 1, 0, 1, 0, 1, 0]);
     let mut steps = vec![
         Step::NewUtxo {
             arguments: vec![0, 1, 2, 3].into(),
@@ -195,7 +198,7 @@ fn method_call_result_trace(
         },
         Step::RegisterMethod { method },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::CallMethod {
             resource: ResourceHandle(0),
@@ -217,7 +220,7 @@ fn method_call_result_trace(
             result: actual_result.into(),
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
     ]);
 
@@ -225,7 +228,7 @@ fn method_call_result_trace(
 }
 
 fn repeated_method_call_without_resume_trace() -> Trace {
-    let method = MethodHash([1, 1, 1, 1]);
+    let method = MethodHash([1, 0, 1, 0, 1, 0, 1, 0]);
     let arguments = StarstreamValue::from(vec![1, 2, 3, 4]);
     let mut trace = method_call_trace(true);
     let final_coordinator_return = trace.0.len() - 1;
@@ -237,11 +240,11 @@ fn repeated_method_call_without_resume_trace() -> Trace {
                 resource: ResourceHandle(0),
                 method,
                 arguments: arguments.clone(),
-                result: StarstreamValue::default().into(),
+                result: StarstreamValue::UNIT_VALUE.into(),
             },
             Step::EnterMethod { method, arguments },
             Step::Return {
-                result: StarstreamValue::default().into(),
+                result: StarstreamValue::UNIT_VALUE.into(),
             },
         ],
     );
@@ -251,7 +254,7 @@ fn repeated_method_call_without_resume_trace() -> Trace {
 
 fn unregistered_method_call_trace() -> Trace {
     let mut trace = method_call_trace(true);
-    let unregistered_method = MethodHash([2, 1, 1, 1]);
+    let unregistered_method = MethodHash([2, 0, 1, 0, 1, 0, 1, 0]);
 
     let Step::CallMethod { method, .. } = &mut trace.0[4] else {
         panic!("method-call trace has a call at step 4");
@@ -271,15 +274,15 @@ fn duplicate_method_registration_trace() -> Trace {
     trace.0.insert(
         3,
         Step::RegisterMethod {
-            method: MethodHash([1, 1, 1, 1]),
+            method: MethodHash([1, 0, 1, 0, 1, 0, 1, 0]),
         },
     );
     trace
 }
 
 fn method_reyield_trace(final_method: MethodHash) -> Trace {
-    let first_method = MethodHash([1, 1, 1, 1]);
-    let second_method = MethodHash([2, 1, 1, 1]);
+    let first_method = MethodHash([1, 0, 1, 0, 1, 0, 1, 0]);
+    let second_method = MethodHash([2, 0, 1, 0, 1, 0, 1, 0]);
     let arguments = StarstreamValue::from(vec![1, 2, 3, 4]);
 
     Trace::new([
@@ -294,13 +297,13 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
             method: first_method,
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::CallMethod {
             resource: ResourceHandle(0),
             method: first_method,
             arguments: arguments.clone(),
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::EnterMethod {
             method: first_method,
@@ -311,23 +314,23 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
             method: second_method,
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::CallMethod {
             resource: ResourceHandle(0),
             method: final_method,
             arguments: arguments.clone(),
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::EnterMethod {
             method: final_method,
             arguments,
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
     ])
 }
@@ -383,8 +386,9 @@ fn rejects_repeated_constructor_entry() {
 
 #[test]
 fn accepts_method_call_with_expected_result() {
-    verify_sat(&method_call_result_trace(
+    verify_sat(&method_call_trace_with_values(
         true,
+        vec![1, 2, 3, 4].into(),
         vec![7, 8].into(),
         vec![7, 8].into(),
     ))
@@ -403,14 +407,14 @@ fn accepts_duplicate_method_registration() {
 
 #[test]
 fn accepts_method_replacement_after_yield() {
-    verify_sat(&method_reyield_trace(MethodHash([2, 1, 1, 1]))).unwrap();
+    verify_sat(&method_reyield_trace(MethodHash([2, 0, 1, 0, 1, 0, 1, 0]))).unwrap();
 }
 
 #[test]
 fn rejects_enter_method_with_wrong_method() {
     let mut trace = method_call_trace(true);
     trace.0[5] = Step::EnterMethod {
-        method: MethodHash([2, 1, 1, 1]),
+        method: MethodHash([2, 0, 1, 0, 1, 0, 1, 0]),
         arguments: vec![1, 2, 3, 4].into(),
     };
 
@@ -445,7 +449,8 @@ fn rejects_call_to_unregistered_method() {
 
 #[test]
 fn rejects_stale_method_after_yield() {
-    let error = verify_sat(&method_reyield_trace(MethodHash([1, 1, 1, 1]))).unwrap_err();
+    let error =
+        verify_sat(&method_reyield_trace(MethodHash([1, 0, 1, 0, 1, 0, 1, 0]))).unwrap_err();
 
     assert!(
         matches!(
@@ -481,8 +486,9 @@ fn rejects_call_through_unbound_resource_handle() {
 #[test]
 fn rejects_return_with_wrong_result() {
     assert!(matches!(
-        verify_sat(&method_call_result_trace(
+        verify_sat(&method_call_trace_with_values(
             true,
+            vec![1, 2, 3, 4].into(),
             vec![7, 8].into(),
             vec![7, 9].into(),
         )),
@@ -516,7 +522,7 @@ fn rejects_return_before_entering_constructor() {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
     ]);
 
@@ -535,7 +541,7 @@ fn rejects_yield_from_coordinator() {
     let trace = Trace::new([
         Step::YieldBegin,
         Step::Return {
-            result: StarstreamValue::default().into(),
+            result: StarstreamValue::UNIT_VALUE.into(),
         },
     ]);
 
@@ -611,6 +617,7 @@ fn rejects_tampered_memory_value() {
     verify_witness_rows(&rows, &preload).unwrap();
 
     rows[1][COL_CALL_STACK_EXPECTED_ARG_VALUE[0]] += F::ONE;
+    crate::commitment::assign_from_bus(&mut rows[1], crate::opcode::Opcode::EnterConstructor);
     range_check_layout().assign_bits(&mut rows[1]).unwrap();
 
     let error = verify_witness_rows(&rows, &preload).unwrap_err();

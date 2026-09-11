@@ -7,15 +7,15 @@ use crate::ccs::layout::{
     COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
     COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8,
     COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_CALL_STACK_EXPECTED_RESULT_VALUE,
-    COL_CALL_STACK_MUL_STRIDE_4, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP,
-    COL_CALL_TARGET, COL_CURR_BEFORE, COL_CURR_BEFORE_STRIDE_4, COL_ENABLED_METHOD_LOG_ADDR,
-    COL_ENABLED_METHOD_LOG_GENERATION, COL_ENABLED_METHOD_LOG_UTXO, COL_IN, COL_METHOD_HASH_VALUE,
-    COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_OUT,
-    COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
-    COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD,
-    COL_SEL_ENTER_METHOD, COL_SEL_PADDING, COL_SEL_REGISTER_METHOD, COL_SEL_YIELD_BEGIN,
-    COL_UTXO_LIFECYCLE_ADDR, COL_UTXO_LIFECYCLE_READ, COL_UTXO_LIFECYCLE_VALUE,
-    COL_UTXO_LIFECYCLE_WRITE, range_check_layout,
+    COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP,
+    COL_CALL_TARGET, COL_CURR_BEFORE, COL_CURR_BEFORE_STRIDE_8, COL_ENABLED_METHOD_LOG_ADDR,
+    COL_ENABLED_METHOD_LOG_GENERATION, COL_ENABLED_METHOD_LOG_UTXO, COL_IN_WORDS,
+    COL_METHOD_HASH_VALUE, COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR,
+    COL_OUT_WORDS, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE,
+    COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
+    COL_SEL_CALL_METHOD, COL_SEL_ENTER_METHOD, COL_SEL_PADDING, COL_SEL_REGISTER_METHOD,
+    COL_SEL_YIELD_BEGIN, COL_UTXO_LIFECYCLE_ADDR, COL_UTXO_LIFECYCLE_READ,
+    COL_UTXO_LIFECYCLE_VALUE, COL_UTXO_LIFECYCLE_WRITE, range_check_layout,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -58,10 +58,10 @@ fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 1] {
     [MemorySpec {
         id: MemoryId::TraceCommitments,
         kind: MemoryKind::Ram,
-        ports: COL_CURR_BEFORE_STRIDE_4
+        ports: COL_CURR_BEFORE_STRIDE_8
             .into_iter()
-            .zip(COL_OUT)
-            .zip(COL_IN)
+            .zip(COL_OUT_WORDS)
+            .zip(COL_IN_WORDS)
             .map(|((address, value_after), value_before)| MemoryPortSpec {
                 address_columns: vec![address],
                 value_column: value_after,
@@ -237,7 +237,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 4] {
             kind: MemoryKind::Ram,
             ports: COL_CALL_STACK_EXPECTED_ARG_VALUE
                 .into_iter()
-                .zip(COL_CALL_STACK_MUL_STRIDE_4)
+                .zip(COL_CALL_STACK_MUL_STRIDE_8)
                 .flat_map(|(value, address)| {
                     [
                         MemoryPortSpec {
@@ -265,7 +265,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 4] {
 
             ports: COL_CALL_STACK_EXPECTED_RESULT_VALUE
                 .into_iter()
-                .zip(COL_CALL_STACK_MUL_STRIDE_4)
+                .zip(COL_CALL_STACK_MUL_STRIDE_8)
                 .flat_map(|(value, address)| {
                     [
                         MemoryPortSpec {
@@ -357,10 +357,7 @@ pub(crate) fn preload_tables(
             .checked_mul(8)
             .expect("the trace-local method table address fits in u32");
 
-        for (offset, value) in crate::step::method_hash_words(method)
-            .into_iter()
-            .enumerate()
-        {
+        for (offset, value) in method.0.into_iter().enumerate() {
             preload.insert(
                 MemoryId::MethodTable,
                 vec![base + u32::try_from(offset).expect("method hashes have eight limbs")],
