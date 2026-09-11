@@ -131,9 +131,8 @@ impl Default for CompileOptions {
 impl CompileOptions {
     #[must_use]
     pub fn compile(self, program: &TypedProgram) -> CompileResult {
-        let mut compiler = Compiler::new(self);
-        compiler.visit_program(program);
-        compiler.finish()
+        let definitions = program.definitions.iter().collect::<Vec<_>>();
+        self.compile_definitions(&definitions)
     }
 
     #[must_use]
@@ -142,8 +141,6 @@ impl CompileOptions {
         graph: &starstream_compiler::TypedModuleGraph,
         entry: starstream_compiler::ModuleId,
     ) -> CompileResult {
-        let mut compiler = Compiler::new(self);
-
         // Build a reachable-from-entry set by chasing edges through the graph.
         use std::collections::HashSet;
         let mut reachable: HashSet<starstream_compiler::ModuleId> = HashSet::new();
@@ -158,13 +155,18 @@ impl CompileOptions {
             }
         }
 
+        let mut definitions = Vec::new();
         for &module_id in &graph.topo_order {
-            if !reachable.contains(&module_id) {
-                continue;
+            if reachable.contains(&module_id) {
+                definitions.extend(graph.module(module_id).program.definitions.iter());
             }
-            let module = graph.module(module_id);
-            compiler.visit_program(&module.program);
         }
+        self.compile_definitions(&definitions)
+    }
+
+    fn compile_definitions(self, definitions: &[&TypedDefinition]) -> CompileResult {
+        let mut compiler = Compiler::new(self);
+        compiler.visit_program(&definitions);
         compiler.finish()
     }
 }
@@ -530,7 +532,7 @@ impl Compiler {
 
     fn import_function(&mut self, module: &str, field: &str, ty: &FuncType) -> u32 {
         let ty = self.add_core_func_type(ty);
-        assert_eq!(self.functions.len(), 0); // Imports must precede functions per Wasm spec.
+        assert_eq!(self.functions.len(), 0, "imports must precede functions");
         let idx = self.imported_functions;
         self.imports.import(module, field, EntityType::Function(ty));
         self.imported_functions += 1;
@@ -1041,7 +1043,7 @@ impl Compiler {
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
-    fn visit_program(&mut self, program: &TypedProgram) {
+    fn visit_program(&mut self, definitions: &[&TypedDefinition]) {
         // Core Wasm requires that all imported functions must precede all
         // defined functions, so import everything first.
 
@@ -1049,8 +1051,7 @@ impl Compiler {
         self.import_builtin();
 
         // Utxo context methods needed if the program contains any UTXOs.
-        if program
-            .definitions
+        if definitions
             .iter()
             .any(|d| matches!(d, TypedDefinition::Utxo(_)))
         {
@@ -1061,7 +1062,7 @@ impl Compiler {
 
         // Import anything the source file explicitly imports.
         let mut imported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>> = BTreeMap::new();
-        for definition in &program.definitions {
+        for definition in definitions {
             match definition {
                 TypedDefinition::Import(def) => self.visit_import(def, &mut imported_interfaces),
                 TypedDefinition::Abi(def) => self.visit_abi(def, &mut imported_interfaces),
@@ -1074,7 +1075,7 @@ impl Compiler {
         }
 
         // Visit imported versions of Utxo and Token resource definitions.
-        for definition in &program.definitions {
+        for definition in definitions {
             match definition {
                 TypedDefinition::Utxo(def) => self.pre_visit_utxo(def),
                 TypedDefinition::Token(def) => self.pre_visit_token(def),
@@ -1084,7 +1085,7 @@ impl Compiler {
         }
 
         // Function body compilation.
-        for definition in &program.definitions {
+        for definition in definitions {
             match definition {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
