@@ -28,7 +28,7 @@ ImportDef {
         ],
     ),
     from: Path(
-        ImportPath {
+        StringLiteral {
             value: "./helpers/math.star",
             span: 26..47,
         },

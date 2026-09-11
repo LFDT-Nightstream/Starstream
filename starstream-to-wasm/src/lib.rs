@@ -1112,6 +1112,8 @@ impl Compiler {
                         );
                     }
                 }
+
+                TypedDefinition::Test(_test) => todo!(),
             }
         }
     }

@@ -195,17 +195,26 @@ pub struct Program {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Definition {
-    Import(ImportDef),
-    Function(FunctionDef),
-    Struct(StructDef),
-    Enum(EnumDef),
-    Utxo(UtxoDef),
-    Token(TokenDef),
-    Abi(AbiDef),
-    /// `contract;` — marks the file as a contract entry point. May appear
-    /// anywhere at the top level; the formatter moves it to the top. The
-    /// enclosing `Spanned` carries the span of the `contract` keyword.
+    /// `contract;`. Marks the file as a contract entry point.
+    ///
+    /// Formatter moves this to the top of the file if it's found elsewhere.
     Contract,
+    /// `import`
+    Import(ImportDef),
+    /// `fn`
+    Function(FunctionDef),
+    /// `struct`
+    Struct(StructDef),
+    /// `enum`
+    Enum(EnumDef),
+    /// `utxo`
+    Utxo(UtxoDef),
+    /// `token`
+    Token(TokenDef),
+    /// `abi`
+    Abi(AbiDef),
+    /// `test`
+    Test(TestDef),
 }
 
 /// `import { blockHeight } from starstream:std/cardano;`
@@ -245,7 +254,7 @@ pub enum ImportSource {
         interface: Option<Identifier>,
     },
     /// Relative path to another `.star` file: `"./helpers/math.star"`.
-    Path(ImportPath),
+    Path(StringLiteral),
 }
 
 impl std::fmt::Display for ImportSource {
@@ -268,7 +277,7 @@ impl std::fmt::Display for ImportSource {
 
 /// A quoted relative path to another `.star` file.
 #[derive(Clone, Debug, Serialize)]
-pub struct ImportPath {
+pub struct StringLiteral {
     /// The raw path text as written in the source (without surrounding quotes).
     pub value: String,
     /// Span of the literal including surrounding quotes.
@@ -276,13 +285,13 @@ pub struct ImportPath {
     pub span: Span,
 }
 
-impl PartialEq for ImportPath {
+impl PartialEq for StringLiteral {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value
     }
 }
 
-impl std::fmt::Display for ImportPath {
+impl std::fmt::Display for StringLiteral {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use std::fmt::Write;
         f.write_char('"')?;
@@ -492,6 +501,13 @@ pub struct EffectDef {
     /// The span covering the entire declaration from `fn` to `;`.
     #[serde(skip)]
     pub span: Span,
+}
+
+/// `test` block.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct TestDef {
+    pub description: Option<StringLiteral>,
+    pub body: Block,
 }
 
 // ----------------------------------------------------------------------------

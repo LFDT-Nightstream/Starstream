@@ -1,5 +1,5 @@
 use chumsky::prelude::*;
-use starstream_types::ast::{ImportDef, ImportItems, ImportNamedItem, ImportPath, ImportSource};
+use starstream_types::ast::{ImportDef, ImportItems, ImportNamedItem, ImportSource, StringLiteral};
 
 use crate::parser::{context::Extra, primitives};
 
@@ -50,7 +50,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, ImportDef, Extra<'a>> {
         .delimited_by(just('"'), just('"'))
         .map_with(
             |value, extra: &mut crate::parser::context::MapExtra<'_, '_>| {
-                ImportSource::Path(ImportPath {
+                ImportSource::Path(StringLiteral {
                     value,
                     span: extra.span(),
                 })

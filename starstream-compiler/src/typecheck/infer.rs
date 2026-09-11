@@ -9,10 +9,10 @@ use std::{
 use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
     FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
-    Spanned, StaticFunction, SubstituteType, TokenDef, TokenGlobal, TokenPart, TokenType, Type,
-    TypeParam, TypeVarId, TypedAbiMethodDecl, TypedFunctionParam, TypedImportItem, TypedTokenDef,
-    TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
-    UtxoGlobal, UtxoPart, UtxoType,
+    Spanned, StaticFunction, SubstituteType, TestDef, TokenDef, TokenGlobal, TokenPart, TokenType,
+    Type, TypeParam, TypeVarId, TypedAbiMethodDecl, TypedFunctionParam, TypedImportItem,
+    TypedTestDef, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal,
+    TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart, UtxoType,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportItems, ImportSource, IntegerLiteral, Literal, Pattern, Program, Statement, StructDef,
@@ -558,6 +558,7 @@ impl Inferencer {
                 Definition::Utxo(def) => errors.extend(self.register_utxo(env, def).err()),
                 Definition::Token(def) => errors.extend(self.register_token(env, def).err()),
                 Definition::Function(def) => errors.extend(self.register_function(env, def).err()),
+                Definition::Test(_) => {}
             }
         }
 
@@ -589,6 +590,14 @@ impl Inferencer {
                     Ok((def2, trace)) => {
                         self.typed_definitions
                             .insert(&definition.node, TypedDefinition::Function(def2));
+                        traces.push(trace);
+                    }
+                    Err(e) => errors.push(e),
+                },
+                Definition::Test(def) => match self.infer_test(env, def) {
+                    Ok((def2, trace)) => {
+                        self.typed_definitions
+                            .insert(&definition.node, TypedDefinition::Test(def2));
                         traces.push(trace);
                     }
                     Err(e) => errors.push(e),
@@ -1989,6 +1998,43 @@ impl Inferencer {
                 name: function.name.clone(),
                 id: *self.function_names.get(function).unwrap(),
                 ty: func_ty,
+                body: typed_body,
+            },
+            trace,
+        ))
+    }
+
+    fn infer_test(
+        &mut self,
+        env: &mut TypeEnv,
+        test: &TestDef,
+    ) -> Result<(TypedTestDef, InferenceTree), TypeError> {
+        env.push_scope();
+
+        let mut ctx = FunctionCtx {
+            expected_return: Type::Unit,
+            return_span: DUMMY_SPAN,
+            saw_return: false,
+            private_param_decl_spans: Default::default(),
+            is_coroutine: false,
+        };
+
+        let (typed_body, body_traces) = self.infer_block(env, &test.body, &mut ctx, true)?;
+
+        env.pop_scope();
+
+        let subject = self.maybe_string(|| {
+            test.description
+                .as_ref()
+                .map(|x| x.to_string())
+                .unwrap_or_default()
+        });
+        let result = self.maybe_string(|| self.format_type(&ctx.expected_return));
+        let trace = self.make_trace("T-Test", None, subject, result, || body_traces);
+
+        Ok((
+            TypedTestDef {
+                description: test.description.clone(),
                 body: typed_body,
             },
             trace,
@@ -3945,6 +3991,7 @@ impl Inferencer {
             TypedDefinition::Function(function) => self.apply_function(function),
             TypedDefinition::Utxo(utxo) => self.apply_utxo(utxo),
             TypedDefinition::Token(token) => self.apply_token(token),
+            TypedDefinition::Test(test) => self.apply_block(&mut test.body),
             TypedDefinition::Import(_)
             | TypedDefinition::Struct(_)
             | TypedDefinition::Enum(_)
