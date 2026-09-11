@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use miette::NamedSource;
 use starstream_types::{
     DUMMY_SPAN, FileSystem, Span,
     ast::{Definition, ImportSource, Program},
@@ -57,6 +58,10 @@ impl Module {
             .definitions
             .iter()
             .any(|d| matches!(d.node, Definition::Contract))
+    }
+
+    pub fn to_named_source(&self) -> NamedSource<Arc<str>> {
+        NamedSource::new(self.abs_path.to_string_lossy(), self.source.clone())
     }
 }
 
@@ -130,6 +135,10 @@ impl ModuleGraph {
             }
         }
         order
+    }
+
+    pub fn source(&self, id: ModuleId) -> NamedSource<Arc<str>> {
+        self.modules[id.0 as usize].to_named_source()
     }
 }
 

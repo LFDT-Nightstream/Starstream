@@ -1,11 +1,7 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use miette::NamedSource;
-use starstream_compiler::{
-    ModuleGraph, ModuleGraphError, TypecheckOptions, module_graph, typecheck_modules,
-};
+use starstream_compiler::{ModuleGraphError, TypecheckOptions, module_graph, typecheck_modules};
 use starstream_to_wasm::CompileOptions;
 use starstream_types::FileSystem;
 use wit_component::ComponentEncoder;
@@ -65,36 +61,26 @@ impl Wasm {
             }
         };
 
-        let sources = build_named_sources(&graph);
         let entry_id = graph
             .contract_entries()
             .first()
             .copied()
             .expect("load_from_entry always sets a single contract entry");
-        let entry_named = sources
-            .get(&entry_id.0)
-            .cloned()
-            .expect("entry module always has a NamedSource");
+        let entry_named = graph.source(entry_id);
 
         let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {
                 for (module_id, warning) in &success.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning.clone())?;
-                    }
+                    print_diagnostic(graph.source(*module_id), warning.clone())?;
                 }
                 success
             }
             Err(failure) => {
                 for (module_id, warning) in failure.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning)?;
-                    }
+                    print_diagnostic(graph.source(module_id), warning)?;
                 }
                 for (module_id, error) in failure.errors {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), error)?;
-                    }
+                    print_diagnostic(graph.source(module_id), error)?;
                 }
                 std::process::exit(1);
             }
@@ -183,18 +169,6 @@ impl Wasm {
     }
 }
 
-pub(crate) fn build_named_sources(graph: &ModuleGraph) -> HashMap<u32, NamedSource<String>> {
-    graph
-        .modules()
-        .iter()
-        .map(|module| {
-            let path = module.abs_path.display().to_string();
-            let source = module.source.as_ref().to_string();
-            (module.id.0, NamedSource::new(path, source))
-        })
-        .collect()
-}
-
 pub(crate) fn report_graph_error(err: &ModuleGraphError) {
     match err {
         ModuleGraphError::EntryIo { path, error } => {
@@ -219,7 +193,7 @@ pub(crate) fn report_graph_error(err: &ModuleGraphError) {
             ..
         } => {
             eprintln!(
-                "error: cross-contract calls not supported yet — `{}` imports `{}`, which also declares `contract;`",
+                "error: cross-contract calls not supported yet: `{}` imports `{}`, which also declares `contract;`",
                 importer_path.display(),
                 target_path.display()
             );
