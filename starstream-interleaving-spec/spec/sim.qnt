@@ -7,7 +7,7 @@ module starstream_sim {
 
   pure val SIM_METHODS = Set("m0", "m1", "m2")
   pure val SIM_VALUES: Set[StarstreamValue] =
-    Set(List(), List(0), List(1), List(1, 2))
+    Set(UNIT_VALUE, List(1, 0, 0, 0), List(1, 2, 0, 0))
   pure val SIM_RESOURCE_HANDLES = Set(0, 1, 2, 3)
   pure val SIM_MAX_UTXOS = 4
 
@@ -26,7 +26,7 @@ module starstream_sim {
   action simulate_enter_constructor: bool = {
     val expected_arguments =
       if (state.call_stack.length() == 0)
-        List()
+        UNIT_VALUE
       else
         state.call_stack.last().expected_arguments
 
@@ -50,7 +50,7 @@ module starstream_sim {
   action simulate_return: bool = {
     val expected_result =
       if (state.call_stack.length() == 0)
-        List()
+        UNIT_VALUE
       else
         state.call_stack.last().expected_result
 
@@ -61,7 +61,7 @@ module starstream_sim {
   action simulate_enter_method: bool = {
     val expected_arguments =
       if (state.call_stack.length() == 0)
-        List()
+        UNIT_VALUE
       else
         state.call_stack.last().expected_arguments
 

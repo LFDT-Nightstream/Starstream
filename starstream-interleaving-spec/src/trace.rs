@@ -6,11 +6,22 @@ use serde::{Deserialize, Serialize};
 /// and the sender need to agree, but it doesn't have any direct effect on the
 /// control flow.
 ///
-/// Currently we are using the Goldilocks prime field for proving, which can't
-/// fit 64bits, so values bigger than 32bits get split into limbs.
+/// Four canonical Goldilocks words of an opaque object root. Payload hashing
+/// (including schema and length) belongs to the program proof, not this model.
+/// Unit uses the direct constant encoding [`Self::UNIT_VALUE`] instead.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct StarstreamValue(pub Vec<u32>);
+pub struct StarstreamValue(pub [u64; 4]);
+
+impl StarstreamValue {
+    /// Unit (no arguments/result), encoded directly as four zero words.
+    /// This is a protocol convention, not the hash of an empty opaque object.
+    pub const UNIT_VALUE: Self = Self([0; 4]);
+
+    pub fn words32(&self) -> [u32; 8] {
+        std::array::from_fn(|i| (self.0[i / 2] >> (32 * (i % 2))) as u32)
+    }
+}
 
 /// Models a WASM Component Model resource:
 ///
@@ -19,11 +30,12 @@ pub struct StarstreamValue(pub Vec<u32>);
 #[serde(transparent)]
 pub struct ResourceHandle(pub u32);
 
-/// SHA-256 method identity as four little-endian `u64` limbs, matching the
-/// current `starstream-to-wasm`/WIT ABI.
+/// SHA-256 method identity as eight little-endian `u32` limbs, in event/RAM
+/// order. Each pair is the low then high half of a `starstream-to-wasm`/WIT
+/// `u64` limb.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct MethodHash(pub [u64; 4]);
+pub struct MethodHash(pub [u32; 8]);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -36,19 +48,26 @@ impl<T> From<T> for Out<T> {
 }
 
 impl MethodHash {
-    /// Stable textual form used by the Quint model.
+    /// Stable textual form used by the Quint model. Preserve the original
+    /// four-u64 formatting: high half then low half within each pair.
     #[must_use]
     pub fn to_hex(self) -> String {
         self.0
-            .into_iter()
-            .map(|limb| format!("{limb:016x}"))
+            .chunks_exact(2)
+            .map(|pair| format!("{:08x}{:08x}", pair[1], pair[0]))
             .collect()
     }
 }
 
 impl From<Vec<u32>> for StarstreamValue {
     fn from(value: Vec<u32>) -> Self {
-        Self(value)
+        // Convenience for symbolic roots in fixtures, not payload hashing.
+        assert!(value.len() <= 4, "an opaque root has four words");
+        let mut root = [0; 4];
+        for (out, word) in root.iter_mut().zip(value) {
+            *out = u64::from(word);
+        }
+        Self(root)
     }
 }
 
