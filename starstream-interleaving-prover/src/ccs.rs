@@ -10,9 +10,9 @@ use crate::{
         layout::{
             COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
             COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_SP_BEFORE_INVERSE,
-            COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8, COL_CALL_STACK_MUL_STRIDE_4, COL_CALL_STACK_POP,
+            COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8, COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP,
             COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER,
-            COL_CURR_BEFORE, COL_CURR_BEFORE_STRIDE_4, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE,
+            COL_CURR_BEFORE, COL_CURR_BEFORE_STRIDE_8, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE,
             COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
             COL_ENABLED_METHOD_LOG_LEN_AFTER, COL_ENABLED_METHOD_LOG_LEN_BEFORE,
             COL_ENABLED_METHOD_LOG_UTXO, COL_METHOD_INDEX, COL_METHOD_LOOKUP,
@@ -65,8 +65,8 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     b.with_tag(
         opcode_tag("padding preserves state", Opcode::Padding),
         |b| {
-            // The commitment write port is disabled on padding, so `COL_IN`
-            // and `COL_OUT` are free cells there and need no relation.
+            // The commitment write port is disabled on padding. The event
+            // gadget stutters its chain locally, without reading/writing RAM.
             for group in crate::ivc_state::build_ivc_state_continuity_links() {
                 for link in group.links {
                     require_equal(
@@ -174,15 +174,15 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     // A push writes at the next free address (`sp`), while peeks and pops read
     // the current top (`sp - 1`). The corresponding access flag selects the
     // latter address.
-    b.with_tag(always("call stack mul stride (4)"), |b| {
-        COL_CALL_STACK_MUL_STRIDE_4
+    b.with_tag(always("call stack mul stride (8)"), |b| {
+        COL_CALL_STACK_MUL_STRIDE_8
             .iter()
             .enumerate()
             .for_each(|(i, col)| {
                 b.push_linear_zero([
-                    (COL_CALL_SP_BEFORE, F::new(4)),
-                    (COL_CALL_STACK_TOP, -F::new(4)),
-                    (COL_CALL_STACK_POP, -F::new(4)),
+                    (COL_CALL_SP_BEFORE, F::new(8)),
+                    (COL_CALL_STACK_TOP, -F::new(8)),
+                    (COL_CALL_STACK_POP, -F::new(8)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);
@@ -203,13 +203,13 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             });
     });
 
-    b.with_tag(always("curr mul stride (4)"), |b| {
-        COL_CURR_BEFORE_STRIDE_4
+    b.with_tag(always("curr mul stride (8)"), |b| {
+        COL_CURR_BEFORE_STRIDE_8
             .iter()
             .enumerate()
             .for_each(|(i, col)| {
                 b.push_linear_zero([
-                    (COL_CURR_BEFORE, F::new(4)),
+                    (COL_CURR_BEFORE, F::new(8)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);
@@ -349,6 +349,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         visit_enter_method,
     );
 
+    crate::commitment::constraints(&mut b);
     range_checks.push_constraints(&mut b, ConstraintScope::Always);
 
     let r1cs = builder.build()?;
