@@ -1,30 +1,22 @@
 pub mod common;
 
-use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use starstream_runtime_next::{
-    Contract, Host, StorageExport, Token, TokenFunctionExport,
+    Contract, Host, StorageExport, Token, TokenBurnExport, TokenMintExport,
     get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span};
-use wasmtime::component::{Component, ResourceTable, Val};
+use wasmtime::component::{ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{Store, bail};
 
 use crate::common::{Ctx, ENGINE, NoopContractLookup, compile_contract};
 
-static CONTRACT: LazyLock<Component> = LazyLock::new(|| {
-    compile_contract(include_str!(
-        "../../starstream-to-wasm/tests/inputs/token_mint_burn.star"
-    ))
-    .unwrap()
-});
-
 struct MyToken {
     storage: StorageExport,
-    burn: TokenFunctionExport,
-    mint: TokenFunctionExport,
+    burn: TokenBurnExport,
+    mint: TokenMintExport,
 }
 
 fn assert_my_token<T: Host>(contract: &Contract<T>) -> wasmtime::Result<MyToken> {
@@ -45,27 +37,43 @@ fn assert_my_token<T: Host>(contract: &Contract<T>) -> wasmtime::Result<MyToken>
         .get_token("my-token")
         .context("failed to get `my-token` token export by name")?;
 
-    let functions = contract.token_functions(&token);
-    let functions: BTreeMap<_, _> = functions
-        .map(|(name, export)| export.map(|export| (String::from(name), export)))
-        .collect::<wasmtime::Result<_>>()
-        .context("failed to iterate functions")?;
-    assert_eq!(
-        functions.keys().collect::<Vec<_>>(),
-        ["[static]token.burn", "[static]token.mint"]
-    );
-    for name in functions.keys() {
-        let _named = contract
-            .get_token_function(&token, name)
-            .with_context(|| format!("failed to get token `{name}` function export by name"))?;
-    }
+    let mut mints = contract.token_mints(&token);
+    let mint = match (mints.next(), mints.next()) {
+        (Some(("[static]token.mint", Ok(mint))), None) => mint,
+        exports => bail!("unexpected token mint exports: {exports:?}"),
+    };
+    let _named = contract
+        .get_token_mint(&token, "[static]token.mint")
+        .context("failed to get token `mint fn` export by name")?;
+
+    let mut burns = contract.token_burns(&token);
+    let burn = match (burns.next(), burns.next()) {
+        (Some(("[static]token.burn", Ok(burn))), None) => burn,
+        exports => bail!("unexpected token burn exports: {exports:?}"),
+    };
+    let _named = contract
+        .get_token_burn(&token, "[static]token.burn")
+        .context("failed to get token `burn fn` export by name")?;
 
     Ok(MyToken {
         storage: token.storage().clone(),
-        burn: functions["[static]token.burn"].clone(),
-        mint: functions["[static]token.mint"].clone(),
+        burn,
+        mint,
     })
 }
+
+static CONTRACT: LazyLock<Contract<Ctx>> = LazyLock::new(|| {
+    let component = compile_contract(include_str!(
+        "../../starstream-to-wasm/tests/inputs/token_mint_burn.star"
+    ))
+    .unwrap();
+    let ty = component.component_type();
+    assert!(get_coordination_script_instance_import(&ENGINE, &ty).is_none());
+    assert!(utxo_imports(&ENGINE, &ty).next().is_none());
+    Contract::new(&component, NoopContractLookup).expect("failed to create contract")
+});
+
+static MY_TOKEN: LazyLock<MyToken> = LazyLock::new(|| assert_my_token(&CONTRACT).unwrap());
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct MyTokenStorage {
@@ -96,15 +104,7 @@ async fn get_my_token_storage(
 }
 
 #[test_log::test(tokio::test)]
-async fn token_mint_burn() -> wasmtime::Result<()> {
-    let ty = CONTRACT.component_type();
-    assert!(get_coordination_script_instance_import(&ENGINE, &ty).is_none());
-    assert!(utxo_imports(&ENGINE, &ty).next().is_none());
-
-    let contract =
-        Contract::new(&CONTRACT, NoopContractLookup).context("failed to create contract")?;
-    let ty = assert_my_token(&contract)?;
-
+async fn mint() -> wasmtime::Result<()> {
     let mut store = Store::new(
         &ENGINE,
         Ctx {
@@ -113,7 +113,48 @@ async fn token_mint_burn() -> wasmtime::Result<()> {
             outputs: Vec::default(),
         },
     );
-    let instance = contract
+    let instance = CONTRACT
+        .instantiate(&mut store)
+        .await
+        .context("failed to instantiate contract")?;
+
+    let token = instance
+        .call_token_mint(&mut store, &MY_TOKEN.mint, [])
+        .instrument(info_span!("mint"))
+        .await
+        .context("failed to call `mint`")?;
+    let MyTokenStorage { total } =
+        get_my_token_storage(&mut store, &token, &MY_TOKEN.storage).await?;
+    assert_eq!(total, 1);
+
+    token
+        .call_burn(&mut store, &MY_TOKEN.burn, [])
+        .instrument(info_span!("burn"))
+        .await
+        .context("failed to call `burn`")?;
+
+    let Ctx {
+        table,
+        events,
+        outputs,
+    } = store.into_data();
+    assert!(table.is_empty());
+    assert!(events.is_empty());
+    assert!(outputs.is_empty());
+    Ok(())
+}
+
+#[test_log::test(tokio::test)]
+async fn load() -> wasmtime::Result<()> {
+    let mut store = Store::new(
+        &ENGINE,
+        Ctx {
+            table: ResourceTable::default(),
+            events: Vec::default(),
+            outputs: Vec::default(),
+        },
+    );
+    let instance = CONTRACT
         .instantiate(&mut store)
         .await
         .context("failed to instantiate contract")?;
@@ -121,42 +162,21 @@ async fn token_mint_burn() -> wasmtime::Result<()> {
     let token = instance
         .load_token(
             &mut store,
-            &ty.storage,
-            [(String::from("total"), Val::S64(42))],
+            &MY_TOKEN.storage,
+            [(String::from("total"), Val::S64(1))],
         )
         .instrument(info_span!("load"))
         .await
         .context("failed to load token")?;
+    let MyTokenStorage { total } =
+        get_my_token_storage(&mut store, &token, &MY_TOKEN.storage).await?;
+    assert_eq!(total, 1);
 
-    let MyTokenStorage { total } = get_my_token_storage(&mut store, &token, &ty.storage).await?;
-    assert_eq!(total, 42);
-
-    let mut results = [Val::Bool(false)];
-    instance
-        .call_token_function(&mut store, &ty.mint, [], &mut results)
-        .instrument(info_span!("mint"))
-        .await
-        .context("failed to call `mint`")?;
-    let [Val::Resource(minted)] = results else {
-        bail!("`mint` did not return a resource");
-    };
-    assert!(minted.owned());
-
-    let MyTokenStorage { total } = get_my_token_storage(&mut store, &token, &ty.storage).await?;
-    assert_eq!(total, 43);
-
-    instance
-        .call_token_function(&mut store, &ty.burn, [Val::Resource(minted)], [])
+    token
+        .call_burn(&mut store, &MY_TOKEN.burn, [])
         .instrument(info_span!("burn"))
         .await
         .context("failed to call `burn`")?;
-    let MyTokenStorage { total } = get_my_token_storage(&mut store, &token, &ty.storage).await?;
-    assert_eq!(total, 42);
-
-    token
-        .drop(&mut store)
-        .await
-        .context("failed to drop token")?;
 
     let Ctx {
         table,

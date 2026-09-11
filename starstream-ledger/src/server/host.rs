@@ -2,8 +2,8 @@ use core::pin::Pin;
 
 use std::sync::Arc;
 
-use starstream_runtime_next::Utxo;
 use starstream_runtime_next::bindings::starstream;
+use starstream_runtime_next::{Token, Utxo};
 use wasmtime::component::{Resource, ResourceTable, Val};
 use wasmtime::{AsContextMut as _, StoreContextMut, bail, format_err};
 
@@ -21,7 +21,6 @@ impl starstream::std::cardano::Host for Ctx {
 
 impl starstream_runtime_next::Host for Ctx {
     type UtxoContext = Arc<std::sync::Mutex<UtxoCtx>>;
-    type Token = ();
 
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
@@ -93,10 +92,7 @@ impl starstream_runtime_next::Host for Ctx {
         Ok(())
     }
 
-    fn drop_token(
-        _store: StoreContextMut<Self>,
-        _token: Resource<Self::Token>,
-    ) -> wasmtime::Result<()> {
+    fn drop_token(_store: StoreContextMut<Self>, _token: Resource<Token>) -> wasmtime::Result<()> {
         bail!("TODO")
     }
 
