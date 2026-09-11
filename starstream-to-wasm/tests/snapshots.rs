@@ -232,8 +232,31 @@ fn multifile() {
                             print_diagnostic(output, graph.source(module), error);
                         }
                     }
-                    Ok(_) => {
-                        // TODO
+                    Ok(mut typed) => {
+                        if !typed.warnings.is_empty() {
+                            writeln!(output, "==== Type warnings ====").unwrap();
+                            for (module, warning) in typed.warnings.drain(..) {
+                                print_diagnostic(output, graph.source(module), warning);
+                            }
+                        }
+
+                        for &entry_id in &typed.contract_entries {
+                            let entry_module = typed.module(entry_id);
+                            writeln!(
+                                output,
+                                "==== {} ====",
+                                entry_module.abs_path.file_name().unwrap().display()
+                            )
+                            .unwrap();
+
+                            let mut compile_result =
+                                starstream_to_wasm::compile_contract(&typed, entry_id);
+                            for error in compile_result.errors.drain(..) {
+                                print_diagnostic(output, graph.source(entry_id), error);
+                            }
+
+                            // TODO
+                        }
                     }
                 }
             }

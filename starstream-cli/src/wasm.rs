@@ -66,7 +66,6 @@ impl Wasm {
             .first()
             .copied()
             .expect("load_from_entry always sets a single contract entry");
-        let entry_named = graph.source(entry_id);
 
         let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {
@@ -93,7 +92,7 @@ impl Wasm {
         };
         let compile_result = options.compile_contract(&typed, entry_id);
         for error in compile_result.errors {
-            print_diagnostic(entry_named.clone(), error)?;
+            print_diagnostic(graph.source(entry_id), error)?;
         }
         if let Some(output_mermaid) = self.output_mermaid {
             std::fs::create_dir_all(&output_mermaid).unwrap();

@@ -91,11 +91,9 @@ impl Build {
                 continue;
             }
 
-            let entry_named = graph.source(entry_id);
-
             let mut compile_result = starstream_to_wasm::compile_contract(&typed, entry_id);
             for error in compile_result.errors.drain(..) {
-                print_diagnostic(entry_named.clone(), error)?;
+                print_diagnostic(graph.source(entry_id), error)?;
             }
             let Some(wasm) = compile_result.wasm.clone() else {
                 had_errors = true;
