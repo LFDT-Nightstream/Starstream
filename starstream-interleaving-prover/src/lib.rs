@@ -1,5 +1,6 @@
 mod batch;
 mod ccs;
+mod commitment;
 mod ivc_state;
 mod memory;
 mod opcode;
@@ -14,6 +15,12 @@ use starstream_interleaving_spec::Trace;
 use crate::memory::MemoryId;
 
 pub use batch::verify_sat_batched;
+pub use batch::verify_sat_with_commitments;
+
+/// Final outer event roots, keyed by packed coroutine INSTANCE identity:
+/// coordinator i = 2*i, UTXO i = 2*i+1. Different instances of the same program
+/// have separate chains. Contains exactly the instances that emitted events.
+pub type TraceCommitments = std::collections::BTreeMap<u32, [u64; 4]>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -56,6 +63,8 @@ pub enum Error {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Unsatisfied {
+    #[error("per-instance trace commitments do not match the statement")]
+    TraceCommitments,
     #[error("constraint {constraint:?} failed at relation row {row} for step {step}")]
     Constraint {
         /// Index in the original trace, never an index of a padding slot.

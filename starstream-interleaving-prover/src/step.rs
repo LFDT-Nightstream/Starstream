@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use neo_math::F;
+use p3_field::PrimeCharacteristicRing;
 use starstream_interleaving_spec::{MethodHash, ResourceHandle, Step, Trace};
 
 use crate::{
@@ -8,16 +9,8 @@ use crate::{
     opcode::Opcode,
 };
 
-pub(crate) fn method_hash_words(method: MethodHash) -> [u32; 8] {
-    std::array::from_fn(|word| {
-        let limb = method.0[word / 2];
-        let shift = (word % 2) * 32;
-        ((limb >> shift) & u64::from(u32::MAX)) as u32
-    })
-}
-
 fn encode_method_hash(method: MethodHash) -> [F; 8] {
-    method_hash_words(method).map(|word| F::new(u64::from(word)))
+    method.0.map(|word| F::new(u64::from(word)))
 }
 
 pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
@@ -56,10 +49,23 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
     let mut resource_resolver = HashMap::new();
     let mut abi_generations: HashMap<CoroutineId, u32> = HashMap::new();
     let mut enabled_method_log: Vec<(CoroutineId, u32, u32)> = vec![];
+    let mut commitments = HashMap::new();
 
     for step in &trace.0 {
         let opcode = Opcode::from(step);
         let curr_before = curr;
+        let commitment_before = commitments
+            .get(&curr_before)
+            .copied()
+            .unwrap_or([F::ZERO; 4]);
+        let mut commitment_after = commitment_before;
+        for block in starstream_interleaving_spec::events::encode(step) {
+            commitment_after = neo_application::event_commitment::commit_block(
+                commitment_after,
+                block.map(F::new),
+            );
+        }
+        commitments.insert(curr_before, commitment_after);
         let curr_phase_before = curr_phase;
         let next_utxo_id_before = next_utxo_id;
         let enabled_method_log_len_before =
@@ -100,7 +106,13 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 arguments,
                 resource,
             } => {
-                expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
+                expected_arguments.replace(
+                    arguments
+                        .words32()
+                        .iter()
+                        .map(|&x| F::new(x as u64))
+                        .collect(),
+                );
 
                 let target = CoroutineId::Utxo(next_utxo_id_before);
                 next_utxo_id = next_utxo_id_before
@@ -113,7 +125,13 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 resolver_address = (curr_before, resource.0);
             }
             Step::EnterConstructor { arguments } => {
-                expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
+                expected_arguments.replace(
+                    arguments
+                        .words32()
+                        .iter()
+                        .map(|&x| F::new(x as u64))
+                        .collect(),
+                );
             }
             Step::YieldBegin => {
                 abi_generation_address = curr_before;
@@ -134,7 +152,14 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 enabled_method_log.push((curr_before, method_index, abi_generation_before));
             }
             Step::Return { result } => {
-                expected_result.replace(result.0.0.iter().map(|&x| F::new(x as u64)).collect());
+                expected_result.replace(
+                    result
+                        .0
+                        .words32()
+                        .iter()
+                        .map(|&x| F::new(x as u64))
+                        .collect(),
+                );
 
                 if let Some(key) = pending_ctor_key_before {
                     resource_resolver.insert(key, curr_before);
@@ -157,9 +182,22 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 arguments,
                 result,
             } => {
-                expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
+                expected_arguments.replace(
+                    arguments
+                        .words32()
+                        .iter()
+                        .map(|&x| F::new(x as u64))
+                        .collect(),
+                );
                 method_hash.replace(encode_method_hash(*method));
-                expected_result.replace(result.0.0.iter().map(|&x| F::new(x as u64)).collect());
+                expected_result.replace(
+                    result
+                        .0
+                        .words32()
+                        .iter()
+                        .map(|&x| F::new(x as u64))
+                        .collect(),
+                );
                 method_index = method_indices[method];
 
                 let key = (curr_before, *resource);
@@ -185,7 +223,13 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     .unwrap_or(enabled_method_log_len_before);
             }
             Step::EnterMethod { method, arguments } => {
-                expected_arguments.replace(arguments.0.iter().map(|&x| F::new(x as u64)).collect());
+                expected_arguments.replace(
+                    arguments
+                        .words32()
+                        .iter()
+                        .map(|&x| F::new(x as u64))
+                        .collect(),
+                );
                 method_hash.replace(encode_method_hash(*method));
             }
         }
@@ -193,6 +237,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         curr = curr_after;
 
         wit.push(Wit {
+            commitment_before,
             opcode,
             expected_arguments,
             method_hash,
@@ -237,6 +282,7 @@ pub(crate) struct NormalizedTrace {
 }
 
 pub(crate) struct Wit {
+    pub(crate) commitment_before: [F; 4],
     pub(crate) opcode: Opcode,
     pub(crate) expected_arguments: Option<Vec<F>>,
     pub(crate) method_hash: Option<[F; 8]>,
@@ -272,6 +318,7 @@ impl Wit {
     /// assigned zero. It goes through the same column assigner as execution.
     pub(crate) fn padding_after(&self) -> Self {
         Self {
+            commitment_before: [F::ZERO; 4],
             opcode: Opcode::Padding,
             expected_arguments: None,
             method_hash: None,
