@@ -1,0 +1,5 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/multifile/entry_imports_helper
+---
+

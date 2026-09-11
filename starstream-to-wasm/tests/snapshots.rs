@@ -208,3 +208,15 @@ fn inputs() {
         });
     });
 }
+
+#[test]
+fn multifile() {
+    try_paths("multifile/*", |path, output| {
+        insta::with_settings!({
+            omit_expression => true,
+            prepend_module_to_snapshot => false,
+        }, {
+            insta::assert_snapshot!(output);
+        });
+    });
+}
