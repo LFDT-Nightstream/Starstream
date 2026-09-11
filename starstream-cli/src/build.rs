@@ -11,16 +11,14 @@ use crate::diagnostics::print_diagnostic;
 use crate::project::default_scan_dir;
 use crate::wasm::{build_named_sources, report_graph_error};
 
-/// Compile every contract under the target directory to wasm.
+/// Compile every contract under the target directory to Wasm.
 ///
-/// With no path argument, walks up from cwd for `.git` and scans that
-/// project root; otherwise scans the given dir. The scanner builds a
-/// single workspace module graph, runs one typecheck pass, then emits
-/// per-contract wasm under `<project-root>/artifacts/<filename-stem>/`.
+/// The scanner builds a single workspace module graph, runs one typecheck
+/// pass, then emits per-contract wasm under
+/// `<project-root>/artifacts/<filename-stem>/`.
 #[derive(Args, Debug)]
 pub struct Build {
-    /// Optional directory to scan. If omitted, walks up for `.git` and scans
-    /// the enclosing project root (falling back to cwd if no `.git` exists).
+    /// Optional directory to scan. If omitted, uses the current directory.
     target_dir: Option<PathBuf>,
 }
 
