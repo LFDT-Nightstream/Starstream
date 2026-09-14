@@ -1,7 +1,8 @@
 //! Canonical outer event encoding shared by native replay and the relation.
 //!
 //! Events advance the executing coroutine's chain (before control transfer),
-//! starting from zero. Program bindings must agree on the tags and schema below.
+//! or the loaded/exported UTXO's chain for storage. Chains start from zero;
+//! ABI preloads and phase transitions emit nothing. Bindings must share this schema.
 //! Packing follows neo-wasm's EventSequenceBuilder: eight-word blocks, at most
 //! one four-field root per block, zero-padding before roots as needed and at
 //! event end. Continuation blocks have no extra tag. Roots are already encoded;
@@ -11,6 +12,8 @@ use crate::Step;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {
+    SetStorage,
+    GetStorage,
     NewUtxo,
     EnterConstructor,
     YieldBegin,
@@ -29,9 +32,15 @@ pub enum Word {
     Result(usize),
 }
 
-impl From<&Step> for EventKind {
-    fn from(step: &Step) -> Self {
-        match step {
+impl EventKind {
+    pub fn for_step(step: &Step) -> Option<Self> {
+        Some(match step {
+            Step::SetStorage { .. } => Self::SetStorage,
+            Step::GetStorage { .. } => Self::GetStorage,
+            Step::PreloadMethod { .. }
+            | Step::ReadAbi { .. }
+            | Step::SkipConsumed
+            | Step::FinishTransaction => return None,
             Step::NewUtxo { .. } => Self::NewUtxo,
             Step::EnterConstructor { .. } => Self::EnterConstructor,
             Step::YieldBegin => Self::YieldBegin,
@@ -39,7 +48,7 @@ impl From<&Step> for EventKind {
             Step::Return { .. } => Self::Return,
             Step::CallMethod { .. } => Self::CallMethod,
             Step::EnterMethod { .. } => Self::EnterMethod,
-        }
+        })
     }
 }
 
@@ -47,6 +56,8 @@ impl EventKind {
     pub fn blocks(self) -> Vec<[Word; 8]> {
         use Word::*;
         let tag = match self {
+            Self::SetStorage => 8,
+            Self::GetStorage => 9,
             Self::NewUtxo => 1,
             Self::EnterConstructor => 2,
             Self::YieldBegin => 3,
@@ -65,6 +76,8 @@ impl EventKind {
             words.extend((0..4).map(|i| if argument { Argument(i) } else { Result(i) }));
         };
         match self {
+            Self::SetStorage => root(&mut words, &mut last_root_block, true),
+            Self::GetStorage => root(&mut words, &mut last_root_block, false),
             Self::NewUtxo => {
                 root(&mut words, &mut last_root_block, true);
                 words.push(Resource);
@@ -93,7 +106,16 @@ impl EventKind {
 }
 
 pub fn encode(step: &Step) -> Vec<[u64; 8]> {
+    let Some(kind) = EventKind::for_step(step) else {
+        return vec![];
+    };
     let (resource, method, argument, result) = match step {
+        Step::SetStorage { storage, .. } => (0, None, Some(storage), None),
+        Step::GetStorage { storage } => (0, None, None, Some(&storage.0)),
+        Step::PreloadMethod { .. }
+        | Step::ReadAbi { .. }
+        | Step::SkipConsumed
+        | Step::FinishTransaction => unreachable!(),
         Step::NewUtxo {
             arguments,
             resource,
@@ -110,8 +132,7 @@ pub fn encode(step: &Step) -> Vec<[u64; 8]> {
         } => (resource.0, Some(method), Some(arguments), Some(&result.0)),
         Step::EnterMethod { method, arguments } => (0, Some(method), Some(arguments), None),
     };
-    EventKind::from(step)
-        .blocks()
+    kind.blocks()
         .into_iter()
         .map(|block| {
             block.map(|word| match word {

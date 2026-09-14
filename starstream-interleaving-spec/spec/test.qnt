@@ -6,6 +6,223 @@ module replay_trace {
   def method = "0000000000000001000000000000000100000000000000010000000000000001";
   def other_method = "0000000000000002000000000000000100000000000000010000000000000001";
 
+  action init_transaction = { state' = new_transaction(
+    List({ storage: UNIT_VALUE, methods: List(method) }),
+    List({ utxo: 0, storage: UNIT_VALUE, methods: List(method) })) }
+
+  run test_storage_roundtrip = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(method))
+    .then(finish_transaction)
+    .then(transaction_complete)
+
+  action check_abi_count: bool = all {
+    assert(abi_method_count_matches_registrations),
+    state' = state,
+  }
+
+  run test_abi_count_tracks_duplicates_and_reset = init_transaction
+    .then(check_abi_count)
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(check_abi_count)
+    .then(preload_method(method))
+    .then(preload_method(method))
+    .then(check_abi_count)
+    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(enter_method(method, UNIT_VALUE))
+    .then(yield_begin)
+    .then(check_abi_count)
+    .then(register_method(other_method))
+    .then(register_method(other_method))
+    .then(check_abi_count)
+
+  action init_abi_sequence(methods: List[MethodHash]): bool = {
+    init_abi_sequences(methods, methods)
+  }
+
+  run test_missing_output_abi_read_fails = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(finish_transaction)
+    .fail()
+
+  run test_extra_output_abi_read_fails = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(method))
+    .then(read_abi(method))
+    .fail()
+
+  run test_output_abi_order_fails = init_abi_sequences(List(method, other_method), List(other_method, method))
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(preload_method(other_method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(other_method))
+    .fail()
+
+  action init_abi_sequences(inputs: List[MethodHash], outputs: List[MethodHash]): bool = {
+    state' = new_transaction(
+      List({ storage: UNIT_VALUE, methods: inputs }),
+      List({ utxo: 0, storage: UNIT_VALUE, methods: outputs }))
+  }
+
+  run test_preload_count_bound = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(255.reps(i => preload_method(method)))
+    .then(all { assert(state.abi_method_count.get(Utxo(0)) == 255), state' = state })
+    .then(preload_method(method).fail())
+
+  run test_registration_count_bound_and_reset = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(255.reps(i => preload_method(method)))
+    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(enter_method(method, UNIT_VALUE))
+    .then(yield_begin)
+    .then(all { assert(state.abi_method_count.get(Utxo(0)) == 0), state' = state })
+    .then(255.reps(i => register_method(method)))
+    .then(all { assert(state.abi_method_count.get(Utxo(0)) == 255), state' = state })
+    .then(register_method(method).fail())
+
+  run test_missing_preload_rejected_at_finalization = init_abi_sequences(List(method, other_method), List(method))
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(method))
+    .then(finish_transaction)
+    .fail()
+
+  run test_preload_order_rejected_at_finalization = init_abi_sequences(List(method, other_method), List(other_method, method))
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(other_method))
+    .then(preload_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(other_method))
+    .then(read_abi(method))
+    .then(finish_transaction)
+    .fail()
+
+  run test_extra_preload_rejected_at_finalization = init_abi_sequences(List(method), List(method, other_method))
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(preload_method(other_method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(method))
+    .then(read_abi(other_method))
+    .then(finish_transaction)
+    .fail()
+
+  run test_preload_duplicates_preserved = init_abi_sequence(List(method, method))
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(preload_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(method))
+    .then(read_abi(method))
+    .then(finish_transaction)
+    .then(transaction_complete)
+
+  run test_execution_does_not_change_initial_abi_binding = {
+    state' = new_transaction(
+      List({ storage: UNIT_VALUE, methods: List(method) }),
+      List({ utxo: 0, storage: UNIT_VALUE, methods: List(other_method) }))
+  }
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(enter_method(method, UNIT_VALUE))
+    .then(yield_begin)
+    .then(register_method(other_method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(other_method))
+    .then(finish_transaction)
+    .then(transaction_complete)
+
+  run test_multiple_input_utxos = {
+    val first_storage = List(11, 12, 13, 14)
+    val second_storage = List(21, 22, 23, 24)
+    val inputs = List(
+      { storage: first_storage, methods: List(method) },
+      { storage: second_storage, methods: List(other_method) }
+    )
+    val outputs = List(
+      { utxo: 0, storage: first_storage, methods: List(method) },
+      { utxo: 1, storage: second_storage, methods: List(other_method) }
+    )
+    val first_handle = 7
+    val second_handle = 8
+    { state' = new_transaction(inputs, outputs) }
+      .then(set_storage(first_storage, { value: first_handle }))
+      .then(preload_method(method))
+      .then(set_storage(second_storage, { value: second_handle }))
+      .then(preload_method(other_method))
+      // Both handles belong to the same coordinator, but resolve to different UTXOs.
+      .then(call_method(first_handle, method, UNIT_VALUE, { value: UNIT_VALUE }))
+      .then(enter_method(method, UNIT_VALUE))
+      .then(return({ value: UNIT_VALUE }))
+      .then(call_method(second_handle, other_method, UNIT_VALUE, { value: UNIT_VALUE }))
+      .then(enter_method(other_method, UNIT_VALUE))
+      .then(return({ value: UNIT_VALUE }))
+      .then(return({ value: UNIT_VALUE }))
+      .then(get_storage({ value: first_storage }))
+      .then(read_abi(method))
+      .then(get_storage({ value: second_storage }))
+      .then(read_abi(other_method))
+      .then(finish_transaction)
+      .then(transaction_complete)
+  }
+
+  run test_storage_during_execution_fails = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .fail()
+
+  run test_execution_before_inputs_loaded_fails = init_transaction
+    .then(return({ value: UNIT_VALUE }))
+    .fail()
+
+  run test_export_during_execution_fails = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .fail()
+
+  run test_preload_after_execution_starts_fails = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(preload_method(method))
+    .fail()
+
+  run test_execution_before_input_abi_loaded_fails = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(return({ value: UNIT_VALUE }))
+    .fail()
+
+  run test_missing_storage_export_fails = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(finish_transaction)
+    .fail()
+
   run test_centered_field_boundaries = init
     .then(new_utxo(List(-FIELD_HALF, FIELD_HALF, -1, 0), { value: 0 }))
     .then(enter_constructor(List(-FIELD_HALF, FIELD_HALF, -1, 0)))
