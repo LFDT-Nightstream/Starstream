@@ -8,7 +8,7 @@ use starstream_types::FileSystem;
 
 use crate::diagnostics::print_diagnostic;
 use crate::project::default_scan_dir;
-use crate::wasm::{build_named_sources, report_graph_error};
+use crate::wasm::report_graph_error;
 
 /// Generate JSON documentation for every contract under the target directory.
 ///
@@ -51,27 +51,19 @@ impl Docs {
             return Ok(());
         }
 
-        let sources = build_named_sources(&graph);
-
         let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {
                 for (module_id, warning) in &success.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning.clone())?;
-                    }
+                    print_diagnostic(graph.source(*module_id), warning.clone())?;
                 }
                 success
             }
             Err(failure) => {
                 for (module_id, warning) in failure.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning)?;
-                    }
+                    print_diagnostic(graph.source(module_id), warning)?;
                 }
                 for (module_id, error) in failure.errors {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), error)?;
-                    }
+                    print_diagnostic(graph.source(module_id), error)?;
                 }
                 std::process::exit(1);
             }
