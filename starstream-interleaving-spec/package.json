@@ -10,7 +10,7 @@
     "check": "node scripts/quint.mjs check",
     "test_spec": "quint test spec/test.qnt --main replay_trace --match \"^test_\" --verbosity=3",
     "test_rust": "cargo test -p starstream-interleaving-spec -- --include-ignored",
-    "test_circuit": "cargo test -p starstream-interleaving-prover --test quint_conformance -- --include-ignored",
+    "test_circuit": "cargo test -p starstream-interleaving-prover --test quint_conformance --test transaction_conformance -- --include-ignored",
     "test": "npm run test_spec && npm run test_rust && npm run test_circuit"
   },
   "engines": {

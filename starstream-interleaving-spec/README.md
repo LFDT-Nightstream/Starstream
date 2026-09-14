@@ -28,8 +28,29 @@ The core specification is in the `spec/starstream.qnt` file.
 
 [`src/events.rs`](src/events.rs) defines the outer event encoding for program trace commitments.
 
-The `spec/sim.qnt` file wraps the specification with small domains for bounded
-model checking, plus with nondeterministic pickers for the simulator.
+Transaction replay uses `new_transaction` / `verify_transaction`: load storage and
+ABIs, then execute (the first execution step closes loading). After the terminal
+return, the empty call stack allows output processing; the phase stays `Running`
+until `finish_transaction` sets `Finished`.
+Finalization scans every UTXO in ID order (`get_storage` or `skip_consumed`). Each
+`get_storage` is followed by `read_abi` for every final-generation registration,
+in order, including duplicates, matching `OutputUtxo.methods`. These host-synthesized
+reads are not program events. All reads must finish before `finish_transaction`.
+Execution-only tests can still use `new_tx` / `verify`.
+
+The shared `spec/sim_core.qnt` loads sampled inputs, explores execution, then
+synthesizes matching outputs once, tracked by a simulator-only `outputs_installed`
+flag without changing the core phase. Fixed-statement rejection
+tests run against the core spec, not this output-synthesis wrapper.
+
+Two modules supply its domain constants:
+
+- `spec/sim.qnt`: simulation/REPL use up to two inputs, four UTXOs/handles,
+  three methods/values, initial ABIs of length 1–2, and up to three registrations.
+- `spec/verify.qnt`: CI verification keeps at most one input, two UTXOs/handles,
+  two methods, one value, single-method initial ABIs, and up to two registrations.
+
+`npm run check` typechecks both profiles and simulates the larger one.
 
 ## Running
 
