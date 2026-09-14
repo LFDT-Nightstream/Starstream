@@ -1,7 +1,7 @@
 module starstream {
   // a spec that is meant to be as close to the circuit as possible
   //
-  // every action in this module should correspond roughly with one host call
+  // execution actions in this module correspond roughly with one host call
   // (core wasm host call)
   //
   // similarly, each action should map to a single opcode in the circuit
@@ -44,18 +44,38 @@ module starstream {
     | Yield
 
   type UtxoLifecycle = Live | Consumed
+  // Running includes output processing once the call stack is empty.
+  type TxPhase = Loading | Running | Finished
+  type InputUtxo = {
+    storage: StarstreamValue,
+    methods: List[MethodHash]
+  }
+  type OutputUtxo = { utxo: int, storage: StarstreamValue, methods: List[MethodHash] }
 
   // just a tagged type so that the action signature reflects what's input and
   // output (in the corresponding wasm function)
   type Output[t] = { value: t }
 
   type State = {
+    tx_phase: TxPhase,
+    tx_inputs: List[InputUtxo],
+    // Initial preload sequences, framed per input and unchanged by execution.
+    loaded_input_methods: List[List[MethodHash]],
+    tx_outputs: List[OutputUtxo],
+    output_cursor: int,
+    outputs_seen: int,
     curr: CoroutineId,
     call_stack: List[CallFrame],
     curr_cid_phase: CurrPhase,
     utxo_lifecycle: CoroutineId -> UtxoLifecycle,
     next_utxo_id: int,
     enabled_methods: CoroutineId -> Set[MethodHash],
+    // Current-generation registrations, including duplicates (maximum 255).
+    // The pre-increment count is the append-log ordinal in the circuit.
+    abi_method_count: CoroutineId -> int,
+    abi_registrations: CoroutineId -> List[MethodHash],
+    abi_read_remaining: int,
+    abi_read_ordinal: int,
     // ResourceKey is an instance(coroutine)-dependent id
     //
     // this maps from local handles to instances
@@ -87,6 +107,7 @@ module starstream {
     | RegisterMethod
 
   def action_allowed(op: Opcode): bool = all {
+    state.tx_phase == Running or (state.tx_phase == Loading and inputs_loaded),
     // the call stack starts with length = 1 (as a sentinel/top level coord
     // script to make the logic more uniform)
     // so an empty call stack is a termination condition
@@ -124,6 +145,12 @@ module starstream {
     val cid = Coord(1)
 
     {
+      tx_phase: Running,
+      tx_inputs: List(),
+      loaded_input_methods: List(),
+      tx_outputs: List(),
+      output_cursor: 0,
+      outputs_seen: 0,
       curr: cid,
       call_stack: List({
         caller: Coord(0),
@@ -135,9 +162,124 @@ module starstream {
       utxo_lifecycle: Map(),
       next_utxo_id: 0,
       enabled_methods: Map(),
+      abi_method_count: Map(),
+      abi_registrations: Map(),
+      abi_read_remaining: 0,
+      abi_read_ordinal: 0,
       resource_resolver: Map(),
       pending_ctor_key: None,
     }
+  }
+
+  // Execution-only tests use new_tx; transaction replay includes the boundaries.
+  pure def new_transaction(inputs: List[InputUtxo], outputs: List[OutputUtxo]): State = {
+    tx_phase: Loading, tx_inputs: inputs, tx_outputs: outputs, ...new_tx
+  }
+
+  def last_input_has_abi: bool = state.next_utxo_id == 0 or
+    not(state.enabled_methods.get(Utxo(state.next_utxo_id - 1)).is_empty_set())
+
+  action set_storage(storage: StarstreamValue, resource: Output[ResourceHandle]): bool = all {
+    state.tx_phase == Loading,
+    last_input_has_abi,
+    state.next_utxo_id < state.tx_inputs.length(),
+    storage.is_valid(),
+    // Keep statement binding local for simulation. The circuit needs no per-step
+    // equality to tx_inputs: the statement checker binds this event's storage;
+    // TODO(proof): enforce that binding through the transaction IO commitment.
+    storage == state.tx_inputs[state.next_utxo_id].storage,
+    val target = Utxo(state.next_utxo_id)
+    state' = {
+      next_utxo_id: state.next_utxo_id + 1,
+      utxo_lifecycle: state.utxo_lifecycle.put(target, Live),
+      enabled_methods: state.enabled_methods.put(target, Set()),
+      abi_method_count: state.abi_method_count.put(target, 0),
+      abi_registrations: state.abi_registrations.put(target, List()),
+      loaded_input_methods: state.loaded_input_methods.append(List()),
+      resource_resolver: state.resource_resolver.put({
+        holder: state.curr,
+        handle: resource.value
+      }, target),
+      ...state
+    }
+  }
+
+  // Host-synthesized from the input's stored ABI, not emitted by wasm.
+  action preload_method(method: MethodHash): bool = all {
+    state.tx_phase == Loading,
+    state.next_utxo_id > 0,
+    state.abi_method_count.get(Utxo(state.next_utxo_id - 1)) < 255,
+    state' = {
+      abi_method_count: state.abi_method_count.setBy(Utxo(state.next_utxo_id - 1), count => count + 1),
+      abi_registrations: state.abi_registrations.setBy(Utxo(state.next_utxo_id - 1), methods => methods.append(method)),
+      loaded_input_methods: state.loaded_input_methods.replaceAt(
+        state.next_utxo_id - 1,
+        state.loaded_input_methods.last().append(method)
+      ),
+      enabled_methods: state.enabled_methods.setBy(
+        Utxo(state.next_utxo_id - 1),
+        prev => prev.insert(method)
+      ),
+      ...state
+    }
+  }
+
+  def inputs_loaded: bool = all {
+    last_input_has_abi,
+    state.next_utxo_id == state.tx_inputs.length(),
+  }
+
+  def finalization_allowed: bool = all {
+    state.tx_phase == Running,
+    state.call_stack.length() == 0,
+  }
+
+  action get_storage(storage: Output[StarstreamValue]): bool = all {
+    state.abi_read_remaining == 0,
+    finalization_allowed,
+    state.output_cursor < state.next_utxo_id,
+    state.utxo_lifecycle.get(Utxo(state.output_cursor)) == Live,
+    state.outputs_seen < state.tx_outputs.length(),
+    state.tx_outputs[state.outputs_seen].utxo == state.output_cursor,
+    storage.value.is_valid(),
+    storage.value == state.tx_outputs[state.outputs_seen].storage,
+    state.tx_outputs[state.outputs_seen].methods.length() == state.abi_method_count.get(Utxo(state.output_cursor)),
+    state' = { output_cursor: state.output_cursor + 1, outputs_seen: state.outputs_seen + 1,
+      abi_read_remaining: state.abi_method_count.get(Utxo(state.output_cursor)), abi_read_ordinal: 0, ...state }
+  }
+
+  // Host-synthesized final ABI enumeration, not a wasm event.
+  action read_abi(method: MethodHash): bool = all {
+    state.tx_phase == Running,
+    state.abi_read_remaining > 0,
+    state.abi_registrations.get(Utxo(state.output_cursor - 1))[state.abi_read_ordinal] == method,
+    state.tx_outputs[state.outputs_seen - 1].methods[state.abi_read_ordinal] == method,
+    state' = { abi_read_remaining: state.abi_read_remaining - 1,
+      abi_read_ordinal: state.abi_read_ordinal + 1, ...state }
+  }
+
+  action skip_consumed: bool = all {
+    state.abi_read_remaining == 0,
+    finalization_allowed,
+    state.output_cursor < state.next_utxo_id,
+    state.utxo_lifecycle.get(Utxo(state.output_cursor)) == Consumed,
+    state' = { output_cursor: state.output_cursor + 1, ...state }
+  }
+
+  action finish_transaction: bool = all {
+    state.abi_read_remaining == 0,
+    finalization_allowed,
+    state.output_cursor == state.next_utxo_id,
+    state.outputs_seen == state.tx_outputs.length(),
+    // Deferred statement binding; a framed preload digest can implement this.
+    state.loaded_input_methods == state.tx_inputs.foldl(
+      List(), (methods, input) => methods.append(input.methods)),
+    state' = { tx_phase: Finished, ...state }
+  }
+
+  action transaction_complete: bool = all {
+    state.tx_phase == Finished,
+    state' = state,
   }
 
   // triggers on a call to a utxo main function, in a coord script context
@@ -154,6 +296,7 @@ module starstream {
       caller.is_coord(),
       state' = {
         curr: target,
+        tx_phase: Running,
         call_stack: state.call_stack.append(
           {
             caller: caller,
@@ -166,6 +309,8 @@ module starstream {
         utxo_lifecycle: state.utxo_lifecycle.put(target, Live),
         next_utxo_id: state.next_utxo_id + 1,
         enabled_methods: state.enabled_methods.put(target, Set()),
+        abi_method_count: state.abi_method_count.put(target, 0),
+        abi_registrations: state.abi_registrations.put(target, List()),
         pending_ctor_key: Some({
           holder: caller,
           handle: resource.value
@@ -185,6 +330,7 @@ module starstream {
       state.pending_ctor_key.is_some(),
 
       state' = {
+        tx_phase: Running,
         // Constructors establish generation zero without a preceding runtime
         // `resume` call, so constructor entry opens the initial ABI window.
         curr_cid_phase: Yield,
@@ -203,7 +349,10 @@ module starstream {
     // integration
 
     state' = {
+      abi_method_count: state.abi_method_count.put(state.curr, 0),
+      abi_registrations: state.abi_registrations.put(state.curr, List()),
       curr_cid_phase: Yield,
+      tx_phase: Running,
       enabled_methods:
         // begin yield (a `resume` keyword in a utxo method) resets the abi set
         state.enabled_methods.put(state.curr, Set()),
@@ -215,8 +364,12 @@ module starstream {
   action register_method(method: MethodHash): bool = all {
     action_allowed(RegisterMethod),
     state.curr.is_utxo(),
+    state.abi_method_count.get(state.curr) < 255,
 
     state' = {
+      abi_method_count: state.abi_method_count.setBy(state.curr, count => count + 1),
+      abi_registrations: state.abi_registrations.setBy(state.curr, methods => methods.append(method)),
+      tx_phase: Running,
       // Set insertion makes repeated registrations semantically idempotent.
       enabled_methods:
         state.enabled_methods.setBy(state.curr, prev => prev.insert(method)),
@@ -259,6 +412,7 @@ module starstream {
       frame.expected_result == result.value,
       state' = {
         curr: frame.caller,
+        tx_phase: Running,
         resource_resolver: resource_resolver,
         call_stack: state.call_stack.pop_last(),
         pending_ctor_key: None,
@@ -288,6 +442,7 @@ module starstream {
       result.value.is_valid(),
       // utxos can't call utxos
       state.curr.is_coord(),
+      state.resource_resolver.keys().contains({ holder: state.curr, handle: resource }),
       state.enabled_methods.get(target).contains(method),
       state.utxo_lifecycle.get(target) == Live,
 
@@ -300,6 +455,7 @@ module starstream {
       state' = {
         curr: target,
         call_stack: state.call_stack.append(frame),
+        tx_phase: Running,
         curr_cid_phase: MethodEnterPending,
 
         ...state
@@ -326,12 +482,14 @@ module starstream {
 
     state' = {
       curr_cid_phase: Executing,
+      tx_phase: Running,
 
       ...state
     }
   }
 
   action execution_complete: bool = all {
+    state.tx_phase == Running,
     state.curr.is_coord(),
     state.call_stack.length() == 0,
     state' = state,
@@ -339,6 +497,23 @@ module starstream {
 
   val coord_stack =
     state.curr.is_utxo() implies state.call_stack.length() > 1
+
+  // The scalar count mirrors the circuit's RAM counter; it is redundant here.
+  val abi_method_count_matches_registrations = all {
+    state.abi_method_count.keys() == state.abi_registrations.keys(),
+    state.abi_method_count.keys().forall(u => all {
+      state.abi_method_count.get(u) == state.abi_registrations.get(u).length(),
+      state.abi_method_count.get(u) >= 0,
+      state.abi_method_count.get(u) <= 255,
+    }),
+  }
+
+  // Once execution ends, the ABI count determines which UTXOs survive.
+  val completed_lifecycle_matches_abi_count =
+    state.call_stack.length() == 0 implies
+      state.utxo_lifecycle.keys().forall(u =>
+        (state.utxo_lifecycle.get(u) == Live) == (state.abi_method_count.get(u) > 0)
+      )
 
   val consumed_utxos_have_no_methods =
     state.utxo_lifecycle.keys().forall(u =>
