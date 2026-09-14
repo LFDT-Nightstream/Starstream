@@ -74,11 +74,30 @@ impl From<Vec<u32>> for StarstreamValue {
 /// A single observable transition of an execution, as attributed to the
 /// coroutine that produced it.
 ///
-/// The initial transition is not part of this enum: every [`Trace`] starts from
-/// the specification's initial state by construction.
+/// Execution-only replay starts in `new_tx`; transaction replay starts in
+/// `new_transaction` and includes loading/finalization steps.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Step {
+    SetStorage {
+        storage: StarstreamValue,
+        /// Witnessed coordinator-local binding, not part of transaction IO.
+        resource: Out<ResourceHandle>,
+    },
+    /// Ledger-supplied ABI entry for the most recently loaded UTXO; no program event.
+    PreloadMethod {
+        method: MethodHash,
+    },
+    GetStorage {
+        storage: Out<StarstreamValue>,
+    },
+    /// Host-synthesized enumeration of the last exported UTXO's ABI; no program event.
+    ReadAbi {
+        method: MethodHash,
+    },
+    /// Advance the finalization scan without exporting a consumed UTXO.
+    SkipConsumed,
+    FinishTransaction,
     NewUtxo {
         arguments: StarstreamValue,
         resource: Out<ResourceHandle>,
@@ -108,6 +127,28 @@ pub enum Step {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Trace(pub Vec<Step>);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputUtxo {
+    pub storage: StarstreamValue,
+    /// Ordered initial preload sequence, including duplicates.
+    pub methods: Vec<MethodHash>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputUtxo {
+    pub utxo: u32,
+    pub storage: StarstreamValue,
+    /// Final-generation registration sequence, including duplicates.
+    pub methods: Vec<MethodHash>,
+}
+
+/// Inputs receive consecutive UTXO IDs; outputs are ordered by surviving ID.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransactionStatement {
+    pub inputs: Vec<InputUtxo>,
+    pub outputs: Vec<OutputUtxo>,
+}
 
 impl Trace {
     pub fn new(steps: impl IntoIterator<Item = Step>) -> Self {

@@ -9,15 +9,25 @@ const SPEC_DIR = 'spec'
 const SPEC = `${SPEC_DIR}/starstream.qnt`
 const SIM = `${SPEC_DIR}/sim.qnt`
 const MAIN = 'starstream_sim'
+const VERIFY = `${SPEC_DIR}/verify.qnt`
+const VERIFY_MAIN = 'starstream_verify'
 
 const INVARIANTS = [
   'coord_stack',
+  'abi_method_count_matches_registrations',
   'consumed_utxo_stays_consumed',
+  'cannot_return_to_loading',
   'consumed_utxos_have_no_methods',
+  'completed_lifecycle_matches_abi_count',
+  'finished_outputs_match_live_utxos',
 ]
 
 const WITNESSES = [
   'tx_finished',
+  'has_loaded_input',
+  'has_exported_abi',
+  'finished_without_inputs',
+  'finished_with_new_output',
   'has_bound_resource',
   'has_yielded_utxo',
   'has_dead_utxo',
@@ -30,7 +40,7 @@ const SIMULATE = [
   '--invariants', ...INVARIANTS,
   '--witnesses', ...WITNESSES,
   '--max-samples=1000',
-  '--max-steps=30',
+  '--max-steps=60',
   '--backend=rust',
   '--verbosity=3',
   '--mbt',
@@ -70,11 +80,12 @@ const TASKS = {
   typecheck: [
     ['typecheck', SPEC],
     ['typecheck', SIM],
+    ['typecheck', VERIFY],
   ],
 
   simulate: [SIMULATE],
 
-  verify: [['verify', SIM, `--main=${MAIN}`, '--invariants', ...INVARIANTS]],
+  verify: [['verify', VERIFY, `--main=${VERIFY_MAIN}`, '--invariants', ...INVARIANTS]],
 
   repl: [
     {

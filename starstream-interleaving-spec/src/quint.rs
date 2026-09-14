@@ -164,6 +164,19 @@ impl QuintVerifier {
     /// coordinator state.
     pub fn verify(&self, trace: &Trace) -> Result<(), QuintError> {
         let module = render(trace);
+        self.verify_module(trace, module)
+    }
+
+    /// Replay explicit transaction boundaries against caller-supplied IO.
+    pub fn verify_transaction(
+        &self,
+        trace: &Trace,
+        statement: &crate::TransactionStatement,
+    ) -> Result<(), QuintError> {
+        self.verify_module(trace, render_with_statement(trace, Some(statement)))
+    }
+
+    fn verify_module(&self, trace: &Trace, module: RenderedModule) -> Result<(), QuintError> {
         let id = self.next_module.fetch_add(1, Ordering::Relaxed);
 
         let module_path = self.staged_spec.path().join(format!("replay_{id}.qnt"));
@@ -324,11 +337,59 @@ impl RenderedModule {
 }
 
 fn render(trace: &Trace) -> RenderedModule {
+    render_with_statement(trace, None)
+}
+
+fn render_with_statement(
+    trace: &Trace,
+    statement: Option<&crate::TransactionStatement>,
+) -> RenderedModule {
+    let initial = statement.map_or_else(
+        || "new_tx".to_owned(),
+        |statement| {
+            let inputs = statement
+                .inputs
+                .iter()
+                .map(|input| {
+                    let methods = input
+                        .methods
+                        .iter()
+                        .map(|method| Qnt(method).to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!(
+                        "{{ storage: {}, methods: List({methods}) }}",
+                        Qnt(&input.storage)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let outputs = statement
+                .outputs
+                .iter()
+                .map(|output| {
+                    format!(
+                        "{{ utxo: {}, storage: {}, methods: List({}) }}",
+                        output.utxo,
+                        Qnt(&output.storage),
+                        output
+                            .methods
+                            .iter()
+                            .map(|m| Qnt(m).to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("new_transaction(List({inputs}), List({outputs}))")
+        },
+    );
     let mut lines = vec![
         format!("module {MODULE_NAME} {{"),
         format!("  import {SPEC_MODULE}.* from \"./{SPEC_MODULE}\""),
         String::new(),
-        "  action init = { state' = new_tx }".to_owned(),
+        format!("  action init = {{ state' = {initial} }}"),
         String::new(),
         format!("  run {RUN_NAME} = init"),
     ];
@@ -341,7 +402,14 @@ fn render(trace: &Trace) -> RenderedModule {
     }
 
     let complete_line = lines.len() + 1;
-    lines.push("    .then(execution_complete)".to_owned());
+    lines.push(format!(
+        "    .then({})",
+        if statement.is_some() {
+            "transaction_complete"
+        } else {
+            "execution_complete"
+        }
+    ));
     lines.push("}".to_owned());
 
     RenderedModule {
@@ -453,6 +521,14 @@ where
 impl fmt::Display for Qnt<&Step> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
+            Step::SetStorage { storage, resource } => {
+                write!(f, "set_storage({}, {})", Qnt(storage), Qnt(resource))
+            }
+            Step::PreloadMethod { method } => write!(f, "preload_method({})", Qnt(method)),
+            Step::GetStorage { storage } => write!(f, "get_storage({})", Qnt(storage)),
+            Step::SkipConsumed => f.write_str("skip_consumed"),
+            Step::ReadAbi { method } => write!(f, "read_abi({})", Qnt(method)),
+            Step::FinishTransaction => f.write_str("finish_transaction"),
             Step::NewUtxo {
                 arguments,
                 resource,
