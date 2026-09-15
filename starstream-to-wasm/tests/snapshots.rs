@@ -339,6 +339,15 @@ async fn run_tests_inner(output: &mut String, component_wasm: &[u8]) {
             .await
             .expect("call_coordination_script");
 
-        writeln!(output, "{:#?}", store.into_data()).unwrap();
+        let ctx = store.into_data();
+        writeln!(output, "events: {:#?}", ctx.events).unwrap();
+        let outputs = ctx
+            .outputs
+            .iter()
+            .map(|u| u.context().lock())
+            .collect::<Vec<_>>();
+        writeln!(output, "outputs: {:#?}", outputs).unwrap();
+
+        writeln!(output).unwrap();
     }
 }

@@ -5,3 +5,11 @@ abi Foo {
 script fn main() {
     emit Hello(1, 2);
 }
+
+test "Simple Emit" {
+    emit Hello(13, 17);
+}
+
+test "Call Main" {
+    main();
+}
