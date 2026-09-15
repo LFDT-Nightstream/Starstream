@@ -4,8 +4,15 @@ use std::{fs, path::Path};
 
 use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, Report, SourceCode};
 use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
+use starstream_runtime_next::Contract;
 use starstream_types::FileSystem;
 use wasmprinter::Print;
+use wasmtime::component::Component;
+
+#[path = "../../starstream-runtime-next/tests/common/mod.rs"]
+pub mod common;
+
+use self::common::Ctx;
 
 /// [Print] impl that expands contents of `component-type` custom sections.
 struct CustomPrinter<T>(T);
@@ -197,7 +204,9 @@ fn inputs() {
                         // Not printing component Wasm because it's mostly core Wasm but inside-out.
                         writeln!(output, "==== WIT ====").unwrap();
                         let component_wasm = componentize(&wasm);
-                        writeln!(output, "{}\n", wit(&component_wasm)).unwrap();
+                        writeln!(output, "{}", wit(&component_wasm)).unwrap();
+
+                        run_tests(output, &component_wasm);
                     }
                 }
             }
@@ -263,7 +272,9 @@ fn multifile() {
 
                             if let Some(wasm) = compile_result.wasm {
                                 let component_wasm = componentize(&wasm);
-                                writeln!(output, "{}\n", wit(&component_wasm)).unwrap();
+                                writeln!(output, "{}", wit(&component_wasm)).unwrap();
+
+                                run_tests(output, &component_wasm);
                             }
                         }
                     }
@@ -278,4 +289,38 @@ fn multifile() {
             insta::assert_snapshot!(output);
         });
     });
+}
+
+fn run_tests(output: &mut String, component_wasm: &[u8]) {
+    let mut config = wasmtime::Config::new();
+    config.wasm_component_model_implements(true);
+    let engine = wasmtime::Engine::new(&config).expect("failed to create wasmtime Engine");
+    let component = Component::new(&engine, component_wasm).expect("failed to load component");
+    let ty = component.component_type();
+
+    let mut tests = Vec::new();
+    for (name, value) in ty.exports(&engine) {
+        if let Some(external) = value.external_id
+            && let Some(description) = external.strip_prefix("starstream:test:")
+        {
+            tests.push((name, description));
+        }
+    }
+
+    if tests.is_empty() {
+        return;
+    }
+
+    let contract = Contract::<Ctx>::new(&component, common::NoopContractLookup)
+        .expect("failed to create contract");
+
+    for (name, description) in tests {
+        let description = if description.is_empty() {
+            name
+        } else {
+            description
+        };
+        writeln!(output, "==== Test: {description} ====").unwrap();
+        writeln!(output, "{:?}", contract.get_coordination_script(name)).unwrap();
+    }
 }

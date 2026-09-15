@@ -21,3 +21,5 @@ insta = { workspace = true, features = ["glob"] }
 wasmprinter = { workspace = true, features = ["component-model"] }
 wasmtime = { workspace = true, default-features = true }
 wit-component.workspace = true
+starstream-runtime-next.workspace = true
+tracing = { workspace = true, features = ["attributes"] }
