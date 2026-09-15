@@ -26,6 +26,15 @@ impl CurrPhase {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum TxPhase {
+    Loading = 0,
+    // Execution has started; output processing also remains in this phase.
+    Running = 1,
+    Finished = 2,
+}
+
 /// Packed circuit refinement of Quint's tagged `CoroutineId` union.
 ///
 /// The low bit is the kind tag, leaving the remaining bits for the local ID:
@@ -77,6 +86,17 @@ const fn link(previous_step_column: usize, next_step_column: usize) -> Continuit
 
 pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
     vec![
+        ContinuityGroup {
+            name: "transaction_continuity",
+            role: "transaction phase, last input ABI nonemptiness, output cursor and ABI enumeration progress",
+            links: vec![
+                link(COL_TX_PHASE_AFTER, COL_TX_PHASE_BEFORE),
+                link(COL_LAST_INPUT_HAS_ABI_AFTER, COL_LAST_INPUT_HAS_ABI_BEFORE),
+                link(COL_OUTPUT_CURSOR_AFTER, COL_OUTPUT_CURSOR_BEFORE),
+                link(COL_ABI_READ_REMAINING_AFTER, COL_ABI_READ_REMAINING_BEFORE),
+                link(COL_ABI_READ_ORDINAL_AFTER, COL_ABI_READ_ORDINAL_BEFORE),
+            ],
+        },
         ContinuityGroup {
             name: "curr_continuity",
             role: "row[i].COL_CURR_AFTER must match row[i+1].COL_CURR_BEFORE",

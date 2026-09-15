@@ -12,12 +12,12 @@ use crate::{
             COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_SP_BEFORE_INVERSE,
             COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8, COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP,
             COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER,
-            COL_CURR_BEFORE, COL_CURR_BEFORE_STRIDE_8, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE,
+            COL_CURR_BEFORE, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE,
             COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
             COL_ENABLED_METHOD_LOG_LEN_AFTER, COL_ENABLED_METHOD_LOG_LEN_BEFORE,
-            COL_ENABLED_METHOD_LOG_UTXO, COL_METHOD_INDEX, COL_METHOD_LOOKUP,
-            COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE,
-            COL_PENDING_CTOR_HANDLE_AFTER, COL_PENDING_CTOR_HANDLE_BEFORE,
+            COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_OWNER_STRIDE_8, COL_METHOD_INDEX,
+            COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER,
+            COL_NEXT_UTXO_ID_BEFORE, COL_PENDING_CTOR_HANDLE_AFTER, COL_PENDING_CTOR_HANDLE_BEFORE,
             COL_PENDING_CTOR_HOLDER_AFTER, COL_PENDING_CTOR_HOLDER_BEFORE,
             COL_PENDING_CTOR_PRESENT_AFTER, COL_PENDING_CTOR_PRESENT_BEFORE,
             COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE,
@@ -51,7 +51,6 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     });
 
     b.with_tag(always("execution requires nonempty call stack"), |b| {
-        // NOTE: adding aux rows for finalization may require excluding them here
         b.push_row(
             [(COL_CALL_SP_BEFORE, F::ONE)],
             [(COL_CALL_SP_BEFORE_INVERSE, F::ONE)],
@@ -80,14 +79,37 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         },
     );
 
-    // Lifecycle ports are placeholders until lifecycle semantics are wired.
-    // Both flags are Boolean, so one zero-sum constraint disables both.
-    b.with_tag(always("unused lifecycle ports are disabled"), |b| {
-        b.push_linear_zero([
-            (layout::COL_UTXO_LIFECYCLE_READ, F::ONE),
-            (layout::COL_UTXO_LIFECYCLE_WRITE, F::ONE),
-        ]);
+    b.with_tag(always("non-execution preserves coroutine state"), |b| {
+        // Padding already preserves these carried columns above.
+        let non_execution = Opcode::all()
+            .into_iter()
+            .filter(|op| !op.is_execution() && *op != Opcode::Padding)
+            .map(|op| (op.selector(), F::ONE))
+            .collect::<Vec<_>>();
+        for (after, before) in [
+            (COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE),
+            (
+                COL_PENDING_CTOR_PRESENT_AFTER,
+                COL_PENDING_CTOR_PRESENT_BEFORE,
+            ),
+            (
+                COL_PENDING_CTOR_HOLDER_AFTER,
+                COL_PENDING_CTOR_HOLDER_BEFORE,
+            ),
+            (
+                COL_PENDING_CTOR_HANDLE_AFTER,
+                COL_PENDING_CTOR_HANDLE_BEFORE,
+            ),
+        ] {
+            b.push_row(
+                non_execution.iter().copied(),
+                [(after, F::ONE), (before, -F::ONE)],
+                [],
+            );
+        }
     });
+
+    crate::transaction::constraints(&mut b);
 
     let curr_switching_opcodes = Opcode::all()
         .iter()
@@ -124,6 +146,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             (COL_NEXT_UTXO_ID_AFTER, F::ONE),
             (COL_NEXT_UTXO_ID_BEFORE, -F::ONE),
             (COL_SEL_NEW_UTXO, -F::ONE),
+            (layout::COL_SEL_SET_STORAGE, -F::ONE),
         ]);
     });
 
@@ -135,7 +158,10 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         b.push_row(
             [(COL_SEL_RETURN, F::ONE)],
             [(COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE)],
-            [(COL_RESOURCE_RESOLVER_WRITE, F::ONE)],
+            [
+                (COL_RESOURCE_RESOLVER_WRITE, F::ONE),
+                (layout::COL_SEL_SET_STORAGE, -F::ONE),
+            ],
         );
     });
 
@@ -143,12 +169,15 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         b.push_linear_zero([
             (COL_METHOD_LOOKUP, F::ONE),
             (Opcode::RegisterMethod.selector(), -F::ONE),
+            (Opcode::PreloadMethod.selector(), -F::ONE),
             (Opcode::CallMethod.selector(), -F::ONE),
+            (Opcode::ReadAbi.selector(), -F::ONE),
         ]);
         b.push_linear_zero([
             (COL_ENABLED_METHOD_LOG_LEN_AFTER, F::ONE),
             (COL_ENABLED_METHOD_LOG_LEN_BEFORE, -F::ONE),
             (Opcode::RegisterMethod.selector(), -F::ONE),
+            (Opcode::PreloadMethod.selector(), -F::ONE),
         ]);
     });
 
@@ -203,13 +232,13 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             });
     });
 
-    b.with_tag(always("curr mul stride (8)"), |b| {
-        COL_CURR_BEFORE_STRIDE_8
+    b.with_tag(always("event owner mul stride (8)"), |b| {
+        COL_EVENT_OWNER_STRIDE_8
             .iter()
             .enumerate()
             .for_each(|(i, col)| {
                 b.push_linear_zero([
-                    (COL_CURR_BEFORE, F::new(8)),
+                    (layout::COL_EVENT_OWNER, F::new(8)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);
@@ -544,9 +573,13 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         ),
         (COL_RESOURCE_RESOLVER_VALUE, COL_CURR_BEFORE),
     ] {
-        b.push_gated_linear_zero(
-            COL_RESOURCE_RESOLVER_WRITE,
+        b.push_row(
+            [
+                (COL_RESOURCE_RESOLVER_WRITE, F::ONE),
+                (layout::COL_SEL_SET_STORAGE, -F::ONE),
+            ],
             [(resolver_column, F::ONE), (pending_column, -F::ONE)],
+            [],
         );
     }
 }
