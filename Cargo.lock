@@ -4050,6 +4050,7 @@ dependencies = [
  "starstream-runtime-next",
  "starstream-types",
  "thiserror 2.0.17",
+ "tokio",
  "tracing",
  "wasm-encoder 0.254.0",
  "wasmparser 0.254.0",

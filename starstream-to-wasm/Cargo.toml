@@ -23,3 +23,4 @@ wasmtime = { workspace = true, default-features = true }
 wit-component.workspace = true
 starstream-runtime-next.workspace = true
 tracing = { workspace = true, features = ["attributes"] }
+tokio = { version = "1.47.1", features = ["full"] }

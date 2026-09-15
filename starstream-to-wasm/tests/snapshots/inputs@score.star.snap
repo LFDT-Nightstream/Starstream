@@ -3377,3 +3377,82 @@ package starstream:self {
     }
   }
 }
+
+==== Test: A Simple Example ====
+Ctx {
+    table: [0, 1],
+    events: [],
+    outputs: [
+        Utxo {
+            component: Component { .. },
+            instance: Instance {
+                id: StoreComponentInstanceId {
+                    store_id: StoreId(
+                        39,
+                    ),
+                    instance: ComponentInstanceId(
+                        1,
+                    ),
+                },
+            },
+            instance_idx: ComponentExportIndex {
+                id: CompiledModuleId(
+                    38,
+                ),
+                index: ExportIndex(
+                    12,
+                ),
+            },
+            resource: ResourceAny {
+                idx: HostResourceIndex(
+                    4294967297,
+                ),
+                ty: ResourceType {
+                    kind: Guest {
+                        store: StoreId(
+                            39,
+                        ),
+                        instance: 140463484059440,
+                        id: DefinedResourceIndex(
+                            0,
+                        ),
+                    },
+                },
+                owned: true,
+            },
+            cx: Mutex {
+                data: UtxoCtx {
+                    methods: [
+                        (
+                            9984741223472054651,
+                            3777191895585416912,
+                            11414430493733454782,
+                            17853027721887758589,
+                        ),
+                        (
+                            10031671596645923877,
+                            5859691412821126436,
+                            14636224297006305312,
+                            18400238348769808647,
+                        ),
+                        (
+                            10486967187806387020,
+                            13073113330981563051,
+                            14419176846782403470,
+                            15804774841702521566,
+                        ),
+                        (
+                            5384737671178596162,
+                            7822374597054249491,
+                            11449494298339117153,
+                            15762863519083182186,
+                        ),
+                    ],
+                    dropped: false,
+                },
+                poisoned: false,
+                ..
+            },
+        },
+    ],
+}

@@ -292,6 +292,11 @@ fn multifile() {
 }
 
 fn run_tests(output: &mut String, component_wasm: &[u8]) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(run_tests_inner(output, component_wasm));
+}
+
+async fn run_tests_inner(output: &mut String, component_wasm: &[u8]) {
     let mut config = wasmtime::Config::new();
     config.wasm_component_model_implements(true);
     let engine = wasmtime::Engine::new(&config).expect("failed to create wasmtime Engine");
@@ -321,6 +326,19 @@ fn run_tests(output: &mut String, component_wasm: &[u8]) {
             description
         };
         writeln!(output, "==== Test: {description} ====").unwrap();
-        writeln!(output, "{:?}", contract.get_coordination_script(name)).unwrap();
+        // For now, load tests like coordination scripts.
+        let script = contract
+            .get_coordination_script(name)
+            .expect("test is not a valid coordination script");
+
+        let mut store = wasmtime::Store::new(&engine, Ctx::default());
+
+        let instance = contract.instantiate(&mut store).await.expect("instantiate");
+        instance
+            .call_coordination_script(&mut store, &script, &[], &mut [])
+            .await
+            .expect("call_coordination_script");
+
+        writeln!(output, "{:#?}", store.into_data()).unwrap();
     }
 }
