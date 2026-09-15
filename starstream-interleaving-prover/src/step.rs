@@ -5,7 +5,7 @@ use p3_field::PrimeCharacteristicRing;
 use starstream_interleaving_spec::{MethodHash, ResourceHandle, Step, Trace};
 
 use crate::{
-    ivc_state::{CoroutineId, CurrPhase},
+    ivc_state::{CoroutineId, CurrPhase, TxPhase},
     opcode::Opcode,
 };
 
@@ -14,11 +14,17 @@ fn encode_method_hash(method: MethodHash) -> [F; 8] {
 }
 
 pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
+    normalize_with_phase(trace, TxPhase::Running)
+}
+
+pub(crate) fn normalize_with_phase(trace: &Trace, phase: TxPhase) -> NormalizedTrace {
     let mut method_table = trace
         .0
         .iter()
         .filter_map(|step| match step {
             Step::RegisterMethod { method }
+            | Step::PreloadMethod { method }
+            | Step::ReadAbi { method }
             | Step::CallMethod { method, .. }
             | Step::EnterMethod { method, .. } => Some(*method),
             _ => None,
@@ -39,6 +45,13 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         .collect::<HashMap<_, _>>();
 
     let mut wit: Vec<Wit> = vec![];
+    let mut tx = TransactionState {
+        phase,
+        last_input_has_abi: true,
+        output_cursor: 0,
+        abi_read_remaining: 0,
+        abi_read_ordinal: 0,
+    };
     let mut curr = CoroutineId::Coord(1);
     let mut curr_phase = CurrPhase::Executing;
     // Quint's initial coordinator frame occupies the first stack slot.
@@ -48,15 +61,38 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
     let mut pending_ctor_key = None;
     let mut resource_resolver = HashMap::new();
     let mut abi_generations: HashMap<CoroutineId, u32> = HashMap::new();
-    let mut enabled_method_log: Vec<(CoroutineId, u32, u32)> = vec![];
+    let mut abi_method_counts: HashMap<CoroutineId, u32> = HashMap::new();
+    let mut enabled_method_log: Vec<(CoroutineId, u32, u32, u32)> = vec![];
+    // Preserve first exact-entry / last membership lookup, including duplicates.
+    let mut log_address_by_entry = HashMap::new();
+    let mut last_log_membership = HashMap::new();
     let mut commitments = HashMap::new();
 
     for step in &trace.0 {
         let opcode = Opcode::from(step);
+        let tx_before = tx;
+        if opcode.is_execution() {
+            tx.phase = TxPhase::Running;
+        }
+        let boundary_utxo = match opcode {
+            Opcode::SetStorage => CoroutineId::Utxo(next_utxo_id),
+            Opcode::PreloadMethod => CoroutineId::Utxo(next_utxo_id.saturating_sub(1)),
+            Opcode::GetStorage | Opcode::SkipConsumed => CoroutineId::Utxo(tx.output_cursor),
+            Opcode::ReadAbi => CoroutineId::Utxo(tx.output_cursor.saturating_sub(1)),
+            _ => CoroutineId::Coord(0),
+        };
         let curr_before = curr;
+        let event_owner = if matches!(opcode, Opcode::SetStorage | Opcode::GetStorage) {
+            boundary_utxo
+        } else if opcode.has_event() {
+            curr_before
+        } else {
+            CoroutineId::Coord(0)
+        };
         let commitment_before = commitments
-            .get(&curr_before)
+            .get(&event_owner)
             .copied()
+            .filter(|_| opcode.has_event())
             .unwrap_or([F::ZERO; 4]);
         let mut commitment_after = commitment_before;
         for block in starstream_interleaving_spec::events::encode(step) {
@@ -65,7 +101,9 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 block.map(F::new),
             );
         }
-        commitments.insert(curr_before, commitment_after);
+        if opcode.has_event() {
+            commitments.insert(event_owner, commitment_after);
+        }
         let curr_phase_before = curr_phase;
         let next_utxo_id_before = next_utxo_id;
         let enabled_method_log_len_before =
@@ -102,6 +140,52 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let mut enabled_method_log_generation = 0;
 
         match step {
+            Step::ReadAbi { method } => {
+                method_hash = Some(encode_method_hash(*method));
+                method_index = method_indices[method];
+                abi_generation_address = boundary_utxo;
+                abi_generation_before = abi_generations.get(&boundary_utxo).copied().unwrap_or(0);
+                enabled_method_log_utxo = boundary_utxo;
+                enabled_method_log_generation = abi_generation_before;
+                enabled_method_log_address = log_address_by_entry
+                    .get(&(
+                        boundary_utxo,
+                        method_index,
+                        abi_generation_before,
+                        tx.abi_read_ordinal,
+                    ))
+                    .copied()
+                    .unwrap_or(enabled_method_log_len_before);
+                tx.abi_read_ordinal = tx.abi_read_ordinal.wrapping_add(1);
+                tx.abi_read_remaining = tx.abi_read_remaining.wrapping_sub(1);
+            }
+            Step::SetStorage { storage, resource } => {
+                expected_arguments = Some(storage.words32().map(|x| F::new(u64::from(x))).to_vec());
+                next_utxo_id = next_utxo_id
+                    .checked_add(1)
+                    .expect("UTXO allocator fits u32");
+                resolver_address = (curr_before, resource.0);
+                resolver_value = boundary_utxo;
+                resolver_write = true;
+                resource_resolver.insert(resolver_address, resolver_value);
+                tx.last_input_has_abi = false;
+            }
+            Step::FinishTransaction => tx.phase = TxPhase::Finished,
+            Step::GetStorage { storage } => {
+                tx.abi_read_remaining = abi_method_counts.get(&boundary_utxo).copied().unwrap_or(0);
+                tx.abi_read_ordinal = 0;
+                expected_result = Some(storage.0.words32().map(|x| F::new(u64::from(x))).to_vec());
+                tx.output_cursor = tx
+                    .output_cursor
+                    .checked_add(1)
+                    .expect("output cursor fits u32");
+            }
+            Step::SkipConsumed => {
+                tx.output_cursor = tx
+                    .output_cursor
+                    .checked_add(1)
+                    .expect("output cursor fits u32");
+            }
             Step::NewUtxo {
                 arguments,
                 resource,
@@ -141,15 +225,34 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     .expect("the UTXO ABI generation fits in u32");
                 abi_generations.insert(curr_before, abi_generation_after);
             }
-            Step::RegisterMethod { method } => {
+            Step::RegisterMethod { method } | Step::PreloadMethod { method } => {
+                let owner = if opcode == Opcode::PreloadMethod {
+                    tx.last_input_has_abi = true;
+                    boundary_utxo
+                } else {
+                    curr_before
+                };
                 method_hash.replace(encode_method_hash(*method));
                 method_index = method_indices[method];
-                abi_generation_address = curr_before;
-                abi_generation_before = abi_generations.get(&curr_before).copied().unwrap_or(0);
+                abi_generation_address = owner;
+                abi_generation_before = abi_generations.get(&owner).copied().unwrap_or(0);
                 enabled_method_log_address = enabled_method_log_len_before;
-                enabled_method_log_utxo = curr_before;
+                enabled_method_log_utxo = owner;
                 enabled_method_log_generation = abi_generation_before;
-                enabled_method_log.push((curr_before, method_index, abi_generation_before));
+                let entry = (
+                    owner,
+                    method_index,
+                    abi_generation_before,
+                    abi_method_counts.get(&owner).copied().unwrap_or(0),
+                );
+                log_address_by_entry
+                    .entry(entry)
+                    .or_insert(enabled_method_log_address);
+                last_log_membership.insert(
+                    (owner, method_index, abi_generation_before),
+                    enabled_method_log_address,
+                );
+                enabled_method_log.push(entry);
             }
             Step::Return { result } => {
                 expected_result.replace(
@@ -216,10 +319,9 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 abi_generation_before = abi_generations.get(&target).copied().unwrap_or(0);
                 enabled_method_log_utxo = target;
                 enabled_method_log_generation = abi_generation_before;
-                enabled_method_log_address = enabled_method_log
-                    .iter()
-                    .rposition(|entry| *entry == (target, method_index, abi_generation_before))
-                    .map(|index| u32::try_from(index).expect("the enabled-method log fits in u32"))
+                enabled_method_log_address = last_log_membership
+                    .get(&(target, method_index, abi_generation_before))
+                    .copied()
                     .unwrap_or(enabled_method_log_len_before);
             }
             Step::EnterMethod { method, arguments } => {
@@ -236,7 +338,30 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
 
         curr = curr_after;
 
+        let mut abi_method_count_before = 0;
+        let mut abi_method_count_after = 0;
+        if opcode.appends_method() || opcode == Opcode::YieldBegin {
+            abi_method_count_before = abi_method_counts
+                .get(&abi_generation_address)
+                .copied()
+                .unwrap_or(0);
+            if opcode.appends_method() {
+                // Keep invalid counts representable: the declared range rejects overflow.
+                abi_method_count_after = abi_method_count_before
+                    .checked_add(1)
+                    .expect("registration count fits u32");
+            }
+            abi_method_counts.insert(abi_generation_address, abi_method_count_after);
+        } else if opcode.scans_output() {
+            abi_method_count_before = abi_method_counts.get(&boundary_utxo).copied().unwrap_or(0);
+        }
         wit.push(Wit {
+            abi_method_count_before,
+            abi_method_count_after,
+            tx_before,
+            tx_after: tx,
+            boundary_utxo,
+            event_owner,
             commitment_before,
             opcode,
             expected_arguments,
@@ -282,6 +407,10 @@ pub(crate) struct NormalizedTrace {
 }
 
 pub(crate) struct Wit {
+    pub(crate) tx_before: TransactionState,
+    pub(crate) tx_after: TransactionState,
+    pub(crate) boundary_utxo: CoroutineId,
+    pub(crate) event_owner: CoroutineId,
     pub(crate) commitment_before: [F; 4],
     pub(crate) opcode: Opcode,
     pub(crate) expected_arguments: Option<Vec<F>>,
@@ -307,10 +436,21 @@ pub(crate) struct Wit {
     pub(crate) resolver_write: bool,
     pub(crate) abi_generation_address: CoroutineId,
     pub(crate) abi_generation_before: u32,
+    pub(crate) abi_method_count_before: u32,
+    pub(crate) abi_method_count_after: u32,
     pub(crate) abi_generation_after: u32,
     pub(crate) enabled_method_log_address: u32,
     pub(crate) enabled_method_log_utxo: CoroutineId,
     pub(crate) enabled_method_log_generation: u32,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct TransactionState {
+    pub(crate) phase: TxPhase,
+    pub(crate) last_input_has_abi: bool,
+    pub(crate) output_cursor: u32,
+    pub(crate) abi_read_remaining: u32,
+    pub(crate) abi_read_ordinal: u32,
 }
 
 impl Wit {
@@ -318,6 +458,10 @@ impl Wit {
     /// assigned zero. It goes through the same column assigner as execution.
     pub(crate) fn padding_after(&self) -> Self {
         Self {
+            tx_before: self.tx_after,
+            tx_after: self.tx_after,
+            boundary_utxo: CoroutineId::Coord(0),
+            event_owner: CoroutineId::Coord(0),
             commitment_before: [F::ZERO; 4],
             opcode: Opcode::Padding,
             expected_arguments: None,
@@ -343,6 +487,8 @@ impl Wit {
             resolver_write: false,
             abi_generation_address: CoroutineId::Coord(0),
             abi_generation_before: 0,
+            abi_method_count_before: 0,
+            abi_method_count_after: 0,
             abi_generation_after: 0,
             enabled_method_log_address: 0,
             enabled_method_log_utxo: CoroutineId::Coord(0),

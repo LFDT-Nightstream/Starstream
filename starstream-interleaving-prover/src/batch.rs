@@ -194,7 +194,7 @@ impl Batch {
                 for slot in 0..self.size {
                     let assigned;
                     let row = if let Some(step) = chunk.get(slot) {
-                        if step.opcode.is_execution() {
+                        if step.opcode != crate::opcode::Opcode::Padding {
                             origins.push(Some(trace_step));
                             trace_step += 1;
                         } else {
@@ -347,11 +347,46 @@ fn verify_sat_inner(
     batch_size: usize,
     expected: Option<&crate::TraceCommitments>,
 ) -> Result<(), Error> {
-    let batch = Batch::new(batch_size)?;
     let normalized = normalize(trace);
+    verify_normalized(normalized, batch_size, expected, None)
+}
+
+pub(crate) fn verify_transaction(
+    trace: &Trace,
+    batch_size: usize,
+    statement: &starstream_interleaving_spec::TransactionStatement,
+    commitments: &crate::TraceCommitments,
+) -> Result<(), Error> {
+    let normalized = crate::step::normalize_with_phase(trace, crate::ivc_state::TxPhase::Loading);
+    verify_normalized(normalized, batch_size, Some(commitments), Some(statement))
+}
+
+fn verify_normalized(
+    normalized: crate::step::NormalizedTrace,
+    batch_size: usize,
+    expected: Option<&crate::TraceCommitments>,
+    statement: Option<&starstream_interleaving_spec::TransactionStatement>,
+) -> Result<(), Error> {
+    let batch = Batch::new(batch_size)?;
     let preload = crate::memory::preload_tables(&normalized.method_table);
     let packed = batch.pack(&normalized.steps);
     batch.check(&packed, &preload)?;
+    if let Some(statement) = statement {
+        let rows = packed
+            .origins
+            .iter()
+            .enumerate()
+            .filter(|(_, origin)| origin.is_some())
+            .map(|(index, _)| {
+                (0..batch.single_width)
+                    .map(|column| {
+                        packed.rows[index / batch.size][column * batch.size + index % batch.size]
+                    })
+                    .collect()
+            })
+            .collect::<Vec<Vec<F>>>();
+        crate::transaction::check_statement(&rows, statement)?;
+    }
     if let Some(expected) = expected {
         check_commitment_statement(&batch, &packed, expected)?;
     }
@@ -361,6 +396,14 @@ fn verify_sat_inner(
             .map(|c| row[c * batch.size + batch.size - 1])
             .collect()
     }));
+    if statement.is_none()
+        && terminal.last().is_some_and(|row: &Vec<F>| {
+            row[crate::ccs::layout::COL_TX_PHASE_AFTER]
+                != F::new(crate::ivc_state::TxPhase::Running as u64)
+        })
+    {
+        return Err(Unsatisfied::TransactionStatement.into());
+    }
     crate::verify_execution_statement(&terminal)
 }
 
@@ -377,8 +420,12 @@ fn check_commitment_statement(
         }
         let row = &packed.rows[index / batch.size];
         let at = |column: usize| row[column * batch.size + index % batch.size].as_canonical_u64();
+        if at(crate::ccs::layout::COL_EVENT_ACTIVE) == 0 {
+            continue;
+        }
         actual.insert(
-            u32::try_from(at(COL_CURR_BEFORE)).expect("range-checked coroutine id"),
+            u32::try_from(at(crate::ccs::layout::COL_EVENT_OWNER))
+                .expect("range-checked coroutine id"),
             COL_OUT.map(at),
         );
     }

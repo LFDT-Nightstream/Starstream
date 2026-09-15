@@ -23,7 +23,13 @@ fn kind(op: Opcode) -> Option<EventKind> {
         Opcode::Return => EventKind::Return,
         Opcode::CallMethod => EventKind::CallMethod,
         Opcode::EnterMethod => EventKind::EnterMethod,
-        Opcode::Padding => return None,
+        Opcode::SetStorage => EventKind::SetStorage,
+        Opcode::GetStorage => EventKind::GetStorage,
+        Opcode::Padding
+        | Opcode::ReadAbi
+        | Opcode::PreloadMethod
+        | Opcode::SkipConsumed
+        | Opcode::FinishTransaction => return None,
     })
 }
 

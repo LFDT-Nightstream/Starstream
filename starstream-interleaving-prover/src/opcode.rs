@@ -1,7 +1,4 @@
-use crate::ccs::layout::{
-    COL_SEL_CALL_METHOD, COL_SEL_ENTER_CONSTRUCTOR, COL_SEL_ENTER_METHOD, COL_SEL_NEW_UTXO,
-    COL_SEL_PADDING, COL_SEL_REGISTER_METHOD, COL_SEL_RETURN, COL_SEL_YIELD_BEGIN,
-};
+use crate::ccs::layout::*;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 #[repr(u8)]
@@ -14,11 +11,23 @@ pub(crate) enum Opcode {
     CallMethod,
     EnterMethod,
     Padding,
+    SetStorage,
+    PreloadMethod,
+    GetStorage,
+    SkipConsumed,
+    FinishTransaction,
+    ReadAbi,
 }
 
 impl From<&starstream_interleaving_spec::Step> for Opcode {
     fn from(value: &starstream_interleaving_spec::Step) -> Self {
         match value {
+            starstream_interleaving_spec::Step::ReadAbi { .. } => Self::ReadAbi,
+            starstream_interleaving_spec::Step::SetStorage { .. } => Self::SetStorage,
+            starstream_interleaving_spec::Step::PreloadMethod { .. } => Self::PreloadMethod,
+            starstream_interleaving_spec::Step::GetStorage { .. } => Self::GetStorage,
+            starstream_interleaving_spec::Step::SkipConsumed => Self::SkipConsumed,
+            starstream_interleaving_spec::Step::FinishTransaction => Self::FinishTransaction,
             starstream_interleaving_spec::Step::NewUtxo {
                 arguments: _,
                 resource: _,
@@ -47,7 +56,28 @@ impl From<&starstream_interleaving_spec::Step> for Opcode {
 
 impl Opcode {
     pub fn is_execution(&self) -> bool {
-        !matches!(self, Self::Padding)
+        matches!(
+            self,
+            Self::NewUtxo
+                | Self::EnterConstructor
+                | Self::YieldBegin
+                | Self::RegisterMethod
+                | Self::Return
+                | Self::CallMethod
+                | Self::EnterMethod
+        )
+    }
+
+    pub fn appends_method(&self) -> bool {
+        matches!(self, Self::RegisterMethod | Self::PreloadMethod)
+    }
+
+    pub fn has_event(&self) -> bool {
+        self.is_execution() || matches!(self, Self::SetStorage | Self::GetStorage)
+    }
+
+    pub fn scans_output(&self) -> bool {
+        matches!(self, Self::GetStorage | Self::SkipConsumed)
     }
 
     pub fn phase_after(&self, before: crate::ivc_state::CurrPhase) -> crate::ivc_state::CurrPhase {
@@ -57,7 +87,14 @@ impl Opcode {
             Self::CallMethod => CurrPhase::MethodEnterPending,
             Self::EnterConstructor | Self::YieldBegin => CurrPhase::Yield,
             Self::EnterMethod | Self::Return => CurrPhase::Executing,
-            Self::RegisterMethod | Self::Padding => before,
+            Self::RegisterMethod
+            | Self::Padding
+            | Self::SetStorage
+            | Self::PreloadMethod
+            | Self::GetStorage
+            | Self::SkipConsumed
+            | Self::FinishTransaction => before,
+            Self::ReadAbi => before,
         }
     }
 
@@ -71,64 +108,40 @@ impl Opcode {
             Opcode::CallMethod,
             Opcode::EnterMethod,
             Opcode::Padding,
+            Self::SetStorage,
+            Self::PreloadMethod,
+            Self::GetStorage,
+            Self::SkipConsumed,
+            Self::FinishTransaction,
+            Self::ReadAbi,
         ]
     }
 
     pub fn pushes_to_call_stack(&self) -> bool {
-        match self {
-            Opcode::Padding => false,
-            Opcode::NewUtxo => true,
-            Opcode::EnterConstructor => false,
-            Opcode::YieldBegin => false,
-            Opcode::RegisterMethod => false,
-            Opcode::Return => false,
-            Opcode::CallMethod => true,
-            Opcode::EnterMethod => false,
-        }
+        matches!(self, Self::NewUtxo | Self::CallMethod)
     }
 
     pub fn pops_from_call_stack(&self) -> bool {
-        match self {
-            Opcode::Padding => false,
-            Opcode::NewUtxo => false,
-            Opcode::EnterConstructor => false,
-            Opcode::YieldBegin => false,
-            Opcode::RegisterMethod => false,
-            Opcode::Return => true,
-            Opcode::CallMethod => false,
-            Opcode::EnterMethod => false,
-        }
+        matches!(self, Self::Return)
     }
 
     pub fn peeks_call_stack_top(&self) -> bool {
-        match self {
-            Opcode::Padding => false,
-            Opcode::NewUtxo => false,
-            Opcode::EnterConstructor => true,
-            Opcode::YieldBegin => false,
-            Opcode::RegisterMethod => false,
-            Opcode::Return => false,
-            Opcode::CallMethod => false,
-            Opcode::EnterMethod => true,
-        }
+        matches!(self, Self::EnterConstructor | Self::EnterMethod)
     }
 
     /// Whether this opcode transfers control to `COL_CALL_TARGET`.
     pub fn switches_curr(&self) -> bool {
-        match self {
-            Opcode::Padding => false,
-            Opcode::NewUtxo => true,
-            Opcode::EnterConstructor => false,
-            Opcode::YieldBegin => false,
-            Opcode::RegisterMethod => false,
-            Opcode::Return => true,
-            Opcode::CallMethod => true,
-            Opcode::EnterMethod => false,
-        }
+        self.pushes_to_call_stack() || self.pops_from_call_stack()
     }
 
     pub fn selector(&self) -> usize {
         match self {
+            Self::ReadAbi => COL_SEL_READ_ABI,
+            Self::SetStorage => COL_SEL_SET_STORAGE,
+            Self::PreloadMethod => COL_SEL_PRELOAD_METHOD,
+            Self::GetStorage => COL_SEL_GET_STORAGE,
+            Self::SkipConsumed => COL_SEL_SKIP_CONSUMED,
+            Self::FinishTransaction => COL_SEL_FINISH_TRANSACTION,
             Opcode::Padding => COL_SEL_PADDING,
             Opcode::NewUtxo => COL_SEL_NEW_UTXO,
             Opcode::EnterConstructor => COL_SEL_ENTER_CONSTRUCTOR,
