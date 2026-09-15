@@ -63,8 +63,11 @@ fn initial_state() -> Vec<F> {
         .map(|link| match link.next_step_column {
             COL_CURR_BEFORE => crate::ivc_state::CoroutineId::Coord(1).field(),
             COL_CURR_PHASE_BEFORE => F::from_u8(crate::ivc_state::CurrPhase::Executing.value()),
-            COL_CALL_SP_BEFORE => F::ONE,
+            COL_CALL_SP_BEFORE | COL_TX_PHASE_BEFORE | COL_LAST_INPUT_HAS_ABI_BEFORE => F::ONE,
             COL_NEXT_UTXO_ID_BEFORE
+            | COL_ABI_READ_REMAINING_BEFORE
+            | COL_ABI_READ_ORDINAL_BEFORE
+            | COL_OUTPUT_CURSOR_BEFORE
             | COL_ENABLED_METHOD_LOG_LEN_BEFORE
             | COL_PENDING_CTOR_PRESENT_BEFORE
             | COL_PENDING_CTOR_HOLDER_BEFORE
@@ -91,6 +94,8 @@ enum FinalClaimError {
     NonterminalStack { actual: F },
     #[error("terminal coroutine must be a coordinator, got packed id {actual:?}")]
     TerminalCoroutineNotCoordinator { actual: F },
+    #[error("execution-only proof ended in transaction phase {actual:?}")]
+    TransactionPhase { actual: F },
     #[error("final-state digest mismatch")]
     DigestMismatch,
 }
@@ -109,6 +114,9 @@ fn check_final_claim(digest: [u8; 32], claim: &[F]) -> Result<(), FinalClaimErro
     }
     for (link, value) in links.iter().zip(claim) {
         match link.previous_step_column {
+            COL_TX_PHASE_AFTER if *value != F::new(crate::ivc_state::TxPhase::Running as u64) => {
+                return Err(FinalClaimError::TransactionPhase { actual: *value });
+            }
             COL_CALL_SP_AFTER if *value != F::ZERO => {
                 return Err(FinalClaimError::NonterminalStack { actual: *value });
             }

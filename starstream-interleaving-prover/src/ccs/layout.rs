@@ -20,6 +20,16 @@ define_column_region! {
         COL_SEL_CALL_METHOD: Boolean => "selector for the CallMethod action",
         COL_SEL_ENTER_METHOD: Boolean => "selector for the EnterMethod action",
         COL_SEL_PADDING: Boolean => "state-preserving circuit-only padding slot",
+        COL_SEL_SET_STORAGE: Boolean => "load an input UTXO",
+        COL_SEL_PRELOAD_METHOD: Boolean => "load a ledger ABI entry",
+        COL_SEL_GET_STORAGE: Boolean => "export the next surviving UTXO",
+        COL_SEL_SKIP_CONSUMED: Boolean => "skip the next consumed UTXO",
+        COL_SEL_FINISH_TRANSACTION: Boolean => "finish the output scan",
+        COL_METHOD_APPEND: Boolean => "RegisterMethod or PreloadMethod",
+        COL_EVENT_ACTIVE: Boolean => "this row emits a program event",
+        COL_EVENT_OWNER: U32 => "packed instance owning this program event",
+        COL_BOUNDARY_UTXO: U32 => "packed UTXO ID for loading or the output scan",
+        COL_OUTPUT_REMAINING: U32 => "next_utxo_id - output_cursor - 1 on output scans",
         COL_CURR_BEFORE: U32 => "packed coroutine id that has the turn",
         COL_CURR_AFTER: U32 => "packed coroutine id that has the turn in the next step",
         COL_CALL_STACK_PUSH: Boolean => "true when a call happens and we need to keep track of the caller's context",
@@ -37,14 +47,22 @@ define_column_region! {
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
         COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: call-stack expected-method value and method-table ROM lookup value",
         COL_METHOD_INDEX: (Bits(29)) => "trace-local compact index for the method hash",
-        COL_METHOD_LOOKUP: Boolean => "true when RegisterMethod or CallMethod resolves a method hash",
+        COL_METHOD_LOOKUP: Boolean => "RegisterMethod, PreloadMethod, CallMethod or ReadAbi resolves a method hash",
         COL_METHOD_TABLE_ADDR: [U32; 8] => "method_index * 8 + hash limb offset",
         COL_CALL_TARGET: U32 => "packed coroutine id that gets control in the next step",
-        COL_UTXO_LIFECYCLE_ADDR: U32 => "key for lifecycle read/write (can be target or curr)",
-        COL_UTXO_LIFECYCLE_VALUE: Byte => "value for lifecycle read/write (can be target or curr)",
-        COL_UTXO_LIFECYCLE_WRITE: Boolean => "true (1) if the current opcode writes to the lifecycle map (utxo_id -> live|dead)",
-        COL_UTXO_LIFECYCLE_READ: Boolean => "true (1) if the current opcode reads the lifecycle map (utxo_id -> live|dead)",
-        COL_ENABLED_METHOD_LOG_ADDR: U32 => "append-log entry written by RegisterMethod or selected by CallMethod",
+        COL_ABI_METHOD_COUNT_ADDR: U32 => "packed UTXO key for current-generation registration count",
+        COL_SEL_READ_ABI: Boolean => "host-synthesized output ABI enumeration",
+        COL_ABI_READ_REMAINING_BEFORE: (Bits(8)) => "unread registrations of the last exported UTXO",
+        COL_ABI_READ_REMAINING_AFTER: (Bits(8)) => "remaining registrations after GetStorage loads the count or ReadAbi decrements it",
+        COL_ABI_READ_ORDINAL_BEFORE: (Bits(8)) => "next output ABI ordinal",
+        COL_ABI_READ_ORDINAL_AFTER: (Bits(8)) => "output ABI ordinal after this row",
+        COL_ABI_METHOD_COUNT_BEFORE: (Bits(8)) => "registration count before update, or final count on output reads; includes duplicates",
+        COL_ABI_METHOD_COUNT_AFTER: (Bits(8)) => "registration count after append (+1) or YieldBegin (0)",
+        COL_ABI_METHOD_COUNT_INVERSE: Field => "inverse proving a surviving output has a nonzero registration count",
+        COL_ENABLED_METHOD_LOG_ORDINAL: (Bits(8)) => "zero-based registration ordinal: written on append, read during output ABI enumeration",
+        COL_ABI_METHOD_COUNT_WRITE: Boolean => "RegisterMethod/PreloadMethod increments count; YieldBegin clears it",
+        COL_ABI_METHOD_COUNT_READ: Boolean => "GetStorage/SkipConsumed reads final liveness",
+        COL_ENABLED_METHOD_LOG_ADDR: U32 => "append-log entry written by RegisterMethod/PreloadMethod or selected by CallMethod",
         COL_ENABLED_METHOD_LOG_UTXO: U32 => "packed UTXO id stored in the enabled-method log entry",
         COL_ENABLED_METHOD_LOG_GENERATION: U32 => "ABI generation stored in the enabled-method log entry",
         COL_ABI_GENERATION_ADDR: U32 => "packed UTXO id whose current ABI generation is accessed",
@@ -54,11 +72,11 @@ define_column_region! {
         COL_RESOURCE_RESOLVER_ADDR_CID: U32 => "packed holder coroutine id in the resource key",
         COL_RESOURCE_RESOLVER_ADDR_HANDLE: U32 => "resource handle in the resource key",
         COL_RESOURCE_RESOLVER_VALUE: U32 => "the packed coroutine id assigned to the resource at (cid, handle)",
-        COL_RESOURCE_RESOLVER_WRITE: Boolean => "1 if writing to the resource resolver map (on return)",
+        COL_RESOURCE_RESOLVER_WRITE: Boolean => "SetStorage or constructor Return writes a resource binding",
         COL_RESOURCE_RESOLVER_READ: Boolean => "1 if reading from the resource resolver map (on call_method)",
 
         // TODO: limit curr side so that this doesn't overflow
-        COL_CURR_BEFORE_STRIDE_8: [U32; 8] => "curr * 8 + i for trace digest RAM",
+        COL_EVENT_OWNER_STRIDE_8: [U32; 8] => "event_owner * 8 + i for trace digest RAM",
 
 
     ]
@@ -71,6 +89,12 @@ define_column_region! {
     families: pub IVC_COLUMN_FAMILIES,
     indices: pub,
     columns: [
+        COL_TX_PHASE_BEFORE: (Bits(2)) => "Loading=0, Executing (including output processing)=1, Finished=2",
+        COL_TX_PHASE_AFTER: (Bits(2)) => "transaction phase after this row",
+        COL_LAST_INPUT_HAS_ABI_BEFORE: Boolean => "last loaded UTXO has a nonempty ABI (or none has been loaded yet)",
+        COL_LAST_INPUT_HAS_ABI_AFTER: Boolean => "last loaded UTXO has a nonempty ABI after this row (or none has been loaded yet)",
+        COL_OUTPUT_CURSOR_BEFORE: U32 => "next UTXO ID to finalize",
+        COL_OUTPUT_CURSOR_AFTER: U32 => "next UTXO ID after this row",
         COL_CURR_PHASE_BEFORE: (Bits(2)) => "internal phase of curr for enforcing cross-step consistency",
         COL_CURR_PHASE_AFTER: (Bits(2)) => "internal phase of curr in the next step",
         COL_CALL_SP_BEFORE: U32 => "call stack pointer before",
@@ -109,7 +133,8 @@ define_column_region! {
     ]
 }
 
-pub const SELECTORS: [usize; 8] = [
+pub const SELECTORS: [usize; 14] = [
+    COL_SEL_READ_ABI,
     COL_SEL_NEW_UTXO,
     COL_SEL_ENTER_CONSTRUCTOR,
     COL_SEL_YIELD_BEGIN,
@@ -118,6 +143,11 @@ pub const SELECTORS: [usize; 8] = [
     COL_SEL_CALL_METHOD,
     COL_SEL_ENTER_METHOD,
     COL_SEL_PADDING,
+    COL_SEL_SET_STORAGE,
+    COL_SEL_PRELOAD_METHOD,
+    COL_SEL_GET_STORAGE,
+    COL_SEL_SKIP_CONSUMED,
+    COL_SEL_FINISH_TRANSACTION,
 ];
 
 pub(crate) fn range_check_layout() -> &'static RangeCheckLayout {

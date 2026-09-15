@@ -8,15 +8,49 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
 
     wit[COL_ONE] = F::ONE;
 
-    match input.opcode {
-        Opcode::NewUtxo => wit[COL_SEL_NEW_UTXO] = F::ONE,
-        Opcode::EnterConstructor => wit[COL_SEL_ENTER_CONSTRUCTOR] = F::ONE,
-        Opcode::YieldBegin => wit[COL_SEL_YIELD_BEGIN] = F::ONE,
-        Opcode::RegisterMethod => wit[COL_SEL_REGISTER_METHOD] = F::ONE,
-        Opcode::Return => wit[COL_SEL_RETURN] = F::ONE,
-        Opcode::CallMethod => wit[COL_SEL_CALL_METHOD] = F::ONE,
-        Opcode::EnterMethod => wit[COL_SEL_ENTER_METHOD] = F::ONE,
-        Opcode::Padding => wit[COL_SEL_PADDING] = F::ONE,
+    wit[input.opcode.selector()] = F::ONE;
+    wit[COL_EVENT_ACTIVE] = F::from_bool(input.opcode.has_event());
+    wit[COL_EVENT_OWNER] = input.event_owner.field();
+    wit[COL_BOUNDARY_UTXO] = input.boundary_utxo.field();
+    wit[COL_TX_PHASE_BEFORE] = F::new(input.tx_before.phase as u64);
+    wit[COL_TX_PHASE_AFTER] = F::new(input.tx_after.phase as u64);
+    wit[COL_LAST_INPUT_HAS_ABI_BEFORE] = F::from_bool(input.tx_before.last_input_has_abi);
+    wit[COL_LAST_INPUT_HAS_ABI_AFTER] = F::from_bool(input.tx_after.last_input_has_abi);
+    wit[COL_OUTPUT_CURSOR_BEFORE] = F::new(u64::from(input.tx_before.output_cursor));
+    wit[COL_OUTPUT_CURSOR_AFTER] = F::new(u64::from(input.tx_after.output_cursor));
+    wit[COL_ABI_READ_REMAINING_BEFORE] = F::new(u64::from(input.tx_before.abi_read_remaining));
+    wit[COL_ABI_READ_REMAINING_AFTER] = F::new(u64::from(input.tx_after.abi_read_remaining));
+    wit[COL_ABI_READ_ORDINAL_BEFORE] = F::new(u64::from(input.tx_before.abi_read_ordinal));
+    wit[COL_ABI_READ_ORDINAL_AFTER] = F::new(u64::from(input.tx_after.abi_read_ordinal));
+    if input.opcode.scans_output() {
+        wit[COL_OUTPUT_REMAINING] = F::new(u64::from(input.next_utxo_id_before))
+            - F::new(u64::from(input.tx_before.output_cursor))
+            - F::ONE;
+    }
+    wit[COL_METHOD_APPEND] = F::from_bool(input.opcode.appends_method());
+    let count_write = input.opcode.appends_method() || input.opcode == Opcode::YieldBegin;
+    let count_read = input.opcode.scans_output();
+    wit[COL_ABI_METHOD_COUNT_WRITE] = F::from_bool(count_write);
+    wit[COL_ABI_METHOD_COUNT_READ] = F::from_bool(count_read);
+    if count_write || count_read {
+        wit[COL_ABI_METHOD_COUNT_ADDR] = if count_read {
+            input.boundary_utxo.field()
+        } else {
+            input.abi_generation_address.field()
+        };
+        wit[COL_ABI_METHOD_COUNT_BEFORE] = F::new(u64::from(input.abi_method_count_before));
+        wit[COL_ABI_METHOD_COUNT_AFTER] = F::new(u64::from(input.abi_method_count_after));
+    }
+    if input.opcode.appends_method() {
+        wit[COL_ENABLED_METHOD_LOG_ORDINAL] = wit[COL_ABI_METHOD_COUNT_BEFORE];
+    }
+    if input.opcode == Opcode::ReadAbi {
+        wit[COL_ENABLED_METHOD_LOG_ORDINAL] = wit[COL_ABI_READ_ORDINAL_BEFORE];
+    }
+    if input.opcode == Opcode::GetStorage {
+        wit[COL_ABI_METHOD_COUNT_INVERSE] = wit[COL_ABI_METHOD_COUNT_BEFORE]
+            .try_inverse()
+            .unwrap_or(F::ZERO);
     }
 
     wit[COL_CURR_BEFORE] = input.curr_before.field();
@@ -66,7 +100,8 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         F::ZERO
     };
 
-    if matches!(input.opcode, Opcode::RegisterMethod | Opcode::CallMethod) {
+    if input.opcode.appends_method() || matches!(input.opcode, Opcode::CallMethod | Opcode::ReadAbi)
+    {
         wit[COL_METHOD_LOOKUP] = F::ONE;
     }
 
@@ -131,8 +166,8 @@ pub(crate) fn assign_stride_columns(wit: &mut [F]) {
     for (i, col) in COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8.iter().enumerate() {
         wit[*col] = call_stack_top * F::new(8) + F::new(i as u64);
     }
-    for (i, col) in COL_CURR_BEFORE_STRIDE_8.iter().enumerate() {
-        wit[*col] = wit[COL_CURR_BEFORE] * F::new(8) + F::new(i as u64);
+    for (i, col) in COL_EVENT_OWNER_STRIDE_8.iter().enumerate() {
+        wit[*col] = wit[COL_EVENT_OWNER] * F::new(8) + F::new(i as u64);
     }
 }
 

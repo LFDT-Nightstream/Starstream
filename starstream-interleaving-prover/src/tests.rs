@@ -7,27 +7,28 @@ mod padding {
 
     #[test]
     fn memory_gates_exclude_padding_structurally() {
-        // Explicitly reviewed derived gates, each constrained to execution
-        // selectors (or globally zero). New activation schemes need review.
+        // Explicitly reviewed derived gates, each constrained to non-padding
+        // selectors. New activation schemes need review.
         let derived = [
             COL_CALL_STACK_PUSH,
             COL_CALL_STACK_POP,
             COL_CALL_STACK_TOP,
             COL_METHOD_LOOKUP,
+            COL_METHOD_APPEND,
+            COL_EVENT_ACTIVE,
             COL_RESOURCE_RESOLVER_READ,
             COL_RESOURCE_RESOLVER_WRITE,
-            COL_UTXO_LIFECYCLE_READ,
-            COL_UTXO_LIFECYCLE_WRITE,
+            COL_ABI_METHOD_COUNT_READ,
+            COL_ABI_METHOD_COUNT_WRITE,
         ];
         for memory in build_memory_layout().entries() {
             for port in &memory.ports {
                 let excludes_padding = match port.activation {
                     MemoryPortActivation::Always => false,
                     MemoryPortActivation::When(gate) => {
-                        crate::opcode::Opcode::all()
-                            .iter()
-                            .any(|op| op.is_execution() && op.selector() == gate)
-                            || derived.contains(&gate)
+                        crate::opcode::Opcode::all().iter().any(|op| {
+                            *op != crate::opcode::Opcode::Padding && op.selector() == gate
+                        }) || derived.contains(&gate)
                     }
                     MemoryPortActivation::Unless(gate) => gate == COL_SEL_PADDING,
                 };
@@ -80,8 +81,8 @@ use starstream_interleaving_spec::{MethodHash, ResourceHandle, StarstreamValue, 
 use super::{Error, Unsatisfied, build_witness_rows, verify_sat, verify_witness_rows};
 use crate::{
     ccs::layout::{
-        COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE,
-        COL_SEL_ENTER_CONSTRUCTOR, COL_UTXO_LIFECYCLE_ADDR, range_check_layout,
+        COL_ABI_METHOD_COUNT_ADDR, COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_NEXT_UTXO_ID_AFTER,
+        COL_NEXT_UTXO_ID_BEFORE, COL_SEL_ENTER_CONSTRUCTOR, range_check_layout,
     },
     memory::MemoryId,
 };
@@ -597,14 +598,14 @@ fn rejects_out_of_range_witness_column() {
     let trace = constructor_trace([0, 1, 2, 3]);
     let (mut rows, preload) = build_witness_rows(&trace);
 
-    rows[0][COL_UTXO_LIFECYCLE_ADDR] = F::new(1 << 32);
+    rows[0][COL_ABI_METHOD_COUNT_ADDR] = F::new(1 << 32);
     range_check_layout().assign_bits(&mut rows[0]).unwrap();
 
     assert!(matches!(
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 0,
-            constraint: "COL_UTXO_LIFECYCLE_ADDR",
+            constraint: "COL_ABI_METHOD_COUNT_ADDR",
             ..
         }))
     ));

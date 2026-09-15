@@ -5,17 +5,18 @@ use neo_application::{
 
 use crate::ccs::layout::{
     COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
-    COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8,
-    COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_CALL_STACK_EXPECTED_RESULT_VALUE,
-    COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP,
-    COL_CALL_TARGET, COL_CURR_BEFORE, COL_CURR_BEFORE_STRIDE_8, COL_ENABLED_METHOD_LOG_ADDR,
-    COL_ENABLED_METHOD_LOG_GENERATION, COL_ENABLED_METHOD_LOG_UTXO, COL_IN_WORDS,
-    COL_METHOD_HASH_VALUE, COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR,
-    COL_OUT_WORDS, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE,
-    COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
-    COL_SEL_CALL_METHOD, COL_SEL_ENTER_METHOD, COL_SEL_PADDING, COL_SEL_REGISTER_METHOD,
-    COL_SEL_YIELD_BEGIN, COL_UTXO_LIFECYCLE_ADDR, COL_UTXO_LIFECYCLE_READ,
-    COL_UTXO_LIFECYCLE_VALUE, COL_UTXO_LIFECYCLE_WRITE, range_check_layout,
+    COL_ABI_METHOD_COUNT_ADDR, COL_ABI_METHOD_COUNT_AFTER, COL_ABI_METHOD_COUNT_BEFORE,
+    COL_ABI_METHOD_COUNT_READ, COL_ABI_METHOD_COUNT_WRITE, COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE,
+    COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8, COL_CALL_STACK_EXPECTED_ARG_VALUE,
+    COL_CALL_STACK_EXPECTED_RESULT_VALUE, COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP,
+    COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_BEFORE,
+    COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION, COL_ENABLED_METHOD_LOG_ORDINAL,
+    COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_ACTIVE, COL_EVENT_OWNER_STRIDE_8, COL_IN_WORDS,
+    COL_METHOD_APPEND, COL_METHOD_HASH_VALUE, COL_METHOD_INDEX, COL_METHOD_LOOKUP,
+    COL_METHOD_TABLE_ADDR, COL_OUT_WORDS, COL_RESOURCE_RESOLVER_ADDR_CID,
+    COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE,
+    COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD, COL_SEL_ENTER_METHOD, COL_SEL_READ_ABI,
+    COL_SEL_YIELD_BEGIN, range_check_layout,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -24,11 +25,12 @@ pub enum MemoryId {
     CallStackExpectedArgument,
     CallStackExpectedResult,
     CallStackExpectedMethod,
-    UtxoLifecycle,
+    AbiMethodCount,
     AbiGeneration,
     EnabledMethodLogUtxo,
     EnabledMethodLogMethod,
     EnabledMethodLogGeneration,
+    EnabledMethodLogOrdinal,
     MethodTable,
     ResourceResolver,
     TraceCommitments,
@@ -39,7 +41,7 @@ pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
 
     memories.extend_from_slice(&call_stack_layout());
 
-    memories.extend_from_slice(&utxo_lifecycle_map_layout());
+    memories.extend_from_slice(&abi_method_count_layout());
 
     memories.extend_from_slice(&abi_generation_layout());
 
@@ -58,7 +60,7 @@ fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 1] {
     [MemorySpec {
         id: MemoryId::TraceCommitments,
         kind: MemoryKind::Ram,
-        ports: COL_CURR_BEFORE_STRIDE_8
+        ports: COL_EVENT_OWNER_STRIDE_8
             .into_iter()
             .zip(COL_OUT_WORDS)
             .zip(COL_IN_WORDS)
@@ -68,7 +70,7 @@ fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 1] {
                 kind: MemoryPortKind::Write {
                     value_before_column: Some(value_before),
                 },
-                activation: MemoryPortActivation::Unless(COL_SEL_PADDING),
+                activation: MemoryPortActivation::When(COL_EVENT_ACTIVE),
             })
             .collect(),
     }]
@@ -105,9 +107,7 @@ fn resource_resolver_layout() -> [MemorySpec<MemoryId>; 1] {
 }
 
 fn abi_generation_layout() -> [MemorySpec<MemoryId>; 1] {
-    // TODO(lifecycle): Track whether the current generation registered any
-    // methods (or its count) when UTXO lifecycle transitions are wired. That
-    // metadata can likely share a packed word with the generation.
+    // A separate registration count tracks this generation's size, including duplicates.
     [MemorySpec {
         id: MemoryId::AbiGeneration,
         kind: MemoryKind::Ram,
@@ -130,11 +130,31 @@ fn abi_generation_layout() -> [MemorySpec<MemoryId>; 1] {
     }]
 }
 
-fn enabled_method_log_layout() -> [MemorySpec<MemoryId>; 3] {
+fn enabled_method_log_layout() -> [MemorySpec<MemoryId>; 4] {
     // TODO(perf): Packing bounded UTXO, method, and generation indices may
     // reduce both scan cells and operation slots once the prover's concrete
     // limits are known. Keep parallel 32-bit RAMs until then.
     [
+        MemorySpec {
+            id: MemoryId::EnabledMethodLogOrdinal,
+            kind: MemoryKind::Ram,
+            ports: vec![
+                MemoryPortSpec {
+                    address_columns: vec![COL_ENABLED_METHOD_LOG_ADDR],
+                    value_column: COL_ENABLED_METHOD_LOG_ORDINAL,
+                    kind: MemoryPortKind::Write {
+                        value_before_column: None,
+                    },
+                    activation: MemoryPortActivation::When(COL_METHOD_APPEND),
+                },
+                MemoryPortSpec {
+                    address_columns: vec![COL_ENABLED_METHOD_LOG_ADDR],
+                    value_column: COL_ENABLED_METHOD_LOG_ORDINAL,
+                    kind: MemoryPortKind::Read,
+                    activation: MemoryPortActivation::When(COL_SEL_READ_ABI),
+                },
+            ],
+        },
         enabled_method_log_component(MemoryId::EnabledMethodLogUtxo, COL_ENABLED_METHOD_LOG_UTXO),
         enabled_method_log_component(MemoryId::EnabledMethodLogMethod, COL_METHOD_INDEX),
         enabled_method_log_component(
@@ -152,10 +172,16 @@ fn enabled_method_log_component(id: MemoryId, value_column: usize) -> MemorySpec
             MemoryPortSpec {
                 address_columns: vec![COL_ENABLED_METHOD_LOG_ADDR],
                 value_column,
+                kind: MemoryPortKind::Read,
+                activation: MemoryPortActivation::When(COL_SEL_READ_ABI),
+            },
+            MemoryPortSpec {
+                address_columns: vec![COL_ENABLED_METHOD_LOG_ADDR],
+                value_column,
                 kind: MemoryPortKind::Write {
                     value_before_column: None,
                 },
-                activation: MemoryPortActivation::When(COL_SEL_REGISTER_METHOD),
+                activation: MemoryPortActivation::When(COL_METHOD_APPEND),
             },
             MemoryPortSpec {
                 address_columns: vec![COL_ENABLED_METHOD_LOG_ADDR],
@@ -184,24 +210,26 @@ fn method_table_layout() -> [MemorySpec<MemoryId>; 1] {
     }]
 }
 
-fn utxo_lifecycle_map_layout() -> [MemorySpec<MemoryId>; 1] {
+fn abi_method_count_layout() -> [MemorySpec<MemoryId>; 1] {
+    // Once every call has returned, a nonzero count means the UTXO is live.
+    // Fresh UTXO IDs start at zero through RAM initialization.
     [MemorySpec {
-        id: MemoryId::UtxoLifecycle,
+        id: MemoryId::AbiMethodCount,
         kind: MemoryKind::Ram,
         ports: vec![
             MemoryPortSpec {
-                address_columns: vec![COL_UTXO_LIFECYCLE_ADDR],
-                value_column: COL_UTXO_LIFECYCLE_VALUE,
+                address_columns: vec![COL_ABI_METHOD_COUNT_ADDR],
+                value_column: COL_ABI_METHOD_COUNT_AFTER,
                 kind: MemoryPortKind::Write {
-                    value_before_column: None,
+                    value_before_column: Some(COL_ABI_METHOD_COUNT_BEFORE),
                 },
-                activation: MemoryPortActivation::When(COL_UTXO_LIFECYCLE_WRITE),
+                activation: MemoryPortActivation::When(COL_ABI_METHOD_COUNT_WRITE),
             },
             MemoryPortSpec {
-                address_columns: vec![COL_UTXO_LIFECYCLE_ADDR],
-                value_column: COL_UTXO_LIFECYCLE_VALUE,
+                address_columns: vec![COL_ABI_METHOD_COUNT_ADDR],
+                value_column: COL_ABI_METHOD_COUNT_BEFORE,
                 kind: MemoryPortKind::Read,
-                activation: MemoryPortActivation::When(COL_UTXO_LIFECYCLE_READ),
+                activation: MemoryPortActivation::When(COL_ABI_METHOD_COUNT_READ),
             },
         ],
     }]
@@ -330,11 +358,12 @@ pub(crate) fn sanity_checking_policy(
             (CallStackExpectedArgument, RamInitialization::Zero),
             (CallStackExpectedResult, RamInitialization::Zero),
             (CallStackExpectedMethod, RamInitialization::Zero),
-            (UtxoLifecycle, RamInitialization::Zero),
+            (AbiMethodCount, RamInitialization::Zero),
             (AbiGeneration, RamInitialization::Zero),
             (EnabledMethodLogUtxo, RamInitialization::Zero),
             (EnabledMethodLogMethod, RamInitialization::Zero),
             (EnabledMethodLogGeneration, RamInitialization::Zero),
+            (EnabledMethodLogOrdinal, RamInitialization::Zero),
             (ResourceResolver, RamInitialization::Zero),
             (TraceCommitments, RamInitialization::Zero),
         ],
@@ -376,11 +405,12 @@ impl MemoryId {
             MemoryId::CallStackExpectedArgument => "call_stack_expected_argument",
             MemoryId::CallStackExpectedResult => "call_stack_expected_result",
             MemoryId::CallStackExpectedMethod => "call_stack_expected_method",
-            MemoryId::UtxoLifecycle => "utxo_lifecycle",
+            MemoryId::AbiMethodCount => "abi_method_count",
             MemoryId::AbiGeneration => "abi_generation",
             MemoryId::EnabledMethodLogUtxo => "enabled_method_log_utxo",
             MemoryId::EnabledMethodLogMethod => "enabled_method_log_method",
             MemoryId::EnabledMethodLogGeneration => "enabled_method_log_generation",
+            MemoryId::EnabledMethodLogOrdinal => "enabled_method_log_ordinal",
             MemoryId::MethodTable => "method_table",
             MemoryId::ResourceResolver => "resource_resolver",
             MemoryId::TraceCommitments => "trace_commitments",
