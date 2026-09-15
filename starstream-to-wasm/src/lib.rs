@@ -12,16 +12,16 @@ use starstream_types::{
     IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
     TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
     TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm,
-    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef, TypedTokenPart,
-    TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTestDef, TypedTokenDef,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
 use thiserror::Error;
 use wasm_encoder::{
-    BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
-    ComponentTypeRef, ComponentTypeSection, ConstExpr, CustomSection, DataSection, EntityType,
-    ExportKind, ExportSection, FuncType, Function, FunctionSection, GlobalSection, GlobalType,
-    Ieee32, Ieee64, ImportSection, InstanceType, InstructionSink, MemorySection, MemoryType,
-    Module, TypeSection, ValType,
+    BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection,
+    ComponentExternName, ComponentType, ComponentTypeRef, ComponentTypeSection, ConstExpr,
+    CustomSection, DataSection, EntityType, ExportKind, ExportSection, FuncType, Function,
+    FunctionSection, GlobalSection, GlobalType, Ieee32, Ieee64, ImportSection, InstanceType,
+    InstructionSink, MemorySection, MemoryType, Module, TypeSection, ValType,
 };
 
 use crate::component_abi::{
@@ -166,7 +166,7 @@ impl CompileOptions {
 
     fn compile_definitions(self, definitions: &[&TypedDefinition]) -> CompileResult {
         let mut compiler = Compiler::new(self);
-        compiler.visit_program(&definitions);
+        compiler.visit_program(definitions);
         compiler.finish()
     }
 }
@@ -1114,7 +1114,9 @@ impl Compiler {
                     }
                 }
 
-                TypedDefinition::Test(_test) => todo!(),
+                TypedDefinition::Test(test) => {
+                    self.visit_test(test);
+                }
             }
         }
     }
@@ -1319,6 +1321,50 @@ impl Compiler {
             idx,
             ty: stackified.ty,
         }
+    }
+
+    fn visit_test(&mut self, test: &TypedTestDef) {
+        let external_id = format!(
+            "starstream:test:{}",
+            test.description.as_ref().map_or("", |s| s.value.as_str())
+        );
+        let name = format!("test{}", self.functions.len());
+
+        // Similar to visit_function with hardcoded no-parameters and no-results
+        let mut func = StFunction::new(&[], &[]);
+        let bb_orig = func.cfg.add_block();
+        func.cfg.seal(bb_orig, BlockType::Empty);
+        let mut bb = bb_orig;
+
+        _ = self.visit_block_stack(&mut func, &mut bb, &(), &test.body);
+        if bb != usize::MAX {
+            self.visit_return(&mut func, &bb);
+            func.cfg.fill(bb, Out::Return);
+        }
+
+        let stackified = stackify(&func, bb_orig, stackifier::AsyncMode::Sync);
+        if self.options.output_mermaid {
+            self.mermaid
+                .push((name.clone(), func.cfg.to_mermaid().to_string()));
+            self.mermaid.push((
+                format!("{}_{bb_orig}", name),
+                stackified.to_mermaid().to_string(),
+            ));
+        }
+        let idx: u32 = self.add_function(&stackified.ty, stackified.code);
+
+        // Export with an external-id
+        self.export_core_fn(&name, idx);
+        let type_idx = self.world_type.encode_func(std::iter::empty(), None);
+        self.world_type.inner.export(
+            ComponentExternName {
+                name: name.into(),
+                implements: None,
+                version_suffix: None,
+                external_id: Some(external_id.into()),
+            },
+            ComponentTypeRef::Func(type_idx),
+        );
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
