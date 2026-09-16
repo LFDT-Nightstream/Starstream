@@ -20,8 +20,7 @@ use crate::{
     witness::build_witness_vector,
 };
 
-#[cfg(test)]
-mod proving;
+pub mod proving;
 
 struct PackedWitness {
     rows: Vec<Vec<F>>,
@@ -332,8 +331,8 @@ pub fn verify_sat_batched(trace: &Trace, batch_size: usize) -> Result<(), Error>
 
 /// Check the relation and the exact final per-instance trace commitment map.
 /// The expected map is supplied by the caller, not derived from the witness.
-/// TODO(proof): Bind these RAM endpoints to the program proofs; the current
-/// relation-only proof smoke test does not authenticate RAM or this map.
+/// Transaction proofs bind this map through the aggregate transaction digest.
+/// TODO(proof): Authenticate the underlying RAM accesses as well.
 pub fn verify_sat_with_commitments(
     trace: &Trace,
     batch_size: usize,
@@ -368,9 +367,30 @@ fn verify_normalized(
     statement: Option<&starstream_interleaving_spec::TransactionStatement>,
 ) -> Result<(), Error> {
     let batch = Batch::new(batch_size)?;
+    check_normalized(&batch, normalized, expected, statement)?;
+    Ok(())
+}
+
+fn check_normalized(
+    batch: &Batch,
+    normalized: crate::step::NormalizedTrace,
+    expected: Option<&crate::TraceCommitments>,
+    statement: Option<&starstream_interleaving_spec::TransactionStatement>,
+) -> Result<PackedWitness, Error> {
     let preload = crate::memory::preload_tables(&normalized.method_table);
     let packed = batch.pack(&normalized.steps);
     batch.check(&packed, &preload)?;
+    check_packed_statement(batch, &packed, expected, statement)?;
+    Ok(packed)
+}
+
+fn check_packed_statement(
+    batch: &Batch,
+    packed: &PackedWitness,
+    expected: Option<&crate::TraceCommitments>,
+    statement: Option<&starstream_interleaving_spec::TransactionStatement>,
+) -> Result<(), Error> {
+    let mut terminal_claim = crate::terminal::TerminalClaim::Execution;
     if let Some(statement) = statement {
         let rows = packed
             .origins
@@ -396,32 +416,21 @@ fn verify_normalized(
         {
             return Err(Unsatisfied::TransactionStatement.into());
         }
-        if rows
-            .last()
-            .is_none_or(|row| COL_IO_AFTER.map(|c| row[c]) != digest.map(F::new))
-        {
-            return Err(Unsatisfied::TransactionCommitment.into());
-        }
+        terminal_claim = crate::terminal::TerminalClaim::Transaction {
+            commitment: digest.map(F::new),
+        };
     } else if let Some(expected) = expected {
         // Execution-only diagnostics compare roots directly; transactions
         // authenticate them through the aggregate digest above.
-        check_commitment_statement(&batch, &packed, expected)?;
+        check_commitment_statement(batch, packed, expected)?;
     }
     // Check the actual final slot, including padding.
-    let terminal = Vec::from_iter(packed.rows.last().map(|row| {
-        (0..batch.single_width)
-            .map(|c| row[c * batch.size + batch.size - 1])
-            .collect()
-    }));
-    if statement.is_none()
-        && terminal.last().is_some_and(|row: &Vec<F>| {
-            row[crate::ccs::layout::COL_TX_PHASE_AFTER]
-                != F::new(crate::ivc_state::TxPhase::Running as u64)
-        })
-    {
-        return Err(Unsatisfied::TransactionStatement.into());
-    }
-    crate::verify_execution_statement(&terminal)
+    let terminal = packed
+        .rows
+        .last()
+        .ok_or(Unsatisfied::TerminalCallStackNotEmpty { actual: F::ONE })?;
+    terminal_claim.check(|c| terminal[c * batch.size + batch.size - 1])?;
+    Ok(())
 }
 
 fn check_commitment_statement(
