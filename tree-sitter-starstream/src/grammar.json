@@ -57,6 +57,10 @@
         {
           "type": "SYMBOL",
           "name": "abi_definition"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "test_definition"
         }
       ]
     },
@@ -1227,6 +1231,31 @@
         {
           "type": "STRING",
           "value": ";"
+        }
+      ]
+    },
+    "test_definition": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "test"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "string_literal"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "block"
         }
       ]
     },
