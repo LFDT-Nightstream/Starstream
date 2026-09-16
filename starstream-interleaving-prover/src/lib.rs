@@ -1,6 +1,8 @@
 mod batch;
 mod ccs;
 mod commitment;
+mod transaction_commitment;
+pub use transaction_commitment::transaction_commitment;
 mod ivc_state;
 mod memory;
 mod opcode;
@@ -68,6 +70,8 @@ pub enum Error {
 pub enum Unsatisfied {
     #[error("transaction inputs, outputs or boundary state do not match the statement")]
     TransactionStatement,
+    #[error("transaction commitment does not match the statement")]
+    TransactionCommitment,
     #[error("per-instance trace commitments do not match the statement")]
     TraceCommitments,
     #[error("constraint {constraint:?} failed at relation row {row} for step {step}")]

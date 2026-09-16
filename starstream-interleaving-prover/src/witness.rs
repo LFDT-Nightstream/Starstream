@@ -3,6 +3,16 @@ use neo_math::F;
 use p3_field::{Field, PrimeCharacteristicRing};
 
 pub fn build_witness_vector(input: &Wit) -> Vec<F> {
+    let mut wit = assign_base_columns(input);
+    crate::commitment::assign_from_bus(&mut wit, input.opcode);
+    range_check_layout()
+        .assign_bits(&mut wit)
+        .expect("base witness matches the range-check layout");
+    wit
+}
+
+/// Shared by normalization and full witness assignment; no hash advice or range bits.
+pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     let range_checks = range_check_layout();
     let mut wit = vec![F::ZERO; range_checks.base_column_count()];
 
@@ -18,6 +28,9 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
     wit[COL_LAST_INPUT_HAS_ABI_AFTER] = F::from_bool(input.tx_after.last_input_has_abi);
     wit[COL_OUTPUT_CURSOR_BEFORE] = F::new(u64::from(input.tx_before.output_cursor));
     wit[COL_OUTPUT_CURSOR_AFTER] = F::new(u64::from(input.tx_after.output_cursor));
+    wit[COL_COORD_FINALIZED_BEFORE] = F::from_bool(input.tx_before.coordinator_finalized);
+    wit[COL_COORD_FINALIZED_AFTER] = F::from_bool(input.tx_after.coordinator_finalized);
+    wit[COL_TRACE_ROOT_READ] = F::from_bool(input.opcode.reads_trace_root());
     wit[COL_ABI_READ_REMAINING_BEFORE] = F::new(u64::from(input.tx_before.abi_read_remaining));
     wit[COL_ABI_READ_REMAINING_AFTER] = F::new(u64::from(input.tx_after.abi_read_remaining));
     wit[COL_ABI_READ_ORDINAL_BEFORE] = F::new(u64::from(input.tx_before.abi_read_ordinal));
@@ -145,11 +158,12 @@ pub fn build_witness_vector(input: &Wit) -> Vec<F> {
         }
     }
 
-    crate::commitment::assign(&mut wit, input);
-    range_checks
-        .assign_bits(&mut wit)
-        .expect("base witness matches the range-check layout");
-
+    for (c, value) in COL_IN.into_iter().zip(input.commitment_before) {
+        wit[c] = value;
+    }
+    for (c, value) in COL_IO_BEFORE.into_iter().zip(input.io_before) {
+        wit[c] = value;
+    }
     wit
 }
 

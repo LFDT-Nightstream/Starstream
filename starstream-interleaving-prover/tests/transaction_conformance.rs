@@ -26,7 +26,7 @@ fn registration_count_bound_matches_quint() {
         statement.inputs[0].methods = vec![METHOD; count];
         statement.outputs[0].methods = vec![METHOD; count];
         trace.0.splice(
-            trace.0.len() - 1..trace.0.len() - 1,
+            trace.0.len() - 2..trace.0.len() - 2,
             std::iter::repeat_n(Step::ReadAbi { method: METHOD }, count - 1),
         );
         let spec = verifier.verify_transaction(&trace, &statement);
@@ -97,6 +97,7 @@ fn fixture_with_handle(
                 storage: output.clone().into(),
             }
         },
+        Step::FinalizeCoordinator,
         Step::FinishTransaction,
     ]);
     owners.extend([
@@ -104,12 +105,13 @@ fn fixture_with_handle(
         Some(2),
         if consumed { None } else { Some(1) },
         None,
+        None,
     ]);
     if !consumed {
         trace
             .0
-            .insert(trace.0.len() - 1, Step::ReadAbi { method: METHOD });
-        owners.insert(owners.len() - 1, None);
+            .insert(trace.0.len() - 2, Step::ReadAbi { method: METHOD });
+        owners.insert(owners.len() - 2, None);
     }
     let commitments = expected(&trace, &owners);
     let statement = TransactionStatement {
@@ -215,6 +217,8 @@ fn new_utxo_transaction(
             methods: new_methods.to_vec(),
         });
     }
+    trace.0.push(Step::FinalizeCoordinator);
+    owners.push(None);
     trace.0.push(Step::FinishTransaction);
     owners.push(None);
     let commitments = expected(&trace, &owners);
@@ -226,9 +230,10 @@ fn no_input_transaction() -> (Trace, TransactionStatement, TraceCommitments) {
         Step::Return {
             result: UNIT.into(),
         },
+        Step::FinalizeCoordinator,
         Step::FinishTransaction,
     ]);
-    let commitments = expected(&trace, &[Some(2), None]);
+    let commitments = expected(&trace, &[Some(2), None, None]);
     (trace, TransactionStatement::default(), commitments)
 }
 
@@ -286,7 +291,8 @@ fn replaced_abi_transaction() -> (Trace, TransactionStatement, TraceCommitments)
             None,
             None,
             None,
-            None, // ABI reads and finish
+            None,
+            None, // ABI reads, coordinator and finish
         ],
     );
     (trace, statement, commitments)
@@ -313,6 +319,11 @@ fn storage_transaction_accepts_surviving_and_consumed_outputs() {
     }
 }
 
+fn is_semantic_rejection(result: &Result<(), Error>) -> bool {
+    matches!(result, Err(Error::Unsatisfied(reason)) if !matches!(reason,
+        Unsatisfied::TraceCommitments | Unsatisfied::TransactionCommitment))
+}
+
 fn rejects(
     name: &str,
     trace: &Trace,
@@ -321,18 +332,68 @@ fn rejects(
 ) {
     for size in [1, 3, 8] {
         assert!(
-            matches!(
-                verify_transaction_sat(trace, size, statement, commitments),
-                Err(Error::Unsatisfied(reason)) if !matches!(reason, Unsatisfied::TraceCommitments)
-            ),
+            is_semantic_rejection(&verify_transaction_sat(trace, size, statement, commitments)),
             "{name}: batch size {size}"
         );
+    }
+}
+
+#[test]
+fn transaction_digest_rejects_wrong_instance_roots() {
+    for consumed in [false, true] {
+        let (trace, statement, roots) = fixture(consumed);
+        for id in [1, 2] {
+            let mut changed = roots.clone();
+            changed.get_mut(&id).unwrap()[0] ^= 1;
+            // Direct storage/ABI checks still agree. Transaction verification
+            // must reject through the aggregate digest, without a direct root comparison.
+            let result = verify_transaction_sat(&trace, 3, &statement, &changed);
+            assert!(
+                !is_semantic_rejection(&result),
+                "stale roots must not count as semantic rejection"
+            );
+            assert!(matches!(
+                result,
+                Err(Error::Unsatisfied(Unsatisfied::TransactionCommitment))
+            ));
+        }
     }
 }
 
 fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceCommitments)> {
     let (trace, statement, commitments) = fixture(false);
     let mut cases = vec![];
+    let mut without_coordinator = trace.clone();
+    without_coordinator
+        .0
+        .retain(|step| !matches!(step, Step::FinalizeCoordinator));
+    cases.push((
+        "missing coordinator finalization",
+        without_coordinator.clone(),
+        statement.clone(),
+        commitments.clone(),
+    ));
+    let mut duplicate = trace.clone();
+    // Add another finalization immediately before FinishTransaction.
+    duplicate
+        .0
+        .insert(duplicate.0.len() - 1, Step::FinalizeCoordinator);
+    cases.push((
+        "duplicate coordinator finalization",
+        duplicate,
+        statement.clone(),
+        commitments.clone(),
+    ));
+    for (name, index) in [
+        ("coordinator finalized during loading", 2),
+        ("coordinator finalized during execution", 3),
+        ("coordinator finalized before outputs", 6),
+        ("coordinator finalized before ABI completion", 7),
+    ] {
+        let mut early = without_coordinator.clone();
+        early.0.insert(index, Step::FinalizeCoordinator);
+        cases.push((name, early, statement.clone(), commitments.clone()));
+    }
     let read = trace
         .0
         .iter()
@@ -446,6 +507,9 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
     ] {
         let mut changed = trace.clone();
         changed.0[index] = replacement;
+        if matches!(changed.0[index], Step::FinishTransaction) {
+            changed.0.insert(index, Step::FinalizeCoordinator);
+        }
         cases.push((name, changed, statement.clone(), commitments.clone()));
     }
     let mut missing = trace.clone();
@@ -540,7 +604,7 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
     reordered_statement.outputs[0].methods = vec![METHOD, OTHER];
     reordered
         .0
-        .insert(reordered.0.len() - 1, Step::ReadAbi { method: OTHER });
+        .insert(reordered.0.len() - 2, Step::ReadAbi { method: OTHER });
     cases.push((
         "preload sequence order",
         reordered,
@@ -552,7 +616,7 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
         .0
         .insert(2, Step::PreloadMethod { method: METHOD });
     duplicate_preload.0.insert(
-        duplicate_preload.0.len() - 1,
+        duplicate_preload.0.len() - 2,
         Step::ReadAbi { method: METHOD },
     );
     let mut duplicate_statement = statement.clone();

@@ -61,15 +61,27 @@ impl CoroutineKind {
 }
 
 impl CoroutineId {
+    pub(crate) fn from_packed(packed: u32) -> Self {
+        let id = packed / 2;
+        if packed & 1 == CoroutineKind::Coord.tag() {
+            Self::Coord(id)
+        } else {
+            Self::Utxo(id)
+        }
+    }
+
     pub(crate) fn encoded(self) -> u32 {
+        self.checked_encoded()
+            .expect("coroutine ID fits the packed u32 encoding")
+    }
+
+    pub(crate) fn checked_encoded(self) -> Option<u32> {
         let (id, kind) = match self {
             Self::Coord(id) => (id, CoroutineKind::Coord),
             Self::Utxo(id) => (id, CoroutineKind::Utxo),
         };
 
-        id.checked_mul(2)
-            .and_then(|id| id.checked_add(kind.tag()))
-            .expect("coroutine ID fits the packed u32 encoding")
+        id.checked_mul(2).and_then(|id| id.checked_add(kind.tag()))
     }
 
     pub(crate) fn field(self) -> F {
@@ -87,12 +99,22 @@ const fn link(previous_step_column: usize, next_step_column: usize) -> Continuit
 pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
     vec![
         ContinuityGroup {
+            name: "transaction_digest",
+            role: "transaction IO and final instance roots in scan order",
+            links: COL_IO_AFTER
+                .into_iter()
+                .zip(COL_IO_BEFORE)
+                .map(|(a, b)| link(a, b))
+                .collect(),
+        },
+        ContinuityGroup {
             name: "transaction_continuity",
             role: "transaction phase, last input ABI nonemptiness, output cursor and ABI enumeration progress",
             links: vec![
                 link(COL_TX_PHASE_AFTER, COL_TX_PHASE_BEFORE),
                 link(COL_LAST_INPUT_HAS_ABI_AFTER, COL_LAST_INPUT_HAS_ABI_BEFORE),
                 link(COL_OUTPUT_CURSOR_AFTER, COL_OUTPUT_CURSOR_BEFORE),
+                link(COL_COORD_FINALIZED_AFTER, COL_COORD_FINALIZED_BEFORE),
                 link(COL_ABI_READ_REMAINING_AFTER, COL_ABI_READ_REMAINING_BEFORE),
                 link(COL_ABI_READ_ORDINAL_AFTER, COL_ABI_READ_ORDINAL_BEFORE),
             ],
@@ -144,4 +166,30 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
             ],
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CoroutineId;
+
+    #[test]
+    fn checked_encoding_preserves_tags_and_rejects_overflow() {
+        let max_id = u32::MAX / 2;
+        for (id, packed) in [
+            (CoroutineId::Coord(0), 0),
+            (CoroutineId::Utxo(0), 1),
+            (CoroutineId::Coord(1), 2),
+            (CoroutineId::Utxo(1), 3),
+            (CoroutineId::Coord(max_id), u32::MAX - 1),
+            (CoroutineId::Utxo(max_id), u32::MAX),
+        ] {
+            assert_eq!(id.checked_encoded(), Some(packed));
+            assert_eq!(id.encoded(), packed);
+            assert_eq!(CoroutineId::from_packed(packed), id);
+        }
+        for id in [max_id + 1, u32::MAX] {
+            assert_eq!(CoroutineId::Coord(id).checked_encoded(), None);
+            assert_eq!(CoroutineId::Utxo(id).checked_encoded(), None);
+        }
+    }
 }

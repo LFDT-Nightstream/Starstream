@@ -1,5 +1,7 @@
-//! Per-coroutine outer event chains. RAM remains host-checked until Nebula is
-//! wired; this gadget alone is not a proof of the global per-program statement.
+//! Shared compression slots for per-coroutine events and transaction records.
+//! RAM remains host-checked; hashing alone does not prove the memory argument.
+use std::collections::BTreeMap;
+
 use neo_application::{EVENT_COMMITMENT_AUX_COLUMNS, EventCommitment, TaggedR1csBuilder};
 use neo_math::F;
 use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
@@ -11,7 +13,6 @@ use crate::{
         tags::{ConstraintScope, always},
     },
     opcode::Opcode,
-    step::Wit,
 };
 
 fn kind(op: Opcode) -> Option<EventKind> {
@@ -29,17 +30,14 @@ fn kind(op: Opcode) -> Option<EventKind> {
         | Opcode::ReadAbi
         | Opcode::PreloadMethod
         | Opcode::SkipConsumed
+        | Opcode::FinalizeCoordinator
         | Opcode::FinishTransaction => return None,
     })
 }
 
 fn gadget(block: usize) -> EventCommitment {
     EventCommitment {
-        previous: if block == 0 {
-            COL_IN
-        } else {
-            std::array::from_fn(|i| COL_EVENT_HASHES[(block - 1) * 4 + i])
-        },
+        previous: std::array::from_fn(|i| COL_POSEIDON_INPUT_ROOT[block * 4 + i]),
         block: std::array::from_fn(|i| COL_EVENT_BLOCKS[block * 8 + i]),
         output: std::array::from_fn(|i| COL_EVENT_HASHES[block * 4 + i]),
         auxiliary_start: COL_EVENT_AUX[0] + block * EVENT_COMMITMENT_AUX_COLUMNS,
@@ -61,6 +59,102 @@ fn source(word: Word) -> (usize, F) {
         Word::Method(i) => (COL_METHOD_HASH_VALUE[i], F::ONE),
         Word::Argument(i) => (COL_ARGUMENT_ROOT[i], F::ONE),
         Word::Result(i) => (COL_RESULT_ROOT[i], F::ONE),
+    }
+}
+
+type Source = (usize, F);
+const ZERO: Source = (COL_ONE, F::ZERO);
+const SLOTS: usize = 3;
+
+struct Slot {
+    previous: [Source; 4],
+    words: [Source; 8],
+}
+
+struct Schedule {
+    slots: [Slot; SLOTS],
+    program_blocks: usize,
+    io_blocks: usize,
+}
+
+fn schedule(op: Opcode) -> Schedule {
+    let program = kind(op).map(EventKind::blocks).unwrap_or_default();
+    let io = crate::transaction_commitment::schema(op);
+    let program_blocks = program.len();
+    let io_blocks = io.len().div_ceil(8);
+    assert!(
+        program_blocks + io_blocks <= SLOTS,
+        "commitment schedule exceeds shared capacity: {op:?}"
+    );
+    let slots = std::array::from_fn(|slot| {
+        let (previous, words) = if slot < program_blocks {
+            let previous = if slot == 0 {
+                COL_IN
+            } else {
+                gadget(slot - 1).output
+            };
+            (previous.map(|c| (c, F::ONE)), program[slot].map(source))
+        } else if slot < program_blocks + io_blocks {
+            let block = slot - program_blocks;
+            let previous = if block == 0 {
+                COL_IO_BEFORE
+            } else {
+                gadget(slot - 1).output
+            };
+            (
+                previous.map(|c| (c, F::ONE)),
+                std::array::from_fn(|i| io.get(block * 8 + i).copied().unwrap_or(ZERO)),
+            )
+        } else {
+            ([ZERO; 4], [ZERO; 8])
+        };
+        Slot { previous, words }
+    });
+    Schedule {
+        slots,
+        program_blocks,
+        io_blocks,
+    }
+}
+
+impl Schedule {
+    fn program_output(&self) -> [usize; 4] {
+        output_columns(self.program_blocks)
+    }
+
+    fn io_output(&self) -> [usize; 4] {
+        if self.io_blocks == 0 {
+            COL_IO_BEFORE
+        } else {
+            gadget(self.program_blocks + self.io_blocks - 1).output
+        }
+    }
+}
+
+// Identical assignments share one selector-sum guard, including zero lanes.
+// One group covering every opcode can be enforced unconditionally.
+fn constrain_grouped_equalities(
+    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+    target: usize,
+    assignments: impl IntoIterator<Item = (Opcode, Source)>,
+) {
+    let mut groups = BTreeMap::<(usize, u64), Vec<(usize, F)>>::new();
+    let mut count = 0;
+    for (op, (column, coefficient)) in assignments {
+        groups
+            .entry((column, coefficient.as_canonical_u64()))
+            .or_default()
+            .push((op.selector(), F::ONE));
+        count += 1;
+    }
+    let unconditional = groups.len() == 1 && count == Opcode::all().len();
+    for ((source, coefficient), selectors) in groups {
+        let equality = [(target, F::ONE), (source, -F::new(coefficient))];
+        if unconditional {
+            b.push_linear_zero(equality);
+        } else {
+            b.push_row(selectors, equality, []);
+        }
     }
 }
 
@@ -91,47 +185,60 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             }
         }
     });
-    b.with_tag(always("event block encoding"), |b| {
-        for opcode in Opcode::all() {
-            let blocks = kind(opcode).map(EventKind::blocks).unwrap_or_default();
-            assert!(
-                blocks.len() <= 3,
-                "event schema exceeds circuit block capacity"
-            );
-            for block in 0..3 {
-                for lane in 0..8 {
-                    let word = blocks.get(block).map_or(Word::Constant(0), |b| b[lane]);
-                    let (column, coefficient) = source(word);
-                    b.push_gated_linear_zero(
-                        opcode.selector(),
-                        [
-                            (COL_EVENT_BLOCKS[block * 8 + lane], F::ONE),
-                            (column, -coefficient),
-                        ],
-                    );
-                }
+    let schedules: Vec<_> = Opcode::all()
+        .into_iter()
+        .map(|op| (op, schedule(op)))
+        .collect();
+    b.with_tag(always("commitment block encoding"), |b| {
+        for slot in 0..SLOTS {
+            let g = gadget(slot);
+            for lane in 0..8 {
+                constrain_grouped_equalities(
+                    b,
+                    g.block[lane],
+                    schedules
+                        .iter()
+                        .map(|(op, s)| (*op, s.slots[slot].words[lane])),
+                );
+            }
+            for lane in 0..4 {
+                constrain_grouped_equalities(
+                    b,
+                    g.previous[lane],
+                    schedules
+                        .iter()
+                        .map(|(op, s)| (*op, s.slots[slot].previous[lane])),
+                );
             }
         }
     });
-    b.with_tag(always("event commitment"), |b| {
-        for block in 0..3 {
-            gadget(block).push_constraints(b);
+    b.with_tag(always("shared commitment compression"), |b| {
+        for slot in 0..SLOTS {
+            gadget(slot).push_constraints(b);
         }
-        // Active blocks are always a prefix. Compute the entire chain, then
-        // select its last active output; padding selects the original input.
-        // Hashes of the unused zero-block suffix never enter the transcript.
-        for count in 0..=3 {
-            let output = output_columns(count);
-            for lane in 0..4 {
-                b.push_row(
-                    Opcode::all()
-                        .into_iter()
-                        .filter(|op| kind(*op).map_or(0, |k| k.blocks().len()) == count)
-                        .map(|op| (op.selector(), F::ONE)),
-                    [(COL_OUT[lane], F::ONE), (output[lane], -F::ONE)],
-                    [],
-                );
-            }
+    });
+    b.with_tag(always("event commitment"), |b| {
+        for (lane, target) in COL_OUT.into_iter().enumerate() {
+            constrain_grouped_equalities(
+                b,
+                target,
+                schedules
+                    .iter()
+                    .map(|(op, s)| (*op, (s.program_output()[lane], F::ONE))),
+            );
+        }
+    });
+    b.with_tag(always("transaction commitment"), |b| {
+        for (lane, target) in COL_IO_AFTER.into_iter().enumerate() {
+            // Padding already preserves the transaction chain in ccs.rs.
+            constrain_grouped_equalities(
+                b,
+                target,
+                schedules
+                    .iter()
+                    .filter(|(op, _)| *op != Opcode::Padding)
+                    .map(|(op, s)| (*op, (s.io_output()[lane], F::ONE))),
+            );
         }
     });
 }
@@ -139,6 +246,14 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 /// Recompute compression advice from the semantic bus. Tests may call this
 /// after tampering with bus values, so rejection must not rely on stale hashes.
 pub(crate) fn assign_from_bus(row: &mut [F], opcode: Opcode) {
+    assign_native_from_bus(row, opcode);
+    for slot in 0..SLOTS {
+        gadget(slot).assign_auxiliaries(row);
+    }
+}
+
+/// Native chains for normalization, without Poseidon auxiliaries or range bits.
+pub(crate) fn assign_native_from_bus(row: &mut [F], opcode: Opcode) {
     for (fields, words) in roots() {
         if fields == COL_OUT {
             continue;
@@ -155,29 +270,38 @@ pub(crate) fn assign_from_bus(row: &mut [F], opcode: Opcode) {
             }
         }
     }
-    let blocks = kind(opcode).map(EventKind::blocks).unwrap_or_default();
-    for block in 0..3 {
-        let g = gadget(block);
-        for lane in 0..8 {
-            let (column, coefficient) =
-                source(blocks.get(block).map_or(Word::Constant(0), |b| b[lane]));
-            row[g.block[lane]] = row[column] * coefficient;
+    let plan = schedule(opcode);
+    for lane in 0..4 {
+        row[COL_OUT[lane]] = row[COL_IN[lane]];
+    }
+    for (slot, sources) in plan.slots.iter().enumerate() {
+        let g = gadget(slot);
+        for (column, &(source, coefficient)) in g.previous.iter().zip(&sources.previous) {
+            row[*column] = row[source] * coefficient;
         }
+        for (column, &(source, coefficient)) in g.block.iter().zip(&sources.words) {
+            row[*column] = row[source] * coefficient;
+        }
+        // Unused slots still need a satisfying assignment in the full witness.
         let hash = neo_application::event_commitment::commit_block(
             g.previous.map(|c| row[c]),
             g.block.map(|c| row[c]),
         );
-        for lane in 0..4 {
-            row[g.output[lane]] = hash[lane];
+        for (column, value) in g.output.into_iter().zip(hash) {
+            row[column] = value;
         }
-        g.assign_auxiliaries(row);
+        if slot + 1 == plan.program_blocks {
+            // GetStorage's IO record consumes this freshly computed program root.
+            for lane in 0..4 {
+                row[COL_OUT[lane]] = row[g.output[lane]];
+            }
+        }
     }
-    let output = output_columns(blocks.len());
-    for i in 0..4 {
-        row[COL_OUT[i]] = row[output[i]];
-        let x = row[COL_OUT[i]].as_canonical_u64();
-        row[COL_OUT_WORDS[2 * i]] = F::new(x & u64::from(u32::MAX));
-        row[COL_OUT_WORDS[2 * i + 1]] = F::new(x >> 32);
+    for lane in 0..4 {
+        row[COL_IO_AFTER[lane]] = row[plan.io_output()[lane]];
+        let x = row[COL_OUT[lane]].as_canonical_u64();
+        row[COL_OUT_WORDS[2 * lane]] = F::new(x & u64::from(u32::MAX));
+        row[COL_OUT_WORDS[2 * lane + 1]] = F::new(x >> 32);
     }
     for (group, (_, words)) in roots().into_iter().enumerate() {
         for i in 0..4 {
@@ -187,13 +311,6 @@ pub(crate) fn assign_from_bus(row: &mut [F], opcode: Opcode) {
             row[COL_CANONICAL_HIGH_INV[group * 4 + i]] = delta.try_inverse().unwrap_or(F::ZERO);
         }
     }
-}
-
-pub(crate) fn assign(row: &mut [F], input: &Wit) {
-    for (column, value) in COL_IN.into_iter().zip(input.commitment_before) {
-        row[column] = value;
-    }
-    assign_from_bus(row, input.opcode);
 }
 
 #[cfg(test)]

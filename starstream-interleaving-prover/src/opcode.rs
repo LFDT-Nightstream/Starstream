@@ -17,11 +17,13 @@ pub(crate) enum Opcode {
     SkipConsumed,
     FinishTransaction,
     ReadAbi,
+    FinalizeCoordinator,
 }
 
 impl From<&starstream_interleaving_spec::Step> for Opcode {
     fn from(value: &starstream_interleaving_spec::Step) -> Self {
         match value {
+            starstream_interleaving_spec::Step::FinalizeCoordinator => Self::FinalizeCoordinator,
             starstream_interleaving_spec::Step::ReadAbi { .. } => Self::ReadAbi,
             starstream_interleaving_spec::Step::SetStorage { .. } => Self::SetStorage,
             starstream_interleaving_spec::Step::PreloadMethod { .. } => Self::PreloadMethod,
@@ -80,6 +82,12 @@ impl Opcode {
         matches!(self, Self::GetStorage | Self::SkipConsumed)
     }
 
+    /// Uses the read-only trace-root port. Program events instead use a write
+    /// port that checks the previous root and stores the updated root.
+    pub fn reads_trace_root(&self) -> bool {
+        matches!(self, Self::SkipConsumed | Self::FinalizeCoordinator)
+    }
+
     pub fn phase_after(&self, before: crate::ivc_state::CurrPhase) -> crate::ivc_state::CurrPhase {
         use crate::ivc_state::CurrPhase;
         match self {
@@ -94,7 +102,7 @@ impl Opcode {
             | Self::GetStorage
             | Self::SkipConsumed
             | Self::FinishTransaction => before,
-            Self::ReadAbi => before,
+            Self::ReadAbi | Self::FinalizeCoordinator => before,
         }
     }
 
@@ -114,6 +122,7 @@ impl Opcode {
             Self::SkipConsumed,
             Self::FinishTransaction,
             Self::ReadAbi,
+            Self::FinalizeCoordinator,
         ]
     }
 
@@ -137,6 +146,7 @@ impl Opcode {
     pub fn selector(&self) -> usize {
         match self {
             Self::ReadAbi => COL_SEL_READ_ABI,
+            Self::FinalizeCoordinator => COL_SEL_FINALIZE_COORDINATOR,
             Self::SetStorage => COL_SEL_SET_STORAGE,
             Self::PreloadMethod => COL_SEL_PRELOAD_METHOD,
             Self::GetStorage => COL_SEL_GET_STORAGE,

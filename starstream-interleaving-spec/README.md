@@ -35,7 +35,9 @@ until `finish_transaction` sets `Finished`.
 Finalization scans every UTXO in ID order (`get_storage` or `skip_consumed`). Each
 `get_storage` is followed by `read_abi` for every final-generation registration,
 in order, including duplicates, matching `OutputUtxo.methods`. These host-synthesized
-reads are not program events. All reads must finish before `finish_transaction`.
+reads are not program events. After the UTXO/ABI scan, `finalize_coordinator`
+enumerates Coord(1)'s trace root exactly once, then `finish_transaction` completes
+the transaction. Coord(0) is only a sentinel; multiple coordinators are not modeled yet.
 Execution-only tests can still use `new_tx` / `verify`.
 
 The shared `spec/sim_core.qnt` loads sampled inputs, explores execution, then

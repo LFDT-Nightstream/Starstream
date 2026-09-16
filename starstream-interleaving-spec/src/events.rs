@@ -40,6 +40,7 @@ impl EventKind {
             Step::PreloadMethod { .. }
             | Step::ReadAbi { .. }
             | Step::SkipConsumed
+            | Step::FinalizeCoordinator
             | Step::FinishTransaction => return None,
             Step::NewUtxo { .. } => Self::NewUtxo,
             Step::EnterConstructor { .. } => Self::EnterConstructor,
@@ -115,6 +116,7 @@ pub fn encode(step: &Step) -> Vec<[u64; 8]> {
         Step::PreloadMethod { .. }
         | Step::ReadAbi { .. }
         | Step::SkipConsumed
+        | Step::FinalizeCoordinator
         | Step::FinishTransaction => unreachable!(),
         Step::NewUtxo {
             arguments,
