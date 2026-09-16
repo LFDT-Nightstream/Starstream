@@ -16,6 +16,7 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(method))
+    .then(finalize_coordinator)
     .then(finish_transaction)
     .then(transaction_complete)
 
@@ -23,6 +24,38 @@ module replay_trace {
     assert(abi_method_count_matches_registrations),
     state' = state,
   }
+
+  action init_empty_transaction = { state' = new_transaction(List(), List()) }
+
+  run test_coordinator_finalization_required = init_empty_transaction
+    .then(return({ value: UNIT_VALUE }))
+    .then(finish_transaction)
+    .fail()
+
+  run test_coordinator_finalization_only_once = init_empty_transaction
+    .then(return({ value: UNIT_VALUE }))
+    .then(finalize_coordinator)
+    .then(finalize_coordinator)
+    .fail()
+
+  run test_coordinator_finalization_after_execution = init_empty_transaction
+    .then(finalize_coordinator)
+    .fail()
+
+  run test_coordinator_finalization_after_utxos = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(finalize_coordinator)
+    .fail()
+
+  run test_coordinator_finalization_after_abis = init_transaction
+    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(preload_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(finalize_coordinator)
+    .fail()
 
   run test_abi_count_tracks_duplicates_and_reset = init_transaction
     .then(check_abi_count)
@@ -98,6 +131,7 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(method))
+    .then(finalize_coordinator)
     .then(finish_transaction)
     .fail()
 
@@ -109,6 +143,7 @@ module replay_trace {
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(other_method))
     .then(read_abi(method))
+    .then(finalize_coordinator)
     .then(finish_transaction)
     .fail()
 
@@ -120,6 +155,7 @@ module replay_trace {
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(method))
     .then(read_abi(other_method))
+    .then(finalize_coordinator)
     .then(finish_transaction)
     .fail()
 
@@ -131,6 +167,7 @@ module replay_trace {
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(method))
     .then(read_abi(method))
+    .then(finalize_coordinator)
     .then(finish_transaction)
     .then(transaction_complete)
 
@@ -149,6 +186,7 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(other_method))
+    .then(finalize_coordinator)
     .then(finish_transaction)
     .then(transaction_complete)
 
@@ -182,6 +220,7 @@ module replay_trace {
       .then(read_abi(method))
       .then(get_storage({ value: second_storage }))
       .then(read_abi(other_method))
+      .then(finalize_coordinator)
       .then(finish_transaction)
       .then(transaction_complete)
   }

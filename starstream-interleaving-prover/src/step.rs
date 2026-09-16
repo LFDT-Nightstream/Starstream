@@ -14,10 +14,6 @@ fn encode_method_hash(method: MethodHash) -> [F; 8] {
 }
 
 pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
-    normalize_with_phase(trace, TxPhase::Running)
-}
-
-pub(crate) fn normalize_with_phase(trace: &Trace, phase: TxPhase) -> NormalizedTrace {
     let mut method_table = trace
         .0
         .iter()
@@ -46,9 +42,10 @@ pub(crate) fn normalize_with_phase(trace: &Trace, phase: TxPhase) -> NormalizedT
 
     let mut wit: Vec<Wit> = vec![];
     let mut tx = TransactionState {
-        phase,
+        phase: TxPhase::Loading,
         last_input_has_abi: true,
         output_cursor: 0,
+        coordinator_finalized: false,
         abi_read_remaining: 0,
         abi_read_ordinal: 0,
     };
@@ -67,6 +64,7 @@ pub(crate) fn normalize_with_phase(trace: &Trace, phase: TxPhase) -> NormalizedT
     let mut log_address_by_entry = HashMap::new();
     let mut last_log_membership = HashMap::new();
     let mut commitments = HashMap::new();
+    let mut io_chain = [F::ZERO; 4];
 
     for step in &trace.0 {
         let opcode = Opcode::from(step);
@@ -82,7 +80,12 @@ pub(crate) fn normalize_with_phase(trace: &Trace, phase: TxPhase) -> NormalizedT
             _ => CoroutineId::Coord(0),
         };
         let curr_before = curr;
-        let event_owner = if matches!(opcode, Opcode::SetStorage | Opcode::GetStorage) {
+        let event_owner = if opcode == Opcode::FinalizeCoordinator {
+            CoroutineId::Coord(1)
+        } else if matches!(
+            opcode,
+            Opcode::SetStorage | Opcode::GetStorage | Opcode::SkipConsumed
+        ) {
             boundary_utxo
         } else if opcode.has_event() {
             curr_before
@@ -92,18 +95,8 @@ pub(crate) fn normalize_with_phase(trace: &Trace, phase: TxPhase) -> NormalizedT
         let commitment_before = commitments
             .get(&event_owner)
             .copied()
-            .filter(|_| opcode.has_event())
+            .filter(|_| opcode.has_event() || opcode.reads_trace_root())
             .unwrap_or([F::ZERO; 4]);
-        let mut commitment_after = commitment_before;
-        for block in starstream_interleaving_spec::events::encode(step) {
-            commitment_after = neo_application::event_commitment::commit_block(
-                commitment_after,
-                block.map(F::new),
-            );
-        }
-        if opcode.has_event() {
-            commitments.insert(event_owner, commitment_after);
-        }
         let curr_phase_before = curr_phase;
         let next_utxo_id_before = next_utxo_id;
         let enabled_method_log_len_before =
@@ -186,6 +179,7 @@ pub(crate) fn normalize_with_phase(trace: &Trace, phase: TxPhase) -> NormalizedT
                     .checked_add(1)
                     .expect("output cursor fits u32");
             }
+            Step::FinalizeCoordinator => tx.coordinator_finalized = true,
             Step::NewUtxo {
                 arguments,
                 resource,
@@ -355,7 +349,9 @@ pub(crate) fn normalize_with_phase(trace: &Trace, phase: TxPhase) -> NormalizedT
         } else if opcode.scans_output() {
             abi_method_count_before = abi_method_counts.get(&boundary_utxo).copied().unwrap_or(0);
         }
-        wit.push(Wit {
+        let mut row = Wit {
+            io_before: io_chain,
+            io_after: io_chain,
             abi_method_count_before,
             abi_method_count_after,
             tx_before,
@@ -392,7 +388,15 @@ pub(crate) fn normalize_with_phase(trace: &Trace, phase: TxPhase) -> NormalizedT
             enabled_method_log_address,
             enabled_method_log_utxo,
             enabled_method_log_generation,
-        })
+        };
+        let mut bus = crate::witness::assign_base_columns(&row);
+        crate::commitment::assign_native_from_bus(&mut bus, opcode);
+        io_chain = crate::ccs::layout::COL_IO_AFTER.map(|c| bus[c]);
+        if opcode.has_event() {
+            commitments.insert(event_owner, crate::ccs::layout::COL_OUT.map(|c| bus[c]));
+        }
+        row.io_after = io_chain;
+        wit.push(row);
     }
 
     NormalizedTrace {
@@ -407,6 +411,8 @@ pub(crate) struct NormalizedTrace {
 }
 
 pub(crate) struct Wit {
+    pub(crate) io_before: [F; 4],
+    pub(crate) io_after: [F; 4],
     pub(crate) tx_before: TransactionState,
     pub(crate) tx_after: TransactionState,
     pub(crate) boundary_utxo: CoroutineId,
@@ -449,6 +455,7 @@ pub(crate) struct TransactionState {
     pub(crate) phase: TxPhase,
     pub(crate) last_input_has_abi: bool,
     pub(crate) output_cursor: u32,
+    pub(crate) coordinator_finalized: bool,
     pub(crate) abi_read_remaining: u32,
     pub(crate) abi_read_ordinal: u32,
 }
@@ -459,6 +466,8 @@ impl Wit {
     pub(crate) fn padding_after(&self) -> Self {
         Self {
             tx_before: self.tx_after,
+            io_before: self.io_after,
+            io_after: self.io_after,
             tx_after: self.tx_after,
             boundary_utxo: CoroutineId::Coord(0),
             event_owner: CoroutineId::Coord(0),

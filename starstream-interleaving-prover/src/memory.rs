@@ -16,7 +16,7 @@ use crate::ccs::layout::{
     COL_METHOD_TABLE_ADDR, COL_OUT_WORDS, COL_RESOURCE_RESOLVER_ADDR_CID,
     COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE,
     COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD, COL_SEL_ENTER_METHOD, COL_SEL_READ_ABI,
-    COL_SEL_YIELD_BEGIN, range_check_layout,
+    COL_SEL_YIELD_BEGIN, COL_TRACE_ROOT_READ, range_check_layout,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -72,6 +72,14 @@ fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 1] {
                 },
                 activation: MemoryPortActivation::When(COL_EVENT_ACTIVE),
             })
+            .chain(COL_EVENT_OWNER_STRIDE_8.into_iter().zip(COL_IN_WORDS).map(
+                |(address, value)| MemoryPortSpec {
+                    address_columns: vec![address],
+                    value_column: value,
+                    kind: MemoryPortKind::Read,
+                    activation: MemoryPortActivation::When(COL_TRACE_ROOT_READ),
+                },
+            ))
             .collect(),
     }]
 }

@@ -9,6 +9,89 @@ const COORDINATOR: CoroutineId = CoroutineId::Coord(1);
 const UTXO: CoroutineId = CoroutineId::Utxo(0);
 
 #[test]
+fn shared_schedule_fits_every_opcode() {
+    for op in Opcode::all() {
+        let plan = schedule(op);
+        assert!(plan.program_blocks + plan.io_blocks <= SLOTS, "{op:?}");
+    }
+}
+
+#[test]
+fn get_storage_binds_chain_switch_and_fresh_program_root() {
+    use starstream_interleaving_spec::{MethodHash, ResourceHandle, Trace};
+    let storage = StarstreamValue([11, 12, 13, 14]);
+    let trace = Trace::new([
+        Step::SetStorage {
+            storage: storage.clone(),
+            resource: ResourceHandle(0).into(),
+        },
+        Step::PreloadMethod {
+            method: MethodHash([1; 8]),
+        },
+        Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+        Step::GetStorage {
+            storage: storage.into(),
+        },
+    ]);
+    let normalized = crate::step::normalize(&trace);
+    let step = normalized.steps.last().unwrap();
+    let row = crate::witness::build_witness_vector(step);
+    let relation = crate::ccs::build_relation().unwrap();
+    let check = |row: &[F]| {
+        neo_ccs::check_ccs_rowwise_zero(
+            relation.r1cs().structure(),
+            &row[..PUBLIC_INPUTS],
+            &row[PUBLIC_INPUTS..],
+        )
+    };
+    check(&row).unwrap();
+    assert_eq!(COL_IO_AFTER.map(|c| row[c]), step.io_after);
+    assert_eq!(
+        gadget(1).previous.map(|c| row[c]),
+        COL_IO_BEFORE.map(|c| row[c])
+    );
+    assert_eq!(row[gadget(1).block[6]], row[COL_OUT[0]]);
+    // Both mistakes are locally hashed consistently: only the mux/framing
+    // constraints can reject them, not stale compression advice.
+    for (column, wrong) in [
+        (gadget(1).previous[0], row[COL_OUT[0]]),
+        (gadget(1).block[6], row[COL_IN[0]]),
+    ] {
+        let mut changed = row.clone();
+        assert_ne!(changed[column], wrong);
+        changed[column] = wrong;
+        for slot in 1..SLOTS {
+            let g = gadget(slot);
+            if slot > 1 {
+                for (c, previous) in g.previous.into_iter().zip(gadget(slot - 1).output) {
+                    changed[c] = changed[previous];
+                }
+            }
+            let hash = neo_application::event_commitment::commit_block(
+                g.previous.map(|c| changed[c]),
+                g.block.map(|c| changed[c]),
+            );
+            for (c, value) in g.output.into_iter().zip(hash) {
+                changed[c] = value;
+            }
+            g.assign_auxiliaries(&mut changed);
+        }
+        for (c, output) in COL_IO_AFTER.into_iter().zip(gadget(2).output) {
+            changed[c] = changed[output];
+        }
+        let Err(neo_ccs::CcsError::RowFail { row }) = check(&changed) else {
+            panic!("bad chain switch or stale program root accepted");
+        };
+        assert_eq!(
+            relation.r1cs().catalog().rows()[row].tag().label(),
+            "commitment block encoding"
+        );
+    }
+}
+
+#[test]
 fn output_selection_handles_every_block_count() {
     let normalized = crate::step::normalize(&crate::tests::method_call_trace(true));
     let padding = normalized.steps[0].padding_after();
@@ -34,10 +117,12 @@ fn output_selection_handles_every_block_count() {
         assign_from_bus(&mut row, step.opcode);
         range_check_layout().assign_bits(&mut row).unwrap();
         check(&row).unwrap();
-        let mut chain = COL_IN.map(|c| row[c]);
         for block in 0..3 {
             let g = gadget(block);
-            chain = neo_application::event_commitment::commit_block(chain, g.block.map(|c| row[c]));
+            let chain = neo_application::event_commitment::commit_block(
+                g.previous.map(|c| row[c]),
+                g.block.map(|c| row[c]),
+            );
             assert_eq!(g.output.map(|c| row[c]), chain);
         }
         assert_eq!(
