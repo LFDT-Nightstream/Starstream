@@ -1529,6 +1529,23 @@ impl DocumentState {
     fn add_field_access_usage(&mut self, span: Option<Span>, ty: &Type, field_name: &str) {
         let Some(usage_span) = span else { return };
 
+        if let Type::Utxo(utxo) = ty {
+            if let Some(method) = utxo
+                .always_abis
+                .iter()
+                .flat_map(|abi| &abi.methods)
+                .find(|method| method.name.as_str() == field_name)
+            {
+                if let Some(target) = method.name.opt_span() {
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: usage_span,
+                        target,
+                    });
+                }
+                self.add_hover_span(usage_span, &Type::Function(method.ty.clone()));
+            }
+            return;
+        }
         if !matches!(ty, Type::Record(_)) {
             return;
         }
@@ -2193,6 +2210,12 @@ impl DocumentState {
                         .iter()
                         .filter_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
+                    // Public UTXO methods have a synthetic ABI implementation,
+                    // but appear directly under the UTXO in the source outline.
+                    if *span == DUMMY_SPAN {
+                        children.extend(impl_children);
+                        continue;
+                    }
                     children.push(DocumentSymbol {
                         name: Type::Abi(abi.clone()).compact_display().to_string(),
                         detail: Some(Type::Abi(abi.clone()).to_string()),
@@ -2616,4 +2639,43 @@ fn workspace_root_for(file_path: &Path, workspace_folders: &[PathBuf]) -> PathBu
     file_path
         .parent()
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_utxo_methods_have_no_synthetic_interface_in_outline() {
+        let uri: Uri = "untitled:public-utxo.star".parse().unwrap();
+        let state = DocumentState::from_text(
+            &uri,
+            "utxo Foo { main fn new() { yield(); } pub fn value() -> i64 { 42 } }\nscript fn test() -> i64 { Foo::new().value() }",
+            None,
+            &[],
+        );
+        assert!(state.diagnostics.is_empty(), "{:?}", state.diagnostics);
+        let Some(DocumentSymbolResponse::Nested(symbols)) = state.document_symbols() else {
+            panic!("expected document symbols");
+        };
+        let children = symbols[0].children.as_ref().unwrap();
+        assert_eq!(
+            children
+                .iter()
+                .map(|child| child.name.as_str())
+                .collect::<Vec<_>>(),
+            ["new", "value"]
+        );
+        assert!(
+            children
+                .iter()
+                .all(|child| child.kind == SymbolKind::FUNCTION)
+        );
+        assert!(state.hover(Position::new(1, 37)).is_some());
+        let method = children.iter().find(|child| child.name == "value").unwrap();
+        assert!(state.definition_entries.iter().any(|entry| {
+            state.span_to_range(entry.usage).start.line == 1
+                && state.span_to_range(entry.target) == method.selection_range
+        }));
+    }
 }

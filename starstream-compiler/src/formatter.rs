@@ -260,6 +260,7 @@ fn function_export_to_doc<'a>(export: &FunctionExport, _source: &'a str) -> RcDo
     match export {
         FunctionExport::Script => RcDoc::text("script"),
         FunctionExport::UtxoMain => RcDoc::text("main"),
+        FunctionExport::UtxoPublic => RcDoc::text("pub"),
         FunctionExport::TokenMint => RcDoc::text("mint"),
         FunctionExport::TokenBurn => RcDoc::text("burn"),
     }

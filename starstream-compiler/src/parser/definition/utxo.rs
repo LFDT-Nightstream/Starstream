@@ -29,19 +29,14 @@ pub fn utxo<'a>(
         )
         .map(UtxoPart::Storage);
 
-    let fn_part = just("main")
-        .padded()
-        .or_not()
-        .then(function(block.clone()))
-        .map(|(main, def)| {
-            UtxoPart::Function(
-                FunctionDef {
-                    export: main.map(|_| FunctionExport::UtxoMain),
-                    ..def
-                }
-                .into(),
-            )
-        });
+    let fn_part = choice((
+        just("main").to(FunctionExport::UtxoMain),
+        just("pub").to(FunctionExport::UtxoPublic),
+    ))
+    .padded()
+    .or_not()
+    .then(function(block.clone()))
+    .map(|(export, def)| UtxoPart::Function(FunctionDef { export, ..def }.into()));
 
     let abi_impl_part = just("impl")
         .padded()

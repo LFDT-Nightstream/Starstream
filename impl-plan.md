@@ -34,7 +34,7 @@ Language features:
   - [x] `storage` blocks to declare UTXO state (Wasm globals)
   - [x] basic `main fn`s
   - [x] private method `fn`s
-  - [ ] public method `pub fn`s ?
+  - [x] public method `pub fn`s (implicitly exposed at every yield point)
   - [ ] abi impl blocks
   - [ ] coroutine support (yield/resume)
 - [ ] tokens

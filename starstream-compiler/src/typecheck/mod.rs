@@ -18,3 +18,6 @@ pub use warnings::{TypeWarning, TypeWarningKind};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod public_utxo_tests;

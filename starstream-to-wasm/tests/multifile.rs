@@ -98,3 +98,15 @@ fn cross_contract_import_errors() {
         other => panic!("expected CrossContractImport, got {:?}", other.map(|_| ())),
     }
 }
+
+#[test]
+fn imported_utxo_exposes_public_methods() {
+    let wasm = compile_contract(&fixture("public_utxo").join("main.star"));
+    let wit = print_wit(&wasm);
+    assert!(wit.contains("value: func() -> s64"), "{wit}");
+    assert!(wit.contains("run: func() -> s64"), "{wit}");
+    assert!(
+        !wit.contains("::pub"),
+        "synthetic ABI leaked into WIT: {wit}"
+    );
+}
