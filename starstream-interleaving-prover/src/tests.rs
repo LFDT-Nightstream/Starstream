@@ -19,6 +19,7 @@ mod padding {
             COL_RESOURCE_RESOLVER_READ,
             COL_RESOURCE_RESOLVER_WRITE,
             COL_ABI_METHOD_COUNT_READ,
+            COL_TRACE_ROOT_READ,
             COL_ABI_METHOD_COUNT_WRITE,
         ];
         for memory in build_memory_layout().entries() {

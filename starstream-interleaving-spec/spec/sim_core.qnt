@@ -148,7 +148,7 @@ module starstream_sim_core {
           | Running => any {
               execution_step,
               all { outputs_installed,
-                any { simulate_get_storage, simulate_read_abi, skip_consumed, finish_transaction } },
+                any { simulate_get_storage, simulate_read_abi, skip_consumed, finalize_coordinator, finish_transaction } },
             }
           | Finished => transaction_complete
         },
