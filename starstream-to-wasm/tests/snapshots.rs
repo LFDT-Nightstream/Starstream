@@ -228,7 +228,9 @@ fn multifile() {
         writeln!(output, "==== Workspace ====").unwrap();
         match module_graph::load_workspace(path, &mut fs) {
             Err(err) => {
-                writeln!(output, "{:#?}", err).unwrap();
+                let txt = format!("{}", err);
+                let txt = txt.replace(&*std::env::current_dir().unwrap().to_string_lossy(), "$PWD");
+                writeln!(output, "{txt}").unwrap();
             }
             Ok(graph) => {
                 writeln!(output, "{:#?}", graph).unwrap();

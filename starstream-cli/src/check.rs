@@ -8,7 +8,6 @@ use starstream_types::FileSystem;
 use crate::diagnostics::print_diagnostic;
 use crate::project::default_scan_dir;
 use crate::style;
-use crate::wasm::report_graph_error;
 
 /// Build one workspace module graph for the target directory and type-check
 /// every module in it.
@@ -38,7 +37,7 @@ impl Check {
         let graph = match module_graph::load_workspace(&scan_dir, &mut fs) {
             Ok(g) => g,
             Err(err) => {
-                report_graph_error(&err);
+                eprintln!("{err}");
                 std::process::exit(1);
             }
         };

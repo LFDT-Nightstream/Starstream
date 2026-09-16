@@ -9,7 +9,6 @@ use wit_component::ComponentEncoder;
 
 use crate::diagnostics::print_diagnostic;
 use crate::project::default_scan_dir;
-use crate::wasm::report_graph_error;
 
 /// Compile every contract under the target directory to Wasm.
 ///
@@ -33,7 +32,7 @@ impl Build {
         let graph = match module_graph::load_workspace(&scan_dir, &mut fs_tracker) {
             Ok(g) => g,
             Err(err) => {
-                report_graph_error(&err);
+                eprintln!("{err}");
                 std::process::exit(1);
             }
         };

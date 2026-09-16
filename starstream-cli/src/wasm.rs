@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use starstream_compiler::{ModuleGraphError, TypecheckOptions, module_graph, typecheck_modules};
+use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
 use starstream_to_wasm::CompileOptions;
 use starstream_types::FileSystem;
 use wit_component::ComponentEncoder;
@@ -56,7 +56,7 @@ impl Wasm {
         let graph = match module_graph::load_from_entry(&self.compile_file, &mut fs) {
             Ok(graph) => graph,
             Err(err) => {
-                report_graph_error(&err);
+                eprintln!("{err}");
                 std::process::exit(1);
             }
         };
@@ -165,52 +165,6 @@ impl Wasm {
         }
 
         Ok(())
-    }
-}
-
-pub(crate) fn report_graph_error(err: &ModuleGraphError) {
-    match err {
-        ModuleGraphError::EntryIo { path, error } => {
-            eprintln!("error: failed to read `{}`: {}", path.display(), error);
-        }
-        ModuleGraphError::ImportIo { path, error, .. } => {
-            eprintln!(
-                "error: failed to resolve path import `{}`: {}",
-                path.display(),
-                error
-            );
-        }
-        ModuleGraphError::NonRelativePath { path, .. } => {
-            eprintln!("error: path import `{path}` must start with `./` or `../`");
-        }
-        ModuleGraphError::NotStarExtension { path, .. } => {
-            eprintln!("error: path import `{path}` must end with `.star`");
-        }
-        ModuleGraphError::CrossContractImport {
-            importer_path,
-            target_path,
-            ..
-        } => {
-            eprintln!(
-                "error: cross-contract calls not supported yet: `{}` imports `{}`, which also declares `contract;`",
-                importer_path.display(),
-                target_path.display()
-            );
-        }
-        ModuleGraphError::Cycle { chain } => {
-            eprintln!("error: cyclic path import detected:");
-            for (_id, p, _span) in chain {
-                eprintln!("  - {}", p.display());
-            }
-        }
-        ModuleGraphError::ParseFailed { failures } => {
-            for (module_id, errors) in failures {
-                eprintln!("parse errors in module #{}:", module_id.0);
-                for e in errors {
-                    eprintln!("  {e}");
-                }
-            }
-        }
     }
 }
 

@@ -8,7 +8,6 @@ use starstream_types::FileSystem;
 
 use crate::diagnostics::print_diagnostic;
 use crate::project::default_scan_dir;
-use crate::wasm::report_graph_error;
 
 /// Generate JSON documentation for every contract under the target directory.
 ///
@@ -38,7 +37,7 @@ impl Docs {
         let graph = match module_graph::load_workspace(&scan_dir, &mut tracker) {
             Ok(g) => g,
             Err(err) => {
-                report_graph_error(&err);
+                eprintln!("{err}");
                 std::process::exit(1);
             }
         };

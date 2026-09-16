@@ -199,6 +199,61 @@ pub enum ModuleGraphError {
     },
 }
 
+impl std::fmt::Display for ModuleGraphError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModuleGraphError::EntryIo { path, error } => {
+                write!(f, "error: failed to read `{}`: {}", path.display(), error)
+            }
+            ModuleGraphError::ImportIo { path, error, .. } => {
+                write!(
+                    f,
+                    "error: failed to resolve path import `{}`: {}",
+                    path.display(),
+                    error
+                )
+            }
+            ModuleGraphError::NonRelativePath { path, .. } => {
+                write!(
+                    f,
+                    "error: path import `{path}` must start with `./` or `../`"
+                )
+            }
+            ModuleGraphError::NotStarExtension { path, .. } => {
+                write!(f, "error: path import `{path}` must end with `.star`")
+            }
+            ModuleGraphError::CrossContractImport {
+                importer_path,
+                target_path,
+                ..
+            } => {
+                write!(
+                    f,
+                    "error: cross-contract calls not supported yet: `{}` imports `{}`, which also declares `contract;`",
+                    importer_path.display(),
+                    target_path.display()
+                )
+            }
+            ModuleGraphError::Cycle { chain } => {
+                write!(f, "error: cyclic path import detected:")?;
+                for (_id, p, _span) in chain {
+                    write!(f, "\n  - {}", p.display())?;
+                }
+                Ok(())
+            }
+            ModuleGraphError::ParseFailed { failures } => {
+                for (module_id, errors) in failures {
+                    write!(f, "parse errors in module #{}:", module_id.0)?;
+                    for e in errors {
+                        write!(f, "\n  {e}")?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// Build a graph rooted at `entry` for the single-file `wasm -c` flow.
 ///
 /// The entry is always treated as a contract — its `contract_entries` list
