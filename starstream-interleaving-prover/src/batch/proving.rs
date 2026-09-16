@@ -63,8 +63,10 @@ fn initial_state() -> Vec<F> {
         .map(|link| match link.next_step_column {
             COL_CURR_BEFORE => crate::ivc_state::CoroutineId::Coord(1).field(),
             COL_CURR_PHASE_BEFORE => F::from_u8(crate::ivc_state::CurrPhase::Executing.value()),
-            COL_CALL_SP_BEFORE | COL_TX_PHASE_BEFORE | COL_LAST_INPUT_HAS_ABI_BEFORE => F::ONE,
+            COL_CALL_SP_BEFORE | COL_LAST_INPUT_HAS_ABI_BEFORE => F::ONE,
             COL_NEXT_UTXO_ID_BEFORE
+            | COL_TX_PHASE_BEFORE
+            | COL_COORD_FINALIZED_BEFORE
             | COL_ABI_READ_REMAINING_BEFORE
             | COL_ABI_READ_ORDINAL_BEFORE
             | COL_OUTPUT_CURSOR_BEFORE
@@ -72,6 +74,7 @@ fn initial_state() -> Vec<F> {
             | COL_PENDING_CTOR_PRESENT_BEFORE
             | COL_PENDING_CTOR_HOLDER_BEFORE
             | COL_PENDING_CTOR_HANDLE_BEFORE => F::ZERO,
+            column if COL_IO_BEFORE.contains(&column) => F::ZERO,
             column => panic!("missing canonical initial value for carried column {column}"),
         })
         .collect()
@@ -282,7 +285,13 @@ fn final_claim_requires_termination_and_authentication() {
             actual: claim.len() - 1,
         })
     );
-    let nonterminal = initial_state();
+    let mut nonterminal = claim.clone();
+    let stack_index = build_ivc_state_continuity_links()
+        .into_iter()
+        .flat_map(|group| group.links)
+        .position(|link| link.previous_step_column == COL_CALL_SP_AFTER)
+        .unwrap();
+    nonterminal[stack_index] = F::ONE;
     assert_eq!(
         check_final_claim(state_digest(&nonterminal), &nonterminal),
         Err(FinalClaimError::NonterminalStack { actual: F::ONE })

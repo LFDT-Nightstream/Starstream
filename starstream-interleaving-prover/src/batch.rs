@@ -357,7 +357,7 @@ pub(crate) fn verify_transaction(
     statement: &starstream_interleaving_spec::TransactionStatement,
     commitments: &crate::TraceCommitments,
 ) -> Result<(), Error> {
-    let normalized = crate::step::normalize_with_phase(trace, crate::ivc_state::TxPhase::Loading);
+    let normalized = crate::step::normalize(trace);
     verify_normalized(normalized, batch_size, Some(commitments), Some(statement))
 }
 
@@ -386,8 +386,25 @@ fn verify_normalized(
             })
             .collect::<Vec<Vec<F>>>();
         crate::transaction::check_statement(&rows, statement)?;
-    }
-    if let Some(expected) = expected {
+        let digest = crate::transaction_commitment(
+            statement,
+            expected.ok_or(Unsatisfied::TransactionStatement)?,
+        )?;
+        if rows
+            .first()
+            .is_none_or(|row| COL_IO_BEFORE.map(|c| row[c]) != [F::ZERO; 4])
+        {
+            return Err(Unsatisfied::TransactionStatement.into());
+        }
+        if rows
+            .last()
+            .is_none_or(|row| COL_IO_AFTER.map(|c| row[c]) != digest.map(F::new))
+        {
+            return Err(Unsatisfied::TransactionCommitment.into());
+        }
+    } else if let Some(expected) = expected {
+        // Execution-only diagnostics compare roots directly; transactions
+        // authenticate them through the aggregate digest above.
         check_commitment_statement(&batch, &packed, expected)?;
     }
     // Check the actual final slot, including padding.
@@ -453,6 +470,23 @@ pub(super) fn check_single_rows(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transaction_without_proposed_roots_returns_an_error() {
+        use starstream_interleaving_spec::{StarstreamValue, Step, TransactionStatement};
+        let trace = Trace::new([
+            Step::Return {
+                result: StarstreamValue::UNIT_VALUE.into(),
+            },
+            Step::FinalizeCoordinator,
+            Step::FinishTransaction,
+        ]);
+        let normalized = crate::step::normalize(&trace);
+        assert!(matches!(
+            verify_normalized(normalized, 1, None, Some(&TransactionStatement::default())),
+            Err(Error::Unsatisfied(Unsatisfied::TransactionStatement))
+        ));
+    }
     use crate::tests::{constructor_trace, method_call_trace};
 
     fn replace_slot(packed: &mut PackedWitness, size: usize, index: usize, row: &[F]) {

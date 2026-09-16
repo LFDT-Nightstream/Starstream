@@ -1,5 +1,5 @@
 use super::*;
-use crate::{step::normalize_with_phase, witness::build_witness_vector};
+use crate::{step::normalize, witness::build_witness_vector};
 use starstream_interleaving_spec::{
     InputUtxo, MethodHash, OutputUtxo, ResourceHandle, StarstreamValue, Step,
 };
@@ -21,6 +21,7 @@ fn fixture() -> (Trace, TransactionStatement) {
                 storage: storage.clone().into(),
             },
             Step::ReadAbi { method },
+            Step::FinalizeCoordinator,
             Step::FinishTransaction,
         ]),
         TransactionStatement {
@@ -38,10 +39,64 @@ fn fixture() -> (Trace, TransactionStatement) {
 }
 
 #[test]
+fn final_instance_roots_are_authenticated_by_memory() {
+    let unit = StarstreamValue::UNIT_VALUE;
+    let consumed = Trace::new([
+        Step::NewUtxo {
+            arguments: unit.clone(),
+            resource: ResourceHandle(0).into(),
+        },
+        Step::EnterConstructor {
+            arguments: unit.clone(),
+        },
+        Step::Return {
+            result: unit.clone().into(),
+        },
+        Step::Return {
+            result: unit.into(),
+        },
+        Step::SkipConsumed,
+        Step::FinalizeCoordinator,
+        Step::FinishTransaction,
+    ]);
+    let normalized = normalize(&consumed);
+    let rows: Vec<_> = normalized.steps.iter().map(build_witness_vector).collect();
+    let preload = crate::memory::preload_tables(&normalized.method_table);
+    crate::verify_witness_rows(&rows, &preload).unwrap();
+    for opcode in [Opcode::SkipConsumed, Opcode::FinalizeCoordinator] {
+        let index = normalized
+            .steps
+            .iter()
+            .position(|s| s.opcode == opcode)
+            .unwrap();
+        let mut tampered = rows.clone();
+        tampered[index][COL_IN[0]] += F::ONE;
+        crate::commitment::assign_from_bus(&mut tampered[index], opcode);
+        range_check_layout()
+            .assign_bits(&mut tampered[index])
+            .unwrap();
+        // Refresh the entire aggregate suffix: rejection must come from RAM,
+        // not stale Poseidon advice or a broken digest continuity link.
+        let mut chain = [F::ZERO; 4];
+        for (row, step) in tampered.iter_mut().zip(&normalized.steps) {
+            for (c, value) in COL_IO_BEFORE.into_iter().zip(chain) {
+                row[c] = value;
+            }
+            crate::commitment::assign_from_bus(row, step.opcode);
+            chain = COL_IO_AFTER.map(|c| row[c]);
+        }
+        assert!(matches!(
+            crate::verify_witness_rows(&tampered, &preload),
+            Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
+        ));
+    }
+}
+
+#[test]
 fn count_ram_resets_and_outputs_accept_multiple_registrations() {
     let method = MethodHash([1; 8]);
     let (mut trace, _) = fixture();
-    trace.0.insert(trace.0.len() - 1, Step::ReadAbi { method });
+    trace.0.insert(trace.0.len() - 2, Step::ReadAbi { method });
     trace.0.splice(
         2..2,
         [
@@ -65,7 +120,7 @@ fn count_ram_resets_and_outputs_accept_multiple_registrations() {
             },
         ],
     );
-    let normalized = normalize_with_phase(&trace, TxPhase::Loading);
+    let normalized = normalize(&trace);
     let rows: Vec<_> = normalized.steps.iter().map(build_witness_vector).collect();
     // Calls choose the latest duplicate; enumeration chooses each ordinal in
     // the current generation, not the matching methods from before the reset.
@@ -162,7 +217,7 @@ fn registration_counts_are_bounded_and_reset_per_generation() {
             Step::RegisterMethod { method }
         };
         trace.0.extend(std::iter::repeat_n(append, 256));
-        let normalized = normalize_with_phase(&trace, TxPhase::Loading);
+        let normalized = normalize(&trace);
         let relation = crate::ccs::build_relation().unwrap();
         // Exercise both sides of the bound without hashing/checking 256 full rows.
         for (from_end, accepted) in [(2, true), (1, false)] {
@@ -192,9 +247,13 @@ fn registration_counts_are_bounded_and_reset_per_generation() {
 #[test]
 fn finalization_requires_completed_execution_and_cannot_reopen_it() {
     let (trace, _) = fixture();
-    let normalized = normalize_with_phase(&trace, TxPhase::Loading);
+    let normalized = normalize(&trace);
     let relation = crate::ccs::build_relation().unwrap();
-    for opcode in [Opcode::GetStorage, Opcode::FinishTransaction] {
+    for opcode in [
+        Opcode::GetStorage,
+        Opcode::FinalizeCoordinator,
+        Opcode::FinishTransaction,
+    ] {
         let step = normalized
             .steps
             .iter()
@@ -206,6 +265,7 @@ fn finalization_requires_completed_execution_and_cannot_reopen_it() {
                 row[COL_TX_PHASE_BEFORE] = F::new(phase as u64);
                 row[COL_CALL_SP_BEFORE] = F::new(stack_depth);
                 row[COL_CALL_SP_AFTER] = F::new(stack_depth);
+                crate::witness::assign_stride_columns(&mut row);
                 range_check_layout().assign_bits(&mut row).unwrap();
                 let result = neo_ccs::check_ccs_rowwise_zero(
                     relation.r1cs().structure(),
@@ -215,9 +275,12 @@ fn finalization_requires_completed_execution_and_cannot_reopen_it() {
                 if phase == TxPhase::Running && stack_depth == 0 {
                     result.unwrap();
                 } else {
-                    assert!(
-                        matches!(result, Err(neo_ccs::CcsError::RowFail { .. })),
-                        "{opcode:?}, {phase:?}, {stack_depth}: {result:?}"
+                    let Err(neo_ccs::CcsError::RowFail { row }) = result else {
+                        panic!("{opcode:?}, {phase:?}, {stack_depth}: {result:?}");
+                    };
+                    assert_eq!(
+                        relation.r1cs().catalog().rows()[row].tag().label(),
+                        "transaction boundaries"
                     );
                 }
             }
@@ -226,9 +289,53 @@ fn finalization_requires_completed_execution_and_cannot_reopen_it() {
 }
 
 #[test]
+fn coordinator_and_finish_require_the_completed_output_cursor() {
+    let (trace, _) = fixture();
+    let normalized = normalize(&trace);
+    let relation = crate::ccs::build_relation().unwrap();
+    for opcode in [Opcode::FinalizeCoordinator, Opcode::FinishTransaction] {
+        let step = normalized
+            .steps
+            .iter()
+            .find(|s| s.opcode == opcode)
+            .unwrap();
+        for cursor in [0, 1, 2] {
+            let mut row = build_witness_vector(step);
+            // We just care about the value in BEFORE for this technically (it
+            // should fail if it doesn't match the number of utxos, which would
+            // mean finalization is not complete)
+            //
+            // We make them both the same though so that the checks fail because
+            // of that, and not because of the preservation constraint
+            row[COL_OUTPUT_CURSOR_BEFORE] = F::new(cursor);
+            row[COL_OUTPUT_CURSOR_AFTER] = F::new(cursor);
+            range_check_layout().assign_bits(&mut row).unwrap();
+            let result = neo_ccs::check_ccs_rowwise_zero(
+                relation.r1cs().structure(),
+                &row[..PUBLIC_INPUTS],
+                &row[PUBLIC_INPUTS..],
+            );
+            // the constraints should only be satisfiable with 1, since there is
+            // only one utxo allocated
+            if cursor == 1 {
+                result.unwrap();
+            } else {
+                let Err(neo_ccs::CcsError::RowFail { row }) = result else {
+                    panic!("{opcode:?}, {cursor}: {result:?}");
+                };
+                assert_eq!(
+                    relation.r1cs().catalog().rows()[row].tag().label(),
+                    "transaction boundaries"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn execution_phase_transition_is_one_way() {
     let (trace, _) = fixture();
-    let normalized = normalize_with_phase(&trace, TxPhase::Loading);
+    let normalized = normalize(&trace);
     let step = normalized
         .steps
         .iter()
@@ -263,7 +370,7 @@ fn execution_phase_transition_is_one_way() {
 #[test]
 fn transaction_witness_tampering_is_rejected() {
     let (trace, statement) = fixture();
-    let normalized = normalize_with_phase(&trace, TxPhase::Loading);
+    let normalized = normalize(&trace);
     let rows = normalized
         .steps
         .iter()
@@ -292,6 +399,19 @@ fn transaction_witness_tampering_is_rejected() {
         (Opcode::ReadAbi, COL_ABI_READ_REMAINING_AFTER, F::ONE),
         (Opcode::GetStorage, COL_OUTPUT_REMAINING, F::ONE),
         (Opcode::FinishTransaction, COL_OUTPUT_CURSOR_BEFORE, F::ZERO),
+        (Opcode::FinalizeCoordinator, COL_TX_PHASE_BEFORE, F::ZERO),
+        (Opcode::FinalizeCoordinator, COL_CALL_SP_BEFORE, F::ONE),
+        (
+            Opcode::FinalizeCoordinator,
+            COL_OUTPUT_CURSOR_BEFORE,
+            F::ZERO,
+        ),
+        (
+            Opcode::FinalizeCoordinator,
+            COL_COORD_FINALIZED_BEFORE,
+            F::ONE,
+        ),
+        (Opcode::FinalizeCoordinator, COL_TRACE_ROOT_READ, F::ZERO),
     ] {
         let mut changed = rows.clone();
         let index = normalized
@@ -317,7 +437,7 @@ fn transaction_witness_tampering_is_rejected() {
 #[test]
 fn output_binding_reads_checked_witness_not_source_trace() {
     let (trace, statement) = fixture();
-    let normalized = normalize_with_phase(&trace, TxPhase::Loading);
+    let normalized = normalize(&trace);
     let mut rows = normalized
         .steps
         .iter()
@@ -332,6 +452,14 @@ fn output_binding_reads_checked_witness_not_source_trace() {
     rows[index][COL_CALL_STACK_EXPECTED_RESULT_VALUE[0]] += F::ONE;
     crate::commitment::assign_from_bus(&mut rows[index], Opcode::GetStorage);
     range_check_layout().assign_bits(&mut rows[index]).unwrap();
+    let mut chain = [F::ZERO; 4];
+    for (row, step) in rows.iter_mut().zip(&normalized.steps) {
+        for (c, value) in COL_IO_BEFORE.into_iter().zip(chain) {
+            row[c] = value;
+        }
+        crate::commitment::assign_from_bus(row, step.opcode);
+        chain = COL_IO_AFTER.map(|c| row[c]);
+    }
     // A different opaque result is locally valid; the old transaction output isn't.
     crate::verify_witness_rows(&rows, &preload).unwrap();
     assert!(matches!(

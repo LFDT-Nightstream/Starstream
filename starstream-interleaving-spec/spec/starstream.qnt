@@ -64,6 +64,7 @@ module starstream {
     tx_outputs: List[OutputUtxo],
     output_cursor: int,
     outputs_seen: int,
+    coordinator_finalized: bool,
     curr: CoroutineId,
     call_stack: List[CallFrame],
     curr_cid_phase: CurrPhase,
@@ -151,6 +152,7 @@ module starstream {
       tx_outputs: List(),
       output_cursor: 0,
       outputs_seen: 0,
+      coordinator_finalized: false,
       curr: cid,
       call_stack: List({
         caller: Coord(0),
@@ -185,8 +187,8 @@ module starstream {
     state.next_utxo_id < state.tx_inputs.length(),
     storage.is_valid(),
     // Keep statement binding local for simulation. The circuit needs no per-step
-    // equality to tx_inputs: the statement checker binds this event's storage;
-    // TODO(proof): enforce that binding through the transaction IO commitment.
+    // equality to tx_inputs: the transaction IO commitment binds this storage.
+    // TODO(proof): Authenticate the digest endpoints through the proof statement.
     storage == state.tx_inputs[state.next_utxo_id].storage,
     val target = Utxo(state.next_utxo_id)
     state' = {
@@ -266,7 +268,18 @@ module starstream {
     state' = { output_cursor: state.output_cursor + 1, ...state }
   }
 
+  // Host-synthesized root enumeration; hashing belongs to the circuit.
+  // TODO: Enumerate all coordinators once the model supports coordinator calls.
+  action finalize_coordinator: bool = all {
+    finalization_allowed,
+    state.abi_read_remaining == 0,
+    state.output_cursor == state.next_utxo_id,
+    not(state.coordinator_finalized),
+    state' = { coordinator_finalized: true, ...state }
+  }
+
   action finish_transaction: bool = all {
+    state.coordinator_finalized,
     state.abi_read_remaining == 0,
     finalization_allowed,
     state.output_cursor == state.next_utxo_id,

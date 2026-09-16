@@ -97,6 +97,8 @@ pub enum Step {
     },
     /// Advance the finalization scan without exporting a consumed UTXO.
     SkipConsumed,
+    /// Enumerate Coord(1)'s final trace root after all UTXOs; no program event.
+    FinalizeCoordinator,
     FinishTransaction,
     NewUtxo {
         arguments: StarstreamValue,

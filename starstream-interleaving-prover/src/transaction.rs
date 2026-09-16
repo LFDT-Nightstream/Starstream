@@ -111,7 +111,27 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             ],
             [],
         );
-        let finalization = sum(|op| op.scans_output() || *op == Opcode::FinishTransaction);
+        let finalization = sum(|op| {
+            op.scans_output()
+                || matches!(op, Opcode::FinalizeCoordinator | Opcode::FinishTransaction)
+        });
+        b.push_linear_zero(
+            sum(Opcode::reads_trace_root)
+                .into_iter()
+                .chain([(COL_TRACE_ROOT_READ, -F::ONE)]),
+        );
+        b.push_linear_zero([
+            (COL_COORD_FINALIZED_AFTER, F::ONE),
+            (COL_COORD_FINALIZED_BEFORE, -F::ONE),
+            (COL_SEL_FINALIZE_COORDINATOR, -F::ONE),
+        ]);
+        b.push_gated_linear_zero(
+            COL_SEL_FINALIZE_COORDINATOR,
+            [
+                (COL_EVENT_OWNER, F::ONE),
+                (COL_ONE, -crate::ivc_state::CoroutineId::Coord(1).field()),
+            ],
+        );
         // The empty stack separates output processing from execution.
         for (column, value) in [
             (COL_TX_PHASE_BEFORE, TxPhase::Running as u64),
@@ -152,7 +172,12 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             );
         }
         b.push_row(
-            sum(|op| matches!(op, Opcode::SetStorage | Opcode::GetStorage)),
+            sum(|op| {
+                matches!(
+                    op,
+                    Opcode::SetStorage | Opcode::GetStorage | Opcode::SkipConsumed
+                )
+            }),
             [(COL_EVENT_OWNER, F::ONE), (COL_BOUNDARY_UTXO, -F::ONE)],
             [],
         );
@@ -228,6 +253,9 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 _ => {}
             }
             if op == Opcode::FinishTransaction {
+                constant(b, COL_COORD_FINALIZED_BEFORE, 1);
+            }
+            if matches!(op, Opcode::FinishTransaction | Opcode::FinalizeCoordinator) {
                 equal(b, COL_OUTPUT_CURSOR_BEFORE, COL_NEXT_UTXO_ID_BEFORE);
             }
             if op.scans_output() {
@@ -318,9 +346,9 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     });
 }
 
-/// Bind checked row buses, not the source trace or normalization metadata.
-/// TODO(proof): Authenticate these boundary values and RAM endpoints in the
-/// eventual proof statement. This API is a satisfiability diagnostic only.
+/// Direct semantic diagnostics alongside the transaction digest endpoint check.
+/// Reads checked row buses, not the source trace or normalization metadata.
+/// TODO(proof): Authenticate digest endpoints and prove RAM in the proof API.
 pub(crate) fn check_statement(
     rows: &[Vec<F>],
     statement: &TransactionStatement,
@@ -331,6 +359,7 @@ pub(crate) fn check_statement(
         (COL_TX_PHASE_BEFORE, 0),
         (COL_LAST_INPUT_HAS_ABI_BEFORE, 1),
         (COL_OUTPUT_CURSOR_BEFORE, 0),
+        (COL_COORD_FINALIZED_BEFORE, 0),
         (COL_ABI_READ_REMAINING_BEFORE, 0),
         (COL_ABI_READ_ORDINAL_BEFORE, 0),
         (COL_CURR_BEFORE, 2),

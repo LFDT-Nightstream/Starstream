@@ -529,6 +529,7 @@ impl fmt::Display for Qnt<&Step> {
             Step::SkipConsumed => f.write_str("skip_consumed"),
             Step::ReadAbi { method } => write!(f, "read_abi({})", Qnt(method)),
             Step::FinishTransaction => f.write_str("finish_transaction"),
+            Step::FinalizeCoordinator => f.write_str("finalize_coordinator"),
             Step::NewUtxo {
                 arguments,
                 resource,
