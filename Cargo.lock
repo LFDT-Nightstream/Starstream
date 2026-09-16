@@ -3861,6 +3861,7 @@ dependencies = [
 name = "starstream-interleaving-prover"
 version = "0.0.0"
 dependencies = [
+ "neo-ajtai",
  "neo-application",
  "neo-ccs",
  "neo-fold-clean",

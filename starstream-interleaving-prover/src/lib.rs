@@ -1,4 +1,5 @@
 mod batch;
+pub use batch::proving;
 mod ccs;
 mod commitment;
 mod transaction_commitment;
@@ -7,6 +8,7 @@ mod ivc_state;
 mod memory;
 mod opcode;
 mod step;
+mod terminal;
 mod transaction;
 mod witness;
 
@@ -14,7 +16,6 @@ pub use transaction::verify_transaction_sat;
 
 use neo_application::{ContinuityCheckError, MemoryCheckError};
 use neo_math::F;
-use p3_field::PrimeCharacteristicRing;
 use starstream_interleaving_spec::Trace;
 
 use crate::memory::MemoryId;
@@ -122,47 +123,9 @@ pub enum Unsatisfied {
 /// Build the circuit witness for `trace` and check that it satisfies every
 /// relation currently implemented by the prover.
 ///
-/// This is the pre-proof-system validation surface. Once proof construction is
-/// wired in, it should remain useful for diagnostics and tests.
+/// Host-side validation for diagnostics and tests; does not construct a proof.
 pub fn verify_sat(trace: &Trace) -> Result<(), Error> {
     verify_sat_batched(trace, 1)
-}
-
-fn verify_execution_statement(rows: &[Vec<F>]) -> Result<(), Error> {
-    // An empty trace leaves Quint's initial coordinator frame on the stack.
-    let terminal_call_sp = rows
-        .last()
-        .map_or(F::ONE, |row| row[crate::ccs::layout::COL_CALL_SP_AFTER]);
-
-    if terminal_call_sp != F::ZERO {
-        return Err(Unsatisfied::TerminalCallStackNotEmpty {
-            actual: terminal_call_sp,
-        }
-        .into());
-    }
-
-    let terminal_curr = rows
-        .last()
-        .map_or(F::new(2), |row| row[crate::ccs::layout::COL_CURR_AFTER]);
-    let terminal_curr_tag = rows.last().map_or(F::ZERO, |row| {
-        let tag_column = crate::ccs::layout::range_check_layout()
-            .bit_columns_for(crate::ccs::layout::COL_CURR_AFTER)
-            .expect("the packed coroutine ID has decomposition bits")
-            .start;
-        row[tag_column]
-    });
-
-    if terminal_curr_tag != F::ZERO {
-        return Err(Unsatisfied::TerminalCoroutineNotCoordinator {
-            actual: terminal_curr,
-        }
-        .into());
-    }
-
-    // TODO: Bind the canonical initial carried state and this terminal
-    // condition into the proof statement once proof construction is wired.
-
-    Ok(())
 }
 
 #[cfg(test)]

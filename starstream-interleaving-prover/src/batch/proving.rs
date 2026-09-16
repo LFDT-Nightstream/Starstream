@@ -1,10 +1,12 @@
-//! Test-only R1CS-F' integration; deliberately not an execution-proof API.
+//! Experimental transaction-bound, relation-only R1CS-F' proofs.
 //!
 //! TODO: Prove RAM/ROM accesses and bind their initialization. For now memory
 //! consistency is only checked on the host; the proof authenticates the local
 //! relation and carried-state continuity, NOT full interleaving semantics.
 
 use super::*;
+use crate::terminal::TerminalClaim;
+pub use neo_ajtai::AjtaiError;
 use neo_application::range_checked_variable_widths;
 use neo_fold_clean::{
     engine::ccs_native::poseidon2::POSEIDON2_GOLDILOCKS_BITS,
@@ -18,21 +20,139 @@ use neo_fold_clean::{
         },
         r1cs_f_prime::{
             SparseR1cs,
-            ivc::{R1csIvc, R1csIvcPreprocessing},
+            ivc::{R1csIvc, R1csIvcPreprocessing, R1csIvcRelation},
         },
     },
-    lifecycle::{Uncompressed, verify_uncompressed},
+    lifecycle::verify_uncompressed,
     paper::{
         digest::digest_fields_as_digest32,
         f_prime::{
             poseidon_trace::encode_poseidon_trace,
             ring_action_trace::{LowNormEncoding, RingActionTraceLayout},
         },
-        params::Params,
     },
 };
-use neo_params::{NeoParams, goldilocks_paper_b2};
-use p3_field::PrimeField64;
+pub use neo_fold_clean::{
+    frontends::r1cs_f_prime::ivc::R1csIvcError,
+    lifecycle::{Error as LifecycleError, Uncompressed},
+    paper::params::Params,
+};
+use starstream_interleaving_spec::TransactionStatement;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProvingError {
+    #[error(transparent)]
+    Circuit(#[from] crate::Error),
+    #[error(transparent)]
+    Ivc(#[from] Box<R1csIvcError>),
+    #[error(transparent)]
+    Verification(#[from] LifecycleError),
+    #[error(transparent)]
+    Setup(#[from] AjtaiError),
+    #[error(transparent)]
+    FinalClaim(#[from] FinalClaimError),
+}
+
+impl From<R1csIvcError> for ProvingError {
+    fn from(error: R1csIvcError) -> Self {
+        Self::Ivc(Box::new(error))
+    }
+}
+
+/// Uncompressed relation proof and its authenticated final carried state.
+/// This does not prove memory consistency; see the module-level TODO.
+#[derive(Clone, Debug)]
+pub struct TransactionProof {
+    pub proof: Uncompressed,
+    // TODO(privacy): Publish only the transaction digest/terminal projection,
+    // not the whole carried state (which exposes activity counters).
+    pub final_state: Vec<F>,
+}
+
+/// Reusable preprocessing for a fixed batch size and parameter set.
+/// The verifier must use its own trusted context, not prover-supplied setup.
+pub struct TransactionProofContext {
+    batch: Batch,
+    preprocessing: R1csIvcPreprocessing,
+}
+
+impl TransactionProofContext {
+    /// Both parties must agree on the parameters, batch size and setup seed.
+    /// The seed is verifier-owned configuration, never taken from the proof.
+    /// Weak test parameters are supported for demos; they are not secure.
+    pub fn new(
+        batch_size: usize,
+        params: Params,
+        setup_seed: [u8; 32],
+    ) -> Result<Self, ProvingError> {
+        let batch = Batch::new(batch_size)?;
+        let relation = sparse_relation(&batch);
+        let plan = recursive_plan(&batch, &relation);
+        // The recursive relation (not the application) determines the PP width.
+        // TODO(upstream): Expose preprocessing from a compiled relation so we
+        // don't compile it twice just to install the verifier-owned setup.
+        let shape = relation.clone().into();
+        let compiled = R1csIvcRelation::compile_fixed_point(&params, &shape, &plan)?;
+        register_setup(
+            &params,
+            compiled.structure().m.div_ceil(neo_math::D),
+            setup_seed,
+        )?;
+        drop(compiled);
+        let preprocessing = R1csIvcPreprocessing::new(params, relation, plan)?;
+        Ok(Self {
+            batch,
+            preprocessing,
+        })
+    }
+
+    /// Checks RAM/ROM and statement consistency on the host, then proves the
+    /// local relation and carried continuity. No memory argument is included.
+    pub fn prove(
+        &self,
+        trace: &Trace,
+        statement: &TransactionStatement,
+        roots: &crate::TraceCommitments,
+    ) -> Result<TransactionProof, ProvingError> {
+        let normalized = normalize(trace);
+        let packed =
+            super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
+        let final_state = final_state(&self.batch, &packed);
+        let mut chain = R1csIvc::new(&self.preprocessing);
+        for row in packed.rows {
+            chain.extend(row)?;
+        }
+        Ok(TransactionProof {
+            proof: chain.finish()?,
+            final_state,
+        })
+    }
+
+    /// Authenticates the statement/instance-root digest and terminal state.
+    /// Does not replay the trace or establish the host-only memory checks.
+    pub fn verify(
+        &self,
+        proof: &TransactionProof,
+        statement: &TransactionStatement,
+        roots: &crate::TraceCommitments,
+    ) -> Result<(), ProvingError> {
+        let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
+        check_final_state(
+            proof.proof.state.semantic_state_digest,
+            &proof.final_state,
+            TerminalClaim::Transaction {
+                commitment: expected,
+            },
+        )?;
+        verify_uncompressed(&self.preprocessing.prep, &proof.proof)?;
+        Ok(())
+    }
+}
+
+fn register_setup(params: &Params, cols: usize, seed: [u8; 32]) -> Result<(), AjtaiError> {
+    // Rejects an existing setup for these dimensions with a different seed or kappa.
+    neo_ajtai::set_global_pp_seeded(neo_math::D, params.kappa() as usize, cols, seed)
+}
 
 fn sparse_relation(batch: &Batch) -> SparseR1cs {
     let core = batch.relation.r1cs();
@@ -90,82 +210,42 @@ fn final_state(batch: &Batch, packed: &PackedWitness) -> Vec<F> {
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-enum FinalClaimError {
+pub enum FinalClaimError {
     #[error("final-state length is {actual}, expected {expected}")]
     LengthMismatch { expected: usize, actual: usize },
-    #[error("terminal call-stack pointer must be zero, got {actual:?}")]
-    NonterminalStack { actual: F },
-    #[error("terminal coroutine must be a coordinator, got packed id {actual:?}")]
-    TerminalCoroutineNotCoordinator { actual: F },
-    #[error("execution-only proof ended in transaction phase {actual:?}")]
-    TransactionPhase { actual: F },
+    #[error(transparent)]
+    Terminal(#[from] Unsatisfied),
     #[error("final-state digest mismatch")]
     DigestMismatch,
 }
 
-fn check_final_claim(digest: [u8; 32], claim: &[F]) -> Result<(), FinalClaimError> {
+fn check_final_state(
+    authenticated_state_digest: [u8; 32],
+    final_state: &[F],
+    expected_terminal: TerminalClaim,
+) -> Result<(), FinalClaimError> {
     let groups = build_ivc_state_continuity_links();
     let links = groups
         .iter()
         .flat_map(|group| &group.links)
         .collect::<Vec<_>>();
-    if claim.len() != links.len() {
+    if final_state.len() != links.len() {
         return Err(FinalClaimError::LengthMismatch {
             expected: links.len(),
-            actual: claim.len(),
+            actual: final_state.len(),
         });
     }
-    for (link, value) in links.iter().zip(claim) {
-        match link.previous_step_column {
-            COL_TX_PHASE_AFTER if *value != F::new(crate::ivc_state::TxPhase::Running as u64) => {
-                return Err(FinalClaimError::TransactionPhase { actual: *value });
-            }
-            COL_CALL_SP_AFTER if *value != F::ZERO => {
-                return Err(FinalClaimError::NonterminalStack { actual: *value });
-            }
-            COL_CURR_AFTER if value.as_canonical_u64() & 1 != 0 => {
-                return Err(FinalClaimError::TerminalCoroutineNotCoordinator { actual: *value });
-            }
-            _ => {}
-        }
-    }
-    if state_digest(claim) != digest {
+    expected_terminal.check(|column| {
+        let index = links
+            .iter()
+            .position(|link| link.previous_step_column == column)
+            .expect("terminal columns are carried");
+        final_state[index]
+    })?;
+    if state_digest(final_state) != authenticated_state_digest {
         return Err(FinalClaimError::DigestMismatch);
     }
     Ok(())
-}
-
-fn verify_relation_proof(
-    prep: &R1csIvcPreprocessing,
-    proof: &Uncompressed,
-    claim: &[F],
-) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: Replace publication of the whole carried state with a private-state
-    // commitment and a public terminal/lifetime projection. Log length already
-    // leaks activity; generation counters must stay private when RAM is wired.
-    check_final_claim(proof.state.semantic_state_digest, claim)?;
-    verify_uncompressed(&prep.prep, proof)?;
-    Ok(())
-}
-
-// Matches neo-wasm's non-Nebula R1CS-F' test profile. These are test-only
-// parameters, not a production security claim.
-fn test_params() -> Params {
-    Params::test_only_from_neo_params(
-        NeoParams::new(
-            goldilocks_paper_b2::Q,
-            goldilocks_paper_b2::ETA as u32,
-            goldilocks_paper_b2::D as u32,
-            2,
-            1 << 15,
-            goldilocks_paper_b2::B_BASE,
-            goldilocks_paper_b2::K_RHO,
-            goldilocks_paper_b2::T,
-            goldilocks_paper_b2::EXTENSION_DEGREE,
-            40,
-        )
-        .unwrap(),
-    )
 }
 
 fn recursive_plan(batch: &Batch, r1cs: &SparseR1cs) -> RecursiveStepImagePlan {
@@ -216,148 +296,5 @@ fn recursive_plan(batch: &Batch, r1cs: &SparseR1cs) -> RecursiveStepImagePlan {
     plan
 }
 
-#[test]
-fn relation_adapter_preserves_assignments_widths_and_state_endpoints() {
-    let normalized = normalize(&crate::tests::constructor_trace([1, 2, 3, 4]));
-    let mut expected_final = None;
-    for size in [1, 3, 8] {
-        let batch = Batch::new(size).unwrap();
-        let packed = batch.pack(&normalized.steps);
-        let sparse = sparse_relation(&batch);
-        let plan = recursive_plan(&batch, &sparse);
-        let binding = plan.state_x_out.as_ref().unwrap();
-        let widths = range_checked_variable_widths(batch.relation.columns());
-        assert_eq!(widths.len(), sparse.m);
-        assert_eq!(plan.app_private_var_widths, widths);
-        assert_eq!(
-            binding.initial_semantic_state_digest_anchor,
-            Some(state_digest(&initial_state()))
-        );
-        let single_links = build_ivc_state_continuity_links();
-        let single_links = single_links.iter().flat_map(|group| &group.links);
-        for ((&input, &output), link) in binding
-            .semantic_state_in_var_indices
-            .iter()
-            .zip(&binding.semantic_state_out_var_indices)
-            .zip(single_links)
-        {
-            assert_eq!(input, link.next_step_column * size);
-            assert_eq!(output, link.previous_step_column * size + size - 1);
-        }
-        for row in &packed.rows {
-            sparse.is_satisfied_by(row).unwrap();
-            for (&value, &width) in row.iter().zip(&widths) {
-                assert!(width == 64 || value.as_canonical_u64() < (1u64 << width));
-            }
-        }
-        let actual_initial = batch
-            .continuity
-            .links()
-            .map(|link| packed.rows[0][link.next_step_column])
-            .collect::<Vec<_>>();
-        assert_eq!(actual_initial, initial_state());
-        let claim = final_state(&batch, &packed);
-        assert_eq!(expected_final.get_or_insert_with(|| claim.clone()), &claim);
-        check_final_claim(state_digest(&claim), &claim).unwrap();
-
-        // Check the converted backend relation, not just our CCS checker.
-        let mut tampered = packed.rows[0].clone();
-        tampered[COL_SEL_NEW_UTXO * size] = F::new(2);
-        assert!(sparse.is_satisfied_by(&tampered).is_err());
-    }
-}
-
-#[test]
-fn final_claim_requires_termination_and_authentication() {
-    let batch = Batch::new(3).unwrap();
-    let normalized = normalize(&crate::tests::constructor_trace([1, 2, 3, 4]));
-    let claim = final_state(&batch, &batch.pack(&normalized.steps));
-    let digest = state_digest(&claim);
-    for index in 0..claim.len() {
-        let mut altered = claim.clone();
-        altered[index] += F::ONE;
-        assert!(check_final_claim(digest, &altered).is_err());
-    }
-    assert_eq!(
-        check_final_claim(digest, &claim[..claim.len() - 1]),
-        Err(FinalClaimError::LengthMismatch {
-            expected: claim.len(),
-            actual: claim.len() - 1,
-        })
-    );
-    let mut nonterminal = claim.clone();
-    let stack_index = build_ivc_state_continuity_links()
-        .into_iter()
-        .flat_map(|group| group.links)
-        .position(|link| link.previous_step_column == COL_CALL_SP_AFTER)
-        .unwrap();
-    nonterminal[stack_index] = F::ONE;
-    assert_eq!(
-        check_final_claim(state_digest(&nonterminal), &nonterminal),
-        Err(FinalClaimError::NonterminalStack { actual: F::ONE })
-    );
-}
-
-#[test]
-#[ignore = "expensive relation-only proving; run explicitly with --release --ignored"]
-fn relation_proving_smoke() -> Result<(), Box<dyn std::error::Error>> {
-    let total = std::time::Instant::now();
-    let trace = crate::tests::constructor_trace([1, 2, 3, 4]);
-    let batch = Batch::new(2)?;
-    let normalized = normalize(&trace);
-    let packed = batch.pack(&normalized.steps);
-    // Host diagnostics include RAM/ROM checking; these checks are NOT proved.
-    let preload = crate::memory::preload_tables(&normalized.method_table);
-    batch.check(&packed, &preload)?;
-    let claim = final_state(&batch, &packed);
-    check_final_claim(state_digest(&claim), &claim)?;
-    // Five real instructions in three batches, with one trailing padding slot:
-    // base -> bootstrap-recursive -> steady-state recursive (nonempty running
-    // accumulator). Two batches would only exercise the bootstrap fold.
-    assert_eq!(packed.rows.len(), 3);
-    assert_eq!(packed.origins.last(), Some(&None));
-    eprintln!("deriving relation-only recursive plan");
-    let sparse = sparse_relation(&batch);
-    eprintln!(
-        "application relation: {} rows, {} columns, batch size {}",
-        sparse.n, sparse.m, batch.size
-    );
-    let plan = recursive_plan(&batch, &sparse);
-    eprintln!("preprocessing relation-only proof");
-    let started = std::time::Instant::now();
-    let prep = R1csIvcPreprocessing::new_seeded(test_params(), sparse, plan, 0x57a2)?;
-    eprintln!(
-        "preprocessing: {:.2?}; recursive CCS: {} rows, {} columns",
-        started.elapsed(),
-        prep.relation().structure().n,
-        prep.relation().structure().m,
-    );
-    assert!(prep.prep.enforces_terminal_induction());
-    let mut chain = R1csIvc::new(&prep);
-    for (index, row) in packed.rows.into_iter().enumerate() {
-        if index == 2 {
-            assert!(matches!(
-                &chain.audit().expect("two batches have been proved").proof.state.proof,
-                neo_fold_clean::paper::construction2::ProofState::Active { running, .. }
-                    if !running.claims.is_empty()
-            ));
-        }
-        let branch = ["base", "bootstrap-recursive", "steady-state recursive"][index];
-        eprintln!("proving relation batch {index} ({branch})");
-        let started = std::time::Instant::now();
-        chain.extend(row)?;
-        eprintln!("batch {index} ({branch}): {:.2?}", started.elapsed());
-    }
-    eprintln!("finalizing relation-only proof");
-    let started = std::time::Instant::now();
-    let proof = chain.finish()?;
-    eprintln!("finalization: {:.2?}", started.elapsed());
-    let started = std::time::Instant::now();
-    verify_relation_proof(&prep, &proof, &claim)?;
-    eprintln!("verification: {:.2?}", started.elapsed());
-    let mut altered = claim.clone();
-    *altered.last_mut().unwrap() += F::ONE;
-    assert!(verify_relation_proof(&prep, &proof, &altered).is_err());
-    eprintln!("total relation-only smoke test: {:.2?}", total.elapsed());
-    Ok(())
-}
+#[cfg(test)]
+mod tests;

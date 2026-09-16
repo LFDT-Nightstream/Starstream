@@ -314,4 +314,4 @@ pub(crate) fn assign_native_from_bus(row: &mut [F], opcode: Opcode) {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -93,6 +93,7 @@ wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c
 zeroize = { version = "1.8.2", default-features = false }
 
 neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }
+neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }
 neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }
 neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }
 neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "d05b3ce8a8c815f230d296338d0f637f023a6db0" }

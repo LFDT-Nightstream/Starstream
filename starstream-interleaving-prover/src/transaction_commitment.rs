@@ -1,8 +1,8 @@
 //! Transaction-only chain: inputs/preloads, UTXO outputs/ABIs, coordinator, finish.
 //! Records have distinct tags and fixed lengths, padded to eight-field blocks.
 //! Roots are transaction data, not persistent ledger storage. ABI duplicates stay.
-//! TODO(proof): Bind the initial zero and expected final digest via the proof API;
-//! the satisfiability API checks endpoints on the host and RAM is not yet proved.
+//! The proving API binds initial zero and the expected final digest.
+//! TODO(proof): Prove RAM consistency and initialization, currently host-checked.
 use neo_math::F;
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
 use starstream_interleaving_spec::TransactionStatement;
