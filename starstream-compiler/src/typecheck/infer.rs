@@ -1194,23 +1194,19 @@ impl Inferencer {
 
         let mut methods = Vec::new();
         for part in &def.parts {
-            match part {
-                TokenPart::Function(function_def) => match function_def.export {
-                    Some(FunctionExport::TokenBurn) => {
-                        let ty = self.function_def_to_type(env, function_def)?;
-                        let Some(StaticFunction::Named(id)) = ty.callee else {
-                            unreachable!()
-                        };
-                        methods.push(TypedAbiMethodDecl {
-                            name: function_def.name.clone(),
-                            id,
-                            ty: Arc::new(ty),
-                        });
-                    }
-                    // TODO: `pub fn`s
-                    _ => {}
-                },
-                _ => {}
+            // TODO: `pub fn`s
+            if let TokenPart::Function(function_def) = part
+                && let Some(FunctionExport::TokenBurn) = function_def.export
+            {
+                let ty = self.function_def_to_type(env, function_def)?;
+                let Some(StaticFunction::Named(id)) = ty.callee else {
+                    unreachable!()
+                };
+                methods.push(TypedAbiMethodDecl {
+                    name: function_def.name.clone(),
+                    id,
+                    ty: Arc::new(ty),
+                });
             }
         }
 
@@ -1233,19 +1229,15 @@ impl Inferencer {
         let mut ns = Namespace::default();
 
         for part in &def.parts {
-            match part {
-                TokenPart::Function(function_def) => match function_def.export {
-                    Some(FunctionExport::TokenMint) => {
-                        let mut func_ty = self.function_def_to_type(env, function_def)?;
-                        func_ty.result = ty.clone();
-                        ns.insert_constant(
-                            &function_def.name,
-                            ConstantInfo::new(function_def.name.span, Type::from(func_ty)),
-                        )?;
-                    }
-                    _ => {}
-                },
-                _ => {}
+            if let TokenPart::Function(function_def) = part
+                && let Some(FunctionExport::TokenMint) = function_def.export
+            {
+                let mut func_ty = self.function_def_to_type(env, function_def)?;
+                func_ty.result = ty.clone();
+                ns.insert_constant(
+                    &function_def.name,
+                    ConstantInfo::new(function_def.name.span, Type::from(func_ty)),
+                )?;
             }
         }
 
