@@ -275,7 +275,7 @@ impl std::fmt::Display for ImportSource {
     }
 }
 
-/// A quoted relative path to another `.star` file.
+/// A quoted string literal.
 #[derive(Clone, Debug, Serialize)]
 pub struct StringLiteral {
     /// The raw path text as written in the source (without surrounding quotes).
