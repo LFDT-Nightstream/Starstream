@@ -4,7 +4,7 @@ use starstream_interleaving_spec::{
     InputUtxo, MethodHash, OutputUtxo, ResourceHandle, StarstreamValue, Step,
 };
 
-fn fixture() -> (Trace, TransactionStatement) {
+pub(crate) fn fixture() -> (Trace, TransactionStatement) {
     let method = MethodHash([1; 8]);
     let storage = StarstreamValue([11, 12, 13, 14]);
     (

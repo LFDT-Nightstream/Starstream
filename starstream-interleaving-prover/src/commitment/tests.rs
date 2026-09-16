@@ -155,7 +155,7 @@ fn output_selection_handles_every_block_count() {
     }
 }
 
-fn expected(
+pub(crate) fn expected(
     trace: &starstream_interleaving_spec::Trace,
     owners: &[CoroutineId],
 ) -> TraceCommitments {

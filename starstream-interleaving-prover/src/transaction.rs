@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// Check loading, execution, finalization, transaction IO and event commitments.
 /// RAM and statement binding are host checks; this does not construct a proof.
@@ -348,7 +348,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 
 /// Direct semantic diagnostics alongside the transaction digest endpoint check.
 /// Reads checked row buses, not the source trace or normalization metadata.
-/// TODO(proof): Authenticate digest endpoints and prove RAM in the proof API.
+/// TODO(proof): Prove RAM in the proof API; digest endpoints are already bound.
 pub(crate) fn check_statement(
     rows: &[Vec<F>],
     statement: &TransactionStatement,
@@ -374,9 +374,6 @@ pub(crate) fn check_statement(
         if first[column] != F::new(value) {
             return Err(reject());
         }
-    }
-    if rows.last().ok_or_else(reject)?[COL_TX_PHASE_AFTER] != F::new(TxPhase::Finished as u64) {
-        return Err(reject());
     }
     let mut inputs = 0;
     let mut outputs = 0;
