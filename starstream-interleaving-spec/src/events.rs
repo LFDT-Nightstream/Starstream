@@ -51,14 +51,9 @@ impl EventKind {
             Step::EnterMethod { .. } => Self::EnterMethod,
         })
     }
-}
 
-impl EventKind {
-    pub fn blocks(self) -> Vec<[Word; 8]> {
-        use Word::*;
-        let tag = match self {
-            Self::SetStorage => 8,
-            Self::GetStorage => 9,
+    fn tag(self) -> u32 {
+        match self {
             Self::NewUtxo => 1,
             Self::EnterConstructor => 2,
             Self::YieldBegin => 3,
@@ -66,7 +61,14 @@ impl EventKind {
             Self::Return => 5,
             Self::CallMethod => 6,
             Self::EnterMethod => 7,
-        };
+            Self::SetStorage => 8,
+            Self::GetStorage => 9,
+        }
+    }
+
+    pub fn blocks(self) -> Vec<[Word; 8]> {
+        use Word::*;
+        let tag = self.tag();
         let mut words = vec![Constant(tag)];
         let mut last_root_block = None;
         let root = |words: &mut Vec<Word>, last: &mut Option<usize>, argument: bool| {
