@@ -2409,6 +2409,9 @@ impl Compiler {
                     func.instructions(bb).drop();
                 }
             }
+            TypedExprKind::Error => {
+                func.instructions(bb).unreachable();
+            }
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_drop(func, bb, locals, span, scrutinee, arms)?;
             }
@@ -3243,6 +3246,10 @@ impl Compiler {
                     }
                     None => Err(self.push_error(callee_span, "function pointers not supported")),
                 }
+            }
+            TypedExprKind::Error => {
+                func.instructions(bb).unreachable();
+                Ok(())
             }
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_stack(func, bb, locals, span, expr, scrutinee, arms)

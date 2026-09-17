@@ -1089,6 +1089,7 @@ impl Inferencer {
                     Self::collect_yields_expr(dest, &each.node);
                 }
             }
+            Expr::Error => {}
             Expr::Block(block) => Self::collect_yields(dest, block),
             Expr::If {
                 branches,
@@ -3518,6 +3519,14 @@ impl Inferencer {
             Expr::Runtime { callee, args } => {
                 self.infer_call(env, ctx, expr, callee, args, FunctionKind::Runtime)
             }
+            Expr::Error => {
+                let ty: Type = self.fresh_var();
+                let subject = self.maybe_string(|| self.format_expr_src(expr));
+                let result = self.maybe_string(|| self.format_type(&ty));
+                let tree = self.make_trace("T-Error", None, subject, result, || vec![]);
+                let typed = Spanned::new(TypedExpr::new(ty, TypedExprKind::Error), expr.span);
+                Ok((typed, tree))
+            }
         }
     }
 
@@ -3731,6 +3740,7 @@ impl Inferencer {
             | Expr::Emit { .. }
             | Expr::Raise { .. }
             | Expr::Runtime { .. }
+            | Expr::Error
             | Expr::Yield { .. } => BindingVisibility::Private,
         }
     }
@@ -4154,7 +4164,6 @@ impl Inferencer {
                     self.apply_expr(arg);
                 }
             }
-            TypedExprKind::Disclose { expr } => self.apply_expr(expr),
             TypedExprKind::Emit { callee, args } => {
                 self.apply_expr(callee);
                 for arg in args {
@@ -4173,6 +4182,8 @@ impl Inferencer {
                     self.apply_expr(arg);
                 }
             }
+            TypedExprKind::Error => {}
+            TypedExprKind::Disclose { expr } => self.apply_expr(expr),
         }
     }
 

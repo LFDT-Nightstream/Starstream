@@ -654,6 +654,8 @@ pub enum Expr {
         callee: Box<Spanned<Expr>>,
         args: Arguments,
     },
+    /// Error: `error`
+    Error,
     // Control-flow primary expressions ----------
     /// `yield` and `yield(AbiName, ...)`
     Yield {

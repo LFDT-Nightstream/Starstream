@@ -266,6 +266,8 @@ pub enum TypedExprKind {
         callee: Box<Spanned<TypedExpr>>,
         args: TypedArguments,
     },
+    /// Error: `error`
+    Error,
     // Control-flow primary expressions ----------
     /// `yield` and `yield(AbiName, ...)`
     Yield {

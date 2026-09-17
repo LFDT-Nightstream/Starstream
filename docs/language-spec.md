@@ -220,6 +220,7 @@ primary_expression ::=
   | emit_expression
   | raise_expression
   | runtime_expression
+  | error_expression
   | yield_expression
   | block
   | if_expression
@@ -242,6 +243,8 @@ emit_expression ::= "emit" primary_expression arguments
 raise_expression ::= "raise" primary_expression arguments
 
 runtime_expression ::= "runtime" primary_expression arguments
+
+error_expression ::= "error"
 
 yield_expression ::= "yield" "(" ( identifier ( "," identifier )* ","? )? ")"
 
@@ -341,6 +344,7 @@ The following reserved words may not be used as identifiers:
 - `abi`
 - `event`
 - `emit`
+- `error`
 - `import`
 - `from`
 - `as`

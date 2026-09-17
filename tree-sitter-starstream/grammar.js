@@ -341,6 +341,7 @@ module.exports = grammar({
         $.emit_expression,
         $.raise_expression,
         $.runtime_expression,
+        $.error_expression,
         $.block,
         $.yield_expression,
         $.if_expression,
@@ -389,6 +390,8 @@ module.exports = grammar({
 
     runtime_expression: ($) =>
       seq("runtime", field("callee", $._primary_expression), $.arguments),
+
+    error_expression: ($) => "error",
 
     yield_expression: ($) =>
       seq(

@@ -1171,54 +1171,6 @@ impl DocumentState {
                     }
                 }
             }
-            /*
-            TypedExprKind::EnumConstructor {
-                enum_name,
-                variant,
-                payload,
-            } => {
-                self.add_type_usage(enum_name.opt_span(), &enum_name.name);
-
-                // Add hover for enum name with doc comment
-                if let Some(span) = enum_name.opt_span() {
-                    let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
-                    self.add_generic_or_concrete_type_hover(
-                        span,
-                        &enum_name.name,
-                        Some(&expr.node.ty),
-                        enum_doc,
-                    );
-                }
-
-                self.add_enum_variant_usage(variant.opt_span(), &enum_name.name, &variant.name);
-                self.add_variant_hover(
-                    variant.opt_span(),
-                    &enum_name.name,
-                    &variant.name,
-                    Some(&expr.node.ty),
-                );
-
-                match payload {
-                    TypedEnumConstructorPayload::Unit => {}
-                    TypedEnumConstructorPayload::Tuple(values) => {
-                        for expr in values {
-                            self.collect_expr(expr, scopes);
-                        }
-                    }
-                    TypedEnumConstructorPayload::Struct(fields) => {
-                        for field in fields {
-                            self.collect_expr(&field.value, scopes);
-                            self.add_enum_variant_field_usage(
-                                field.name.opt_span(),
-                                &enum_name.name,
-                                &variant.name,
-                                &field.name.name,
-                            );
-                        }
-                    }
-                }
-            }
-            */
             TypedExprKind::Block(block) => self.collect_block(block, scopes),
             TypedExprKind::If {
                 branches,
@@ -1307,6 +1259,7 @@ impl DocumentState {
                     self.collect_expr(arg, scopes);
                 }
             }
+            TypedExprKind::Error => {}
         }
     }
 

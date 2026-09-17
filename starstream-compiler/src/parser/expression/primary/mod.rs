@@ -12,7 +12,7 @@ mod struct_constructor;
 mod yield_;
 
 pub use disclose::parser as disclose;
-pub use emit_raise_runtime::{emit, raise, runtime};
+pub use emit_raise_runtime::{emit, error, raise, runtime};
 pub use if_expr::parser as if_expr;
 pub use literal::{boolean, integer, unit};
 pub use match_expr::parser as match_expr;
@@ -55,6 +55,7 @@ pub fn primary<'a>(
         emit(expression.clone()),
         raise(expression.clone()),
         runtime(expression.clone()),
+        error(),
         block_expr,
         yield_(),
         if_expr(expression.clone(), block.clone()),
