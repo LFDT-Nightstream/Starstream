@@ -15,8 +15,6 @@ utxo RequireHashPreimage {
     main fn create(pub hash: (u64, u64, u64, u64)) {
         _hash = hash;
         yield(IRequireHashPreimage);
-        // This point is reached once `resume;` is reached which requires the
-        // preimage passed to `fn consume` to be correct.
     }
 
     impl IRequireHashPreimage {
@@ -39,4 +37,14 @@ script fn create_hash(input: u64) -> RequireHashPreimage {
 
 script fn consume_hash(utxo: RequireHashPreimage, input: u64) {
     utxo.consume(input)
+}
+
+test "Succeeds when matching" {
+    let utxo = create_hash(1);
+    consume_hash(utxo, 1);
+}
+
+test "Fails when not matching" {
+    let utxo = create_hash(1);
+    consume_hash(utxo, 2);
 }

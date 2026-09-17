@@ -424,7 +424,7 @@ impl Compiler {
                         ValType::I64 => ComponentAbiType::S64,
                         other => panic!("unhandled global type {other:?}"),
                     };
-                    (name.to_owned(), Rc::new(ty))
+                    (to_kebab_case(name), Rc::new(ty))
                 })
                 .collect(),
         });

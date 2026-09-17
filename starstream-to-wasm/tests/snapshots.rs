@@ -74,16 +74,7 @@ fn try_paths<F: Fn(&Path, &mut String)>(pattern: &str, func: F) {
         writeln!(message, "==== {} snapshots panicked ====", panicked.len()).unwrap();
         for (path, error) in panicked {
             writeln!(message, "---- {path:?}").unwrap();
-            if let Some(str) = error.downcast_ref::<String>() {
-                if let Some((before, _)) = str.split_once("Stack backtrace:") {
-                    // Truncate anyhow stack traces for the summary.
-                    writeln!(message, "{}", before.trim()).unwrap();
-                } else {
-                    writeln!(message, "{}", str.trim()).unwrap();
-                }
-            } else if let Some(str) = error.downcast_ref::<&'static str>() {
-                writeln!(message, "{}", str.trim()).unwrap();
-            }
+            format_panic(&mut message, &error);
         }
         writeln!(
             message,
@@ -294,11 +285,6 @@ fn multifile() {
 }
 
 fn run_tests(output: &mut String, component_wasm: &[u8]) {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(run_tests_inner(output, component_wasm));
-}
-
-async fn run_tests_inner(output: &mut String, component_wasm: &[u8]) {
     let mut config = wasmtime::Config::new();
     config.wasm_component_model_implements(true);
     let engine = wasmtime::Engine::new(&config).expect("failed to create wasmtime Engine");
@@ -321,6 +307,7 @@ async fn run_tests_inner(output: &mut String, component_wasm: &[u8]) {
     let contract = Contract::<Ctx>::new(&component, common::NoopContractLookup)
         .expect("failed to create contract");
 
+    let rt = tokio::runtime::Runtime::new().unwrap();
     for (name, description) in tests {
         let description = if description.is_empty() {
             name
@@ -328,28 +315,50 @@ async fn run_tests_inner(output: &mut String, component_wasm: &[u8]) {
             description
         };
         writeln!(output, "==== Test: {description} ====").unwrap();
-        // For now, load tests like coordination scripts.
-        let script = contract
-            .get_coordination_script(name)
-            .expect("test is not a valid coordination script");
+        match catch_unwind(AssertUnwindSafe(|| {
+            rt.block_on(async {
+                // For now, load tests like coordination scripts.
+                let script = contract
+                    .get_coordination_script(name)
+                    .expect("test is not a valid coordination script");
 
-        let mut store = wasmtime::Store::new(&engine, Ctx::default());
+                let mut store = wasmtime::Store::new(&engine, Ctx::default());
 
-        let instance = contract.instantiate(&mut store).await.expect("instantiate");
-        instance
-            .call_coordination_script(&mut store, &script, &[], &mut [])
-            .await
-            .expect("call_coordination_script");
+                let instance = contract.instantiate(&mut store).await.expect("instantiate");
+                instance
+                    .call_coordination_script(&mut store, &script, &[], &mut [])
+                    .await
+                    .expect("call_coordination_script");
 
-        let ctx = store.into_data();
-        writeln!(output, "events: {:#?}", ctx.events).unwrap();
-        let outputs = ctx
-            .outputs
-            .iter()
-            .map(|u| u.context().lock())
-            .collect::<Vec<_>>();
-        writeln!(output, "outputs: {:#?}", outputs).unwrap();
-
+                let ctx = store.into_data();
+                writeln!(output, "events: {:#?}", ctx.events).unwrap();
+                let outputs = ctx
+                    .outputs
+                    .iter()
+                    .map(|u| u.context().lock())
+                    .collect::<Vec<_>>();
+                writeln!(output, "outputs: {:#?}", outputs).unwrap();
+            });
+        })) {
+            Ok(()) => {}
+            Err(err) => {
+                output.push_str("panic: ");
+                format_panic(output, &err);
+            }
+        }
         writeln!(output).unwrap();
+    }
+}
+
+fn format_panic(output: &mut String, error: &Box<dyn std::any::Any + Send + 'static>) {
+    if let Some(str) = error.downcast_ref::<String>() {
+        if let Some((before, _)) = str.split_once("Stack backtrace:") {
+            // Truncate anyhow stack traces for the summary.
+            writeln!(output, "{}", before.trim()).unwrap();
+        } else {
+            writeln!(output, "{}", str.trim()).unwrap();
+        }
+    } else if let Some(str) = error.downcast_ref::<&'static str>() {
+        writeln!(output, "{}", str.trim()).unwrap();
     }
 }
