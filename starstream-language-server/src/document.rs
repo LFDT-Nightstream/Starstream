@@ -606,6 +606,7 @@ impl DocumentState {
         let doc = untyped.and_then(|u| self.comment_map.doc_comments(u.span, source));
 
         match definition {
+            TypedDefinition::Contract => { /* Pure marker, no symbols or hover info. */ }
             TypedDefinition::Import(import) => self.collect_import(import),
             TypedDefinition::Function(function) => {
                 self.collect_function(function, scopes, doc.clone());
@@ -633,8 +634,8 @@ impl DocumentState {
                 });
                 self.collect_abi(definition, untyped_abi, source, doc.clone());
             }
-            TypedDefinition::Contract => {
-                // `contract;` is a pure marker — no symbols, no hover info.
+            TypedDefinition::Test(definition) => {
+                self.collect_block(&definition.body, scopes);
             }
         }
     }
@@ -1618,6 +1619,12 @@ impl DocumentState {
     fn collect_type_annotations_from_ast(&mut self, program: &Program) {
         for definition in &program.definitions {
             match &definition.node {
+                untyped_ast::Definition::Contract => {
+                    // `contract;` has no annotations.
+                }
+                untyped_ast::Definition::Import(_) => {
+                    // Imports don't have type annotations to collect
+                }
                 untyped_ast::Definition::Function(function) => {
                     self.collect_type_annotation_function(function);
                 }
@@ -1708,11 +1715,8 @@ impl DocumentState {
                         }
                     }
                 }
-                untyped_ast::Definition::Import(_) => {
-                    // Imports don't have type annotations to collect
-                }
-                untyped_ast::Definition::Contract => {
-                    // `contract;` has no annotations.
+                untyped_ast::Definition::Test(definition) => {
+                    self.collect_block_annotations_from_ast(&definition.body);
                 }
             }
         }
@@ -2026,13 +2030,14 @@ impl DocumentState {
             .definitions
             .iter()
             .filter_map(|definition| match definition {
-                TypedDefinition::Import(_) | TypedDefinition::Contract => None,
+                TypedDefinition::Contract | TypedDefinition::Import(_) => None,
                 TypedDefinition::Function(function) => self.function_symbol(function),
                 TypedDefinition::Struct(definition) => self.struct_symbol(definition),
                 TypedDefinition::Enum(definition) => self.enum_symbol(definition),
                 TypedDefinition::Utxo(definition) => self.utxo_symbol(definition),
                 TypedDefinition::Token(definition) => self.token_symbol(definition),
                 TypedDefinition::Abi(definition) => self.abi_symbol(definition),
+                TypedDefinition::Test(definition) => None,
             })
             .collect()
     }

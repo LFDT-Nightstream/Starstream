@@ -934,6 +934,10 @@
           "named": true
         },
         {
+          "type": "test_definition",
+          "named": true
+        },
+        {
           "type": "utxo_definition",
           "named": true
         }
@@ -1283,6 +1287,25 @@
         },
         {
           "type": "struct_field_pattern",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "test_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "string_literal",
           "named": true
         }
       ]
@@ -1720,6 +1743,10 @@
   {
     "type": "struct_field_pattern_name",
     "named": true
+  },
+  {
+    "type": "test",
+    "named": false
   },
   {
     "type": "true",

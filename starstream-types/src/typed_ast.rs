@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::{
     AbiType, DUMMY_SPAN, EnumType, FunctionExport, FunctionType, ImportSource, RecordType,
-    ScopedName, Span, Spanned, TokenType, TypedAbiMethodDecl, UtxoType,
+    ScopedName, Span, Spanned, StringLiteral, TokenType, TypedAbiMethodDecl, UtxoType,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -24,6 +24,7 @@ pub struct TypedProgram {
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum TypedDefinition {
+    Contract,
     Import(TypedImportDef),
     Function(TypedFunctionDef),
     Struct(TypedStructDef),
@@ -31,8 +32,7 @@ pub enum TypedDefinition {
     Utxo(TypedUtxoDef),
     Token(TypedTokenDef),
     Abi(TypedAbiDef),
-    /// `contract;` marker carried through from the AST.
-    Contract,
+    Test(TypedTestDef),
 }
 
 #[derive(Clone, Debug)]
@@ -124,6 +124,13 @@ pub struct TypedAbiDef {
     pub ty: Arc<AbiType>,
     /// All functions. If you only want methods, use [AbiType::methods].
     pub functions: Vec<TypedAbiMethodDecl>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedTestDef {
+    pub description: Option<StringLiteral>,
+    // no FunctionType since it's currently always () -> ()
+    pub body: TypedBlock,
 }
 
 /// Typed statements.

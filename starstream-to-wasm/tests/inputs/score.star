@@ -37,3 +37,7 @@ script fn example() {
     let prog = ScoreProgress::new();
     prog.plus_chips(10);
 }
+
+test "A Simple Example" {
+    example();
+}

@@ -123,11 +123,116 @@ Program {
                             },
                         ],
                         tail_expression: None,
-                        span: 71..97,
+                        span: 71..98,
                     },
                 },
             ),
-            span: 54..97,
+            span: 54..98,
+        },
+        Spanned {
+            node: Test(
+                TestDef {
+                    description: Some(
+                        StringLiteral {
+                            value: "Simple Emit",
+                            span: 103..116,
+                        },
+                    ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Emit {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "Hello",
+                                                            span: 128..133,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 128..133,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "13",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                    span: 134..136,
+                                                },
+                                                Spanned {
+                                                    node: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "17",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                    span: 138..140,
+                                                },
+                                            ],
+                                        },
+                                        span: 123..141,
+                                    },
+                                ),
+                                span: 123..143,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 116..146,
+                    },
+                },
+            ),
+            span: 98..146,
+        },
+        Spanned {
+            node: Test(
+                TestDef {
+                    description: Some(
+                        StringLiteral {
+                            value: "Call Main",
+                            span: 151..162,
+                        },
+                    ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "main",
+                                                            span: 169..173,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 169..173,
+                                            },
+                                            args: [],
+                                        },
+                                        span: 169..175,
+                                    },
+                                ),
+                                span: 169..177,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 162..179,
+                    },
+                },
+            ),
+            span: 146..179,
         },
     ],
 }
@@ -141,6 +246,20 @@ T-Fn: main => ()
       Unify-Var: i64 ~ i32 => {i32/t3}
       T-Int: {main: fn() -> ()} ⊢ 2 ⇒ i64
       Unify-Var: i64 ~ i32 => {i32/t4}
+
+T-Test: "Simple Emit" => ()
+  T-Expr: {main: fn() -> ()} ⊢ emit Hello(13, 17); ⇒ ()
+    T-Call: {main: fn() -> ()} ⊢ emit Hello(13, 17) ⇒ ()
+      T-Var: {main: fn() -> ()} ⊢ Hello ⇒ event(one: i32, two_two: i32) -> ()
+      T-Int: {main: fn() -> ()} ⊢ 13 ⇒ i64
+      Unify-Var: i64 ~ i32 => {i32/t5}
+      T-Int: {main: fn() -> ()} ⊢ 17 ⇒ i64
+      Unify-Var: i64 ~ i32 => {i32/t6}
+
+T-Test: "Call Main" => ()
+  T-Expr: {main: fn() -> ()} ⊢ main(); ⇒ ()
+    T-Call: {main: fn() -> ()} ⊢ main() ⇒ ()
+      T-Var: {main: fn() -> ()} ⊢ main ⇒ fn() -> ()
 
 ==== Typed AST ====
 TypedProgram {
@@ -323,6 +442,170 @@ TypedProgram {
                 },
             },
         ),
+        Test(
+            TypedTestDef {
+                description: Some(
+                    StringLiteral {
+                        value: "Simple Emit",
+                        span: 103..116,
+                    },
+                ),
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Unit,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Emit,
+                                                        name_span: 20..25,
+                                                        params: [
+                                                            TypedFunctionParam {
+                                                                public: true,
+                                                                name: Identifier {
+                                                                    name: "one",
+                                                                    span: 26..29,
+                                                                },
+                                                                ty: Int(
+                                                                    I32,
+                                                                ),
+                                                                ty_span: 31..34,
+                                                            },
+                                                            TypedFunctionParam {
+                                                                public: true,
+                                                                name: Identifier {
+                                                                    name: "two_two",
+                                                                    span: 36..43,
+                                                                },
+                                                                ty: Int(
+                                                                    I32,
+                                                                ),
+                                                                ty_span: 45..48,
+                                                            },
+                                                        ],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(4),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "Hello",
+                                                            span: 128..133,
+                                                        },
+                                                    ],
+                                                    constant: Some(
+                                                        0,
+                                                    ),
+                                                },
+                                            },
+                                            span: 128..133,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        I32,
+                                                    ),
+                                                    kind: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "13",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 134..136,
+                                            },
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        I32,
+                                                    ),
+                                                    kind: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "17",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 138..140,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 128..133,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+        Test(
+            TypedTestDef {
+                description: Some(
+                    StringLiteral {
+                        value: "Call Main",
+                        span: 151..162,
+                    },
+                ),
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Unit,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 64..68,
+                                                        params: [],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(5),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "main",
+                                                            span: 169..173,
+                                                        },
+                                                    ],
+                                                    constant: None,
+                                                },
+                                            },
+                                            span: 169..173,
+                                        },
+                                        args: [],
+                                    },
+                                },
+                                span: 169..173,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
     ],
 }
 
@@ -334,10 +617,20 @@ TypedProgram {
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
   (import "starstream:events/foo" "hello" (func (;1;) (type 1)))
   (export "main" (func 2))
+  (export "test1" (func 3))
+  (export "test2" (func 4))
   (func (;2;) (type 2)
     (call 1
       (i32.const 1)
       (i32.const 2))
+  )
+  (func (;3;) (type 2)
+    (call 1
+      (i32.const 13)
+      (i32.const 17))
+  )
+  (func (;4;) (type 2)
+    (call 2)
   )
   (@custom "component-type"
     (component
@@ -377,6 +670,10 @@ TypedProgram {
               (import "starstream:events/foo" (instance (;1;) (type 9)))
               (type (;10;) (func))
               (export (;0;) "main" (func (type 10)))
+              (type (;11;) (func))
+              (export (;1;) "test1" (external-id "starstream:test:Simple Emit") (func (type 11)))
+              (type (;12;) (func))
+              (export (;2;) "test2" (external-id "starstream:test:Call Main") (func (type 12)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -396,6 +693,10 @@ world root {
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
 
   export main: func();
+  @external-id("starstream:test:Simple Emit")
+  export test1: func();
+  @external-id("starstream:test:Call Main")
+  export test2: func();
 }
 package starstream:std {
   interface builtin {
@@ -413,3 +714,37 @@ package starstream:events {
     hello: func(one: s32, two-two: s32);
   }
 }
+
+==== Test: Simple Emit ====
+events: [
+    Event {
+        abi_name: "foo",
+        name: "hello",
+        params: [
+            S32(
+                13,
+            ),
+            S32(
+                17,
+            ),
+        ],
+    },
+]
+outputs: []
+
+==== Test: Call Main ====
+events: [
+    Event {
+        abi_name: "foo",
+        name: "hello",
+        params: [
+            S32(
+                1,
+            ),
+            S32(
+                2,
+            ),
+        ],
+    },
+]
+outputs: []

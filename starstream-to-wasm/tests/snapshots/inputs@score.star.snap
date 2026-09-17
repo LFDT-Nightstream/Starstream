@@ -622,11 +622,52 @@ Program {
                             },
                         ],
                         tail_expression: None,
-                        span: 697..763,
+                        span: 697..764,
                     },
                 },
             ),
-            span: 677..763,
+            span: 677..764,
+        },
+        Spanned {
+            node: Test(
+                TestDef {
+                    description: Some(
+                        StringLiteral {
+                            value: "A Simple Example",
+                            span: 769..787,
+                        },
+                    ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "example",
+                                                            span: 794..801,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 794..801,
+                                            },
+                                            args: [],
+                                        },
+                                        span: 794..803,
+                                    },
+                                ),
+                                span: 794..805,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 787..807,
+                    },
+                },
+            ),
+            span: 764..807,
         },
     ],
 }
@@ -681,6 +722,11 @@ T-Fn: example => ()
         T-Var: {example: fn() -> (), prog: ScoreProgress} ⊢ prog ⇒ ScoreProgress
       T-Int: {example: fn() -> (), prog: ScoreProgress} ⊢ 10 ⇒ i64
       Unify-Var: i64 ~ u64 => {u64/t4}
+
+T-Test: "A Simple Example" => ()
+  T-Expr: {example: fn() -> ()} ⊢ example(); ⇒ ()
+    T-Call: {example: fn() -> ()} ⊢ example() ⇒ ()
+      T-Var: {example: fn() -> ()} ⊢ example ⇒ fn() -> ()
 
 ==== Typed AST ====
 TypedProgram {
@@ -2788,6 +2834,59 @@ TypedProgram {
                 },
             },
         ),
+        Test(
+            TypedTestDef {
+                description: Some(
+                    StringLiteral {
+                        value: "A Simple Example",
+                        span: 769..787,
+                    },
+                ),
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Unit,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 687..694,
+                                                        params: [],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(11),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "example",
+                                                            span: 794..801,
+                                                        },
+                                                    ],
+                                                    constant: None,
+                                                },
+                                            },
+                                            span: 794..801,
+                                        },
+                                        args: [],
+                                    },
+                                },
+                                span: 794..801,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
     ],
 }
 
@@ -2835,6 +2934,7 @@ TypedProgram {
   (export "score-progress#get-storage" (func 26))
   (export "score-progress#set-storage" (func 27))
   (export "example" (func 28))
+  (export "test13" (func 29))
   (export "memory" (memory 0))
   (func (;16;) (type 7)
     (call 2
@@ -3050,6 +3150,9 @@ TypedProgram {
       (local.get 1)
       (i64.const 10))
   )
+  (func (;29;) (type 7)
+    (call 28)
+  )
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -3172,6 +3275,8 @@ TypedProgram {
               (export (;5;) "score-progress" (instance (type 21)))
               (type (;22;) (func))
               (export (;0;) "example" (func (type 22)))
+              (type (;23;) (func))
+              (export (;1;) "test13" (external-id "starstream:test:A Simple Example") (func (type 23)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -3196,6 +3301,8 @@ world root {
   use starstream:self/score-progress.{utxo as u-score-progress};
 
   export example: func();
+  @external-id("starstream:test:A Simple Example")
+  export test13: func();
   export score-progress: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
@@ -3270,3 +3377,39 @@ package starstream:self {
     }
   }
 }
+
+==== Test: A Simple Example ====
+events: []
+outputs: [
+    Ok(
+        UtxoCtx {
+            methods: [
+                (
+                    9984741223472054651,
+                    3777191895585416912,
+                    11414430493733454782,
+                    17853027721887758589,
+                ),
+                (
+                    10031671596645923877,
+                    5859691412821126436,
+                    14636224297006305312,
+                    18400238348769808647,
+                ),
+                (
+                    10486967187806387020,
+                    13073113330981563051,
+                    14419176846782403470,
+                    15804774841702521566,
+                ),
+                (
+                    5384737671178596162,
+                    7822374597054249491,
+                    11449494298339117153,
+                    15762863519083182186,
+                ),
+            ],
+            dropped: false,
+        },
+    ),
+]

@@ -1,11 +1,7 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use miette::NamedSource;
-use starstream_compiler::{
-    ModuleGraph, ModuleGraphError, TypecheckOptions, module_graph, typecheck_modules,
-};
+use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
 use starstream_to_wasm::CompileOptions;
 use starstream_types::FileSystem;
 use wit_component::ComponentEncoder;
@@ -60,41 +56,30 @@ impl Wasm {
         let graph = match module_graph::load_from_entry(&self.compile_file, &mut fs) {
             Ok(graph) => graph,
             Err(err) => {
-                report_graph_error(&err);
+                eprintln!("{err}");
                 std::process::exit(1);
             }
         };
 
-        let sources = build_named_sources(&graph);
         let entry_id = graph
             .contract_entries()
             .first()
             .copied()
             .expect("load_from_entry always sets a single contract entry");
-        let entry_named = sources
-            .get(&entry_id.0)
-            .cloned()
-            .expect("entry module always has a NamedSource");
 
         let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {
                 for (module_id, warning) in &success.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning.clone())?;
-                    }
+                    print_diagnostic(graph.source(*module_id), warning.clone())?;
                 }
                 success
             }
             Err(failure) => {
                 for (module_id, warning) in failure.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning)?;
-                    }
+                    print_diagnostic(graph.source(module_id), warning)?;
                 }
                 for (module_id, error) in failure.errors {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), error)?;
-                    }
+                    print_diagnostic(graph.source(module_id), error)?;
                 }
                 std::process::exit(1);
             }
@@ -107,7 +92,7 @@ impl Wasm {
         };
         let compile_result = options.compile_contract(&typed, entry_id);
         for error in compile_result.errors {
-            print_diagnostic(entry_named.clone(), error)?;
+            print_diagnostic(graph.source(entry_id), error)?;
         }
         if let Some(output_mermaid) = self.output_mermaid {
             std::fs::create_dir_all(&output_mermaid).unwrap();
@@ -180,64 +165,6 @@ impl Wasm {
         }
 
         Ok(())
-    }
-}
-
-pub(crate) fn build_named_sources(graph: &ModuleGraph) -> HashMap<u32, NamedSource<String>> {
-    graph
-        .modules()
-        .iter()
-        .map(|module| {
-            let path = module.abs_path.display().to_string();
-            let source = module.source.as_ref().to_string();
-            (module.id.0, NamedSource::new(path, source))
-        })
-        .collect()
-}
-
-pub(crate) fn report_graph_error(err: &ModuleGraphError) {
-    match err {
-        ModuleGraphError::EntryIo { path, error } => {
-            eprintln!("error: failed to read `{}`: {}", path.display(), error);
-        }
-        ModuleGraphError::ImportIo { path, error, .. } => {
-            eprintln!(
-                "error: failed to resolve path import `{}`: {}",
-                path.display(),
-                error
-            );
-        }
-        ModuleGraphError::NonRelativePath { path, .. } => {
-            eprintln!("error: path import `{path}` must start with `./` or `../`");
-        }
-        ModuleGraphError::NotStarExtension { path, .. } => {
-            eprintln!("error: path import `{path}` must end with `.star`");
-        }
-        ModuleGraphError::CrossContractImport {
-            importer_path,
-            target_path,
-            ..
-        } => {
-            eprintln!(
-                "error: cross-contract calls not supported yet — `{}` imports `{}`, which also declares `contract;`",
-                importer_path.display(),
-                target_path.display()
-            );
-        }
-        ModuleGraphError::Cycle { chain } => {
-            eprintln!("error: cyclic path import detected:");
-            for (_id, p, _span) in chain {
-                eprintln!("  - {}", p.display());
-            }
-        }
-        ModuleGraphError::ParseFailed { failures } => {
-            for (module_id, errors) in failures {
-                eprintln!("parse errors in module #{}:", module_id.0);
-                for e in errors {
-                    eprintln!("  {e}");
-                }
-            }
-        }
     }
 }
 

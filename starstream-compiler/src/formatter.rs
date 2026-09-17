@@ -2,8 +2,8 @@ use pretty::RcDoc;
 use starstream_types::{
     AbiDef, AbiMethodDecl, AbiPart, Arguments, BinaryOp, Block, Comment, CommentMap, Definition,
     EffectDef, EventDef, Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal,
-    ScopedName, Spanned, Statement, TokenDef, TokenGlobal, TokenPart, TypeAnnotation, UtxoDef,
-    UtxoGlobal, UtxoPart,
+    ScopedName, Spanned, Statement, TestDef, TokenDef, TokenGlobal, TokenPart, TypeAnnotation,
+    UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         EnumDef, EnumVariant, EnumVariantPayload, Identifier, ImportDef, ImportItems,
         ImportNamedItem, ImportSource, MatchArm, Pattern, Program, StructDef, StructField,
@@ -157,6 +157,7 @@ fn definition_to_doc<'a>(
         Definition::Utxo(definition) => utxo_definition_to_doc(definition, source, comments),
         Definition::Token(definition) => token_definition_to_doc(definition, source, comments),
         Definition::Abi(definition) => abi_definition_to_doc(definition, source, comments),
+        Definition::Test(definition) => test_definition_to_doc(definition, source, comments),
     }
 }
 
@@ -701,6 +702,21 @@ fn event_definition_to_doc<'a>(event: &EventDef, source: &'a str) -> RcDoc<'a, (
         .append(RcDoc::text("("))
         .append(params)
         .append(RcDoc::text(");"))
+}
+
+fn test_definition_to_doc<'a>(
+    definition: &TestDef,
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
+    RcDoc::text("test")
+        .append(RcDoc::space())
+        .append(if let Some(desc) = &definition.description {
+            RcDoc::as_string(desc).append(RcDoc::space())
+        } else {
+            RcDoc::nil()
+        })
+        .append(block_to_doc(&definition.body, source, comments))
 }
 
 fn statement_to_doc<'a>(

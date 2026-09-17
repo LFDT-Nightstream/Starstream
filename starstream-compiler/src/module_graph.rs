@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use miette::NamedSource;
 use starstream_types::{
     DUMMY_SPAN, FileSystem, Span,
     ast::{Definition, ImportSource, Program},
@@ -25,12 +26,19 @@ use starstream_types::{
 use crate::parser::{self, ParseError};
 
 /// Stable identifier for a module within a `ModuleGraph`.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct ModuleId(pub u32);
 
 impl ModuleId {
     pub fn index(self) -> usize {
         self.0 as usize
+    }
+}
+
+impl std::fmt::Debug for ModuleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Always put on one line, ignoring alternate formatting.
+        write!(f, "ModuleId({})", self.0)
     }
 }
 
@@ -50,6 +58,11 @@ impl Module {
             .definitions
             .iter()
             .any(|d| matches!(d.node, Definition::Contract))
+    }
+
+    pub fn to_named_source(&self) -> NamedSource<Arc<str>> {
+        NamedSource::new(self.abs_path.to_string_lossy(), self.source.clone())
+            .with_language("starstream")
     }
 }
 
@@ -124,6 +137,21 @@ impl ModuleGraph {
         }
         order
     }
+
+    pub fn source(&self, id: ModuleId) -> NamedSource<Arc<str>> {
+        self.modules[id.0 as usize].to_named_source()
+    }
+}
+
+impl std::fmt::Debug for ModuleGraph {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModuleGraph")
+            .field("modules.len()", &self.modules.len())
+            .field("topo_order", &self.topo_order)
+            .field("edges", &self.edges)
+            .field("contract_entries", &self.contract_entries)
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -169,6 +197,61 @@ pub enum ModuleGraphError {
     ParseFailed {
         failures: Vec<(ModuleId, Vec<ParseError>)>,
     },
+}
+
+impl std::fmt::Display for ModuleGraphError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModuleGraphError::EntryIo { path, error } => {
+                write!(f, "error: failed to read `{}`: {}", path.display(), error)
+            }
+            ModuleGraphError::ImportIo { path, error, .. } => {
+                write!(
+                    f,
+                    "error: failed to resolve path import `{}`: {}",
+                    path.display(),
+                    error
+                )
+            }
+            ModuleGraphError::NonRelativePath { path, .. } => {
+                write!(
+                    f,
+                    "error: path import `{path}` must start with `./` or `../`"
+                )
+            }
+            ModuleGraphError::NotStarExtension { path, .. } => {
+                write!(f, "error: path import `{path}` must end with `.star`")
+            }
+            ModuleGraphError::CrossContractImport {
+                importer_path,
+                target_path,
+                ..
+            } => {
+                write!(
+                    f,
+                    "error: cross-contract calls not supported yet: `{}` imports `{}`, which also declares `contract;`",
+                    importer_path.display(),
+                    target_path.display()
+                )
+            }
+            ModuleGraphError::Cycle { chain } => {
+                write!(f, "error: cyclic path import detected:")?;
+                for (_id, p, _span) in chain {
+                    write!(f, "\n  - {}", p.display())?;
+                }
+                Ok(())
+            }
+            ModuleGraphError::ParseFailed { failures } => {
+                for (module_id, errors) in failures {
+                    write!(f, "parse errors in module #{}:", module_id.0)?;
+                    for e in errors {
+                        write!(f, "\n  {e}")?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Build a graph rooted at `entry` for the single-file `wasm -c` flow.

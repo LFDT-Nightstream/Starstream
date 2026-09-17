@@ -8,7 +8,6 @@ use starstream_types::FileSystem;
 use crate::diagnostics::print_diagnostic;
 use crate::project::default_scan_dir;
 use crate::style;
-use crate::wasm::{build_named_sources, report_graph_error};
 
 /// Build one workspace module graph for the target directory and type-check
 /// every module in it.
@@ -38,7 +37,7 @@ impl Check {
         let graph = match module_graph::load_workspace(&scan_dir, &mut fs) {
             Ok(g) => g,
             Err(err) => {
-                report_graph_error(&err);
+                eprintln!("{err}");
                 std::process::exit(1);
             }
         };
@@ -48,32 +47,24 @@ impl Check {
             return Ok(());
         }
 
-        let sources = build_named_sources(&graph);
-
         let mut errors = 0usize;
         let mut warnings = 0usize;
 
         match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {
                 for (module_id, warning) in success.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning)?;
-                        warnings += 1;
-                    }
+                    print_diagnostic(graph.source(module_id), warning)?;
+                    warnings += 1;
                 }
             }
             Err(failure) => {
                 for (module_id, warning) in failure.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning)?;
-                        warnings += 1;
-                    }
+                    print_diagnostic(graph.source(module_id), warning)?;
+                    warnings += 1;
                 }
                 for (module_id, error) in failure.errors {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), error)?;
-                        errors += 1;
-                    }
+                    print_diagnostic(graph.source(module_id), error)?;
+                    errors += 1;
                 }
             }
         }
