@@ -1,17 +1,18 @@
-abi IRequireHashPreimage {
-    // `u64` used for illustration purposes because Starstream doesn't implement `list<u8>` yet.
-    fn consume(preimage: u64);
+fn sha256(input: u64) -> (u64, u64, u64, u64) {
+    (input, 0, 0, 0)
+}
 
-    effect HashMismatch();
+abi IRequireHashPreimage {
+    // `u64` used for illustration purposes because compiler doesn't implement `list<u8>` yet.
+    fn consume(preimage: u64);
 }
 
 utxo RequireHashPreimage {
     storage {
-        // Tuple of 4 u64s totals 256 bits of SHA-256 digest.
-        let mut _hash: tuple<u64, u64, u64, u64>;
+        let mut _hash: (u64, u64, u64, u64);
     }
 
-    main fn create(hash: tuple<u64, u64, u64, u64>) {
+    main fn create(pub hash: (u64, u64, u64, u64)) {
         _hash = hash;
         yield(IRequireHashPreimage);
         // This point is reached once `resume;` is reached which requires the
@@ -21,8 +22,11 @@ utxo RequireHashPreimage {
     impl IRequireHashPreimage {
         fn consume(preimage: u64) {
             let hash = sha256(preimage);
-            if hash != _hash {
-                raise HashMismatch();
+            // Destructure and compare elements directly because compiler doesn't implement tuple != tuple yet.
+            let (a, b, c, d) = hash;
+            let (e, f, g, h) = _hash;
+            if (a != e || b != f || c != g || d != h) {
+                error;
             }
             resume;
         }
