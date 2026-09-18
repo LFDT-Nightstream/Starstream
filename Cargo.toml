@@ -18,6 +18,7 @@ members = [
   "ark-poseidon2",
   "ark-goldilocks",
   "starstream-interleaving-spec",
+  "examples/sha256lib",
 ]
 
 [workspace.package]
@@ -74,6 +75,7 @@ tower-lsp-server = { version = "0.22.1", default-features = false, features = [
 ] }
 tracing = { version = "0.1.44", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false }
+wasm-bindgen = "0.2.128"
 wasm-encoder = "0.254.0"
 wasm-tokio = { version = "0.6", default-features = false }
 wasm-wave = { version = "0.258.0", default-features = false }
@@ -81,6 +83,7 @@ wasmprinter = "0.254.0"
 wasmparser = "0.254.0"
 wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
 wasmtime-wizer = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
+wit-bindgen = "0.51.0"
 wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
 wit-component = "0.254.0"
 wit-parser = "0.254.0"
