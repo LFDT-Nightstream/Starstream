@@ -12,16 +12,16 @@ use starstream_types::{
     IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
     TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
     TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm,
-    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTokenDef, TypedTokenPart,
-    TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTestDef, TypedTokenDef,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
 use thiserror::Error;
 use wasm_encoder::{
-    BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
-    ComponentTypeRef, ComponentTypeSection, ConstExpr, CustomSection, DataSection, EntityType,
-    ExportKind, ExportSection, FuncType, Function, FunctionSection, GlobalSection, GlobalType,
-    Ieee32, Ieee64, ImportSection, InstanceType, InstructionSink, MemorySection, MemoryType,
-    Module, TypeSection, ValType,
+    BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection,
+    ComponentExternName, ComponentType, ComponentTypeRef, ComponentTypeSection, ConstExpr,
+    CustomSection, DataSection, EntityType, ExportKind, ExportSection, FuncType, Function,
+    FunctionSection, GlobalSection, GlobalType, Ieee32, Ieee64, ImportSection, InstanceType,
+    InstructionSink, MemorySection, MemoryType, Module, TypeSection, ValType,
 };
 
 use crate::component_abi::{
@@ -131,9 +131,8 @@ impl Default for CompileOptions {
 impl CompileOptions {
     #[must_use]
     pub fn compile(self, program: &TypedProgram) -> CompileResult {
-        let mut compiler = Compiler::new(self);
-        compiler.visit_program(program);
-        compiler.finish()
+        let definitions = program.definitions.iter().collect::<Vec<_>>();
+        self.compile_definitions(&definitions)
     }
 
     #[must_use]
@@ -142,8 +141,6 @@ impl CompileOptions {
         graph: &starstream_compiler::TypedModuleGraph,
         entry: starstream_compiler::ModuleId,
     ) -> CompileResult {
-        let mut compiler = Compiler::new(self);
-
         // Build a reachable-from-entry set by chasing edges through the graph.
         use std::collections::HashSet;
         let mut reachable: HashSet<starstream_compiler::ModuleId> = HashSet::new();
@@ -158,13 +155,18 @@ impl CompileOptions {
             }
         }
 
+        let mut definitions = Vec::new();
         for &module_id in &graph.topo_order {
-            if !reachable.contains(&module_id) {
-                continue;
+            if reachable.contains(&module_id) {
+                definitions.extend(graph.module(module_id).program.definitions.iter());
             }
-            let module = graph.module(module_id);
-            compiler.visit_program(&module.program);
         }
+        self.compile_definitions(&definitions)
+    }
+
+    fn compile_definitions(self, definitions: &[&TypedDefinition]) -> CompileResult {
+        let mut compiler = Compiler::new(self);
+        compiler.visit_program(definitions);
         compiler.finish()
     }
 }
@@ -532,7 +534,7 @@ impl Compiler {
 
     fn import_function(&mut self, module: &str, field: &str, ty: &FuncType) -> u32 {
         let ty = self.add_core_func_type(ty);
-        assert_eq!(self.functions.len(), 0); // Imports must precede functions per Wasm spec.
+        assert_eq!(self.functions.len(), 0, "imports must precede functions");
         let idx = self.imported_functions;
         self.imports.import(module, field, EntityType::Function(ty));
         self.imported_functions += 1;
@@ -1043,7 +1045,7 @@ impl Compiler {
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
-    fn visit_program(&mut self, program: &TypedProgram) {
+    fn visit_program(&mut self, definitions: &[&TypedDefinition]) {
         // Core Wasm requires that all imported functions must precede all
         // defined functions, so import everything first.
 
@@ -1051,8 +1053,7 @@ impl Compiler {
         self.import_builtin();
 
         // Utxo context methods needed if the program contains any UTXOs.
-        if program
-            .definitions
+        if definitions
             .iter()
             .any(|d| matches!(d, TypedDefinition::Utxo(_)))
         {
@@ -1063,7 +1064,7 @@ impl Compiler {
 
         // Import anything the source file explicitly imports.
         let mut imported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>> = BTreeMap::new();
-        for definition in &program.definitions {
+        for definition in definitions {
             match definition {
                 TypedDefinition::Import(def) => self.visit_import(def, &mut imported_interfaces),
                 TypedDefinition::Abi(def) => self.visit_abi(def, &mut imported_interfaces),
@@ -1076,7 +1077,7 @@ impl Compiler {
         }
 
         // Visit imported versions of Utxo and Token resource definitions.
-        for definition in &program.definitions {
+        for definition in definitions {
             match definition {
                 TypedDefinition::Utxo(def) => self.pre_visit_utxo(def),
                 TypedDefinition::Token(def) => self.pre_visit_token(def),
@@ -1086,7 +1087,7 @@ impl Compiler {
         }
 
         // Function body compilation.
-        for definition in &program.definitions {
+        for definition in definitions {
             match definition {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
@@ -1113,6 +1114,10 @@ impl Compiler {
                             &core,
                         );
                     }
+                }
+
+                TypedDefinition::Test(test) => {
+                    self.visit_test(test);
                 }
             }
         }
@@ -1318,6 +1323,50 @@ impl Compiler {
             idx,
             ty: stackified.ty,
         }
+    }
+
+    fn visit_test(&mut self, test: &TypedTestDef) {
+        let external_id = format!(
+            "starstream:test:{}",
+            test.description.as_ref().map_or("", |s| s.value.as_str())
+        );
+        let name = format!("test{}", self.functions.len());
+
+        // Similar to visit_function with hardcoded no-parameters and no-results
+        let mut func = StFunction::new(&[], &[]);
+        let bb_orig = func.cfg.add_block();
+        func.cfg.seal(bb_orig, BlockType::Empty);
+        let mut bb = bb_orig;
+
+        _ = self.visit_block_stack(&mut func, &mut bb, &(), &test.body);
+        if bb != usize::MAX {
+            self.visit_return(&mut func, &bb);
+            func.cfg.fill(bb, Out::Return);
+        }
+
+        let stackified = stackify(&func, bb_orig, stackifier::AsyncMode::Sync);
+        if self.options.output_mermaid {
+            self.mermaid
+                .push((name.clone(), func.cfg.to_mermaid().to_string()));
+            self.mermaid.push((
+                format!("{}_{bb_orig}", name),
+                stackified.to_mermaid().to_string(),
+            ));
+        }
+        let idx: u32 = self.add_function(&stackified.ty, stackified.code);
+
+        // Export with an external-id
+        self.export_core_fn(&name, idx);
+        let type_idx = self.world_type.encode_func(std::iter::empty(), None);
+        self.world_type.inner.export(
+            ComponentExternName {
+                name: name.into(),
+                implements: None,
+                version_suffix: None,
+                external_id: Some(external_id.into()),
+            },
+            ComponentTypeRef::Func(type_idx),
+        );
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {

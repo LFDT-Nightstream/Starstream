@@ -2,9 +2,17 @@ use std::fmt::Write;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::{fs, path::Path};
 
-use miette::{GraphicalReportHandler, GraphicalTheme, Report};
-use starstream_compiler::TypecheckOptions;
+use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, Report, SourceCode};
+use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
+use starstream_runtime_next::Contract;
+use starstream_types::FileSystem;
 use wasmprinter::Print;
+use wasmtime::component::Component;
+
+#[path = "../../starstream-runtime-next/tests/common/mod.rs"]
+pub mod common;
+
+use self::common::Ctx;
 
 /// [Print] impl that expands contents of `component-type` custom sections.
 struct CustomPrinter<T>(T);
@@ -40,123 +48,13 @@ impl<T: Print> Print for CustomPrinter<T> {
     }
 }
 
-#[test]
-fn inputs() {
+fn try_paths<F: Fn(&Path, &mut String)>(pattern: &str, func: F) {
     let mut panicked = Vec::new();
-    let test_file = |path: &Path| {
+    let closure = |path: &Path| {
         let mut output = String::new();
 
         match catch_unwind(AssertUnwindSafe(|| {
-            let source = fs::read_to_string(path).unwrap();
-            let parse_output = starstream_compiler::parse_program(&source);
-            let comments = parse_output.comment_map();
-            let (program, errors) = parse_output.into_output_errors();
-            writeln!(output, "==== AST ====").unwrap();
-            for error in errors {
-                let report = Report::new(error).with_source_code(source.clone());
-                GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                    .render_report(&mut output, report.as_ref())
-                    .expect("failed to render diagnostic");
-            }
-            if let Some(program) = program {
-                writeln!(output, "{program:#?}\n").unwrap();
-
-                let formatted_source =
-                    starstream_compiler::formatter::program(&program, &source, &comments)
-                        .expect("formatter error");
-                assert!(
-                    source == formatted_source,
-                    "Formatted source differs from original, replace with:\n----\n{formatted_source}\n----"
-                );
-
-                match starstream_compiler::typecheck_program(
-                    &program,
-                    TypecheckOptions {
-                        capture_traces: true,
-                    },
-                ) {
-                    Err(failure) => {
-                        if !failure.warnings.is_empty() {
-                            writeln!(output, "==== Type warnings ====").unwrap();
-                            for warning in failure.warnings {
-                                let report = Report::new(warning).with_source_code(source.clone());
-                                GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                                    .render_report(&mut output, report.as_ref())
-                                    .expect("failed to render diagnostic");
-                            }
-                        }
-                        writeln!(output, "==== Type error ====").unwrap();
-                        for error in failure.errors {
-                            let report = Report::new(error).with_source_code(source.clone());
-                            GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                                .render_report(&mut output, report.as_ref())
-                                .expect("failed to render diagnostic");
-                        }
-                    }
-                    Ok(mut success) => {
-                        if !success.warnings.is_empty() {
-                            writeln!(output, "==== Type warnings ====").unwrap();
-                            for warning in success.warnings.drain(..) {
-                                let report = Report::new(warning).with_source_code(source.clone());
-                                GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                                    .render_report(&mut output, report.as_ref())
-                                    .expect("failed to render diagnostic");
-                            }
-                        }
-                        writeln!(
-                            output,
-                            "==== Inference trace ====\n{}",
-                            success.display_traces()
-                        )
-                        .unwrap();
-                        writeln!(output, "==== Typed AST ====\n{:#?}\n", success.program).unwrap();
-                        let compile_result = starstream_to_wasm::compile(&success.program);
-                        writeln!(output, "==== Core WebAssembly ====").unwrap();
-                        for error in compile_result.errors {
-                            let report = Report::new(error).with_source_code(source.clone());
-                            GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                                .render_report(&mut output, report.as_ref())
-                                .expect("failed to render diagnostic");
-                        }
-                        if let Some(wasm) = compile_result.wasm {
-                            wasmprinter::Config::new()
-                                .fold_instructions(true)
-                                .print(
-                                    &wasm,
-                                    &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut output)),
-                                )
-                                .unwrap();
-                            writeln!(output).unwrap();
-
-                            // Componentize and then extract WIT from the final component.
-                            // Not printing component Wasm because it's mostly core Wasm but inside-out.
-                            writeln!(output, "==== WIT ====").unwrap();
-                            let component_wasm = wit_component::ComponentEncoder::default()
-                                .validate(true)
-                                .module(&wasm)
-                                .unwrap_or_else(|err| {
-                                    panic!("ComponentEncoder::module failed: {err:?}")
-                                })
-                                .encode()
-                                .expect("ComponentEncoder::encode failed");
-                            let decoded = wit_component::decode(&component_wasm).unwrap();
-                            let mut printer = wit_component::WitPrinter::default();
-                            printer.emit_docs(true);
-                            let ids = decoded
-                                .resolve()
-                                .packages
-                                .iter()
-                                .map(|(id, _)| id)
-                                .filter(|id| *id != decoded.package())
-                                .collect::<Vec<_>>();
-                            printer
-                                .print(decoded.resolve(), decoded.package(), &ids)
-                                .unwrap();
-                            writeln!(output, "{}\n", printer.output).unwrap();
-                        }
-                    }
-                }
-            }
+            func(path, &mut output);
         })) {
             Ok(()) => {}
             Err(e) => {
@@ -164,18 +62,11 @@ fn inputs() {
                     "==== Partial output for {path:?} ====\n{output}==== End partial output for {path:?} ===="
                 );
                 panicked.push((path.to_owned(), e));
-                return;
             }
         }
-
-        insta::with_settings!({
-            omit_expression => true,
-            prepend_module_to_snapshot => false,
-        }, {
-            insta::assert_snapshot!(output);
-        });
     };
-    insta::glob!("inputs/*.star", test_file);
+
+    insta::glob!(pattern, closure);
 
     if !panicked.is_empty() {
         let mut message = String::new();
@@ -199,5 +90,265 @@ fn inputs() {
         )
         .unwrap();
         panic!("{}", message);
+    }
+}
+
+fn print_diagnostic<S, E>(output: &mut String, source: S, error: E)
+where
+    S: SourceCode + 'static,
+    E: Diagnostic + Send + Sync + 'static,
+{
+    let report = Report::new(error).with_source_code(source);
+    GraphicalReportHandler::new_themed(GraphicalTheme::none())
+        .render_report(output, report.as_ref())
+        .expect("failed to render diagnostic");
+}
+
+fn componentize(wasm: &[u8]) -> Vec<u8> {
+    wit_component::ComponentEncoder::default()
+        .validate(true)
+        .module(wasm)
+        .unwrap_or_else(|err| panic!("ComponentEncoder::module failed: {err:?}"))
+        .encode()
+        .expect("ComponentEncoder::encode failed")
+}
+
+fn wit(component_wasm: &[u8]) -> impl std::fmt::Display {
+    let decoded = wit_component::decode(component_wasm).unwrap();
+    let mut printer = wit_component::WitPrinter::default();
+    printer.emit_docs(true);
+    let ids = decoded
+        .resolve()
+        .packages
+        .iter()
+        .map(|(id, _)| id)
+        .filter(|id| *id != decoded.package())
+        .collect::<Vec<_>>();
+    printer
+        .print(decoded.resolve(), decoded.package(), &ids)
+        .unwrap();
+    printer.output
+}
+
+#[test]
+fn inputs() {
+    try_paths("inputs/*.star", |path, output| {
+        let source = fs::read_to_string(path).unwrap();
+        let parse_output = starstream_compiler::parse_program(&source);
+        let comments = parse_output.comment_map();
+        let (program, errors) = parse_output.into_output_errors();
+        writeln!(output, "==== AST ====").unwrap();
+        for error in errors {
+            print_diagnostic(output, source.clone(), error);
+        }
+        if let Some(program) = program {
+            writeln!(output, "{program:#?}\n").unwrap();
+
+            let formatted_source =
+                starstream_compiler::formatter::program(&program, &source, &comments)
+                    .expect("formatter error");
+            assert!(
+                source == formatted_source,
+                "Formatted source differs from original, replace with:\n----\n{formatted_source}\n----"
+            );
+
+            match starstream_compiler::typecheck_program(
+                &program,
+                TypecheckOptions {
+                    capture_traces: true,
+                },
+            ) {
+                Err(failure) => {
+                    if !failure.warnings.is_empty() {
+                        writeln!(output, "==== Type warnings ====").unwrap();
+                        for warning in failure.warnings {
+                            print_diagnostic(output, source.clone(), warning);
+                        }
+                    }
+                    writeln!(output, "==== Type error ====").unwrap();
+                    for error in failure.errors {
+                        print_diagnostic(output, source.clone(), error);
+                    }
+                }
+                Ok(mut success) => {
+                    if !success.warnings.is_empty() {
+                        writeln!(output, "==== Type warnings ====").unwrap();
+                        for warning in success.warnings.drain(..) {
+                            print_diagnostic(output, source.clone(), warning);
+                        }
+                    }
+                    writeln!(
+                        output,
+                        "==== Inference trace ====\n{}",
+                        success.display_traces()
+                    )
+                    .unwrap();
+                    writeln!(output, "==== Typed AST ====\n{:#?}\n", success.program).unwrap();
+                    let compile_result = starstream_to_wasm::compile(&success.program);
+                    writeln!(output, "==== Core WebAssembly ====").unwrap();
+                    for error in compile_result.errors {
+                        print_diagnostic(output, source.clone(), error);
+                    }
+                    if let Some(wasm) = compile_result.wasm {
+                        wasmprinter::Config::new()
+                            .fold_instructions(true)
+                            .print(
+                                &wasm,
+                                &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut *output)),
+                            )
+                            .unwrap();
+                        writeln!(output).unwrap();
+
+                        // Componentize and then extract WIT from the final component.
+                        // Not printing component Wasm because it's mostly core Wasm but inside-out.
+                        writeln!(output, "==== WIT ====").unwrap();
+                        let component_wasm = componentize(&wasm);
+                        writeln!(output, "{}", wit(&component_wasm)).unwrap();
+
+                        run_tests(output, &component_wasm);
+                    }
+                }
+            }
+        }
+
+        insta::with_settings!({
+            omit_expression => true,
+            prepend_module_to_snapshot => false,
+        }, {
+            insta::assert_snapshot!(output);
+        });
+    });
+}
+
+#[test]
+fn multifile() {
+    try_paths("multifile/*", |path, output| {
+        let mut fs = FileSystem::new();
+        writeln!(output, "==== Workspace ====").unwrap();
+        match module_graph::load_workspace(path, &mut fs) {
+            Err(err) => {
+                let txt = format!("{}", err);
+                let txt = txt.replace(&*std::env::current_dir().unwrap().to_string_lossy(), "$PWD");
+                writeln!(output, "{txt}").unwrap();
+            }
+            Ok(graph) => {
+                writeln!(output, "{:#?}", graph).unwrap();
+                assert!(!graph.contract_entries().is_empty());
+
+                match typecheck_modules(&graph, Default::default()) {
+                    Err(failure) => {
+                        if !failure.warnings.is_empty() {
+                            writeln!(output, "==== Type warnings ====").unwrap();
+                            for (module, warning) in failure.warnings {
+                                print_diagnostic(output, graph.source(module), warning);
+                            }
+                        }
+                        writeln!(output, "==== Type error ====").unwrap();
+                        for (module, error) in failure.errors {
+                            print_diagnostic(output, graph.source(module), error);
+                        }
+                    }
+                    Ok(mut typed) => {
+                        if !typed.warnings.is_empty() {
+                            writeln!(output, "==== Type warnings ====").unwrap();
+                            for (module, warning) in typed.warnings.drain(..) {
+                                print_diagnostic(output, graph.source(module), warning);
+                            }
+                        }
+
+                        for &entry_id in &typed.contract_entries {
+                            let entry_module = typed.module(entry_id);
+                            writeln!(
+                                output,
+                                "==== {} ====",
+                                entry_module.abs_path.file_name().unwrap().display()
+                            )
+                            .unwrap();
+
+                            let mut compile_result =
+                                starstream_to_wasm::compile_contract(&typed, entry_id);
+                            for error in compile_result.errors.drain(..) {
+                                print_diagnostic(output, graph.source(entry_id), error);
+                            }
+
+                            if let Some(wasm) = compile_result.wasm {
+                                let component_wasm = componentize(&wasm);
+                                writeln!(output, "{}", wit(&component_wasm)).unwrap();
+
+                                run_tests(output, &component_wasm);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        insta::with_settings!({
+            omit_expression => true,
+            prepend_module_to_snapshot => false,
+        }, {
+            insta::assert_snapshot!(output);
+        });
+    });
+}
+
+fn run_tests(output: &mut String, component_wasm: &[u8]) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(run_tests_inner(output, component_wasm));
+}
+
+async fn run_tests_inner(output: &mut String, component_wasm: &[u8]) {
+    let mut config = wasmtime::Config::new();
+    config.wasm_component_model_implements(true);
+    let engine = wasmtime::Engine::new(&config).expect("failed to create wasmtime Engine");
+    let component = Component::new(&engine, component_wasm).expect("failed to load component");
+    let ty = component.component_type();
+
+    let mut tests = Vec::new();
+    for (name, value) in ty.exports(&engine) {
+        if let Some(external) = value.external_id
+            && let Some(description) = external.strip_prefix("starstream:test:")
+        {
+            tests.push((name, description));
+        }
+    }
+
+    if tests.is_empty() {
+        return;
+    }
+
+    let contract = Contract::<Ctx>::new(&component, common::NoopContractLookup)
+        .expect("failed to create contract");
+
+    for (name, description) in tests {
+        let description = if description.is_empty() {
+            name
+        } else {
+            description
+        };
+        writeln!(output, "==== Test: {description} ====").unwrap();
+        // For now, load tests like coordination scripts.
+        let script = contract
+            .get_coordination_script(name)
+            .expect("test is not a valid coordination script");
+
+        let mut store = wasmtime::Store::new(&engine, Ctx::default());
+
+        let instance = contract.instantiate(&mut store).await.expect("instantiate");
+        instance
+            .call_coordination_script(&mut store, &script, &[], &mut [])
+            .await
+            .expect("call_coordination_script");
+
+        let ctx = store.into_data();
+        writeln!(output, "events: {:#?}", ctx.events).unwrap();
+        let outputs = ctx
+            .outputs
+            .iter()
+            .map(|u| u.context().lock())
+            .collect::<Vec<_>>();
+        writeln!(output, "outputs: {:#?}", outputs).unwrap();
+
+        writeln!(output).unwrap();
     }
 }

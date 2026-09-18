@@ -9,18 +9,15 @@ use wit_component::ComponentEncoder;
 
 use crate::diagnostics::print_diagnostic;
 use crate::project::default_scan_dir;
-use crate::wasm::{build_named_sources, report_graph_error};
 
-/// Compile every contract under the target directory to wasm.
+/// Compile every contract under the target directory to Wasm.
 ///
-/// With no path argument, walks up from cwd for `.git` and scans that
-/// project root; otherwise scans the given dir. The scanner builds a
-/// single workspace module graph, runs one typecheck pass, then emits
-/// per-contract wasm under `<project-root>/artifacts/<filename-stem>/`.
+/// The scanner builds a single workspace module graph, runs one typecheck
+/// pass, then emits per-contract wasm under
+/// `<project-root>/artifacts/<filename-stem>/`.
 #[derive(Args, Debug)]
 pub struct Build {
-    /// Optional directory to scan. If omitted, walks up for `.git` and scans
-    /// the enclosing project root (falling back to cwd if no `.git` exists).
+    /// Optional directory to scan. If omitted, uses the current directory.
     target_dir: Option<PathBuf>,
 }
 
@@ -35,7 +32,7 @@ impl Build {
         let graph = match module_graph::load_workspace(&scan_dir, &mut fs_tracker) {
             Ok(g) => g,
             Err(err) => {
-                report_graph_error(&err);
+                eprintln!("{err}");
                 std::process::exit(1);
             }
         };
@@ -48,27 +45,19 @@ impl Build {
             return Ok(());
         }
 
-        let sources = build_named_sources(&graph);
-
         let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {
                 for (module_id, warning) in &success.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning.clone())?;
-                    }
+                    print_diagnostic(graph.source(*module_id), warning.clone())?;
                 }
                 success
             }
             Err(failure) => {
                 for (module_id, warning) in failure.warnings {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), warning)?;
-                    }
+                    print_diagnostic(graph.source(module_id), warning)?;
                 }
                 for (module_id, error) in failure.errors {
-                    if let Some(named) = sources.get(&module_id.0) {
-                        print_diagnostic(named.clone(), error)?;
-                    }
+                    print_diagnostic(graph.source(module_id), error)?;
                 }
                 std::process::exit(1);
             }
@@ -101,14 +90,9 @@ impl Build {
                 continue;
             }
 
-            let entry_named = sources
-                .get(&entry_id.0)
-                .cloned()
-                .expect("entry module has a NamedSource");
-
             let mut compile_result = starstream_to_wasm::compile_contract(&typed, entry_id);
             for error in compile_result.errors.drain(..) {
-                print_diagnostic(entry_named.clone(), error)?;
+                print_diagnostic(graph.source(entry_id), error)?;
             }
             let Some(wasm) = compile_result.wasm.clone() else {
                 had_errors = true;

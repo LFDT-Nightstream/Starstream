@@ -73,6 +73,7 @@ pub struct Event {
     pub params: Box<[Val]>,
 }
 
+#[derive(Debug, Default)]
 pub struct Ctx {
     pub table: ResourceTable,
     pub events: Vec<Event>,

@@ -1,6 +1,6 @@
 use chumsky::{error::Rich, prelude::*};
 use starstream_types::{
-    ScopedName,
+    ScopedName, StringLiteral,
     ast::{Identifier, IntegerLiteral, IntegerRadix, Literal},
 };
 
@@ -38,6 +38,28 @@ pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> + Clo
             }
         })
         .padded()
+}
+
+pub fn string_literal<'a>() -> impl Parser<'a, &'a str, StringLiteral, Extra<'a>> + Clone {
+    // Inline string literal: `"…"` with `\\`, `\"`, `\n`, `\r`, `\t` escapes.
+    let escape = just('\\').ignore_then(choice((
+        just('\\').to('\\'),
+        just('"').to('"'),
+        just('n').to('\n'),
+        just('r').to('\r'),
+        just('t').to('\t'),
+    )));
+    let string_char = escape.or(any().filter(|c: &char| *c != '"' && *c != '\\'));
+    string_char
+        .repeated()
+        .collect::<String>()
+        .delimited_by(just('"'), just('"'))
+        .map_with(
+            |value, extra: &mut crate::parser::context::MapExtra<'_, '_>| StringLiteral {
+                value,
+                span: extra.span(),
+            },
+        )
 }
 
 pub fn integer_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {

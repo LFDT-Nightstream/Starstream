@@ -1,0 +1,42 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/multifile/importer_relative
+---
+==== Workspace ====
+ModuleGraph {
+    modules.len(): 2,
+    topo_order: [
+        ModuleId(1),
+        ModuleId(0),
+    ],
+    edges: {
+        0: [
+            PathImport {
+                def_index: 1,
+                target: ModuleId(1),
+                span: 31..53,
+            },
+        ],
+    },
+    contract_entries: [
+        ModuleId(0),
+    ],
+}
+==== nested.star ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
+  export run: func() -> s64;
+}
+package starstream:std {
+  interface builtin {
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
+
+    resource token;
+  }
+}

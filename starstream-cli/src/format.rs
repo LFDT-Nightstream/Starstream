@@ -100,7 +100,8 @@ fn format_file(problem_files: &mut Vec<Unformatted>, path: PathBuf) -> miette::R
     let comments = parse_output.comment_map();
 
     if !parse_output.errors().is_empty() {
-        let named = NamedSource::new(path.display().to_string(), input.clone());
+        let named =
+            NamedSource::new(path.display().to_string(), input.clone()).with_language("starstream");
 
         for error in parse_output.errors {
             print_diagnostic(named.clone(), error)?;
