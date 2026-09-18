@@ -103,4 +103,39 @@ mod tests {
             "#
         );
     }
+
+    #[test]
+    fn utxo_with_public_methods() {
+        assert_utxo_snapshot!(
+            r#"
+            utxo Foo {
+                main fn new() { yield(); }
+                pub fn value(pub x: i64) -> i64 { x }
+                pub fn advance() { resume; }
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn public_modifier_rejected_inside_abi_impl() {
+        let (_, block, _) = crate::parser::recursives();
+        assert!(
+            utxo(block)
+                .parse("utxo Foo { impl Extra { pub fn value() {} } }")
+                .into_result()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn public_modifier_rejected_on_main_function() {
+        let (_, block, _) = crate::parser::recursives();
+        assert!(
+            utxo(block)
+                .parse("utxo Foo { pub main fn new() {} }")
+                .into_result()
+                .is_err()
+        );
+    }
 }

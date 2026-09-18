@@ -2388,4 +2388,17 @@ mod tests {
             "#,
         );
     }
+
+    #[test]
+    fn utxo_public_methods() {
+        assert_format_snapshot!(
+            r#"
+            utxo Foo {
+                main fn new(){yield();}
+                pub fn value( pub x:i64 )->i64 {x}
+                pub fn advance(){resume;}
+            }
+            "#,
+        );
+    }
 }

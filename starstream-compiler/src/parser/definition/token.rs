@@ -162,4 +162,15 @@ mod tests {
             "#
         );
     }
+
+    #[test]
+    fn public_function_modifier_rejected() {
+        let (_, block, _) = crate::parser::recursives();
+        assert!(
+            token(block)
+                .parse("token Foo { pub fn value() {} }")
+                .into_result()
+                .is_err()
+        );
+    }
 }

@@ -28,12 +28,15 @@ package root:component;
 world root {
   import starstream:std/builtin;
   import starstream:std/utxo-context;
+  import starstream:events/observations;
   import starstream:self/counter;
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
   use starstream:std/utxo-context.{utxo-context as s-utxo-context};
   use starstream:self/counter.{utxo as u-counter};
 
   export run: func() -> s64;
+  @external-id("starstream:test:Call a public method on an imported UTXO")
+  export test8: func();
   export counter: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
@@ -70,6 +73,13 @@ package starstream:std {
 }
 
 
+package starstream:events {
+  interface observations {
+    value: func(value: s64);
+  }
+}
+
+
 package starstream:self {
   interface counter {
     resource utxo {
@@ -78,3 +88,31 @@ package starstream:self {
     }
   }
 }
+
+==== Test: Call a public method on an imported UTXO ====
+events: [
+    Event {
+        abi_name: "observations",
+        name: "value",
+        params: [
+            S64(
+                42,
+            ),
+        ],
+    },
+]
+outputs: [
+    Ok(
+        UtxoCtx {
+            methods: [
+                (
+                    14723865125752685261,
+                    11928490445703387898,
+                    2262953834422274688,
+                    1803183780567105468,
+                ),
+            ],
+            dropped: false,
+        },
+    ),
+]

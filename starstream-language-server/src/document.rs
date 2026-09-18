@@ -2645,19 +2645,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn public_utxo_methods_have_no_synthetic_interface_in_outline() {
+    fn public_utxo_method_symbols_hover_and_definition() {
         let uri: Uri = "untitled:public-utxo.star".parse().unwrap();
-        let state = DocumentState::from_text(
-            &uri,
-            "utxo Foo { main fn new() { yield(); } pub fn value() -> i64 { 42 } }\nscript fn test() -> i64 { Foo::new().value() }",
-            None,
-            &[],
-        );
+        let source = r#"utxo Foo {
+    main fn new() {
+        yield();
+    }
+
+    pub fn value() -> i64 {
+        42
+    }
+}
+
+script fn example() -> i64 {
+    Foo::new().value()
+}
+"#;
+        let state = DocumentState::from_text(&uri, source, None, &[]);
         assert!(state.diagnostics.is_empty(), "{:?}", state.diagnostics);
         let Some(DocumentSymbolResponse::Nested(symbols)) = state.document_symbols() else {
             panic!("expected document symbols");
         };
-        let children = symbols[0].children.as_ref().unwrap();
+        let utxo = symbols.iter().find(|symbol| symbol.name == "Foo").unwrap();
+        let children = utxo.children.as_ref().unwrap();
         assert_eq!(
             children
                 .iter()
@@ -2670,11 +2680,12 @@ mod tests {
                 .iter()
                 .all(|child| child.kind == SymbolKind::FUNCTION)
         );
-        assert!(state.hover(Position::new(1, 37)).is_some());
+
+        let usage = state.offset_to_position(source.rfind("value()").unwrap());
+        assert!(state.hover(usage).is_some());
         let method = children.iter().find(|child| child.name == "value").unwrap();
-        assert!(state.definition_entries.iter().any(|entry| {
-            state.span_to_range(entry.usage).start.line == 1
-                && state.span_to_range(entry.target) == method.selection_range
-        }));
+        let definition = state.goto_definition(&uri, usage).unwrap();
+        assert_eq!(definition.uri, uri);
+        assert_eq!(definition.range, method.selection_range);
     }
 }
