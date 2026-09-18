@@ -448,6 +448,7 @@ async fn main() -> anyhow::Result<()> {
         }) => {
             let TransactionOutput {
                 instance,
+                methods,
                 storage,
                 wasm,
                 ..
@@ -488,7 +489,7 @@ async fn main() -> anyhow::Result<()> {
             let args = encode_args(&ty, args)?;
             let digest = Sha256::digest(&wasm).into();
             let rx = client
-                .call_utxo_method(&digest, &instance, &method, &storage, &args)
+                .call_utxo_method(&digest, &instance, &method, &methods, &storage, &args)
                 .await?;
             write_results(&ty, rx).await
         }

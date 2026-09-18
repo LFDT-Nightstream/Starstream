@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use anyhow::{Context as _, ensure};
 use bytes::{Bytes, BytesMut};
@@ -15,7 +15,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_runtime_next::CoordinationScriptExport;
 use tokio_util::codec::Encoder as _;
 use tracing::{instrument, warn};
-use wasm_tokio::CoreNameEncoder;
+use wasm_tokio::{CoreNameEncoder, Leb128Encoder};
 use wasmtime::component::Val;
 use wasmtime_wizer::Wizer;
 use wrpc_transport::Invoke as _;
@@ -339,20 +339,38 @@ where
 
     /// Call the method `name` exported by the UTXO
     /// identified by `digest` with encoded `args`.
+    ///
+    /// `methods` is the set of method hashes the UTXO implements and
+    /// `storage` its encoded storage record, both as found in the
+    /// [`TransactionOutput`] the UTXO was created by.
     #[instrument(skip_all)]
     pub async fn call_utxo_method(
         &self,
         digest: &[u8; 32],
         instance: &str,
         name: &str,
+        methods: &BTreeSet<(u64, u64, u64, u64)>,
         storage: &[u8],
         args: &[u8],
     ) -> anyhow::Result<wrpc_transport::frame::Incoming> {
         let cx = wrpc_context(&self.api_base)?;
-        let mut params = BytesMut::with_capacity(5 + instance.len() + storage.len() + args.len());
+        let mut params = BytesMut::with_capacity(
+            5 + instance.len() + 5 + methods.len() * 40 + storage.len() + args.len(),
+        );
         CoreNameEncoder
             .encode(instance, &mut params)
             .context("failed to encode instance name")?;
+        let n = u32::try_from(methods.len()).context("method set length does not fit in u32")?;
+        Leb128Encoder
+            .encode(n, &mut params)
+            .context("failed to encode method set length")?;
+        for &(a, b, c, d) in methods {
+            for v in [a, b, c, d] {
+                Leb128Encoder
+                    .encode(v, &mut params)
+                    .context("failed to encode method hash")?;
+            }
+        }
         params.extend_from_slice(storage);
         params.extend_from_slice(args);
         let (tx, rx) = self

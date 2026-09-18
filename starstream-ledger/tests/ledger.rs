@@ -413,6 +413,7 @@ async fn http() {
             &genesis_utxo_digest,
             &genesis[1].instance,
             "get-chips",
+            &genesis[1].methods,
             &genesis[1].storage,
             &[],
         )
@@ -424,7 +425,7 @@ async fn http() {
 
     let utxo_digest = Sha256::digest(utxo_wasm).into();
     let mut rx = client
-        .call_utxo_method(&utxo_digest, instance, "get-chips", storage, &[])
+        .call_utxo_method(&utxo_digest, instance, "get-chips", methods, storage, &[])
         .await
         .expect("should succeed, because UTXO is present in genesis");
     let mut buf = Vec::default();

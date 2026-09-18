@@ -34,12 +34,12 @@ use tokio::time::sleep;
 use tokio_util::codec::{Encoder as _, FramedRead};
 use tokio_util::io::StreamReader;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
-use wasm_tokio::{AsyncReadCore as _, cm::U64Codec};
+use wasm_tokio::{AsyncReadCore as _, AsyncReadLeb128 as _, cm::U64Codec};
 use wasmparser::WasmFeatures;
 use wasmtime::component::{ResourceTable, Type, Val};
 use wrpc_transport::FrameDecoder;
 
-use crate::server::{Contract, Ctx, Ledger, Transaction};
+use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx};
 use crate::wrpc::codec::{ValEncoder, read_value};
 use crate::wrpc::{LEDGER_PACKAGE, UTXO_PACKAGE};
 use crate::{
@@ -672,6 +672,24 @@ impl Ledger {
                     .await
                     .map_err(RpcPostError::ParameterDecoding)?;
 
+                let n = body
+                    .read_u32_leb128()
+                    .await
+                    .map_err(RpcPostError::ParameterDecoding)?;
+                let mut methods = HashSet::default();
+                for _ in 0..n {
+                    let mut hash = [0; 4];
+                    for v in &mut hash {
+                        *v = body
+                            .read_u64_leb128()
+                            .await
+                            .map_err(RpcPostError::ParameterDecoding)?;
+                    }
+                    let [a, b, c, d] = hash;
+                    methods.insert((a, b, c, d));
+                }
+                let cx = Arc::new(UtxoCtx { methods });
+
                 let mut imports = HashMap::default();
                 let contract = self
                     .compile(&mut imports, None, &wasm)
@@ -716,7 +734,6 @@ impl Ledger {
                 let mut results = vec![Val::Bool(false); result_tys.len()];
 
                 let mut table = ResourceTable::default();
-                let cx = <Ctx as starstream_runtime_next::Host>::UtxoContext::default();
                 let cx_res = table
                     .push(Arc::clone(&cx))
                     .map_err(RpcPostError::ResourceTable)?;

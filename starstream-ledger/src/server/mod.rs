@@ -47,7 +47,7 @@ struct Ctx {
     table: ResourceTable,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct UtxoCtx {
     methods: HashSet<(u64, u64, u64, u64)>,
 }
