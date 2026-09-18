@@ -24,7 +24,7 @@ module starstream_sim_core {
     last_input_loaded,
     state.next_utxo_id < state.tx_inputs.length(),
     nondet resource = SIM_RESOURCE_HANDLES.oneOf()
-    set_storage(state.tx_inputs[state.next_utxo_id].storage, { value: resource }),
+    set_storage(state.tx_inputs[state.next_utxo_id].storage, resource),
   }
 
   action simulate_preload_method: bool = all {

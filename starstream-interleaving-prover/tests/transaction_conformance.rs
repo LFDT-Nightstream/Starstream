@@ -63,7 +63,7 @@ fn fixture_with_handle(
     let mut trace = Trace::new([
         Step::SetStorage {
             storage: input.clone(),
-            resource: handle.into(),
+            coordinator_handle: handle,
         },
         Step::PreloadMethod { method: METHOD },
         Step::CallMethod {
@@ -158,7 +158,7 @@ fn new_utxo_transaction(
     let mut trace = Trace::new([
         Step::SetStorage {
             storage: UNIT,
-            resource: ResourceHandle(0).into(),
+            coordinator_handle: ResourceHandle(0),
         },
         Step::PreloadMethod { method: METHOD },
         Step::PreloadMethod { method: METHOD }, // idempotent membership, recorded in the input sequence
@@ -478,7 +478,7 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
             3,
             Step::SetStorage {
                 storage: UNIT,
-                resource: ResourceHandle(8).into(),
+                coordinator_handle: ResourceHandle(8),
             },
         ),
         (
@@ -572,8 +572,11 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
     changed.inputs.clear();
     cases.push(("excess input", trace.clone(), changed, commitments.clone()));
     let mut changed = trace.clone();
-    if let Step::SetStorage { resource, .. } = &mut changed.0[0] {
-        *resource = ResourceHandle(9).into();
+    if let Step::SetStorage {
+        coordinator_handle, ..
+    } = &mut changed.0[0]
+    {
+        *coordinator_handle = ResourceHandle(9);
     }
     cases.push((
         "call through an unbound input handle",

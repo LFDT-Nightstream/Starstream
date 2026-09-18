@@ -11,7 +11,7 @@ module replay_trace {
     List({ utxo: 0, storage: UNIT_VALUE, methods: List(method) })) }
 
   run test_storage_roundtrip = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
@@ -43,14 +43,14 @@ module replay_trace {
     .fail()
 
   run test_coordinator_finalization_after_utxos = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(finalize_coordinator)
     .fail()
 
   run test_coordinator_finalization_after_abis = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
@@ -59,7 +59,7 @@ module replay_trace {
 
   run test_abi_count_tracks_duplicates_and_reset = init_transaction
     .then(check_abi_count)
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(check_abi_count)
     .then(preload_method(method))
     .then(preload_method(method))
@@ -77,7 +77,7 @@ module replay_trace {
   }
 
   run test_missing_output_abi_read_fails = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
@@ -85,7 +85,7 @@ module replay_trace {
     .fail()
 
   run test_extra_output_abi_read_fails = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
@@ -94,7 +94,7 @@ module replay_trace {
     .fail()
 
   run test_output_abi_order_fails = init_abi_sequences(List(method, other_method), List(other_method, method))
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(preload_method(other_method))
     .then(return({ value: UNIT_VALUE }))
@@ -109,13 +109,13 @@ module replay_trace {
   }
 
   run test_preload_count_bound = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(255.reps(i => preload_method(method)))
     .then(all { assert(state.abi_method_count.get(Utxo(0)) == 255), state' = state })
     .then(preload_method(method).fail())
 
   run test_registration_count_bound_and_reset = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(255.reps(i => preload_method(method)))
     .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
     .then(enter_method(method, UNIT_VALUE))
@@ -126,7 +126,7 @@ module replay_trace {
     .then(register_method(method).fail())
 
   run test_missing_preload_rejected_at_finalization = init_abi_sequences(List(method, other_method), List(method))
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
@@ -136,7 +136,7 @@ module replay_trace {
     .fail()
 
   run test_preload_order_rejected_at_finalization = init_abi_sequences(List(method, other_method), List(other_method, method))
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(other_method))
     .then(preload_method(method))
     .then(return({ value: UNIT_VALUE }))
@@ -148,7 +148,7 @@ module replay_trace {
     .fail()
 
   run test_extra_preload_rejected_at_finalization = init_abi_sequences(List(method), List(method, other_method))
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(preload_method(other_method))
     .then(return({ value: UNIT_VALUE }))
@@ -160,7 +160,7 @@ module replay_trace {
     .fail()
 
   run test_preload_duplicates_preserved = init_abi_sequence(List(method, method))
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(preload_method(method))
     .then(return({ value: UNIT_VALUE }))
@@ -176,7 +176,7 @@ module replay_trace {
       List({ storage: UNIT_VALUE, methods: List(method) }),
       List({ utxo: 0, storage: UNIT_VALUE, methods: List(other_method) }))
   }
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
     .then(enter_method(method, UNIT_VALUE))
@@ -204,9 +204,9 @@ module replay_trace {
     val first_handle = 7
     val second_handle = 8
     { state' = new_transaction(inputs, outputs) }
-      .then(set_storage(first_storage, { value: first_handle }))
+      .then(set_storage(first_storage, first_handle))
       .then(preload_method(method))
-      .then(set_storage(second_storage, { value: second_handle }))
+      .then(set_storage(second_storage, second_handle))
       .then(preload_method(other_method))
       // Both handles belong to the same coordinator, but resolve to different UTXOs.
       .then(call_method(first_handle, method, UNIT_VALUE, { value: UNIT_VALUE }))
@@ -226,10 +226,10 @@ module replay_trace {
   }
 
   run test_storage_during_execution_fails = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .fail()
 
   run test_execution_before_inputs_loaded_fails = init_transaction
@@ -237,26 +237,26 @@ module replay_trace {
     .fail()
 
   run test_export_during_execution_fails = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .fail()
 
   run test_preload_after_execution_starts_fails = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
     .then(preload_method(method))
     .fail()
 
   run test_execution_before_input_abi_loaded_fails = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(return({ value: UNIT_VALUE }))
     .fail()
 
   run test_missing_storage_export_fails = init_transaction
-    .then(set_storage(UNIT_VALUE, { value: 0 }))
+    .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(finish_transaction)

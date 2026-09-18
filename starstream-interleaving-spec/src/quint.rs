@@ -9,6 +9,7 @@ use std::sync::{Arc, LazyLock, OnceLock};
 
 use tempfile::TempDir;
 
+use crate::FIELD_MODULUS;
 use crate::trace::{MethodHash, Out, ResourceHandle, StarstreamValue, Step, Trace};
 
 const SPEC_MODULE: &str = "starstream";
@@ -467,7 +468,6 @@ fn source_line(location: &str) -> Option<usize> {
 /// Renders `T` as the Quint literal the specification expects.
 struct Qnt<T>(T);
 
-const FIELD_MODULUS: u64 = 0xffff_ffff_0000_0001;
 const FIELD_HALF: u64 = (FIELD_MODULUS - 1) / 2;
 
 fn centered_word(word: u64) -> i64 {
@@ -521,8 +521,16 @@ where
 impl fmt::Display for Qnt<&Step> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
-            Step::SetStorage { storage, resource } => {
-                write!(f, "set_storage({}, {})", Qnt(storage), Qnt(resource))
+            Step::SetStorage {
+                storage,
+                coordinator_handle,
+            } => {
+                write!(
+                    f,
+                    "set_storage({}, {})",
+                    Qnt(storage),
+                    Qnt(coordinator_handle)
+                )
             }
             Step::PreloadMethod { method } => write!(f, "preload_method({})", Qnt(method)),
             Step::GetStorage { storage } => write!(f, "get_storage({})", Qnt(storage)),
