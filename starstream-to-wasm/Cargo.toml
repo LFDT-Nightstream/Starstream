@@ -15,12 +15,12 @@ starstream-types.workspace = true
 thiserror.workspace = true
 wasm-encoder = { workspace = true, features = ["component-model"] }
 wasmparser.workspace = true
+wit-component.workspace = true
 
 [dev-dependencies]
 insta = { workspace = true, features = ["glob"] }
 wasmprinter = { workspace = true, features = ["component-model"] }
 wasmtime = { workspace = true, default-features = true }
-wit-component.workspace = true
 starstream-runtime-next.workspace = true
 tracing = { workspace = true, features = ["attributes"] }
 tokio = { version = "1.47.1", features = ["full"] }

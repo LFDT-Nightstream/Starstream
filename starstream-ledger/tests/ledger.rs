@@ -23,10 +23,8 @@ use starstream_ledger::client::http::{
 };
 use starstream_ledger::encode_digest;
 use starstream_ledger::server::Ledger;
-use starstream_to_wasm::CompileResult;
 use tokio::io::AsyncReadExt as _;
 use tokio::net::TcpListener;
-use wit_component::ComponentEncoder;
 
 fn compile_contract(source: &str) -> anyhow::Result<Vec<u8>> {
     let (program, errs) = parse_program(source).into_output_errors();
@@ -38,16 +36,13 @@ fn compile_contract(source: &str) -> anyhow::Result<Vec<u8>> {
             anyhow!("failed to typecheck program: {:?}", errors)
         })?;
 
-    let CompileResult { errors, wasm, .. } = starstream_to_wasm::compile(&program);
-    ensure!(errors.is_empty(), "failed to compile program: {errors:?}");
-
-    let wasm = wasm.context("compilation did not produce Wasm")?;
-    ComponentEncoder::default()
-        .validate(true)
-        .module(&wasm)
-        .context("failed to set core component module")?
-        .encode()
-        .context("failed to encode a component")
+    let compile_result = starstream_to_wasm::compile(&program);
+    ensure!(
+        compile_result.errors.is_empty(),
+        "failed to compile program: {:#?}",
+        compile_result.errors
+    );
+    Ok(compile_result.to_component().unwrap())
 }
 
 const NETWORK: &str = "starstream:test";

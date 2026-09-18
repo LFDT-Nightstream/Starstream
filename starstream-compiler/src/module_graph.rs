@@ -56,7 +56,7 @@ pub enum ModuleContents {
     #[default]
     Empty,
     Starstream(Program),
-    Wasm(Vec<u8>),
+    Wasm(Arc<[u8]>),
 }
 
 impl Module {
@@ -484,7 +484,7 @@ impl<'a> Builder<'a> {
         // NOTE: currently assumes that imported .wasm files cannot themselves
         // contain relevant imports. If that changes, they need to be parsed
         // here so those imports can be resolved.
-        self.modules[idx].contents = ModuleContents::Wasm(source);
+        self.modules[idx].contents = ModuleContents::Wasm(source.into());
         Ok(())
     }
 

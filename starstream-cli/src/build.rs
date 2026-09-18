@@ -5,7 +5,6 @@ use clap::Args;
 use miette::IntoDiagnostic;
 use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
 use starstream_types::FileSystem;
-use wit_component::ComponentEncoder;
 
 use crate::diagnostics::{print_diagnostic, print_report};
 use crate::project::default_scan_dir;
@@ -135,13 +134,9 @@ fn write_outputs(
             .map_err(|e| format!("failed to write `{}`: {e}", binary_wit_path.display()))?;
     }
 
-    let mut enc = ComponentEncoder::default()
-        .validate(true)
-        .module(wasm)
-        .map_err(|e| format!("failed to wrap module as component for `{stem}`: {e}"))?;
-    let component_wasm = enc
-        .encode()
-        .map_err(|e| format!("failed to encode component for `{stem}`: {e}"))?;
+    let component_wasm = compile_result
+        .to_component()
+        .map_err(|e| format!("failed to link: {e}"))?;
 
     let component_path = out_dir.join("component.wasm");
     fs_tracker

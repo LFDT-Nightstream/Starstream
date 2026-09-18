@@ -96,15 +96,6 @@ where
         .expect("failed to render diagnostic");
 }
 
-fn componentize(wasm: &[u8]) -> Vec<u8> {
-    wit_component::ComponentEncoder::default()
-        .validate(true)
-        .module(wasm)
-        .unwrap_or_else(|err| panic!("ComponentEncoder::module failed: {err:?}"))
-        .encode()
-        .expect("ComponentEncoder::encode failed")
-}
-
 fn wit(component_wasm: &[u8]) -> impl std::fmt::Display {
     let decoded = wit_component::decode(&component_wasm).unwrap();
     let mut printer = wit_component::WitPrinter::default();
@@ -178,10 +169,10 @@ fn inputs() {
                     writeln!(output, "==== Typed AST ====\n{:#?}\n", success.program).unwrap();
                     let compile_result = starstream_to_wasm::compile(&success.program);
                     writeln!(output, "==== Core WebAssembly ====").unwrap();
-                    for error in compile_result.errors {
-                        print_diagnostic(output, source.clone(), error);
+                    for error in &compile_result.errors {
+                        print_diagnostic(output, source.clone(), error.clone());
                     }
-                    if let Some(wasm) = compile_result.wasm {
+                    if let Some(wasm) = &compile_result.wasm {
                         wasmprinter::Config::new()
                             .fold_instructions(true)
                             .print(
@@ -194,7 +185,7 @@ fn inputs() {
                         // Componentize and then extract WIT from the final component.
                         // Not printing component Wasm because it's mostly core Wasm but inside-out.
                         writeln!(output, "==== WIT ====").unwrap();
-                        let component_wasm = componentize(&wasm);
+                        let component_wasm = compile_result.to_component().unwrap();
                         writeln!(output, "{}", wit(&component_wasm)).unwrap();
 
                         run_tests(output, &component_wasm);
@@ -266,8 +257,8 @@ fn multifile() {
                                 print_diagnostic(output, graph.source(entry_id), error);
                             }
 
-                            if let Some(wasm) = compile_result.wasm {
-                                let component_wasm = componentize(&wasm);
+                            if let Some(_) = &compile_result.wasm {
+                                let component_wasm = compile_result.to_component().unwrap();
                                 writeln!(output, "{}", wit(&component_wasm)).unwrap();
 
                                 run_tests(output, &component_wasm);

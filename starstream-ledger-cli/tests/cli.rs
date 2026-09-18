@@ -10,12 +10,10 @@ use starstream_compiler::typecheck::TypecheckSuccess;
 use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
 use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::server::Ledger;
-use starstream_to_wasm::CompileResult;
 use tempfile::NamedTempFile;
 use tokio::fs;
 use tokio::net::TcpListener;
 use tokio::process::Command;
-use wit_component::ComponentEncoder;
 
 fn compile_contract(source: &str) -> anyhow::Result<Vec<u8>> {
     let (program, errs) = parse_program(source).into_output_errors();
@@ -27,16 +25,13 @@ fn compile_contract(source: &str) -> anyhow::Result<Vec<u8>> {
             anyhow!("failed to typecheck program: {:?}", errors)
         })?;
 
-    let CompileResult { errors, wasm, .. } = starstream_to_wasm::compile(&program);
-    ensure!(errors.is_empty(), "failed to compile program: {errors:?}");
-
-    let wasm = wasm.context("compilation did not produce Wasm")?;
-    ComponentEncoder::default()
-        .validate(true)
-        .module(&wasm)
-        .context("failed to set core component module")?
-        .encode()
-        .context("failed to encode a component")
+    let compile_result = starstream_to_wasm::compile(&program);
+    ensure!(
+        compile_result.errors.is_empty(),
+        "failed to compile program: {:#?}",
+        compile_result.errors
+    );
+    Ok(compile_result.to_component().unwrap())
 }
 
 const NETWORK: &str = "starstream:test";

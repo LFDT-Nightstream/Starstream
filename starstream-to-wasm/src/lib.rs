@@ -7,6 +7,7 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
+use starstream_compiler::TypedWasmModule;
 use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_types::{
     AbiType, BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionKind, ImportSource,
@@ -24,6 +25,7 @@ use wasm_encoder::{
     FunctionSection, GlobalSection, GlobalType, Ieee32, Ieee64, ImportSection, InstanceType,
     InstructionSink, MemorySection, MemoryType, Module, TypeSection, ValType,
 };
+use wit_component::ComponentEncoder;
 
 use crate::component_abi::{
     ComponentAbiFunctionSignature, ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS,
@@ -90,7 +92,7 @@ pub struct CompileResult {
 }
 
 /// A Wasm compiler error.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 #[error("{message}")]
 pub struct CompileError {
     pub message: String,
@@ -133,7 +135,9 @@ impl CompileOptions {
     #[must_use]
     pub fn compile(self, program: &TypedProgram) -> CompileResult {
         let definitions = program.definitions.iter().collect::<Vec<_>>();
-        self.compile_definitions(&definitions)
+        let mut compiler = Compiler::new(self);
+        compiler.visit_program(&definitions);
+        compiler.finish()
     }
 
     #[must_use]
@@ -156,6 +160,7 @@ impl CompileOptions {
             }
         }
 
+        let mut compiler = Compiler::new(self);
         let mut definitions = Vec::new();
         for &module_id in &graph.topo_order {
             if reachable.contains(&module_id) {
@@ -165,18 +170,27 @@ impl CompileOptions {
                         definitions.extend(program.definitions.iter());
                     }
                     TypedModuleContents::Wasm(typed_wasm_module) => {
-                        // todo!()
+                        compiler.visit_embedded_wasm(typed_wasm_module);
                     }
                 };
             }
         }
-        self.compile_definitions(&definitions)
-    }
-
-    fn compile_definitions(self, definitions: &[&TypedDefinition]) -> CompileResult {
-        let mut compiler = Compiler::new(self);
-        compiler.visit_program(definitions);
+        compiler.visit_program(&definitions);
         compiler.finish()
+    }
+}
+
+impl CompileResult {
+    pub fn to_component(&self) -> miette::Result<Vec<u8>> {
+        let Some(wasm) = &self.wasm else {
+            panic!("CompileResult::to_component has no wasm")
+        };
+        let mut encoder = ComponentEncoder::default();
+        encoder = encoder.validate(true);
+        encoder = encoder
+            .module(&wasm)
+            .expect("ComponentEncoder::module failed");
+        Ok(encoder.encode().expect("ComponentEncoder::encode failed"))
     }
 }
 
@@ -1049,6 +1063,21 @@ impl Compiler {
 
     // ------------------------------------------------------------------------
     // Visitors
+
+    fn visit_embedded_wasm(&mut self, typed_wasm_module: &TypedWasmModule) {
+        let component_name = "derp";
+
+        let id = self.world_type.inner.type_count();
+        self.world_type.inner.ty().instance(&InstanceType::new());
+        self.world_type
+            .inner
+            .import(component_name, ComponentTypeRef::Instance(id));
+
+        for (&id, wit_name) in &typed_wasm_module.functions {
+            let f = self.import_function(component_name, wit_name, &FuncType::new([], []));
+            self.callables.insert(id, f);
+        }
+    }
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.

@@ -4,7 +4,6 @@ use clap::Args;
 use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
 use starstream_to_wasm::CompileOptions;
 use starstream_types::FileSystem;
-use wit_component::ComponentEncoder;
 
 use crate::diagnostics::print_diagnostic;
 
@@ -93,18 +92,18 @@ impl Wasm {
             output_mermaid: self.output_mermaid.is_some(),
         };
         let compile_result = options.compile_contract(&typed, entry_id);
-        for error in compile_result.errors {
-            print_diagnostic(graph.source(entry_id), error)?;
+        for error in &compile_result.errors {
+            print_diagnostic(graph.source(entry_id), error.clone())?;
         }
         if let Some(output_mermaid) = self.output_mermaid {
             std::fs::create_dir_all(&output_mermaid).unwrap();
-            for (name, text) in compile_result.mermaid {
+            for (name, text) in &compile_result.mermaid {
                 let mermaid = output_mermaid.join(format!("{name}.mmd"));
                 fs.write(&mermaid, text.as_bytes())
                     .expect("Error writing Mermaid output");
             }
         }
-        let Some(wasm) = compile_result.wasm else {
+        let Some(wasm) = &compile_result.wasm else {
             std::process::exit(1);
         };
 
@@ -116,18 +115,14 @@ impl Wasm {
         if let Some(output_binary_wit) = self.output_binary_wit {
             let binary_wit = compile_result
                 .binary_wit
+                .as_ref()
                 .expect("Strange: compilation succeeded, but there was no binary WIT");
             fs.write(&output_binary_wit, &binary_wit)
                 .expect("Error writing binary WIT output");
         }
 
         if self.output_component.is_some() || self.output_wit.is_some() {
-            let component_wasm = ComponentEncoder::default()
-                .validate(true)
-                .module(&wasm)
-                .expect("ComponentEncoder::module failed")
-                .encode()
-                .expect("ComponentEncoder::encode failed");
+            let component_wasm = compile_result.to_component().expect("error linking");
 
             if let Some(output_component) = &self.output_component {
                 fs.write(output_component, &component_wasm)

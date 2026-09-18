@@ -26,17 +26,11 @@ fn compile_contract(entry: &Path) -> Vec<u8> {
         "compile errors: {:?}",
         result.errors
     );
-    result.wasm.expect("wasm produced")
+    result.to_component().expect("linking failed")
 }
 
 fn print_wit(wasm: &[u8]) -> String {
-    let component_bytes = wit_component::ComponentEncoder::default()
-        .validate(true)
-        .module(wasm)
-        .expect("ComponentEncoder::module")
-        .encode()
-        .expect("ComponentEncoder::encode");
-    let decoded = wit_component::decode(&component_bytes).expect("decode");
+    let decoded = wit_component::decode(&wasm).expect("decode");
     let mut printer = wit_component::WitPrinter::default();
     let ids: Vec<_> = decoded
         .resolve()

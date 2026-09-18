@@ -6,18 +6,21 @@ use starstream_types::{
     Type::{self, Function},
     TypedFunctionParam,
 };
-use wit_parser::{Resolve, WorldItem, WorldKey, decoding::DecodedWasm};
+use wit_parser::{Resolve, WorldId, WorldItem, WorldKey, decoding::DecodedWasm};
 
 use crate::typecheck::env::{ConstantInfo, Namespace};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TypedWasmModule {
+    pub wasm: Arc<[u8]>,
+    pub resolve: Resolve,
+    pub world_id: WorldId,
     pub functions: HashMap<NameId, String>,
 }
 
 pub fn import_wasm(
     name_id: &mut NameId,
-    wasm: &[u8],
+    wasm: &Arc<[u8]>,
 ) -> miette::Result<(Namespace, TypedWasmModule)> {
     // Accepts both component .wasm files and core .wasm files with a binary WIT custom section.
     let decoded = wit_parser::decoding::decode(wasm)
@@ -37,10 +40,16 @@ pub fn import_wasm(
     resolve
         .importize(world_id, None)
         .map_err(|e| miette!("error importizing WIT world: {e}"))?;
-    let world = &resolve.worlds[world_id];
 
+    let mut module = TypedWasmModule {
+        wasm: wasm.clone(),
+        resolve,
+        world_id,
+        functions: Default::default(),
+    };
+    let world = &module.resolve.worlds[world_id];
     let mut namespace = Namespace::default();
-    let mut module = TypedWasmModule::default();
+
     for (key, item) in &world.imports {
         let WorldKey::Name(name) = key else { continue };
         match item {
@@ -59,13 +68,13 @@ pub fn import_wasm(
                                 .map(|p| TypedFunctionParam {
                                     public: false,
                                     name: Identifier::anon(&p.name),
-                                    ty: wit_to_star_type(&resolve, p.ty),
+                                    ty: wit_to_star_type(&module.resolve, p.ty),
                                     ty_span: DUMMY_SPAN,
                                 })
                                 .collect(),
                             result: function
                                 .result
-                                .map_or(Type::Unit, |ty| wit_to_star_type(&resolve, ty)),
+                                .map_or(Type::Unit, |ty| wit_to_star_type(&module.resolve, ty)),
                             callee: Some(StaticFunction::Named(id)),
                         })),
                     ),

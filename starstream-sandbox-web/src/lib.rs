@@ -2,7 +2,7 @@
 use std::panic;
 
 use log::error;
-use wit_component::{ComponentEncoder, DecodedWasm};
+use wit_component::DecodedWasm;
 
 // Imports to manipulate the UI contents, provided by the JS page.
 #[link(wasm_import_module = "env")]
@@ -84,10 +84,10 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
     // Compile to Wasm.
     let compile_result = starstream_to_wasm::compile(&typed.program);
-    for error in compile_result.errors {
-        write_report(&error.into());
+    for error in &compile_result.errors {
+        write_report(&error.clone().into());
     }
-    let Some(wasm) = compile_result.wasm else {
+    let Some(wasm) = &compile_result.wasm else {
         return;
     };
 
@@ -100,7 +100,8 @@ pub unsafe extern "C" fn run(input_len: usize) {
     }
 
     // Componentize.
-    let wasm = match componentize(&wasm) {
+    let component;
+    let wasm = match compile_result.to_component() {
         Ok(wasm) => {
             unsafe { set_component_wasm(wasm.as_ptr(), wasm.len()) };
 
@@ -110,7 +111,8 @@ pub unsafe extern "C" fn run(input_len: usize) {
                 Err(error) => error!("print_wit(component): {error}"),
             }
 
-            wasm
+            component = wasm;
+            &component[..]
         }
         Err(error) => {
             error!("componentize: {error}");
@@ -145,13 +147,6 @@ fn print_wit(wasm: &[u8], is_core: bool) -> Result<String, Box<dyn std::error::E
     let mut printer = wit_component::WitPrinter::default();
     printer.print(decoded.resolve(), decoded.package(), &[])?;
     Ok(printer.output.to_string())
-}
-
-fn componentize(wasm: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let mut encoder = ComponentEncoder::default().validate(true);
-    encoder = encoder.module(wasm)?;
-    let wasm = encoder.encode()?;
-    Ok(wasm)
 }
 
 // ----------------------------------------------------------------------------
