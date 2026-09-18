@@ -48,17 +48,22 @@ tracing-subscriber = { workspace = true, features = [
     "tracing-log",
 ] }
 wasm-wave = { workspace = true, features = ["wit"] }
-wit-parser = { version = "0.258.0", default-features = false, features = [
-    "decoding",
+wasmtime = { workspace = true, features = [
+    "anyhow",
+    "component-model",
+    "cranelift",
+    "wave",
 ] }
+wit-parser = { workspace = true, features = ["decoding"] }
 wrpc-wave = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+minicbor = { workspace = true, features = ["std"] }
 starstream-compiler = { workspace = true }
 starstream-ledger = { workspace = true, features = ["server"] }
+starstream-runtime-next = { workspace = true }
 starstream-to-wasm = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs", "net", "process"] }
-wasmtime = { workspace = true }
 wit-component = { workspace = true }

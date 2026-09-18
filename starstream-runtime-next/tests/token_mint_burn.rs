@@ -7,7 +7,7 @@ use starstream_runtime_next::{
     TokenMintExport, get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span};
-use wasmtime::component::{ResourceTable, Val};
+use wasmtime::component::{Component, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{Store, bail};
 
@@ -70,14 +70,15 @@ fn assert_my_token<T: Host>(contract: &Contract<T>) -> wasmtime::Result<MyToken>
 }
 
 static CONTRACT: LazyLock<Contract<Ctx>> = LazyLock::new(|| {
-    let component = compile_contract(include_str!(
+    let wasm = compile_contract(include_str!(
         "../../starstream-to-wasm/tests/inputs/token_mint_burn.star"
     ))
     .unwrap();
+    let component = Component::from_binary(&ENGINE, &wasm).unwrap();
     let ty = component.component_type();
     assert!(get_coordination_script_instance_import(&ENGINE, &ty).is_none());
     assert!(utxo_imports(&ENGINE, &ty).next().is_none());
-    Contract::new(&component, NoopContractLookup).expect("failed to create contract")
+    Contract::new(&component, None, NoopContractLookup).expect("failed to create contract")
 });
 
 static MY_TOKEN: LazyLock<MyToken> = LazyLock::new(|| assert_my_token(&CONTRACT).unwrap());
