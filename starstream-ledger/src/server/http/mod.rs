@@ -1,18 +1,19 @@
 use core::future::poll_fn;
 use core::iter::zip;
-use core::mem;
 use core::net::SocketAddr;
 use core::pin::pin;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::task::{Poll, ready};
 use core::time::Duration;
 
-use std::collections::{HashMap, hash_map};
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet, hash_map};
+use std::sync::{Arc, Weak};
 
 use anyhow::Context as _;
 use bytes::{Buf, Bytes, BytesMut};
-use coset::{CborSerializable as _, CoseSign1, TaggedCborSerializable as _, iana};
+use coset::{
+    CborSerializable as _, CoseSign, CoseSign1, CoseSignature, TaggedCborSerializable as _, iana,
+};
 use ed25519_dalek::{Signature, VerifyingKey};
 use futures::{StreamExt as _, TryStreamExt as _};
 use headers_accept::Accept;
@@ -26,9 +27,6 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
-use starstream_runtime_next::{
-    CoordinationScriptImport, UtxoImport, get_coordination_script_instance_import, utxo_imports,
-};
 use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
@@ -36,16 +34,17 @@ use tokio::time::sleep;
 use tokio_util::codec::{Encoder as _, FramedRead};
 use tokio_util::io::StreamReader;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
-use wasm_tokio::cm::U64Codec;
-use wasmtime::component::{Component, Val};
+use wasm_tokio::{AsyncReadCore as _, AsyncReadLeb128 as _, cm::U64Codec};
+use wasmparser::WasmFeatures;
+use wasmtime::component::{ResourceTable, Type, Val};
 use wrpc_transport::FrameDecoder;
 
-use crate::server::lookup::ContractLookup;
-use crate::server::wrpc::{ValEncoder, read_value};
-use crate::server::{Contract, Ctx, Ledger};
-use crate::wrpc::{CONTRACT_PACKAGE, LEDGER_PACKAGE};
+use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx};
+use crate::wrpc::codec::{ValEncoder, read_value};
+use crate::wrpc::{LEDGER_PACKAGE, UTXO_PACKAGE};
 use crate::{
-    APPLICATION_COSE, APPLICATION_WASM, Action, Block, FUND_CONTEXT, PUBLISH_CONTEXT, parse_digest,
+    APPLICATION_CBOR, APPLICATION_COSE, APPLICATION_WASM, Action, Block, Envelope, EnvelopeContext,
+    Fund, Publish, TransactionInput, TransactionOutput, parse_digest,
 };
 
 mod error;
@@ -58,6 +57,7 @@ const APPLICATION_OCTET_STREAM: MediaType = MediaType::new(
 
 const MAX_CONTRACT_PUT_BODY_SIZE: u64 = 1 << 20;
 const MAX_FUND_POST_BODY_SIZE: u64 = 1 << 10;
+const MAX_TRANSACTION_PUT_BODY_SIZE: u64 = 1 << 24;
 
 fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     debug!("binding TCP socket");
@@ -80,10 +80,10 @@ fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     Ok(sock)
 }
 
-async fn read_signed_envelope<const MAX: u64>(
+async fn read_cose_body<const MAX: u64>(
     headers: &http::HeaderMap,
     body: hyper::body::Incoming,
-) -> Result<(Vec<u8>, VerifyingKey, Option<Vec<u8>>), EnvelopeReadError> {
+) -> Result<Bytes, EnvelopeReadError> {
     debug_assert!(usize::try_from(MAX).is_ok());
 
     match headers.get(CONTENT_TYPE).map(HeaderValue::to_str) {
@@ -114,21 +114,36 @@ async fn read_signed_envelope<const MAX: u64>(
             }
         })?
         .to_bytes();
+    Ok(envelope)
+}
+
+fn verify_cose_headers(
+    protected: &coset::ProtectedHeader,
+    unprotected: &coset::Header,
+) -> Result<VerifyingKey, EnvelopeReadError> {
+    if !unprotected.is_empty() {
+        return Err(EnvelopeReadError::UnprotectedHeader);
+    }
+    if !protected.header.crit.is_empty() {
+        return Err(EnvelopeReadError::CriticalHeader);
+    }
+    if protected.header.alg != Some(coset::Algorithm::Assigned(iana::Algorithm::EdDSA)) {
+        return Err(EnvelopeReadError::Algorithm);
+    }
+    let key = <[u8; 32]>::try_from(protected.header.key_id.as_slice())
+        .map_err(|_| EnvelopeReadError::KeyIdFormat)?;
+    VerifyingKey::from_bytes(&key).map_err(EnvelopeReadError::Key)
+}
+
+async fn read_sign1_envelope<const MAX: u64>(
+    headers: &http::HeaderMap,
+    body: hyper::body::Incoming,
+) -> Result<(Vec<u8>, VerifyingKey, Option<Vec<u8>>), EnvelopeReadError> {
+    let envelope = read_cose_body::<MAX>(headers, body).await?;
     let sign1 = CoseSign1::from_tagged_slice(&envelope)
         .or_else(|_| CoseSign1::from_slice(&envelope))
         .map_err(EnvelopeReadError::CoseSign1Parsing)?;
-    if !sign1.unprotected.is_empty() {
-        return Err(EnvelopeReadError::UnprotectedHeader);
-    }
-    if !sign1.protected.header.crit.is_empty() {
-        return Err(EnvelopeReadError::CriticalHeader);
-    }
-    if sign1.protected.header.alg != Some(coset::Algorithm::Assigned(iana::Algorithm::EdDSA)) {
-        return Err(EnvelopeReadError::Algorithm);
-    }
-    let key = <[u8; 32]>::try_from(sign1.protected.header.key_id.as_slice())
-        .map_err(|_| EnvelopeReadError::KeyIdFormat)?;
-    let key = VerifyingKey::from_bytes(&key).map_err(EnvelopeReadError::Key)?;
+    let key = verify_cose_headers(&sign1.protected, &sign1.unprotected)?;
     sign1
         .verify_signature(b"", |sig, data| {
             Signature::from_slice(sig).and_then(|sig| key.verify_strict(data, &sig))
@@ -139,6 +154,47 @@ async fn read_signed_envelope<const MAX: u64>(
     // Reencode the envelope in a canonical form
     let envelope = sign1.to_tagged_vec().map_err(EnvelopeReadError::Reencode)?;
     Ok((envelope, key, payload))
+}
+
+async fn read_sign_envelope<const MAX: u64>(
+    headers: &http::HeaderMap,
+    body: hyper::body::Incoming,
+) -> Result<(Vec<u8>, Vec<VerifyingKey>, Option<Vec<u8>>), EnvelopeReadError> {
+    let envelope = read_cose_body::<MAX>(headers, body).await?;
+    let sign = CoseSign::from_tagged_slice(&envelope)
+        .or_else(|_| CoseSign::from_slice(&envelope))
+        .map_err(EnvelopeReadError::CoseSignParsing)?;
+    if !sign.unprotected.is_empty() {
+        return Err(EnvelopeReadError::UnprotectedHeader);
+    }
+    if !sign.protected.header.crit.is_empty() {
+        return Err(EnvelopeReadError::CriticalHeader);
+    }
+    if sign.signatures.is_empty() {
+        return Err(EnvelopeReadError::SignatureMissing);
+    }
+    let mut keys = Vec::with_capacity(sign.signatures.len());
+    for (
+        i,
+        CoseSignature {
+            protected,
+            unprotected,
+            ..
+        },
+    ) in sign.signatures.iter().enumerate()
+    {
+        let key = verify_cose_headers(protected, unprotected)?;
+        sign.verify_signature(i, b"", |sig, data| {
+            Signature::from_slice(sig).and_then(|sig| key.verify_strict(data, &sig))
+        })
+        .map_err(EnvelopeReadError::SignatureVerification)?;
+        keys.push(key);
+    }
+    let payload = sign.payload.clone();
+
+    // Reencode the envelope in a canonical form
+    let envelope = sign.to_tagged_vec().map_err(EnvelopeReadError::Reencode)?;
+    Ok((envelope, keys, payload))
 }
 
 fn negotiate_accept(
@@ -280,40 +336,33 @@ impl Ledger {
         let digest = parse_digest(digest).map_err(ContractPutError::DigestParsing)?;
 
         let (envelope, account, payload) =
-            read_signed_envelope::<MAX_CONTRACT_PUT_BODY_SIZE>(&headers, body)
+            read_sign1_envelope::<MAX_CONTRACT_PUT_BODY_SIZE>(&headers, body)
                 .await
                 .map_err(ContractPutError::Envelope)?;
         let payload = payload.as_deref().ok_or(ContractPutError::PayloadMissing)?;
-        let payload = match ciborium::from_reader(payload) {
-            Ok(ciborium::Value::Array(payload)) => payload,
-            Ok(..) => return Err(ContractPutError::TransactionFormat),
-            Err(err) => return Err(ContractPutError::PayloadParsing(err)),
-        };
-        let Ok(
-            [
-                ciborium::Value::Text(context),
-                ciborium::Value::Text(network),
-                ciborium::Value::Integer(nonce),
-                ciborium::Value::Bytes(wasm),
-            ],
-        ) = <[_; _]>::try_from(payload)
-        else {
-            return Err(ContractPutError::TransactionFormat);
-        };
-        if context != PUBLISH_CONTEXT {
-            return Err(ContractPutError::Context(context.into()));
+        let Envelope {
+            context,
+            network,
+            payload: Publish { nonce, wasm },
+        } = minicbor::decode(payload).map_err(ContractPutError::PayloadParsing)?;
+        if context != EnvelopeContext::Publish {
+            return Err(ContractPutError::Context(context));
         }
-        if network != *self.network {
+        if *network != *self.network {
             return Err(ContractPutError::Network {
-                got: network.into(),
+                got: network,
                 expected: Arc::clone(&self.network),
             });
         }
-        let nonce = u64::try_from(nonce).map_err(|_| ContractPutError::NonceOverflow)?;
         let wasm_digest: [u8; 32] = Sha256::digest(&wasm).into();
         if wasm_digest != digest {
             return Err(ContractPutError::DigestMismatch(wasm_digest));
         }
+        wasmparser::Validator::new_with_features(
+            WasmFeatures::default() | WasmFeatures::CM_IMPLEMENTS,
+        )
+        .validate_all(&wasm)
+        .map_err(ContractPutError::Wasm)?;
 
         {
             let accounts = self.accounts.read().await;
@@ -344,68 +393,6 @@ impl Ledger {
                     .map_err(ContractPutError::Http);
             }
         }
-
-        let (_wizer_cx, contract_wasm) = self
-            .wizer
-            .instrument_component(&wasm)
-            .map_err(ContractPutError::Wizer)?;
-        let component = Component::from_binary(&self.engine, &contract_wasm)
-            .map_err(ContractPutError::Runtime)?;
-        let ty = component.component_type();
-        let script_instance = get_coordination_script_instance_import(&self.engine, &ty);
-        let mut imports = HashMap::default();
-        {
-            let contracts = self.contracts.read().await;
-            if contracts.contains_key(&digest) {
-                return build_text_response(http::StatusCode::OK, "")
-                    .map_err(ContractPutError::Http);
-            }
-            for import in utxo_imports(&self.engine, &ty) {
-                let UtxoImport { external_id, .. } = import.map_err(ContractPutError::Runtime)?;
-                if imports.contains_key(external_id) {
-                    continue;
-                }
-
-                let digest = parse_digest(external_id).map_err(|err| {
-                    ContractPutError::ContractImportDigestParsing(external_id.into(), err)
-                })?;
-                let contract = contracts
-                    .get(&digest)
-                    .ok_or_else(|| ContractPutError::ContractImportNotFound(external_id.into()))?;
-                imports.insert(external_id, Arc::clone(contract));
-            }
-            if let Some(script_instance) = &script_instance {
-                for import in script_instance.coordination_scripts() {
-                    let CoordinationScriptImport { external_id, .. } =
-                        import.map_err(ContractPutError::Runtime)?;
-                    if imports.contains_key(external_id) {
-                        continue;
-                    }
-
-                    let digest = parse_digest(external_id).map_err(|err| {
-                        ContractPutError::ContractImportDigestParsing(external_id.into(), err)
-                    })?;
-                    let contract = contracts.get(&digest).ok_or_else(|| {
-                        ContractPutError::ContractImportNotFound(external_id.into())
-                    })?;
-                    imports.insert(external_id, Arc::clone(contract));
-                }
-            }
-        }
-
-        let contract = starstream_runtime_next::Contract::new(&component, ContractLookup(&imports))
-            .map_err(ContractPutError::Runtime)?;
-        let mut scripts = HashMap::default();
-        for (name, export) in contract.coordination_scripts() {
-            let export = export.map_err(ContractPutError::Runtime)?;
-            scripts.insert(name.into(), export);
-        }
-        let mut utxos = HashMap::default();
-        for (name, export) in contract.utxos() {
-            let export = export.map_err(ContractPutError::Runtime)?;
-            utxos.insert(name.into(), export);
-        }
-
         let envelope = Bytes::from(envelope);
         {
             let mut contracts = self.contracts.write().await;
@@ -415,20 +402,14 @@ impl Ledger {
             };
             // TODO: Split component
             entry.insert(Arc::new(Contract {
-                contract,
-                contract_wasm: contract_wasm.into(),
-                scripts,
-                utxos,
                 wasm: wasm.into(),
                 envelope: envelope.clone(),
             }));
         }
         {
             let mut blocks = self.blocks.write().await;
-            let height = blocks.len().saturating_add(1);
             blocks.push(Block {
                 actions: Box::from([Action::UploadContract(envelope)]),
-                height,
             });
         }
         build_text_response(http::StatusCode::OK, "").map_err(ContractPutError::Http)
@@ -440,45 +421,33 @@ impl Ledger {
         body: hyper::body::Incoming,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, AccountFundError> {
         let (envelope, key, payload) =
-            read_signed_envelope::<MAX_FUND_POST_BODY_SIZE>(&headers, body)
+            read_sign1_envelope::<MAX_FUND_POST_BODY_SIZE>(&headers, body)
                 .await
                 .map_err(AccountFundError::Envelope)?;
         let payload = payload.as_deref().ok_or(AccountFundError::PayloadMissing)?;
-        let payload = match ciborium::from_reader(payload) {
-            Ok(ciborium::Value::Array(tx)) => tx,
-            Ok(..) => return Err(AccountFundError::TransactionFormat),
-            Err(err) => return Err(AccountFundError::PayloadParsing(err)),
-        };
-        let Ok(
-            [
-                ciborium::Value::Text(context),
-                ciborium::Value::Text(network),
-                ciborium::Value::Integer(nonce),
-                ciborium::Value::Bytes(account),
-                ciborium::Value::Integer(amount),
-            ],
-        ) = <[_; _]>::try_from(payload)
-        else {
-            return Err(AccountFundError::TransactionFormat);
-        };
-
-        if context != FUND_CONTEXT {
-            return Err(AccountFundError::Context(context.into()));
+        let Envelope {
+            context,
+            network,
+            payload:
+                Fund {
+                    nonce,
+                    account,
+                    amount,
+                },
+        } = minicbor::decode(payload).map_err(AccountFundError::PayloadParsing)?;
+        if context != EnvelopeContext::Fund {
+            return Err(AccountFundError::Context(context));
         }
-        if network != *self.network {
+        if *network != *self.network {
             return Err(AccountFundError::Network {
-                got: network.into(),
+                got: network,
                 expected: Arc::clone(&self.network),
             });
         }
-        let nonce = u64::try_from(nonce).map_err(|_| AccountFundError::NonceOverflow)?;
-        let account =
-            <[u8; 32]>::try_from(account.as_slice()).map_err(|_| AccountFundError::KeyIdFormat)?;
         let account = VerifyingKey::from_bytes(&account).map_err(AccountFundError::Key)?;
         if account.is_weak() {
             return Err(AccountFundError::WeakKey);
         }
-        let amount = u64::try_from(amount).map_err(|_| AccountFundError::AmountOverflow)?;
 
         if key != self.admin.key {
             return Err(AccountFundError::NotAdmin(key));
@@ -497,13 +466,163 @@ impl Ledger {
         }
         {
             let mut blocks = self.blocks.write().await;
-            let height = blocks.len().saturating_add(1);
             blocks.push(Block {
                 actions: Box::from([Action::FundAccount(envelope.into())]),
-                height,
             });
         }
         build_text_response(http::StatusCode::OK, "").map_err(AccountFundError::Http)
+    }
+
+    fn handle_genesis_get(
+        &self,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, GenesisGetError> {
+        let genesis =
+            minicbor::to_vec(&self.genesis.tx_outputs).map_err(GenesisGetError::Encoding)?;
+        http::Response::builder()
+            .header(CONTENT_TYPE, APPLICATION_CBOR.to_string())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .body(http_body_util::Full::new(Bytes::from(genesis)))
+            .map_err(GenesisGetError::Http)
+    }
+
+    async fn handle_transaction_get(
+        &self,
+        digest: &str,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, TransactionGetError> {
+        let digest = parse_digest(digest).map_err(TransactionGetError::DigestParsing)?;
+        let txs = self.transactions.read().await;
+        let Transaction { envelope, .. } = txs
+            .get(&digest)
+            .ok_or(TransactionGetError::TransactionNotFound)?;
+        http::Response::builder()
+            .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .body(http_body_util::Full::new(envelope.clone()))
+            .map_err(TransactionGetError::Http)
+    }
+
+    async fn handle_transaction_put(
+        &self,
+        headers: http::HeaderMap,
+        digest: &str,
+        body: hyper::body::Incoming,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, TransactionPutError> {
+        let digest = parse_digest(digest).map_err(TransactionPutError::DigestParsing)?;
+
+        let (envelope, signers, payload) =
+            read_sign_envelope::<MAX_TRANSACTION_PUT_BODY_SIZE>(&headers, body)
+                .await
+                .map_err(TransactionPutError::Envelope)?;
+        let payload = payload
+            .as_deref()
+            .ok_or(TransactionPutError::PayloadMissing)?;
+        let payload_digest: [u8; 32] = Sha256::digest(payload).into();
+        if payload_digest != digest {
+            return Err(TransactionPutError::DigestMismatch(payload_digest));
+        }
+        let Envelope {
+            context,
+            network,
+            payload: crate::Transaction {
+                inputs, outputs, ..
+            },
+        } = minicbor::decode(payload).map_err(TransactionPutError::PayloadParsing)?;
+        if context != EnvelopeContext::Transaction {
+            return Err(TransactionPutError::Context(context));
+        }
+        if *network != *self.network {
+            return Err(TransactionPutError::Network {
+                got: network,
+                expected: Arc::clone(&self.network),
+            });
+        }
+        if inputs.is_empty() {
+            return Err(TransactionPutError::InputsEmpty);
+        }
+        let mut resolved_inputs = HashSet::with_capacity(inputs.len());
+        for TransactionInput { transaction, index } in inputs {
+            let index =
+                usize::try_from(index).map_err(|_| TransactionPutError::InputIndexOverflow)?;
+            let transaction = if transaction.is_empty() {
+                None
+            } else {
+                let transaction = parse_digest(&transaction).map_err(|err| {
+                    TransactionPutError::InputTransactionDigestParsing(transaction, err)
+                })?;
+                Some(transaction)
+            };
+            if !resolved_inputs.insert((transaction, index)) {
+                return Err(TransactionPutError::InputDuplicate);
+            }
+        }
+
+        let envelope = Bytes::from(envelope);
+
+        let mut genesis = self.genesis.outputs.write().await;
+        let mut txs = self.transactions.write().await;
+        for (tx, i) in &resolved_inputs {
+            // TODO: Verify transaction signatures
+            if let Some(tx) = tx {
+                let Transaction { outputs, .. } =
+                    txs.get(tx).ok_or(TransactionPutError::InputNotFound)?;
+                let utxo = outputs.get(*i).ok_or(TransactionPutError::InputNotFound)?;
+                let _utxo = utxo.as_ref().ok_or(TransactionPutError::InputNotFound)?;
+            } else {
+                genesis
+                    .get(*i)
+                    .and_then(Option::as_ref)
+                    .ok_or(TransactionPutError::InputNotFound)?;
+                if !signers.contains(&self.admin.key) {
+                    return Err(TransactionPutError::InputUnauthorized);
+                }
+            }
+        }
+        // TODO: Verify sum(inputs) >= sum(outputs) + fee
+        let mut tx_outputs = Vec::with_capacity(outputs.len());
+        {
+            let mut utxos = self.utxos.write().await;
+            for TransactionOutput { wasm, .. } in outputs {
+                let digest: [u8; 32] = Sha256::digest(&wasm).into();
+                let utxo = if let Some(utxo) = utxos.get(&digest).and_then(Weak::upgrade) {
+                    utxo
+                } else {
+                    let utxo = Arc::new(wasm.into());
+                    utxos.insert(digest, Arc::downgrade(&utxo));
+                    utxo
+                };
+                tx_outputs.push(Some(utxo));
+            }
+            for (tx, i) in resolved_inputs {
+                let utxo = if let Some(tx) = tx {
+                    let Some(Transaction { outputs, .. }) = txs.get_mut(&tx) else {
+                        unreachable!();
+                    };
+                    outputs[i].take()
+                } else {
+                    genesis[i].take()
+                };
+                let Some(utxo) = utxo else {
+                    unreachable!();
+                };
+                if let Some(utxo) = Arc::into_inner(utxo) {
+                    let digest: [u8; 32] = Sha256::digest(utxo).into();
+                    utxos.remove(&digest);
+                }
+            }
+        }
+        txs.insert(
+            digest,
+            Transaction {
+                outputs: tx_outputs,
+                envelope: envelope.clone(),
+            },
+        );
+
+        let mut blocks = self.blocks.write().await;
+        blocks.push(Block {
+            actions: Box::from([Action::Transaction(envelope)]),
+        });
+        build_text_response(http::StatusCode::OK, "").map_err(TransactionPutError::Http)
     }
 
     async fn handle_rpc_post(
@@ -528,52 +647,124 @@ impl Ledger {
                 }
                 _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
             },
-            Some((CONTRACT_PACKAGE, digest)) => {
-                let digest = parse_digest(digest).map_err(RpcPostError::ContractDigestParsing)?;
-                let contract = {
-                    let contracts = self.contracts.read().await;
-                    let contract = contracts
-                        .get(&digest)
-                        .ok_or(RpcPostError::ContractNotFound)?;
-                    Arc::clone(contract)
-                };
-                let Some(export) = contract.scripts.get(name.as_str()) else {
-                    return Err(RpcPostError::FunctionNotFound { instance, name });
+            Some((UTXO_PACKAGE, digest)) => {
+                let digest = parse_digest(digest).map_err(RpcPostError::UtxoDigestParsing)?;
+                let wasm = {
+                    let utxos = self.utxos.read().await;
+                    let utxo = utxos.get(&digest).ok_or(RpcPostError::UtxoNotFound)?;
+                    let utxo = utxo.upgrade().ok_or(RpcPostError::UtxoNotFound)?;
+                    Bytes::clone(&utxo)
                 };
 
-                let param_tys = export.ty().params();
-                let mut params = vec![Val::Bool(false); param_tys.len()];
+                // TODO: Insert traps in place of all coordination script imports
+                // TODO: Merge the UTXO snapshot with the contract code
+
                 let body = FramedRead::new(body, FrameDecoder::default()).map(|frame| {
                     let wrpc_transport::Frame { path, data } = frame?;
                     anyhow::ensure!(path.is_empty(), "async values not supported");
                     Ok(data)
                 });
                 let mut body = StreamReader::new(body.map_err(std::io::Error::other));
-                for (v, (_, ty)) in zip(&mut params, param_tys) {
+
+                // TODO: Get instance from nested interface
+                let mut instance = String::default();
+                body.read_core_name(&mut instance)
+                    .await
+                    .map_err(RpcPostError::ParameterDecoding)?;
+
+                let n = body
+                    .read_u32_leb128()
+                    .await
+                    .map_err(RpcPostError::ParameterDecoding)?;
+                let mut methods = HashSet::default();
+                for _ in 0..n {
+                    let mut hash = [0; 4];
+                    for v in &mut hash {
+                        *v = body
+                            .read_u64_leb128()
+                            .await
+                            .map_err(RpcPostError::ParameterDecoding)?;
+                    }
+                    let [a, b, c, d] = hash;
+                    methods.insert((a, b, c, d));
+                }
+                let cx = Arc::new(UtxoCtx { methods });
+
+                let mut imports = HashMap::default();
+                let contract = self
+                    .compile(&mut imports, None, &wasm)
+                    .await
+                    .map_err(RpcPostError::Runtime)?;
+
+                let utxo_export = contract.get_utxo(&instance).map_err(|source| {
+                    RpcPostError::UtxoInstanceNotFound {
+                        instance: instance.clone(),
+                        source,
+                    }
+                })?;
+                let storage_export = utxo_export
+                    .storage()
+                    .ok_or(RpcPostError::UtxoStorageMissing)?;
+                let method_export = contract
+                    .get_utxo_method(&utxo_export, &format!("[method]utxo.{name}"))
+                    .map_err(|source| RpcPostError::UtxoMethodNotFound {
+                        instance,
+                        name,
+                        source,
+                    })?;
+
+                let mut storage = Val::Record(Vec::default());
+                read_value(
+                    &mut body,
+                    &mut storage,
+                    &Type::Record(storage_export.ty().clone()),
+                )
+                .await
+                .map_err(RpcPostError::ParameterDecoding)?;
+
+                let param_tys = method_export.ty().params().skip(1);
+                let mut params = vec![Val::Bool(false); param_tys.len() + 1];
+                for (v, (_, ty)) in zip(&mut params[1..], param_tys) {
                     read_value(&mut body, v, &ty)
                         .await
                         .map_err(RpcPostError::ParameterDecoding)?;
                 }
 
-                let result_tys = export.ty().results();
+                let result_tys = method_export.ty().results();
                 let mut results = vec![Val::Bool(false); result_tys.len()];
-                let mut store = wasmtime::Store::new(&self.engine, Ctx::default());
+
+                let mut table = ResourceTable::default();
+                let cx_res = table
+                    .push(Arc::clone(&cx))
+                    .map_err(RpcPostError::ResourceTable)?;
+
+                let mut store = wasmtime::Store::new(&self.engine, Ctx { table });
+                let cx_res = cx_res
+                    .try_into_resource_any(&mut store)
+                    .map_err(RpcPostError::Runtime)?;
+
                 let contract = contract
                     .instantiate(&mut store)
                     .await
                     .map_err(RpcPostError::Runtime)?;
-                contract
-                    .call_coordination_script(&mut store, export, &params, &mut results)
+                let utxo = contract
+                    .load_utxo(
+                        &mut store,
+                        &utxo_export,
+                        storage_export,
+                        cx,
+                        [Val::Resource(cx_res), storage],
+                    )
+                    .await
+                    .map_err(RpcPostError::Runtime)?;
+                params[0] = Val::Resource(utxo.resource());
+                utxo.call_method(&mut store, &method_export, &params, &mut results)
                     .await
                     .map_err(RpcPostError::Runtime)?;
                 for (v, ty) in zip(results, result_tys) {
                     ValEncoder::new(&ty)
                         .encode(&v, &mut data)
                         .map_err(RpcPostError::CallResultEncoding)?;
-                }
-                let Ctx { outputs, .. } = store.data_mut();
-                for utxo in mem::take(outputs) {
-                    let _cx = utxo.drop(&mut store).await.map_err(RpcPostError::Runtime)?;
                 }
             }
             _ => return Err(RpcPostError::InstanceNotFound(instance)),
@@ -610,13 +801,11 @@ impl Ledger {
             .listen(self.max_requests)
             .context("failed to listen on TCP socket")?;
 
-        let permits = Arc::clone(&self.permits);
         let ledger = self.clone();
         let svc = service_fn(move |req: http::Request<hyper::body::Incoming>| {
-            let permits = Arc::clone(&permits);
             let ledger = ledger.clone();
             async move {
-                let _permit = match permits.try_acquire() {
+                let _permit = match ledger.permits.try_acquire() {
                     Ok(permit) => permit,
                     Err(TryAcquireError::NoPermits) => {
                         return build_text_response(
@@ -699,6 +888,32 @@ impl Ledger {
                     },
                     (_, Some("fund"), None, ..) => {
                         build_method_not_allowed("POST", &method, pq.path())
+                    }
+
+                    ("GET", Some("transactions"), Some(digest), None, ..) => match ledger
+                        .handle_transaction_get(digest)
+                        .await
+                    {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    },
+                    ("PUT", Some("transactions"), Some(digest), None, ..) => match ledger
+                        .handle_transaction_put(headers, digest, body)
+                        .await
+                    {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    },
+                    (_, Some("transactions"), Some(..), None, ..) => {
+                        build_method_not_allowed("GET, PUT", &method, pq.path())
+                    }
+
+                    ("GET", Some("genesis"), None, ..) => match ledger.handle_genesis_get() {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    },
+                    (_, Some("genesis"), None, ..) => {
+                        build_method_not_allowed("GET", &method, pq.path())
                     }
 
                     ("POST", Some("rpc"), None, ..) => match ledger.handle_rpc_post(body).await {
