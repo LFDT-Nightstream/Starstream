@@ -35,6 +35,7 @@ use tokio_util::codec::{Encoder as _, FramedRead};
 use tokio_util::io::StreamReader;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
 use wasm_tokio::{AsyncReadCore as _, cm::U64Codec};
+use wasmparser::WasmFeatures;
 use wasmtime::component::{ResourceTable, Type, Val};
 use wrpc_transport::FrameDecoder;
 
@@ -357,6 +358,11 @@ impl Ledger {
         if wasm_digest != digest {
             return Err(ContractPutError::DigestMismatch(wasm_digest));
         }
+        wasmparser::Validator::new_with_features(
+            WasmFeatures::default() | WasmFeatures::CM_IMPLEMENTS,
+        )
+        .validate_all(&wasm)
+        .map_err(ContractPutError::Wasm)?;
 
         {
             let accounts = self.accounts.read().await;

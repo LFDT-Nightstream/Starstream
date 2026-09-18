@@ -108,6 +108,8 @@ pub enum ContractPutError {
     Network { got: Box<str>, expected: Arc<str> },
     #[error("digest mismatch, got: `{}`", encode_digest(.0))]
     DigestMismatch([u8; 32]),
+    #[error("invalid Wasm: {0}")]
+    Wasm(wasmparser::BinaryReaderError),
     #[error("account ID `{}` not found", hex::encode(.0))]
     AccountNotFound(VerifyingKey),
     #[error("nonce must be higher than {last_nonce}, got {nonce}")]
@@ -126,7 +128,8 @@ impl ContractPutError {
             | Self::PayloadParsing(..)
             | Self::Context(..)
             | Self::Network { .. }
-            | Self::DigestMismatch(..) => http::StatusCode::BAD_REQUEST,
+            | Self::DigestMismatch(..)
+            | Self::Wasm(..) => http::StatusCode::BAD_REQUEST,
             Self::Envelope(err) => err.http_status_code(),
             Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::AccountNotFound(..) | Self::InsufficientBalance { .. } => {

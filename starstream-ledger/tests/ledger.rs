@@ -242,6 +242,21 @@ async fn http() {
         .await
         .unwrap();
 
+    let req = build_contract_publish_request(
+        &api_base,
+        ADMIN.clone(),
+        NETWORK,
+        starstream_ledger::Publish {
+            nonce: 2,
+            wasm: Box::from(*b"not wasm"),
+        },
+    )
+    .unwrap();
+    let (http::response::Parts { status, .. }, body) = http_request(&http, req).await.unwrap();
+    let body = String::from_utf8_lossy(&body);
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.starts_with("invalid Wasm: "), "{body}");
+
     client
         .publish_contract(ADMIN.clone(), 2, SCORE_WASM.clone())
         .await

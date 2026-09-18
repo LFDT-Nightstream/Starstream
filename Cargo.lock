@@ -3976,6 +3976,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "wasm-tokio",
+ "wasmparser 0.254.0",
  "wasmtime",
  "wasmtime-wizer",
  "wat",
