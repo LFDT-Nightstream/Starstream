@@ -1082,17 +1082,15 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Visitors
 
-    fn visit_embedded_wasm(&mut self, typed_wasm_module: &TypedWasmModule) {
-        let component_name = "derp";
-
+    fn visit_embedded_wasm(&mut self, module: &TypedWasmModule) {
         let mut instance_type = TypeBuilder::<InstanceType>::default();
 
-        for (&id, (wit_name, ty)) in &typed_wasm_module.functions {
+        for (&id, (wit_name, ty)) in &module.functions {
             let signature = self.star_to_component_signature(None, &ty.params, &ty.result);
             instance_type.export_fn(wit_name, &signature);
 
             let func_type = self.component_to_core_signature(DUMMY_SPAN, &signature);
-            let func_idx = self.import_function(component_name, wit_name, &func_type);
+            let func_idx = self.import_function(&module.name, wit_name, &func_type);
             self.callables.insert(id, func_idx);
         }
 
@@ -1100,8 +1098,7 @@ impl Compiler {
         self.world_type.inner.ty().instance(&instance_type.inner);
         self.world_type
             .inner
-            .import(component_name, ComponentTypeRef::Instance(id));
-
+            .import(&module.name, ComponentTypeRef::Instance(id));
     }
 
     /// Root visitor called by [compile] to start walking the AST for a program,

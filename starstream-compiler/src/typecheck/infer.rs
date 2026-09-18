@@ -249,7 +249,15 @@ pub fn typecheck_modules(
                 let exports = env.root;
                 module_exports.insert(module_id, exports);
             }
-            ModuleContents::Wasm(wasm) => match import_wasm(&mut inferencer.next_name_id, wasm) {
+            ModuleContents::Wasm(wasm) => match import_wasm(
+                &mut inferencer.next_name_id,
+                module
+                    .abs_path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "anonymous".to_string()),
+                wasm,
+            ) {
                 Ok((namespace, module)) => {
                     module_exports.insert(module_id, namespace);
                     typed_modules.insert(module_id, TypedModuleContents::Wasm(module));

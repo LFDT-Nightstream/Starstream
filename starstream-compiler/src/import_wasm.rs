@@ -12,6 +12,7 @@ use crate::typecheck::env::{ConstantInfo, Namespace};
 
 #[derive(Debug)]
 pub struct TypedWasmModule {
+    pub name: String,
     pub wasm: Arc<[u8]>,
     pub resolve: Resolve,
     pub world_id: WorldId,
@@ -20,6 +21,7 @@ pub struct TypedWasmModule {
 
 pub fn import_wasm(
     name_id: &mut NameId,
+    name: String,
     wasm: &Arc<[u8]>,
 ) -> miette::Result<(Namespace, TypedWasmModule)> {
     // Accepts both component .wasm files and core .wasm files with a binary WIT custom section.
@@ -42,6 +44,7 @@ pub fn import_wasm(
         .map_err(|e| miette!("error importizing WIT world: {e}"))?;
 
     let mut module = TypedWasmModule {
+        name,
         wasm: wasm.clone(),
         resolve,
         world_id,
