@@ -15,7 +15,7 @@ pub struct TypedWasmModule {
     pub wasm: Arc<[u8]>,
     pub resolve: Resolve,
     pub world_id: WorldId,
-    pub functions: HashMap<NameId, String>,
+    pub functions: HashMap<NameId, (String, Arc<FunctionType>)>,
 }
 
 pub fn import_wasm(
@@ -55,31 +55,29 @@ pub fn import_wasm(
         match item {
             WorldItem::Function(function) => {
                 let id = name_id.fresh();
+                let ty = Arc::new(FunctionType {
+                    kind: FunctionKind::Normal,
+                    name_span: DUMMY_SPAN,
+                    params: function
+                        .params
+                        .iter()
+                        .map(|p| TypedFunctionParam {
+                            public: false,
+                            name: Identifier::anon(&p.name),
+                            ty: wit_to_star_type(&module.resolve, p.ty),
+                            ty_span: DUMMY_SPAN,
+                        })
+                        .collect(),
+                    result: function
+                        .result
+                        .map_or(Type::Unit, |ty| wit_to_star_type(&module.resolve, ty)),
+                    callee: Some(StaticFunction::Named(id)),
+                });
                 namespace.constants.insert(
                     from_kebab_case(name),
-                    ConstantInfo::new(
-                        DUMMY_SPAN,
-                        Function(Arc::new(FunctionType {
-                            kind: FunctionKind::Normal,
-                            name_span: DUMMY_SPAN,
-                            params: function
-                                .params
-                                .iter()
-                                .map(|p| TypedFunctionParam {
-                                    public: false,
-                                    name: Identifier::anon(&p.name),
-                                    ty: wit_to_star_type(&module.resolve, p.ty),
-                                    ty_span: DUMMY_SPAN,
-                                })
-                                .collect(),
-                            result: function
-                                .result
-                                .map_or(Type::Unit, |ty| wit_to_star_type(&module.resolve, ty)),
-                            callee: Some(StaticFunction::Named(id)),
-                        })),
-                    ),
+                    ConstantInfo::new(DUMMY_SPAN, Function(ty.clone())),
                 );
-                module.functions.insert(id, name.clone());
+                module.functions.insert(id, (name.clone(), ty));
             }
             _ => todo!(),
         }

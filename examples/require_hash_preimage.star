@@ -9,10 +9,10 @@ abi IRequireHashPreimage {
 
 utxo RequireHashPreimage {
     storage {
-        let mut _hash: (u64, u64, u64, u64);
+        let mut _hash: u64;
     }
 
-    main fn create(pub hash: (u64, u64, u64, u64)) {
+    main fn create(pub hash: u64) {
         _hash = hash;
         yield(IRequireHashPreimage);
     }
@@ -20,10 +20,7 @@ utxo RequireHashPreimage {
     impl IRequireHashPreimage {
         fn consume(preimage: u64) {
             let hash = sha256_u64(preimage);
-            // Destructure and compare elements directly because compiler doesn't implement tuple != tuple yet.
-            let (a, b, c, d) = hash;
-            let (e, f, g, h) = _hash;
-            if (a != e || b != f || c != g || d != h) {
+            if (hash != _hash) {
                 error;
             }
             resume;

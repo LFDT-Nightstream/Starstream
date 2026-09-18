@@ -3,12 +3,14 @@
 
 use std::collections::BTreeMap;
 use std::ops::Range;
+use std::sync::Arc;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_compiler::TypedWasmModule;
 use starstream_compiler::typecheck::TypedModuleContents;
+use starstream_types::DUMMY_SPAN;
 use starstream_types::{
     AbiType, BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionKind, ImportSource,
     IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
@@ -1018,6 +1020,22 @@ impl Compiler {
         ok
     }
 
+    fn component_to_core_signature(
+        &mut self,
+        span: Span,
+        signature: &ComponentAbiFunctionSignature,
+    ) -> FuncType {
+        let mut params = Vec::new();
+        for (_, ty) in &signature.params {
+            _ = self.component_to_core_types(span, &mut params, &ty);
+        }
+        let mut results = Vec::new();
+        if let Some(result) = &signature.result {
+            _ = self.component_to_core_types(span, &mut results, &result);
+        }
+        FuncType::new(params, results)
+    }
+
     fn join(a: ValType, b: ValType) -> ValType {
         match (a, b) {
             (a, b) if a == b => a,
@@ -1067,16 +1085,23 @@ impl Compiler {
     fn visit_embedded_wasm(&mut self, typed_wasm_module: &TypedWasmModule) {
         let component_name = "derp";
 
+        let mut instance_type = TypeBuilder::<InstanceType>::default();
+
+        for (&id, (wit_name, ty)) in &typed_wasm_module.functions {
+            let signature = self.star_to_component_signature(None, &ty.params, &ty.result);
+            instance_type.export_fn(wit_name, &signature);
+
+            let func_type = self.component_to_core_signature(DUMMY_SPAN, &signature);
+            let func_idx = self.import_function(component_name, wit_name, &func_type);
+            self.callables.insert(id, func_idx);
+        }
+
         let id = self.world_type.inner.type_count();
-        self.world_type.inner.ty().instance(&InstanceType::new());
+        self.world_type.inner.ty().instance(&instance_type.inner);
         self.world_type
             .inner
             .import(component_name, ComponentTypeRef::Instance(id));
 
-        for (&id, wit_name) in &typed_wasm_module.functions {
-            let f = self.import_function(component_name, wit_name, &FuncType::new([], []));
-            self.callables.insert(id, f);
-        }
     }
 
     /// Root visitor called by [compile] to start walking the AST for a program,
