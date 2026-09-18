@@ -114,8 +114,20 @@ mod tests {
     fn function_with_public_param() {
         assert_function_snapshot!("fn reveal(pub value: i64) -> i64 { value }");
     }
+
     #[test]
     fn function_script_export() {
         assert_function_snapshot!("script fn main() {}");
+    }
+
+    #[test]
+    fn public_function_modifier_rejected() {
+        let (_, block, _) = crate::parser::recursives();
+        assert!(
+            function_with_export(block)
+                .parse("pub fn value() {}")
+                .into_result()
+                .is_err()
+        );
     }
 }

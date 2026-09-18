@@ -239,4 +239,14 @@ mod tests {
             "#
         );
     }
+
+    #[test]
+    fn public_function_modifier_rejected() {
+        assert!(
+            parser()
+                .parse("abi Extra { pub fn value(); }")
+                .into_result()
+                .is_err()
+        );
+    }
 }

@@ -886,8 +886,17 @@
           "type": "CHOICE",
           "members": [
             {
-              "type": "STRING",
-              "value": "main"
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "main"
+                },
+                {
+                  "type": "STRING",
+                  "value": "pub"
+                }
+              ]
             },
             {
               "type": "BLANK"

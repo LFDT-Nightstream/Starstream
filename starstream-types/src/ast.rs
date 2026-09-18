@@ -334,6 +334,8 @@ pub enum FunctionExport {
     Script,
     /// `utxo { main fn }`
     UtxoMain,
+    /// `utxo { pub fn }` — exposed at every yield point.
+    UtxoPublic,
     /// `token { mint fn }`
     TokenMint,
     /// `token { burn fn }`
@@ -345,6 +347,7 @@ impl FunctionExport {
         match self {
             FunctionExport::Script => "script",
             FunctionExport::UtxoMain => "main",
+            FunctionExport::UtxoPublic => "pub",
             FunctionExport::TokenMint => "mint",
             FunctionExport::TokenBurn => "burn",
         }

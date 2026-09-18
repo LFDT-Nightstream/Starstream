@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Foo {\n    main fn new() { yield(); }\n    pub fn value() {}\n    main fn value() { yield(); }\n}\n"
+---
+E0002 (https://starstream.nightstream.dev/errors/E0002)
+
+  x variable `value` is already defined in this scope
+   ,-[test.star:3:12]
+ 2 |     main fn new() { yield(); }
+ 3 |     pub fn value() {}
+   :            ^^^^^
+ 4 |     main fn value() { yield(); }
+   :             ^^|^^
+   :               `-- also defined here
+ 5 | }
+   `----

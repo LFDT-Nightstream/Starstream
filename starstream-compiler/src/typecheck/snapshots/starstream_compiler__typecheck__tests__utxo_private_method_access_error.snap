@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Foo {\n    main fn new() { yield(); }\n    fn hidden() {}\n}\nscript fn example() {\n    Foo::new().hidden();\n}\n"
+---
+E0048 (https://starstream.nightstream.dev/errors/E0048)
+
+  x ABI `Foo` has no method named `hidden`
+   ,-[test.star:6:16]
+ 5 | script fn example() {
+ 6 |     Foo::new().hidden();
+   :                ^^^^^^
+ 7 | }
+   `----

@@ -2124,3 +2124,174 @@ fn integer_literal_overflowing_i128_pattern_error() {
         "#
     );
 }
+
+#[test]
+fn utxo_public_method_call() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() {
+                yield();
+            }
+            pub fn value(x: i64) -> i64 {
+                x
+            }
+        }
+        script fn example() -> i64 {
+            Foo::new().value(42)
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_methods_are_contract_specific() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value() -> i64 { 1 }
+        }
+        utxo Bar {
+            main fn new() { yield(); }
+            pub fn value() -> bool { true }
+        }
+        script fn number() -> i64 { Foo::new().value() }
+        script fn boolean() -> bool { Bar::new().value() }
+        "#
+    );
+}
+
+#[test]
+fn utxo_private_method_access_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            fn hidden() {}
+        }
+        script fn example() {
+            Foo::new().hidden();
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_method_on_erased_handle_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value() {}
+        }
+        script fn example(handle: Utxo) {
+            handle.value();
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_method_yield_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value() { yield(); }
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_method_resume_return_type_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value() -> i64 { resume; }
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_method_return_type_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value() -> i64 { true }
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_method_argument_type_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value(x: i64) {}
+        }
+        script fn example() {
+            Foo::new().value(true);
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_method_conflicts_with_public_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value() {}
+            pub fn value() {}
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_method_conflicts_with_private_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value() {}
+            fn value() {}
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_method_conflicts_with_main_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value() {}
+            main fn value() { yield(); }
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_public_method_conflicts_with_abi_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi Extra { fn value(); }
+        utxo Foo {
+            main fn new() { yield(); }
+            pub fn value() {}
+            impl Extra { fn value() {} }
+        }
+        "#
+    );
+}

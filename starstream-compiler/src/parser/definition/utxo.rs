@@ -29,19 +29,14 @@ pub fn utxo<'a>(
         )
         .map(UtxoPart::Storage);
 
-    let fn_part = just("main")
-        .padded()
-        .or_not()
-        .then(function(block.clone()))
-        .map(|(main, def)| {
-            UtxoPart::Function(
-                FunctionDef {
-                    export: main.map(|_| FunctionExport::UtxoMain),
-                    ..def
-                }
-                .into(),
-            )
-        });
+    let fn_part = choice((
+        just("main").to(FunctionExport::UtxoMain),
+        just("pub").to(FunctionExport::UtxoPublic),
+    ))
+    .padded()
+    .or_not()
+    .then(function(block.clone()))
+    .map(|(export, def)| UtxoPart::Function(FunctionDef { export, ..def }.into()));
 
     let abi_impl_part = just("impl")
         .padded()
@@ -106,6 +101,41 @@ mod tests {
                 }
             }
             "#
+        );
+    }
+
+    #[test]
+    fn utxo_with_public_methods() {
+        assert_utxo_snapshot!(
+            r#"
+            utxo Foo {
+                main fn new() { yield(); }
+                pub fn value(pub x: i64) -> i64 { x }
+                pub fn advance() { resume; }
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn public_modifier_rejected_inside_abi_impl() {
+        let (_, block, _) = crate::parser::recursives();
+        assert!(
+            utxo(block)
+                .parse("utxo Foo { impl Extra { pub fn value() {} } }")
+                .into_result()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn public_modifier_rejected_on_main_function() {
+        let (_, block, _) = crate::parser::recursives();
+        assert!(
+            utxo(block)
+                .parse("utxo Foo { pub main fn new() {} }")
+                .into_result()
+                .is_err()
         );
     }
 }
