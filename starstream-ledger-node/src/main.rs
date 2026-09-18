@@ -139,6 +139,7 @@ async fn build_genesis(
                 &GenesisClient(&imported),
                 &wizer,
                 &component,
+                None,
                 &mut contracts,
             )
             .await?;

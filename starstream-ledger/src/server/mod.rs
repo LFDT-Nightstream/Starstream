@@ -133,6 +133,7 @@ impl Ledger {
     async fn compile(
         &self,
         imports: &mut HashMap<Box<str>, starstream_runtime_next::Contract<Ctx>>,
+        external_id: Option<&str>,
         wasm: &[u8],
     ) -> wasmtime::Result<starstream_runtime_next::Contract<Ctx>> {
         struct ContractLookup<'a>(
@@ -180,9 +181,9 @@ impl Ledger {
                 })?;
                 contract.wasm.clone()
             };
-            let contract = Box::pin(self.compile(imports, &wasm)).await?;
+            let contract = Box::pin(self.compile(imports, Some(external_id), &wasm)).await?;
             imports.insert(external_id.into(), contract);
         }
-        starstream_runtime_next::Contract::new(&component, ContractLookup(imports))
+        starstream_runtime_next::Contract::new(&component, external_id, ContractLookup(imports))
     }
 }

@@ -191,17 +191,17 @@ async fn exec(
             .with_context(|| format!("failed to read import contract `{}`", import.display()))?;
         let component =
             Component::new(&engine, &wasm).context("failed to compile import contract")?;
-        let contract = Contract::new(&component, &lookup)
-            .with_context(|| format!("failed to load import contract `{}`", import.display()))?;
         let digest = Sha256::digest(&wasm);
         let digest = format!("{digest:02x}");
+        let contract = Contract::new(&component, Some(&digest), &lookup)
+            .with_context(|| format!("failed to load import contract `{}`", import.display()))?;
         debug!(?digest, path = %import.display(), "imported contract");
         lookup.0.insert(digest, contract);
     }
 
     let wasm = fs::read(&wasm).await.context("failed to read contract")?;
     let component = Component::new(&engine, &wasm).context("failed to compile contract")?;
-    let contract = Contract::new(&component, &lookup).context("failed to load contract")?;
+    let contract = Contract::new(&component, None, &lookup).context("failed to load contract")?;
     let mut store = Store::new(
         &engine,
         Ctx {

@@ -830,6 +830,7 @@ fn link_coordination_script_instance<T: Host>(
 fn link_instance<T: Host>(
     contract: &Arc<OnceLock<Contract<T>>>,
     component: &Component,
+    self_external_id: Option<&Arc<str>>,
     linker: &mut LinkerInstance<T>,
     contracts: &impl ContractLookup<T>,
     ty: &types::ComponentInstance,
@@ -884,7 +885,7 @@ fn link_instance<T: Host>(
             linker,
             ty,
             name,
-            None,
+            self_external_id.cloned(),
         ),
 
         (
@@ -943,6 +944,7 @@ fn link_instance<T: Host>(
 fn link_imports<T: Host>(
     contract: &Arc<OnceLock<Contract<T>>>,
     component: &Component,
+    self_external_id: Option<&Arc<str>>,
     linker: &mut Linker<T>,
     contracts: &impl ContractLookup<T>,
 ) -> wasmtime::Result<()> {
@@ -974,6 +976,7 @@ fn link_imports<T: Host>(
                 link_instance(
                     contract,
                     component,
+                    self_external_id,
                     &mut linker,
                     contracts,
                     &ty,
@@ -1078,8 +1081,13 @@ fn lookup_get_storage_export(
 impl<T: Host> Contract<T> {
     /// Pre-instantiate a Starstream [Contract]
     #[instrument(level = "trace", skip_all)]
-    pub fn new(component: &Component, contracts: impl ContractLookup<T>) -> wasmtime::Result<Self> {
+    pub fn new(
+        component: &Component,
+        external_id: Option<&str>,
+        contracts: impl ContractLookup<T>,
+    ) -> wasmtime::Result<Self> {
         let contract = Arc::default();
+        let external_id = external_id.map(Arc::from);
 
         let mut linker = Linker::new(component.engine());
 
@@ -1088,7 +1096,13 @@ impl<T: Host> Contract<T> {
             .context("failed to link generated bindings")?;
         link_builtin(&mut linker).context("failed to link `starstream:std/builtin`")?;
         link_utxo_context(&mut linker).context("failed to link `starstream:std/utxo-context`")?;
-        link_imports(&contract, component, &mut linker, &contracts)?;
+        link_imports(
+            &contract,
+            component,
+            external_id.as_ref(),
+            &mut linker,
+            &contracts,
+        )?;
 
         let ty = linker
             .substituted_component_type(component)

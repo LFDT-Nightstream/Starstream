@@ -56,6 +56,7 @@ pub async fn new_contract(
     client: &(impl Client + ?Sized),
     wizer: &Wizer,
     component: &Component,
+    external_id: Option<&str>,
     imports: &mut HashMap<[u8; 32], Contract>,
 ) -> wasmtime::Result<starstream_runtime_next::Contract<Ctx>> {
     struct ContractLookup<'a>(pub &'a HashMap<[u8; 32], Contract>);
@@ -96,10 +97,17 @@ pub async fn new_contract(
             .await
             .map_err(wasmtime::Error::from_anyhow)?;
         let component = compile_component(engine, wizer, &wasm)?;
-        let contract = Box::pin(new_contract(client, wizer, &component, imports)).await?;
+        let contract = Box::pin(new_contract(
+            client,
+            wizer,
+            &component,
+            Some(external_id),
+            imports,
+        ))
+        .await?;
         imports.insert(digest, Contract { contract, wasm });
     }
-    starstream_runtime_next::Contract::new(component, ContractLookup(imports))
+    starstream_runtime_next::Contract::new(component, external_id, ContractLookup(imports))
 }
 
 pub async fn call_coordination_script(
@@ -144,7 +152,14 @@ pub async fn call_coordination_script(
                         .await
                         .map_err(wasmtime::Error::from_anyhow)?;
                     let component = compile_component(engine, wizer, &wasm)?;
-                    let contract = new_contract(client, wizer, &component, &mut *imports).await?;
+                    let contract = new_contract(
+                        client,
+                        wizer,
+                        &component,
+                        Some(&utxo.contract),
+                        &mut *imports,
+                    )
+                    .await?;
                     imports.insert(
                         utxo_contract_digest,
                         Contract {

@@ -87,4 +87,5 @@ tokio = { workspace = true, features = [
     "macros",
     "rt-multi-thread",
 ] }
+wat = { workspace = true }
 wit-component = { workspace = true }

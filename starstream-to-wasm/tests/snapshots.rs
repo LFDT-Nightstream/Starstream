@@ -318,7 +318,7 @@ async fn run_tests_inner(output: &mut String, component_wasm: &[u8]) {
         return;
     }
 
-    let contract = Contract::<Ctx>::new(&component, common::NoopContractLookup)
+    let contract = Contract::<Ctx>::new(&component, None, common::NoopContractLookup)
         .expect("failed to create contract");
 
     for (name, description) in tests {

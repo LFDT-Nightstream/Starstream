@@ -668,7 +668,7 @@ impl Ledger {
 
                 let mut imports = HashMap::default();
                 let contract = self
-                    .compile(&mut imports, &wasm)
+                    .compile(&mut imports, None, &wasm)
                     .await
                     .map_err(RpcPostError::Runtime)?;
 

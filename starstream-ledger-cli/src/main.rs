@@ -367,7 +367,7 @@ async fn main() -> anyhow::Result<()> {
             let wasm = imports.get_contract_wasm(digest).await?;
             let component = compile_component(client.engine(), client.wizer(), &wasm)?;
             let contract =
-                new_contract(&imports, client.wizer(), &component, &mut contracts).await?;
+                new_contract(&imports, client.wizer(), &component, None, &mut contracts).await?;
 
             let script = contract.get_coordination_script(&script)?;
 

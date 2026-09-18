@@ -111,7 +111,7 @@ static CONTRACT: LazyLock<Contract<Ctx>> = LazyLock::new(|| {
     let ty = component.component_type();
     assert!(get_coordination_script_instance_import(&ENGINE, &ty).is_none());
     assert!(utxo_imports(&ENGINE, &ty).next().is_none());
-    Contract::new(&component, NoopContractLookup).expect("failed to create contract")
+    Contract::new(&component, None, NoopContractLookup).expect("failed to create contract")
 });
 
 static PROGRESS_UTXO: LazyLock<ProgressUtxo> =
