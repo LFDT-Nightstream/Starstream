@@ -3854,6 +3854,7 @@ dependencies = [
  "serde",
  "starstream-types",
  "thiserror 2.0.17",
+ "wit-parser 0.254.0",
 ]
 
 [[package]]

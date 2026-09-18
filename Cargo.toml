@@ -31,7 +31,6 @@ license = "MIT/Apache-2.0"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.102", default-features = false }
-ariadne = "0.5.1"
 bytes = { version = "1", default-features = false }
 chumsky = "0.11.1"
 ciborium = { version = "0.2", default-features = false }

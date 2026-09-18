@@ -195,14 +195,12 @@ pub fn typecheck_modules(
     let mut all_errors: Vec<(ModuleId, TypeError)> = Vec::new();
     let mut warnings: Vec<(ModuleId, TypeWarning)> = Vec::new();
 
-    for module in graph.modules() {
-        if let Some(external) = &module.external {
-            module_exports.insert(module.id, external.clone());
-        }
-    }
-
     for &module_id in graph.topo_order() {
         let module = graph.module(module_id);
+        if let Some(external) = &module.external {
+            module_exports.insert(module.id, external.clone());
+            continue;
+        }
         let mut env = TypeEnv::new();
 
         // Pass 1: register imports
