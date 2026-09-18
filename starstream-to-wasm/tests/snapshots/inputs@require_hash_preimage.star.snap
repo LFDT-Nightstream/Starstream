@@ -1118,11 +1118,64 @@ Program {
                             },
                         ],
                         tail_expression: None,
-                        span: 1191..1254,
+                        span: 1191..1255,
                     },
                 },
             ),
-            span: 1161..1254,
+            span: 1161..1255,
+        },
+        Spanned {
+            node: Test(
+                TestDef {
+                    description: Some(
+                        StringLiteral {
+                            value: "Alive UTXO",
+                            span: 1260..1272,
+                        },
+                    ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "create_hash",
+                                                            span: 1279..1290,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 1279..1290,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "1",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                    span: 1291..1292,
+                                                },
+                                            ],
+                                        },
+                                        span: 1279..1293,
+                                    },
+                                ),
+                                span: 1279..1295,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 1272..1297,
+                    },
+                },
+            ),
+            span: 1255..1297,
         },
     ],
 }
@@ -1264,6 +1317,13 @@ T-Test: "Fails when not matching" => ()
       Unify-Const: RequireHashPreimage ~ RequireHashPreimage => {}
       T-Int: {consume_hash: fn(utxo: RequireHashPreimage, input: u64) -> (), create_hash: fn(input: u64) -> RequireHashPreimage, sha256: fn(input: u64) -> (u64, u64, u64, u64), utxo: RequireHashPreimage} ⊢ 2 ⇒ i64
       Unify-Var: i64 ~ u64 => {u64/t18}
+
+T-Test: "Alive UTXO" => ()
+  T-Expr: {consume_hash: fn(utxo: RequireHashPreimage, input: u64) -> (), create_hash: fn(input: u64) -> RequireHashPreimage, sha256: fn(input: u64) -> (u64, u64, u64, u64)} ⊢ create_hash(1); ⇒ ()
+    T-Call: {consume_hash: fn(utxo: RequireHashPreimage, input: u64) -> (), create_hash: fn(input: u64) -> RequireHashPreimage, sha256: fn(input: u64) -> (u64, u64, u64, u64)} ⊢ create_hash(1) ⇒ RequireHashPreimage
+      T-Var: {consume_hash: fn(utxo: RequireHashPreimage, input: u64) -> (), create_hash: fn(input: u64) -> RequireHashPreimage, sha256: fn(input: u64) -> (u64, u64, u64, u64)} ⊢ create_hash ⇒ fn(input: u64) -> RequireHashPreimage
+      T-Int: {consume_hash: fn(utxo: RequireHashPreimage, input: u64) -> (), create_hash: fn(input: u64) -> RequireHashPreimage, sha256: fn(input: u64) -> (u64, u64, u64, u64)} ⊢ 1 ⇒ i64
+      Unify-Var: i64 ~ u64 => {u64/t19}
 
 ==== Typed AST ====
 TypedProgram {
@@ -4089,6 +4149,258 @@ TypedProgram {
                 },
             },
         ),
+        Test(
+            TypedTestDef {
+                description: Some(
+                    StringLiteral {
+                        value: "Alive UTXO",
+                        span: 1260..1272,
+                    },
+                ),
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Utxo(
+                                        UtxoType {
+                                            name: "RequireHashPreimage",
+                                            id: NameId(6),
+                                            possible_abis: [
+                                                AbiType {
+                                                    name: Identifier {
+                                                        name: "IRequireHashPreimage",
+                                                        span: 76..96,
+                                                    },
+                                                    methods: [
+                                                        TypedAbiMethodDecl {
+                                                            name: Identifier {
+                                                                name: "consume",
+                                                                span: 201..208,
+                                                            },
+                                                            id: NameId(5),
+                                                            ty: FunctionType {
+                                                                kind: Normal,
+                                                                name_span: 201..208,
+                                                                params: [
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "preimage",
+                                                                            span: 209..217,
+                                                                        },
+                                                                        ty: Int(
+                                                                            U64,
+                                                                        ),
+                                                                        ty_span: 219..222,
+                                                                    },
+                                                                ],
+                                                                result: Unit,
+                                                                callee: Some(
+                                                                    Named(
+                                                                        NameId(5),
+                                                                    ),
+                                                                ),
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                            always_abis: [
+                                                AbiType {
+                                                    name: Identifier {
+                                                        name: "IRequireHashPreimage",
+                                                        span: 76..96,
+                                                    },
+                                                    methods: [
+                                                        TypedAbiMethodDecl {
+                                                            name: Identifier {
+                                                                name: "consume",
+                                                                span: 201..208,
+                                                            },
+                                                            id: NameId(5),
+                                                            ty: FunctionType {
+                                                                kind: Normal,
+                                                                name_span: 201..208,
+                                                                params: [
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "preimage",
+                                                                            span: 209..217,
+                                                                        },
+                                                                        ty: Int(
+                                                                            U64,
+                                                                        ),
+                                                                        ty_span: 219..222,
+                                                                    },
+                                                                ],
+                                                                result: Unit,
+                                                                callee: Some(
+                                                                    Named(
+                                                                        NameId(5),
+                                                                    ),
+                                                                ),
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 878..889,
+                                                        params: [
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "input",
+                                                                    span: 890..895,
+                                                                },
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                ty_span: 897..900,
+                                                            },
+                                                        ],
+                                                        result: Utxo(
+                                                            UtxoType {
+                                                                name: "RequireHashPreimage",
+                                                                id: NameId(6),
+                                                                possible_abis: [
+                                                                    AbiType {
+                                                                        name: Identifier {
+                                                                            name: "IRequireHashPreimage",
+                                                                            span: 76..96,
+                                                                        },
+                                                                        methods: [
+                                                                            TypedAbiMethodDecl {
+                                                                                name: Identifier {
+                                                                                    name: "consume",
+                                                                                    span: 201..208,
+                                                                                },
+                                                                                id: NameId(5),
+                                                                                ty: FunctionType {
+                                                                                    kind: Normal,
+                                                                                    name_span: 201..208,
+                                                                                    params: [
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "preimage",
+                                                                                                span: 209..217,
+                                                                                            },
+                                                                                            ty: Int(
+                                                                                                U64,
+                                                                                            ),
+                                                                                            ty_span: 219..222,
+                                                                                        },
+                                                                                    ],
+                                                                                    result: Unit,
+                                                                                    callee: Some(
+                                                                                        Named(
+                                                                                            NameId(5),
+                                                                                        ),
+                                                                                    ),
+                                                                                },
+                                                                            },
+                                                                        ],
+                                                                    },
+                                                                ],
+                                                                always_abis: [
+                                                                    AbiType {
+                                                                        name: Identifier {
+                                                                            name: "IRequireHashPreimage",
+                                                                            span: 76..96,
+                                                                        },
+                                                                        methods: [
+                                                                            TypedAbiMethodDecl {
+                                                                                name: Identifier {
+                                                                                    name: "consume",
+                                                                                    span: 201..208,
+                                                                                },
+                                                                                id: NameId(5),
+                                                                                ty: FunctionType {
+                                                                                    kind: Normal,
+                                                                                    name_span: 201..208,
+                                                                                    params: [
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "preimage",
+                                                                                                span: 209..217,
+                                                                                            },
+                                                                                            ty: Int(
+                                                                                                U64,
+                                                                                            ),
+                                                                                            ty_span: 219..222,
+                                                                                        },
+                                                                                    ],
+                                                                                    result: Unit,
+                                                                                    callee: Some(
+                                                                                        Named(
+                                                                                            NameId(5),
+                                                                                        ),
+                                                                                    ),
+                                                                                },
+                                                                            },
+                                                                        ],
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ),
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(8),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "create_hash",
+                                                            span: 1279..1290,
+                                                        },
+                                                    ],
+                                                    constant: None,
+                                                },
+                                            },
+                                            span: 1279..1290,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        U64,
+                                                    ),
+                                                    kind: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "1",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 1291..1292,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 1279..1290,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
     ],
 }
 
@@ -4135,6 +4447,7 @@ TypedProgram {
   (export "consume-hash" (func 18))
   (export "test10" (func 19))
   (export "test11" (func 20))
+  (export "test12" (func 21))
   (export "memory" (memory 0))
   (func (;9;) (type 6) (param i64) (result i64 i64 i64 i64)
     (local.get 0)
@@ -4426,6 +4739,11 @@ TypedProgram {
       (local.get 1)
       (i64.const 2))
   )
+  (func (;21;) (type 7)
+    (drop
+      (call 17
+        (i64.const 1)))
+  )
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -4531,6 +4849,8 @@ TypedProgram {
               (export (;2;) "test10" (external-id "starstream:test:Succeeds when matching") (func (type 23)))
               (type (;24;) (func))
               (export (;3;) "test11" (external-id "starstream:test:Fails when not matching") (func (type 24)))
+              (type (;25;) (func))
+              (export (;4;) "test12" (external-id "starstream:test:Alive UTXO") (func (type 25)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -4559,6 +4879,8 @@ world root {
   export test10: func();
   @external-id("starstream:test:Fails when not matching")
   export test11: func();
+  @external-id("starstream:test:Alive UTXO")
+  export test12: func();
   export require-hash-preimage: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
@@ -4638,7 +4960,25 @@ panic: call_coordination_script: failed to call function
 Caused by:
     0: failed to call function
     1: error while executing at wasm backtrace:
-    0:    0x79e - <unknown>!<wasm function 13>
-    1:    0x881 - <unknown>!<wasm function 18>
-    2:    0x8ab - <unknown>!<wasm function 20>
+    0:    0x7a8 - <unknown>!<wasm function 13>
+    1:    0x88b - <unknown>!<wasm function 18>
+    2:    0x8b5 - <unknown>!<wasm function 20>
     2: wasm trap: wasm `unreachable` instruction executed
+
+==== Test: Alive UTXO ====
+events: []
+outputs: [
+    Ok(
+        UtxoCtx {
+            methods: [
+                (
+                    10270437411857036182,
+                    11521531740810906571,
+                    17538181920428761180,
+                    16061404310442802309,
+                ),
+            ],
+            dropped: false,
+        },
+    ),
+]

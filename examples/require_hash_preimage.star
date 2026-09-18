@@ -48,3 +48,7 @@ test "Fails when not matching" {
     let utxo = create_hash(1);
     consume_hash(utxo, 2);
 }
+
+test "Alive UTXO" {
+    create_hash(1);
+}
