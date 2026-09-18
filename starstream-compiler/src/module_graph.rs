@@ -174,8 +174,8 @@ pub enum ModuleGraphError {
         importer: ModuleId,
         span: Span,
     },
-    /// Path import doesn't end with `.star`.
-    NotStarExtension {
+    /// Path import has unknown extension.
+    UnknownExtension {
         path: String,
         importer: ModuleId,
         span: Span,
@@ -219,8 +219,11 @@ impl std::fmt::Display for ModuleGraphError {
                     "error: path import `{path}` must start with `./` or `../`"
                 )
             }
-            ModuleGraphError::NotStarExtension { path, .. } => {
-                write!(f, "error: path import `{path}` must end with `.star`")
+            ModuleGraphError::UnknownExtension { path, .. } => {
+                write!(
+                    f,
+                    "error: path import `{path}` has unknown extension, expecting `.star`"
+                )
             }
             ModuleGraphError::CrossContractImport {
                 importer_path,
@@ -256,10 +259,8 @@ impl std::fmt::Display for ModuleGraphError {
 
 /// Build a graph rooted at `entry` for the single-file `wasm -c` flow.
 ///
-/// The entry is always treated as a contract — its `contract_entries` list
-/// is just `[entry]` regardless of whether the file declares `contract;`.
-/// Any *imported* helper that declares `contract;` triggers the
-/// cross-contract guard.
+/// The entry point is treated as a contract even if it doesn't start with a
+/// `contract;` item.
 pub fn load_from_entry(entry: &Path, fs: &mut FileSystem) -> Result<ModuleGraph, ModuleGraphError> {
     let canonical_entry =
         std::fs::canonicalize(entry).map_err(|error| ModuleGraphError::EntryIo {
@@ -268,13 +269,12 @@ pub fn load_from_entry(entry: &Path, fs: &mut FileSystem) -> Result<ModuleGraph,
         })?;
 
     let mut builder = Builder::new(fs);
-    let entry_id =
-        builder
-            .parse_module(&canonical_entry)
-            .map_err(|error| ModuleGraphError::EntryIo {
-                path: entry.to_path_buf(),
-                error,
-            })?;
+    let entry_id = builder
+        .parse_star_module(&canonical_entry)
+        .map_err(|error| ModuleGraphError::EntryIo {
+            path: entry.to_path_buf(),
+            error,
+        })?;
 
     // Resolve imports transitively.
     let mut next = 0;
@@ -305,10 +305,8 @@ pub fn load_from_entry(entry: &Path, fs: &mut FileSystem) -> Result<ModuleGraph,
 /// files, then resolving every path import they declare (which may pull in
 /// files outside `scan_dir`).
 ///
-/// All scanned + transitively-imported modules end up in the graph. Every
-/// file that declares `contract;` becomes a codegen entry. The
-/// cross-contract guard is enforced per edge: any import edge whose target
-/// declares `contract;` is rejected.
+/// Every scanned file is included in the graph.
+/// `.star` files declaring `contract;` become codegen entry points.
 pub fn load_workspace(
     scan_dir: &Path,
     fs: &mut FileSystem,
@@ -323,7 +321,7 @@ pub fn load_workspace(
             error,
         })?;
         builder
-            .parse_module(&canonical)
+            .parse_star_module(&canonical)
             .map_err(|error| ModuleGraphError::EntryIo {
                 path: path.clone(),
                 error,
@@ -369,14 +367,14 @@ pub fn load_workspace(
 fn collect_star_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     walk(dir, &mut |path| {
-        if path.extension().map(|e| e == "star").unwrap_or(false) {
+        if path.extension().is_some_and(|e| e == "star") {
             out.push(path.to_path_buf());
         }
     });
     out
 }
 
-fn walk(dir: &Path, visit: &mut dyn FnMut(&Path)) {
+fn walk(dir: &Path, visit: &mut impl FnMut(&Path)) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -418,7 +416,7 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn parse_module(&mut self, abs_path: &Path) -> std::io::Result<ModuleId> {
+    fn parse_star_module(&mut self, abs_path: &Path) -> std::io::Result<ModuleId> {
         if let Some(id) = self.by_path.get(abs_path) {
             return Ok(*id);
         }
@@ -477,37 +475,38 @@ impl<'a> Builder<'a> {
                     span,
                 });
             }
-            if !raw_path.ends_with(".star") {
-                return Err(ModuleGraphError::NotStarExtension {
+            if raw_path.ends_with(".star") {
+                let candidate = importer_dir.join(&raw_path);
+                let canonical = std::fs::canonicalize(&candidate).map_err(|error| {
+                    ModuleGraphError::ImportIo {
+                        path: candidate.clone(),
+                        importer: id,
+                        span,
+                        error,
+                    }
+                })?;
+
+                let target = self.parse_star_module(&canonical).map_err(|error| {
+                    ModuleGraphError::ImportIo {
+                        path: canonical.clone(),
+                        importer: id,
+                        span,
+                        error,
+                    }
+                })?;
+
+                resolved.push(PathImport {
+                    def_index,
+                    target,
+                    span,
+                });
+            } else {
+                return Err(ModuleGraphError::UnknownExtension {
                     path: raw_path,
                     importer: id,
                     span,
                 });
             }
-
-            let candidate = importer_dir.join(&raw_path);
-            let canonical =
-                std::fs::canonicalize(&candidate).map_err(|error| ModuleGraphError::ImportIo {
-                    path: candidate.clone(),
-                    importer: id,
-                    span,
-                    error,
-                })?;
-
-            let target =
-                self.parse_module(&canonical)
-                    .map_err(|error| ModuleGraphError::ImportIo {
-                        path: canonical.clone(),
-                        importer: id,
-                        span,
-                        error,
-                    })?;
-
-            resolved.push(PathImport {
-                def_index,
-                target,
-                span,
-            });
         }
 
         if !resolved.is_empty() {

@@ -520,12 +520,14 @@ function for each test which can be executed to run the test.
 Imports bring external functions into scope from WIT-style interface paths or
 from another `.star` file in the project via path imports.
 
+The available import styles are [named imports](#named-imports) and [namespace imports](#namespace-imports).
+
 The available import sources are:
 
 - `starstream:std` - Starstream builtins known to the compiler.
   - `/cardano` - functions expected to be available when hosted on Cardano.
 - `"./relative/path.star"` - another `.star` file in the project (see
-  [Path imports](#path-imports)).
+  [`.star` path imports](#star-path-imports)).
 
 ### Named imports
 
@@ -548,7 +550,7 @@ import cardano from starstream:std/cardano;
 
 Functions are accessed using namespace-qualified syntax: `cardano::blockHeight()`.
 
-### Path imports
+### `.star` path imports
 
 A path import references another `.star` file by a quoted relative path,
 resolved against the *importing* file's directory. The `.star` extension is
@@ -560,34 +562,20 @@ import math from "./helpers/math.star";
 import { foo } from "../shared/util.star";
 ```
 
-**Resolution rules:**
+#### Resolution rules
 
-- Paths must be relative — they must begin with `./` or `../`. Absolute paths
-  and bare module names are rejected.
-- Paths must end with the `.star` extension.
+- Paths must be relative, starting with `./` or `../`. Absolute paths and bare module names are rejected.
 - Paths are resolved relative to the directory of the importing file.
-- The path is canonicalized (`./` and `../` are normalized; symlinks are
-  resolved) so a file that is reached via two different relative paths is
-  loaded only once within a single contract graph.
 
-**Visibility:**
+#### Import visibility
 
 - Named imports are strict: only the names listed in `{ ... }` are visible to
   the importing module. Other top-level definitions in the target file are
   not implicitly accessible.
-- Namespace imports expose all top-level functions of the target file under
-  the alias (e.g., `math::add(...)`). They do not expose types.
-- Top-level types (`struct`, `enum`, `abi`, `utxo`) are referenced by name —
-  importing one with `import { Point } from "./shapes.star";` makes `Point`
-  usable in the importing file's type annotations.
+- Namespace imports expose top-level elements of the target file under
+  the alias (e.g., `math::add(...)`).
 
-**Cross-contract guard:**
-
-- A contract may not import from another file that also declares `contract;`.
-  The compiler raises a hard error. Cross-contract calls will land in a
-  future release.
-
-**Module graph and cycles:**
+#### Module graph and cycles:
 
 - For each contract entry, the compiler builds a directed graph of the
   `.star` files reachable through its path imports. The graph is
@@ -595,10 +583,8 @@ import { foo } from "../shared/util.star";
   before their dependents.
 - Cycles in the path-import graph are a hard compile error.
 
-**`script fn` semantics:**
-
 - Every `script fn` reachable from a contract's entry is exported as a
-  transaction root in that contract's wasm — whether it's declared in the
+  transaction root in that contract's wasm - whether it's declared in the
   entry file itself or in one of its helpers. If you wrote `script fn`,
   you meant to expose it; the compiler honors that.
 
