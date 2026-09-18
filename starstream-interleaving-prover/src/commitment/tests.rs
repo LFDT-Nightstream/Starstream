@@ -23,7 +23,7 @@ fn get_storage_binds_chain_switch_and_fresh_program_root() {
     let trace = Trace::new([
         Step::SetStorage {
             storage: storage.clone(),
-            resource: ResourceHandle(0).into(),
+            coordinator_handle: ResourceHandle(0),
         },
         Step::PreloadMethod {
             method: MethodHash([1; 8]),

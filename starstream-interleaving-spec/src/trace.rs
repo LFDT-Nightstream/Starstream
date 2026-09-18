@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::METHOD_WORDS;
+
 /// An arbitrary value.
 ///
 /// The interleaving proof only cares about equality for these, as the receiver
@@ -35,7 +37,7 @@ pub struct ResourceHandle(pub u32);
 /// `u64` limb.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct MethodHash(pub [u32; 8]);
+pub struct MethodHash(pub [u32; METHOD_WORDS]);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -81,8 +83,9 @@ impl From<Vec<u32>> for StarstreamValue {
 pub enum Step {
     SetStorage {
         storage: StarstreamValue,
-        /// Witnessed coordinator-local binding, not part of transaction IO.
-        resource: Out<ResourceHandle>,
+        /// Host-supplied Coord(1)-local binding, not a wasm return value.
+        /// Excluded from both the program event and transaction IO commitments.
+        coordinator_handle: ResourceHandle,
     },
     /// Ledger-supplied ABI entry for the most recently loaded UTXO; no program event.
     PreloadMethod {
