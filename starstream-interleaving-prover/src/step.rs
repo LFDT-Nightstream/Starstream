@@ -152,12 +152,15 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 tx.abi_read_ordinal = tx.abi_read_ordinal.wrapping_add(1);
                 tx.abi_read_remaining = tx.abi_read_remaining.wrapping_sub(1);
             }
-            Step::SetStorage { storage, resource } => {
+            Step::SetStorage {
+                storage,
+                coordinator_handle,
+            } => {
                 expected_arguments = Some(storage.words32().map(|x| F::new(u64::from(x))).to_vec());
                 next_utxo_id = next_utxo_id
                     .checked_add(1)
                     .expect("UTXO allocator fits u32");
-                resolver_address = (curr_before, resource.0);
+                resolver_address = (curr_before, *coordinator_handle);
                 resolver_value = boundary_utxo;
                 resolver_write = true;
                 resource_resolver.insert(resolver_address, resolver_value);
