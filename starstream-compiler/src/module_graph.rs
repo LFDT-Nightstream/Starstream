@@ -284,14 +284,12 @@ pub fn load_from_entry(
     })?;
 
     let mut builder = Builder::new(fs);
-    let entry_id = builder
-        .parse_star_module(&canonical_entry)
-        .map_err(|error| {
-            vec![ModuleGraphError::EntryIo {
-                path: entry.to_path_buf(),
-                error,
-            }]
-        })?;
+    let entry_id = builder.parse_module(&canonical_entry).map_err(|error| {
+        vec![ModuleGraphError::EntryIo {
+            path: entry.to_path_buf(),
+            error,
+        }]
+    })?;
     builder.finish(Some(entry_id))
 }
 
@@ -318,7 +316,7 @@ pub fn load_workspace(
                 });
             }
             Ok(canonical) => {
-                if let Err(error) = builder.parse_star_module(&canonical) {
+                if let Err(error) = builder.parse_module(&canonical) {
                     builder.errors.push(ModuleGraphError::EntryIo {
                         path: path.clone(),
                         error,
@@ -390,9 +388,7 @@ impl<'a> Builder<'a> {
         // Resolve imports transitively.
         let mut next = 0;
         while next < self.modules.len() {
-            if let Err(err) = self.resolve_imports(ModuleId(next as u32)) {
-                self.errors.push(err);
-            }
+            self.resolve_imports(ModuleId(next as u32));
             next += 1;
         }
 
@@ -428,11 +424,10 @@ impl<'a> Builder<'a> {
         })
     }
 
-    fn parse_star_module(&mut self, abs_path: &Path) -> std::io::Result<ModuleId> {
+    fn parse_module(&mut self, abs_path: &Path) -> std::io::Result<ModuleId> {
         if let Some(&id) = self.by_path.get(abs_path) {
             return Ok(id);
         }
-
         let idx = self.modules.len();
         let id = ModuleId(idx as u32);
         self.by_path.insert(abs_path.to_path_buf(), id);
@@ -443,6 +438,17 @@ impl<'a> Builder<'a> {
             program: Default::default(),
         });
 
+        match abs_path.extension().and_then(|x| x.to_str()) {
+            Some("star") => {
+                self.parse_star_module(abs_path, idx)?;
+            }
+            _ => {}
+        }
+
+        Ok(id)
+    }
+
+    fn parse_star_module(&mut self, abs_path: &Path, idx: usize) -> std::io::Result<()> {
         let source = self.fs.read_to_string(abs_path)?;
         let parse_output = parser::parse_program(&source);
         let source = Arc::<str>::from(source);
@@ -459,11 +465,10 @@ impl<'a> Builder<'a> {
                     error,
                 }),
         );
-
-        Ok(id)
+        Ok(())
     }
 
-    fn resolve_imports(&mut self, id: ModuleId) -> Result<(), ModuleGraphError> {
+    fn resolve_imports(&mut self, id: ModuleId) {
         let importer_dir = self.modules[id.index()]
             .abs_path
             .parent()
@@ -487,50 +492,48 @@ impl<'a> Builder<'a> {
         let mut resolved = Vec::with_capacity(raw_imports.len());
         for (def_index, raw_path, span) in raw_imports {
             if !is_relative_path(&raw_path) {
-                return Err(ModuleGraphError::NonRelativePath {
+                self.errors.push(ModuleGraphError::NonRelativePath {
                     path: raw_path,
                     importer: id,
                     span,
                 });
+                continue;
             }
-            if raw_path.ends_with(".star") {
-                let candidate = importer_dir.join(&raw_path);
-                let canonical = std::fs::canonicalize(&candidate).map_err(|error| {
-                    ModuleGraphError::ImportIo {
+            let candidate = importer_dir.join(&raw_path);
+            let abs_path = match std::fs::canonicalize(&candidate) {
+                Ok(c) => c,
+                Err(error) => {
+                    self.errors.push(ModuleGraphError::ImportIo {
                         path: candidate.clone(),
                         importer: id,
                         span,
                         error,
-                    }
-                })?;
-
-                let target = self.parse_star_module(&canonical).map_err(|error| {
-                    ModuleGraphError::ImportIo {
-                        path: canonical.clone(),
+                    });
+                    continue;
+                }
+            };
+            match self.parse_module(&abs_path) {
+                Ok(target) => {
+                    resolved.push(PathImport {
+                        def_index,
+                        target,
+                        span,
+                    });
+                }
+                Err(error) => {
+                    self.errors.push(ModuleGraphError::ImportIo {
+                        path: abs_path.to_owned(),
                         importer: id,
                         span,
                         error,
-                    }
-                })?;
-
-                resolved.push(PathImport {
-                    def_index,
-                    target,
-                    span,
-                });
-            } else {
-                return Err(ModuleGraphError::UnknownExtension {
-                    path: raw_path,
-                    importer: id,
-                    span,
-                });
+                    });
+                }
             }
         }
 
         if !resolved.is_empty() {
             self.edges.insert(id.0, resolved);
         }
-        Ok(())
     }
 
     /// Reject any edge whose target declares `contract;`.
