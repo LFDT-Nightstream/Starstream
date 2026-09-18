@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use miette::miette;
 use starstream_types::{
-    DUMMY_SPAN, FunctionKind, FunctionType, Identifier, IntWidth,
+    DUMMY_SPAN, FunctionKind, FunctionType, Identifier, IntWidth, NameId, StaticFunction,
     Type::{self, Function},
     TypedFunctionParam,
 };
@@ -10,7 +10,7 @@ use wit_parser::{Resolve, WorldItem, WorldKey, decoding::DecodedWasm};
 
 use crate::typecheck::env::{ConstantInfo, Namespace};
 
-pub fn import_wasm(wasm: &[u8]) -> miette::Result<Namespace> {
+pub fn import_wasm(name_id: &mut NameId, wasm: &[u8]) -> miette::Result<Namespace> {
     // Accepts both component .wasm files and core .wasm files with a binary WIT custom section.
     let decoded = wit_parser::decoding::decode(wasm)
         .map_err(|e| miette!("error decoding .wasm file: {e}"))?;
@@ -36,6 +36,7 @@ pub fn import_wasm(wasm: &[u8]) -> miette::Result<Namespace> {
         let WorldKey::Name(name) = key else { continue };
         match item {
             WorldItem::Function(function) => {
+                let id = name_id.fresh();
                 namespace.constants.insert(
                     from_kebab_case(name),
                     ConstantInfo::new(
@@ -56,7 +57,7 @@ pub fn import_wasm(wasm: &[u8]) -> miette::Result<Namespace> {
                             result: function
                                 .result
                                 .map_or(Type::Unit, |ty| wit_to_star_type(&resolve, ty)),
-                            callee: None,
+                            callee: Some(StaticFunction::Named(id)),
                         })),
                     ),
                 );

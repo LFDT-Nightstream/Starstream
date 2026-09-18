@@ -239,7 +239,7 @@ pub fn typecheck_modules(
                 let exports = env.root;
                 module_exports.insert(module_id, exports);
             }
-            ModuleContents::Wasm(wasm) => match import_wasm(wasm) {
+            ModuleContents::Wasm(wasm) => match import_wasm(&mut inferencer.next_name_id, wasm) {
                 Ok(namespace) => {
                     module_exports.insert(module_id, namespace);
                 }
