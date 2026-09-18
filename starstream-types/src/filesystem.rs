@@ -22,6 +22,11 @@ impl FileSystem {
         }
     }
 
+    pub fn read(&mut self, path: &Path) -> std::io::Result<Vec<u8>> {
+        self.dependencies.push(path.to_owned());
+        std::fs::read(path)
+    }
+
     pub fn read_to_string(&mut self, path: &Path) -> std::io::Result<String> {
         self.dependencies.push(path.to_owned());
         std::fs::read_to_string(path)

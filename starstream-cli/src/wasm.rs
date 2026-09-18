@@ -55,8 +55,10 @@ impl Wasm {
 
         let graph = match module_graph::load_from_entry(&self.compile_file, &mut fs) {
             Ok(graph) => graph,
-            Err(err) => {
-                eprintln!("{err}");
+            Err(errors) => {
+                for error in errors {
+                    eprintln!("{error}");
+                }
                 std::process::exit(1);
             }
         };

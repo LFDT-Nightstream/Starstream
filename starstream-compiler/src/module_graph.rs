@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use miette::NamedSource;
+use miette::{Diagnostic, NamedSource};
 use starstream_types::{
     DUMMY_SPAN, FileSystem, Span,
     ast::{Definition, ImportSource, Program},
@@ -194,8 +194,9 @@ pub enum ModuleGraphError {
         chain: Vec<(ModuleId, PathBuf, Span)>,
     },
     /// One or more modules failed to parse.
-    ParseFailed {
-        failures: Vec<(ModuleId, Vec<ParseError>)>,
+    Parse {
+        source: NamedSource<Arc<str>>,
+        error: ParseError,
     },
 }
 
@@ -244,15 +245,25 @@ impl std::fmt::Display for ModuleGraphError {
                 }
                 Ok(())
             }
-            ModuleGraphError::ParseFailed { failures } => {
-                for (module_id, errors) in failures {
-                    write!(f, "parse errors in module #{}:", module_id.0)?;
-                    for e in errors {
-                        write!(f, "\n  {e}")?;
-                    }
-                }
-                Ok(())
-            }
+            ModuleGraphError::Parse { .. } => write!(f, "parse error"),
+        }
+    }
+}
+
+impl std::error::Error for ModuleGraphError {}
+
+impl Diagnostic for ModuleGraphError {
+    fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
+        match self {
+            ModuleGraphError::Parse { error, .. } => Some(error),
+            _ => None,
+        }
+    }
+
+    fn source_code(&self) -> Option<&dyn miette::SourceCode> {
+        match self {
+            ModuleGraphError::Parse { source, .. } => Some(source),
+            _ => None,
         }
     }
 }
@@ -261,44 +272,27 @@ impl std::fmt::Display for ModuleGraphError {
 ///
 /// The entry point is treated as a contract even if it doesn't start with a
 /// `contract;` item.
-pub fn load_from_entry(entry: &Path, fs: &mut FileSystem) -> Result<ModuleGraph, ModuleGraphError> {
-    let canonical_entry =
-        std::fs::canonicalize(entry).map_err(|error| ModuleGraphError::EntryIo {
+pub fn load_from_entry(
+    entry: &Path,
+    fs: &mut FileSystem,
+) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
+    let canonical_entry = std::fs::canonicalize(entry).map_err(|error| {
+        vec![ModuleGraphError::EntryIo {
             path: entry.to_path_buf(),
             error,
-        })?;
+        }]
+    })?;
 
     let mut builder = Builder::new(fs);
     let entry_id = builder
         .parse_star_module(&canonical_entry)
-        .map_err(|error| ModuleGraphError::EntryIo {
-            path: entry.to_path_buf(),
-            error,
+        .map_err(|error| {
+            vec![ModuleGraphError::EntryIo {
+                path: entry.to_path_buf(),
+                error,
+            }]
         })?;
-
-    // Resolve imports transitively.
-    let mut next = 0;
-    while next < builder.modules.len() {
-        builder.resolve_imports(ModuleId(next as u32))?;
-        next += 1;
-    }
-
-    builder.validate_cross_contract(Some(entry_id))?;
-
-    if !builder.parse_failures.is_empty() {
-        return Err(ModuleGraphError::ParseFailed {
-            failures: builder.parse_failures,
-        });
-    }
-
-    let topo_order = builder.topo_order(&[entry_id])?;
-
-    Ok(ModuleGraph {
-        modules: builder.modules,
-        topo_order,
-        edges: builder.edges,
-        contract_entries: vec![entry_id],
-    })
+    builder.finish(Some(entry_id))
 }
 
 /// Build a workspace graph by recursively scanning `scan_dir` for `.star`
@@ -310,58 +304,31 @@ pub fn load_from_entry(entry: &Path, fs: &mut FileSystem) -> Result<ModuleGraph,
 pub fn load_workspace(
     scan_dir: &Path,
     fs: &mut FileSystem,
-) -> Result<ModuleGraph, ModuleGraphError> {
+) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
     let mut builder = Builder::new(fs);
 
     // Seed the graph with every `.star` file under scan_dir.
     let star_files = collect_star_files(scan_dir);
     for path in &star_files {
-        let canonical = std::fs::canonicalize(path).map_err(|error| ModuleGraphError::EntryIo {
-            path: path.clone(),
-            error,
-        })?;
-        builder
-            .parse_star_module(&canonical)
-            .map_err(|error| ModuleGraphError::EntryIo {
-                path: path.clone(),
-                error,
-            })?;
+        match std::fs::canonicalize(path) {
+            Err(error) => {
+                builder.errors.push(ModuleGraphError::EntryIo {
+                    path: path.clone(),
+                    error,
+                });
+            }
+            Ok(canonical) => {
+                if let Err(error) = builder.parse_star_module(&canonical) {
+                    builder.errors.push(ModuleGraphError::EntryIo {
+                        path: path.clone(),
+                        error,
+                    });
+                }
+            }
+        }
     }
 
-    // Resolve imports transitively. This may add nodes outside scan_dir.
-    let mut next = 0;
-    while next < builder.modules.len() {
-        builder.resolve_imports(ModuleId(next as u32))?;
-        next += 1;
-    }
-
-    builder.validate_cross_contract(None)?;
-
-    if !builder.parse_failures.is_empty() {
-        return Err(ModuleGraphError::ParseFailed {
-            failures: builder.parse_failures,
-        });
-    }
-
-    // Contract entries = every node that declares `contract;`.
-    let contract_entries: Vec<ModuleId> = builder
-        .modules
-        .iter()
-        .filter(|m| m.declares_contract())
-        .map(|m| m.id)
-        .collect();
-
-    // Topo sort starting from contract entries first (so the meaningful
-    // codegen roots get walked first), then sweep in any unreached loose
-    // nodes so every module ends up in the order.
-    let topo_order = builder.topo_order(&contract_entries)?;
-
-    Ok(ModuleGraph {
-        modules: builder.modules,
-        topo_order,
-        edges: builder.edges,
-        contract_entries,
-    })
+    builder.finish(None)
 }
 
 fn collect_star_files(dir: &Path) -> Vec<PathBuf> {
@@ -401,7 +368,7 @@ struct Builder<'a> {
     modules: Vec<Module>,
     edges: HashMap<u32, Vec<PathImport>>,
     by_path: HashMap<PathBuf, ModuleId>,
-    parse_failures: Vec<(ModuleId, Vec<ParseError>)>,
+    errors: Vec<ModuleGraphError>,
     fs: &'a mut FileSystem,
 }
 
@@ -411,36 +378,87 @@ impl<'a> Builder<'a> {
             modules: Vec::new(),
             edges: HashMap::new(),
             by_path: HashMap::new(),
-            parse_failures: Vec::new(),
+            errors: Vec::new(),
             fs,
         }
     }
 
-    fn parse_star_module(&mut self, abs_path: &Path) -> std::io::Result<ModuleId> {
-        if let Some(id) = self.by_path.get(abs_path) {
-            return Ok(*id);
+    fn finish(
+        mut self,
+        force_entry: Option<ModuleId>,
+    ) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
+        // Resolve imports transitively.
+        let mut next = 0;
+        while next < self.modules.len() {
+            if let Err(err) = self.resolve_imports(ModuleId(next as u32)) {
+                self.errors.push(err);
+            }
+            next += 1;
         }
 
-        let source = self.fs.read_to_string(abs_path)?;
-        let parse_output = parser::parse_program(&source);
+        if let Err(err) = self.validate_cross_contract(force_entry) {
+            self.errors.push(err);
+        }
 
-        let id = ModuleId(self.modules.len() as u32);
-        let program = parse_output.program.unwrap_or_else(|| Program {
-            shebang: None,
-            definitions: Vec::new(),
-        });
+        if !self.errors.is_empty() {
+            return Err(self.errors);
+        }
 
+        // Contract entries = every node that declares `contract;`.
+        let contract_entries: Vec<ModuleId> = match force_entry {
+            Some(entry) => vec![entry],
+            None => self
+                .modules
+                .iter()
+                .filter(|m| m.declares_contract())
+                .map(|m| m.id)
+                .collect(),
+        };
+
+        // Topo sort starting from contract entries first (so the meaningful
+        // codegen roots get walked first), then sweep in any unreached loose
+        // nodes so every module ends up in the order.
+        let topo_order = self.topo_order(&contract_entries).map_err(|e| vec![e])?;
+
+        Ok(ModuleGraph {
+            modules: self.modules,
+            topo_order,
+            edges: self.edges,
+            contract_entries,
+        })
+    }
+
+    fn parse_star_module(&mut self, abs_path: &Path) -> std::io::Result<ModuleId> {
+        if let Some(&id) = self.by_path.get(abs_path) {
+            return Ok(id);
+        }
+
+        let idx = self.modules.len();
+        let id = ModuleId(idx as u32);
+        self.by_path.insert(abs_path.to_path_buf(), id);
         self.modules.push(Module {
             id,
             abs_path: abs_path.to_path_buf(),
-            source: Arc::from(source.into_boxed_str()),
-            program,
+            source: Default::default(),
+            program: Default::default(),
         });
-        self.by_path.insert(abs_path.to_path_buf(), id);
 
-        if !parse_output.errors.is_empty() {
-            self.parse_failures.push((id, parse_output.errors));
+        let source = self.fs.read_to_string(abs_path)?;
+        let parse_output = parser::parse_program(&source);
+        let source = Arc::<str>::from(source);
+        self.modules[idx].source = source.clone();
+        if let Some(program) = parse_output.program {
+            self.modules[idx].program = program;
         }
+        self.errors.extend(
+            parse_output
+                .errors
+                .into_iter()
+                .map(|error| ModuleGraphError::Parse {
+                    source: NamedSource::new(abs_path.to_string_lossy(), source.clone()),
+                    error,
+                }),
+        );
 
         Ok(id)
     }
@@ -698,9 +716,13 @@ mod tests {
         );
 
         let mut fs = FileSystem::new();
-        match load_from_entry(&entry, &mut fs) {
-            Err(ModuleGraphError::CrossContractImport { .. }) => {}
-            other => panic!("expected CrossContractImport, got {:?}", other.map(|_| ())),
+        match load_from_entry(&entry, &mut fs)
+            .err()
+            .unwrap_or_default()
+            .as_slice()
+        {
+            [ModuleGraphError::CrossContractImport { .. }] => {}
+            other => panic!("expected CrossContractImport, got {:?}", other),
         }
     }
 
@@ -756,9 +778,13 @@ mod tests {
         );
 
         let mut fs = FileSystem::new();
-        match load_workspace(&dir, &mut fs) {
-            Err(ModuleGraphError::CrossContractImport { .. }) => {}
-            other => panic!("expected CrossContractImport, got {:?}", other.map(|_| ())),
+        match load_workspace(&dir, &mut fs)
+            .err()
+            .unwrap_or_default()
+            .as_slice()
+        {
+            [ModuleGraphError::CrossContractImport { .. }] => {}
+            other => panic!("expected CrossContractImport, got {:?}", other),
         }
     }
 
@@ -784,9 +810,13 @@ mod tests {
         );
 
         let mut fs = FileSystem::new();
-        match load_workspace(&dir, &mut fs) {
-            Err(ModuleGraphError::Cycle { chain }) => assert!(chain.len() >= 2),
-            other => panic!("expected cycle, got {:?}", other.map(|_| ())),
+        match load_workspace(&dir, &mut fs)
+            .err()
+            .unwrap_or_default()
+            .as_slice()
+        {
+            [ModuleGraphError::Cycle { chain }] => assert!(chain.len() >= 2),
+            other => panic!("expected cycle, got {:?}", other),
         }
     }
 

@@ -93,8 +93,12 @@ fn cross_contract_import_errors() {
     // Helper file also declares `contract;` — must be rejected at graph build.
     let entry = fixture("cross_contract").join("main.star");
     let mut tracker = starstream_types::FileSystem::new();
-    match starstream_compiler::module_graph::load_from_entry(&entry, &mut tracker) {
-        Err(starstream_compiler::ModuleGraphError::CrossContractImport { .. }) => {}
-        other => panic!("expected CrossContractImport, got {:?}", other.map(|_| ())),
+    match starstream_compiler::module_graph::load_from_entry(&entry, &mut tracker)
+        .err()
+        .unwrap_or_default()
+        .as_slice()
+    {
+        [starstream_compiler::ModuleGraphError::CrossContractImport { .. }] => {}
+        other => panic!("expected CrossContractImport, got {:?}", other),
     }
 }

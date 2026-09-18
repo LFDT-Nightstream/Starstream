@@ -7,7 +7,7 @@ use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
 use starstream_types::FileSystem;
 use wit_component::ComponentEncoder;
 
-use crate::diagnostics::print_diagnostic;
+use crate::diagnostics::{print_diagnostic, print_report};
 use crate::project::default_scan_dir;
 
 /// Compile every contract under the target directory to Wasm.
@@ -31,8 +31,10 @@ impl Build {
         let mut fs_tracker = FileSystem::new();
         let graph = match module_graph::load_workspace(&scan_dir, &mut fs_tracker) {
             Ok(g) => g,
-            Err(err) => {
-                eprintln!("{err}");
+            Err(errors) => {
+                for error in errors {
+                    print_report(miette::Report::new(error))?;
+                }
                 std::process::exit(1);
             }
         };

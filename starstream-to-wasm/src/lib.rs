@@ -386,7 +386,7 @@ impl Compiler {
 
     fn push_error(&mut self, span: Span, message: impl Into<String>) -> ErrorToken {
         self.errors.push(CompileError {
-            message: dbg!(message.into()),
+            message: message.into(),
             span,
         });
         self.fatal = true;

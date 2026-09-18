@@ -208,9 +208,7 @@ pub fn typecheck_modules(
             inferencer.register_imports(&mut env, &module.program.definitions, &resolved_imports)
         {
             all_errors.push((module_id, error));
-            for warning in inferencer.warnings.drain(..) {
-                warnings.push((module_id, warning));
-            }
+            warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
             continue;
         }
 
@@ -223,9 +221,7 @@ pub fn typecheck_modules(
                     // continue — they may still produce useful diagnostics. But we
                     // flag the run as failed.
                     all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
-                    for warning in inferencer.warnings.drain(..) {
-                        warnings.push((module_id, warning));
-                    }
+                    warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
                     module_exports.insert(module_id, Namespace::default());
                     continue;
                 }
@@ -239,9 +235,7 @@ pub fn typecheck_modules(
         typed_modules.insert(module_id, program);
 
         // Drain warnings emitted during this module's pass.
-        for warning in inferencer.warnings.drain(..) {
-            warnings.push((module_id, warning));
-        }
+        warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
 
         // Stop once any module has failed catastrophically.
         if !all_errors.is_empty() {

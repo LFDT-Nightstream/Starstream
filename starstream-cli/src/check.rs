@@ -5,7 +5,7 @@ use miette::IntoDiagnostic;
 use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
 use starstream_types::FileSystem;
 
-use crate::diagnostics::print_diagnostic;
+use crate::diagnostics::{print_diagnostic, print_report};
 use crate::project::default_scan_dir;
 use crate::style;
 
@@ -36,8 +36,10 @@ impl Check {
         let mut fs = FileSystem::new();
         let graph = match module_graph::load_workspace(&scan_dir, &mut fs) {
             Ok(g) => g,
-            Err(err) => {
-                eprintln!("{err}");
+            Err(errors) => {
+                for error in errors {
+                    print_report(miette::Report::new(error))?;
+                }
                 std::process::exit(1);
             }
         };

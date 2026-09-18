@@ -6,7 +6,7 @@ use miette::IntoDiagnostic;
 use starstream_compiler::{TypecheckOptions, generate_docs, module_graph, typecheck_modules};
 use starstream_types::FileSystem;
 
-use crate::diagnostics::print_diagnostic;
+use crate::diagnostics::{print_diagnostic, print_report};
 use crate::project::default_scan_dir;
 
 /// Generate JSON documentation for every contract under the target directory.
@@ -36,8 +36,10 @@ impl Docs {
         let mut tracker = FileSystem::new();
         let graph = match module_graph::load_workspace(&scan_dir, &mut tracker) {
             Ok(g) => g,
-            Err(err) => {
-                eprintln!("{err}");
+            Err(errors) => {
+                for error in errors {
+                    print_report(miette::Report::new(error))?;
+                }
                 std::process::exit(1);
             }
         };
