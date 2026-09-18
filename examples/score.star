@@ -1,4 +1,6 @@
 abi Score {
+    fn get_chips() -> u64;
+    fn get_mult() -> u64;
     fn plus_chips(chips: u64);
     fn plus_mult(mult: u64);
     fn mult_mult(mult_pct: u64);
@@ -18,6 +20,12 @@ utxo ScoreProgress {
     }
 
     impl Score {
+        fn get_chips() -> u64 {
+            return chips;
+        }
+        fn get_mult() -> u64 {
+            return mult;
+        }
         fn plus_chips(pub chips2: u64) {
             chips = chips + chips2;
         }

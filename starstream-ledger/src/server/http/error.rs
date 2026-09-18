@@ -4,7 +4,10 @@ use ed25519_dalek::VerifyingKey;
 use mediatype::MediaType;
 use thiserror::Error;
 
-use crate::{APPLICATION_COSE, DigestParseError, FUND_CONTEXT, PUBLISH_CONTEXT, encode_digest};
+use crate::{
+    APPLICATION_COSE, DigestParseError, EnvelopeContext, FUND_CONTEXT, PUBLISH_CONTEXT,
+    TRANSACTION_CONTEXT, encode_digest,
+};
 
 #[derive(Debug, Error)]
 pub enum ContractGetError {
@@ -45,6 +48,10 @@ pub enum EnvelopeReadError {
     Body(Box<dyn std::error::Error + Send + Sync>),
     #[error("body is not a valid COSE_Sign1: {0}")]
     CoseSign1Parsing(coset::CoseError),
+    #[error("body is not a valid COSE_Sign: {0}")]
+    CoseSignParsing(coset::CoseError),
+    #[error("envelope must contain at least one signature")]
+    SignatureMissing,
     #[error("failed to reencode envelope: {0}")]
     Reencode(coset::CoseError),
     #[error("envelope must not contain unprotected headers")]
@@ -68,6 +75,8 @@ impl EnvelopeReadError {
             | Self::ContentTypeParsing(..)
             | Self::Body(..)
             | Self::CoseSign1Parsing(..)
+            | Self::CoseSignParsing(..)
+            | Self::SignatureMissing
             | Self::UnprotectedHeader
             | Self::CriticalHeader
             | Self::Algorithm
@@ -92,15 +101,11 @@ pub enum ContractPutError {
     #[error("COSE_Sign1 payload missing")]
     PayloadMissing,
     #[error("COSE_Sign1 payload is not valid CBOR: {0}")]
-    PayloadParsing(ciborium::de::Error<std::io::Error>),
-    #[error("publish transaction must be a `[context, network, nonce, wasm]` array")]
-    TransactionFormat,
+    PayloadParsing(minicbor::decode::Error),
     #[error("unexpected context `{0}`, expected `{PUBLISH_CONTEXT}`")]
-    Context(Box<str>),
+    Context(EnvelopeContext),
     #[error("unexpected network `{got}`, expected `{expected}`")]
     Network { got: Box<str>, expected: Arc<str> },
-    #[error("publish transaction nonce does not fit in u64")]
-    NonceOverflow,
     #[error("digest mismatch, got: `{}`", encode_digest(.0))]
     DigestMismatch([u8; 32]),
     #[error("account ID `{}` not found", hex::encode(.0))]
@@ -109,16 +114,8 @@ pub enum ContractPutError {
     NonceTooLow { last_nonce: u64, nonce: u64 },
     #[error("balance insufficient, required at least {required}, available {available}")]
     InsufficientBalance { required: u64, available: u64 },
-    #[error("{0:#}")]
-    Runtime(wasmtime::Error),
     #[error(transparent)]
     Http(http::Error),
-    #[error("instrumentation failed: {0:#}")]
-    Wizer(wasmtime::Error),
-    #[error("failed to parse `external-id` `{0}` as multibase multihash: {1}")]
-    ContractImportDigestParsing(Box<str>, DigestParseError),
-    #[error("contract import identified by `external-id` `{0}` not found")]
-    ContractImportNotFound(Box<str>),
 }
 
 impl ContractPutError {
@@ -127,20 +124,14 @@ impl ContractPutError {
             Self::DigestParsing(..)
             | Self::PayloadMissing
             | Self::PayloadParsing(..)
-            | Self::TransactionFormat
             | Self::Context(..)
             | Self::Network { .. }
-            | Self::NonceOverflow
-            | Self::DigestMismatch(..)
-            | Self::Runtime(..)
-            | Self::ContractImportDigestParsing(..)
-            | Self::Wizer(..) => http::StatusCode::BAD_REQUEST,
+            | Self::DigestMismatch(..) => http::StatusCode::BAD_REQUEST,
             Self::Envelope(err) => err.http_status_code(),
             Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::AccountNotFound(..) | Self::InsufficientBalance { .. } => {
                 http::StatusCode::PAYMENT_REQUIRED
             }
-            Self::ContractImportNotFound { .. } => http::StatusCode::NOT_FOUND,
             Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -153,23 +144,15 @@ pub enum AccountFundError {
     #[error("COSE_Sign1 payload missing")]
     PayloadMissing,
     #[error("COSE_Sign1 payload is not valid CBOR: {0}")]
-    PayloadParsing(ciborium::de::Error<std::io::Error>),
-    #[error("fund transaction must be a `[context, network, nonce, account, amount]` array")]
-    TransactionFormat,
+    PayloadParsing(minicbor::decode::Error),
     #[error("unexpected context `{0}`, expected `{FUND_CONTEXT}`")]
-    Context(Box<str>),
+    Context(EnvelopeContext),
     #[error("unexpected network `{got}`, expected `{expected}`")]
     Network { got: Box<str>, expected: Arc<str> },
-    #[error("fund transaction nonce does not fit in u64")]
-    NonceOverflow,
-    #[error("fund transaction account must be a raw 32-byte Ed25519 public key")]
-    KeyIdFormat,
     #[error("fund transaction account is not a valid Ed25519 public key: {0}")]
     Key(ed25519_dalek::SignatureError),
     #[error("fund transaction account is a weak Ed25519 public key")]
     WeakKey,
-    #[error("fund transaction amount does not fit in u64")]
-    AmountOverflow,
     #[error("signer `{}` is not the admin account", hex::encode(.0))]
     NotAdmin(VerifyingKey),
     #[error("nonce must be higher than {last_nonce}, got {nonce}")]
@@ -183,17 +166,102 @@ impl AccountFundError {
         match self {
             Self::PayloadMissing
             | Self::PayloadParsing(..)
-            | Self::TransactionFormat
             | Self::Context(..)
             | Self::Network { .. }
-            | Self::NonceOverflow
-            | Self::KeyIdFormat
             | Self::Key(..)
-            | Self::WeakKey
-            | Self::AmountOverflow => http::StatusCode::BAD_REQUEST,
+            | Self::WeakKey => http::StatusCode::BAD_REQUEST,
             Self::Envelope(err) => err.http_status_code(),
             Self::NotAdmin(..) => http::StatusCode::FORBIDDEN,
             Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
+            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum TransactionGetError {
+    #[error("failed to parse transaction digest: {0}")]
+    DigestParsing(DigestParseError),
+    #[error("transaction not found")]
+    TransactionNotFound,
+    #[error(transparent)]
+    Http(http::Error),
+}
+
+impl TransactionGetError {
+    pub fn http_status_code(&self) -> http::StatusCode {
+        match self {
+            Self::DigestParsing(..) => http::StatusCode::BAD_REQUEST,
+            Self::TransactionNotFound => http::StatusCode::NOT_FOUND,
+            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum GenesisGetError {
+    #[error("failed to encode genesis: {0}")]
+    Encoding(minicbor::encode::Error<core::convert::Infallible>),
+    #[error(transparent)]
+    Http(http::Error),
+}
+
+impl GenesisGetError {
+    pub fn http_status_code(&self) -> http::StatusCode {
+        match self {
+            Self::Encoding(..) | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum TransactionPutError {
+    #[error(transparent)]
+    DigestParsing(DigestParseError),
+    #[error(transparent)]
+    Envelope(EnvelopeReadError),
+    #[error("COSE_Sign payload missing")]
+    PayloadMissing,
+    #[error("digest mismatch, got: `{}`", encode_digest(.0))]
+    DigestMismatch([u8; 32]),
+    #[error("COSE_Sign payload is not valid CBOR: {0}")]
+    PayloadParsing(minicbor::decode::Error),
+    #[error("unexpected context `{0}`, expected `{TRANSACTION_CONTEXT}`")]
+    Context(EnvelopeContext),
+    #[error("unexpected network `{got}`, expected `{expected}`")]
+    Network { got: Box<str>, expected: Arc<str> },
+    #[error("transaction must have at least one input")]
+    InputsEmpty,
+    #[error("duplicate input")]
+    InputDuplicate,
+    #[error("failed to parse input transaction digest `{0}`: {1}")]
+    InputTransactionDigestParsing(Box<str>, DigestParseError),
+    #[error("input not found")]
+    InputNotFound,
+    #[error("input not authorized")]
+    InputUnauthorized,
+    #[error("transaction input index does not fit in usize")]
+    InputIndexOverflow,
+    #[error(transparent)]
+    Http(http::Error),
+}
+
+impl TransactionPutError {
+    pub fn http_status_code(&self) -> http::StatusCode {
+        match self {
+            Self::DigestParsing(..)
+            | Self::PayloadMissing
+            | Self::DigestMismatch(..)
+            | Self::PayloadParsing(..)
+            | Self::Context(..)
+            | Self::Network { .. }
+            | Self::InputsEmpty
+            | Self::InputDuplicate
+            | Self::InputTransactionDigestParsing(..)
+            | Self::InputIndexOverflow => http::StatusCode::BAD_REQUEST,
+            Self::Envelope(err) => err.http_status_code(),
+            Self::InputNotFound => http::StatusCode::NOT_FOUND,
+            Self::InputUnauthorized => http::StatusCode::FORBIDDEN,
             Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -207,14 +275,29 @@ pub enum RpcPostError {
     InstanceNotFound(String),
     #[error("function `{name}` not found in instance `{instance}`")]
     FunctionNotFound { instance: String, name: String },
-    #[error("failed to parse contract digest: {0}")]
-    ContractDigestParsing(DigestParseError),
-    #[error("contract not found")]
-    ContractNotFound,
+    #[error("failed to parse utxo digest: {0}")]
+    UtxoDigestParsing(DigestParseError),
+    #[error("UTXO not found")]
+    UtxoNotFound,
+    #[error("UTXO instance `{instance}` not found: {source:#}")]
+    UtxoInstanceNotFound {
+        instance: String,
+        source: wasmtime::Error,
+    },
+    #[error("method `{name}` not found in UTXO instance `{instance}`: {source:#}")]
+    UtxoMethodNotFound {
+        instance: String,
+        name: String,
+        source: wasmtime::Error,
+    },
+    #[error("UTXO storage missing")]
+    UtxoStorageMissing,
     #[error("failed to decode parameters: {0}")]
     ParameterDecoding(std::io::Error),
     #[error("runtime failed: {0:#}")]
     Runtime(wasmtime::Error),
+    #[error("resource table error: {0}")]
+    ResourceTable(wasmtime::component::ResourceTableError),
     #[error("failed to encode result: {0}")]
     ResultEncoding(std::io::Error),
     #[error("failed to encode call result: {0:#}")]
@@ -228,12 +311,16 @@ pub enum RpcPostError {
 impl RpcPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::Header(..) | Self::ContractDigestParsing(..) | Self::ParameterDecoding(..) => {
-                http::StatusCode::BAD_REQUEST
-            }
-            Self::InstanceNotFound(..) | Self::FunctionNotFound { .. } | Self::ContractNotFound => {
-                http::StatusCode::NOT_FOUND
-            }
+            Self::Header(..)
+            | Self::UtxoDigestParsing(..)
+            | Self::ParameterDecoding(..)
+            | Self::UtxoStorageMissing
+            | Self::ResourceTable(..) => http::StatusCode::BAD_REQUEST,
+            Self::InstanceNotFound(..)
+            | Self::FunctionNotFound { .. }
+            | Self::UtxoNotFound
+            | Self::UtxoInstanceNotFound { .. }
+            | Self::UtxoMethodNotFound { .. } => http::StatusCode::NOT_FOUND,
             Self::Runtime(..)
             | Self::ResultEncoding(..)
             | Self::CallResultEncoding(..)

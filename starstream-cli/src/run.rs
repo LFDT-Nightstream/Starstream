@@ -1,14 +1,14 @@
 use core::iter::zip;
 use core::pin::Pin;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use clap::Args;
 use miette::IntoDiagnostic as _;
 use sha2::{Digest as _, Sha256};
-use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, bindings};
+use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use tokio::fs;
 use tracing::{debug, info, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val};
@@ -39,7 +39,7 @@ struct Ctx {
 
 #[derive(Debug, Default)]
 struct UtxoCtx {
-    methods: Vec<(u64, u64, u64, u64)>,
+    methods: HashSet<(u64, u64, u64, u64)>,
 }
 
 #[derive(Default)]
@@ -75,6 +75,9 @@ impl Host for Ctx {
     #[instrument(level = "trace", skip_all, ret)]
     async fn call_utxo_main(
         mut store: StoreContextMut<'_, Self>,
+        _instance_name: Arc<str>,
+        _external_id: Option<Arc<str>>,
+        _export: UtxoExport,
         f: impl for<'a> FnOnce(
             StoreContextMut<'a, Self>,
             Self::UtxoContext,
@@ -119,7 +122,7 @@ impl Host for Ctx {
     ) -> wasmtime::Result<()> {
         let Ctx { table, .. } = store.data_mut();
         let cx = table.get_mut(&cx)?;
-        cx.lock().unwrap().methods.push(hash);
+        cx.lock().unwrap().methods.insert(hash);
         Ok(())
     }
 

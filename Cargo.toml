@@ -33,7 +33,6 @@ anyhow = { version = "1.0.102", default-features = false }
 ariadne = "0.5.1"
 bytes = { version = "1", default-features = false }
 chumsky = "0.11.1"
-ciborium = { version = "0.2", default-features = false }
 clap = { version = "4.6.1", default-features = false }
 coset = { version = "0.3", default-features = false }
 ed25519-dalek = { version = "2", default-features = false }
@@ -50,6 +49,7 @@ indoc = "2.0"
 insta = "1.43"
 mediatype = { version = "0.21", default-features = false }
 miette = "7.6.0"
+minicbor = { version = "2.3.0", default-features = false }
 multibase = { version = "0.9", default-features = false }
 multihash = { version = "0.19", default-features = false }
 rand_core = { version = "0.6", default-features = false }
@@ -65,6 +65,7 @@ starstream-runtime-next = { path = "starstream-runtime-next" }
 starstream-to-wasm = { path = "starstream-to-wasm" }
 starstream-types = { path = "starstream-types" }
 tempfile = { version = "3.27", default-features = false }
+toml = { version = "1.1", default-features = false }
 test-log = { version = "0.2.18", default-features = false }
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", default-features = false }
@@ -83,7 +84,7 @@ wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8
 wasmtime-wizer = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
 wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
 wit-component = "0.254.0"
-wit-parser = "0.254.0"
+wit-parser = { version = "0.258.0", default-features = false }
 wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
 wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
 wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }

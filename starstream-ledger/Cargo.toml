@@ -10,6 +10,10 @@ license.workspace = true
 [features]
 default = ["client", "server"]
 client = [
+    "dep:tokio",
+    "dep:wasm-tokio",
+    "dep:wasmtime",
+    "dep:wasmtime-wizer",
     "dep:wit-bindgen-wrpc",
     "hyper-util/client",
     "hyper-util/client-legacy",
@@ -22,11 +26,9 @@ server = [
     "dep:hex",
     "dep:http-body",
     "dep:hyper",
-    "dep:starstream-runtime-next",
     "dep:tokio",
     "dep:wasm-tokio",
     "dep:wasmtime",
-    "dep:wasmtime-wizer",
     "hyper-util/server",
     "hyper-util/server-auto",
     "hyper-util/server-graceful",
@@ -36,7 +38,6 @@ server = [
 [dependencies]
 anyhow = { workspace = true }
 bytes = { workspace = true }
-ciborium = { workspace = true, features = ["std"] }
 coset = { workspace = true, features = ["std"] }
 ed25519-dalek = { workspace = true, features = ["fast", "std", "zeroize"] }
 futures = { workspace = true, optional = true }
@@ -49,10 +50,11 @@ http-body-util = { workspace = true }
 hyper = { workspace = true, optional = true, features = ["server"] }
 hyper-util = { workspace = true, features = ["http1", "http2"] }
 mediatype = { workspace = true }
+minicbor = { workspace = true, features = ["derive", "std"] }
 multibase = { workspace = true, features = ["std"] }
 multihash = { workspace = true, features = ["std"] }
 sha2 = { workspace = true }
-starstream-runtime-next = { workspace = true, optional = true }
+starstream-runtime-next = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true, features = [
     "net",
