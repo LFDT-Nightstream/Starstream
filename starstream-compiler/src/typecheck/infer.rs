@@ -195,6 +195,12 @@ pub fn typecheck_modules(
     let mut all_errors: Vec<(ModuleId, TypeError)> = Vec::new();
     let mut warnings: Vec<(ModuleId, TypeWarning)> = Vec::new();
 
+    for module in graph.modules() {
+        if let Some(external) = &module.external {
+            module_exports.insert(module.id, external.clone());
+        }
+    }
+
     for &module_id in graph.topo_order() {
         let module = graph.module(module_id);
         let mut env = TypeEnv::new();
@@ -451,7 +457,7 @@ impl Inferencer {
                         // the single-file so emit a warning explaining why
                         // the names aren't available.
                         self.warnings.push(TypeWarning::new(
-                            TypeWarningKind::PathImportIgnoredInSingleFile {
+                            TypeWarningKind::PathImportNotResolved {
                                 path: path.value.clone(),
                             },
                             path.span,

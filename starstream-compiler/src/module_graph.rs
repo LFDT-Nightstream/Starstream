@@ -49,6 +49,7 @@ pub struct Module {
     pub abs_path: PathBuf,
     pub source: Arc<str>,
     pub program: Program,
+    pub external: Option<crate::typecheck::env::Namespace>,
 }
 
 impl Module {
@@ -436,11 +437,15 @@ impl<'a> Builder<'a> {
             abs_path: abs_path.to_path_buf(),
             source: Default::default(),
             program: Default::default(),
+            external: None,
         });
 
         match abs_path.extension().and_then(|x| x.to_str()) {
             Some("star") => {
                 self.parse_star_module(abs_path, idx)?;
+            }
+            Some("wasm") => {
+                self.parse_wasm_module(abs_path, idx)?;
             }
             _ => {}
         }
@@ -465,6 +470,15 @@ impl<'a> Builder<'a> {
                     error,
                 }),
         );
+        Ok(())
+    }
+
+    fn parse_wasm_module(&mut self, abs_path: &Path, idx: usize) -> std::io::Result<()> {
+        let source = self.fs.read(abs_path)?;
+        match crate::import_wasm::import_wasm(&source) {
+            Ok(namespace) => self.modules[idx].external = Some(namespace),
+            Err(error) => panic!("{error}"), // TODO self.errors.push,
+        }
         Ok(())
     }
 

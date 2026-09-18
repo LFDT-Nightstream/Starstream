@@ -5,6 +5,7 @@
 
 pub mod docs;
 pub mod formatter;
+mod import_wasm;
 pub mod module_graph;
 pub mod parser;
 mod pointer_map;

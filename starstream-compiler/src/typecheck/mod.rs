@@ -1,6 +1,6 @@
 mod builtins;
 mod diagnostic;
-mod env;
+pub mod env;
 mod errors;
 mod exhaustiveness;
 mod infer;
