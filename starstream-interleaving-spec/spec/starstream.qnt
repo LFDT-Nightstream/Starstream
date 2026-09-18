@@ -181,7 +181,8 @@ module starstream {
   def last_input_has_abi: bool = state.next_utxo_id == 0 or
     not(state.enabled_methods.get(Utxo(state.next_utxo_id - 1)).is_empty_set())
 
-  action set_storage(storage: StarstreamValue, resource: Output[ResourceHandle]): bool = all {
+  // coordinator_handle is host metadata, not a return value of the UTXO export.
+  action set_storage(storage: StarstreamValue, coordinator_handle: ResourceHandle): bool = all {
     state.tx_phase == Loading,
     last_input_has_abi,
     state.next_utxo_id < state.tx_inputs.length(),
@@ -200,7 +201,7 @@ module starstream {
       loaded_input_methods: state.loaded_input_methods.append(List()),
       resource_resolver: state.resource_resolver.put({
         holder: state.curr,
-        handle: resource.value
+        handle: coordinator_handle
       }, target),
       ...state
     }
