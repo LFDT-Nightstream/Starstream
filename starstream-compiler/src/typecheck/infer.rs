@@ -1194,7 +1194,6 @@ impl Inferencer {
 
         let mut methods = Vec::new();
         for part in &def.parts {
-            // TODO: `pub fn`s
             if let TokenPart::Function(function_def) = part
                 && let Some(FunctionExport::TokenBurn) = function_def.export
             {

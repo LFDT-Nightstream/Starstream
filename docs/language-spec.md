@@ -783,7 +783,7 @@ The basic flow for a coordination script interacting with a Utxo resembles:
 ### Public UTXO methods
 
 A `pub fn` directly inside a `utxo` declares a method exposed at every yield
-point, including `yield()`, in every `main fn` of that UTXO. Public methods form
+point in every `main fn` of that UTXO. Public methods form
 an implicit interface added to the explicitly yielded ABIs:
 
 ```starstream
