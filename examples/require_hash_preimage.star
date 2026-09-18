@@ -1,6 +1,6 @@
 contract;
 
-fn sha256(input: u64) -> (u64, u64, u64, u64) {
+fn sha256_u64(input: u64) -> (u64, u64, u64, u64) {
     (input, 0, 0, 0)
 }
 
@@ -21,7 +21,7 @@ utxo RequireHashPreimage {
 
     impl IRequireHashPreimage {
         fn consume(preimage: u64) {
-            let hash = sha256(preimage);
+            let hash = sha256_u64(preimage);
             // Destructure and compare elements directly because compiler doesn't implement tuple != tuple yet.
             let (a, b, c, d) = hash;
             let (e, f, g, h) = _hash;
@@ -34,7 +34,7 @@ utxo RequireHashPreimage {
 }
 
 script fn create_hash(input: u64) -> RequireHashPreimage {
-    RequireHashPreimage::create(sha256(input))
+    RequireHashPreimage::create(sha256_u64(input))
 }
 
 script fn consume_hash(utxo: RequireHashPreimage, input: u64) {
