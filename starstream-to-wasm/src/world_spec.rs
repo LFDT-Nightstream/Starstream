@@ -40,10 +40,16 @@ impl Compiler {
         // `resource utxo`
         let utxo_resource = builtin.fresh_resource("utxo", "s-utxo");
         let utxo_type = Rc::new(ComponentAbiType::Borrow {
-            resource: utxo_resource,
+            resource: utxo_resource.clone(),
         });
         self.star_to_component
             .insert(Type::UtxoAny, utxo_type.clone());
+        let utxo_drop = self.import_function(
+            name,
+            "[resource-drop]utxo",
+            &FuncType::new([ValType::I32], []),
+        );
+        self.resource_drop_fns.push((utxo_resource, utxo_drop));
         self.builtins.has_method = Some(self.import_function(
             name,
             "[method]utxo.has-method",
@@ -69,12 +75,19 @@ impl Compiler {
         );
 
         // `resource token`
+        let token_resource = builtin.fresh_resource("token", "s-token");
         self.star_to_component.insert(
             Type::TokenAny,
             Rc::new(ComponentAbiType::Borrow {
-                resource: builtin.fresh_resource("token", "s-token"),
+                resource: token_resource.clone(),
             }),
         );
+        let token_drop = self.import_function(
+            name,
+            "[resource-drop]token",
+            &FuncType::new([ValType::I32], []),
+        );
+        self.resource_drop_fns.push((token_resource, token_drop));
 
         self.world_type.import_interface(name, &builtin);
     }

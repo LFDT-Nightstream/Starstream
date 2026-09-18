@@ -25,7 +25,7 @@ use wasm_encoder::{
 };
 
 use crate::component_abi::{
-    ComponentAbiFunctionSignature, ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS,
+    ComponentAbiFunctionSignature, ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS, Resource,
 };
 use crate::component_encoder::TypeBuilder;
 use crate::decision_tree::{Ctor, DecisionTree, Matrix, Pat, Row};
@@ -204,6 +204,7 @@ struct Compiler {
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
     resource_abi_fns: HashMap<Type, (u32, u32)>,
+    resource_drop_fns: Vec<(Rc<Resource>, u32)>,
 
     // Diagnostics.
     fatal: bool,
@@ -447,7 +448,7 @@ impl Compiler {
             code.instructions().end();
             let func = self.add_function(&ty, code.into_raw_body());
             if let Some(func_idx) =
-                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty)
+                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty, Vec::new())
             {
                 self.export_core_fn(&format!("{interface_name}#get-storage"), func_idx);
                 iface.export_fn("get-storage", &sig);
@@ -483,7 +484,7 @@ impl Compiler {
                 .end();
             let func = self.add_function(&ty, code.into_raw_body());
             if let Some(func_idx) =
-                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty)
+                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty, Vec::new())
             {
                 self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
                 iface.export_fn("set-storage", &sig);
@@ -506,7 +507,7 @@ impl Compiler {
                 .end();
             let func = self.add_function(&ty, code.into_raw_body());
             if let Some(func_idx) =
-                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty)
+                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty, Vec::new())
             {
                 self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
                 iface.export_fn("set-storage", &sig);
@@ -611,11 +612,28 @@ impl Compiler {
         sig: &ComponentAbiFunctionSignature,
         core_idx: u32,
         core_ty: &FuncType,
+        borrow_drops: Vec<(u32, u32)>,
     ) -> Option<u32> {
         if core_ty.params().len() <= MAX_FLAT_PARAMS && core_ty.results().len() <= MAX_FLAT_RESULTS
         {
-            // No need to spill params or results to heap, so don't wrap.
-            Some(core_idx)
+            if borrow_drops.is_empty() {
+                // No need to spill params or results to heap, so don't wrap.
+                return Some(core_idx);
+            }
+            let mut wrapper_func = StFunction::new(core_ty.params(), core_ty.results());
+            let bb = &wrapper_func.cfg.add_block();
+            wrapper_func.cfg.seal(*bb, BlockType::Empty);
+            for i in 0..core_ty.params().len() {
+                wrapper_func.instructions(bb).local_get(i as u32);
+            }
+            wrapper_func.instructions(bb).call(core_idx);
+            for (i, drop_fn) in borrow_drops {
+                wrapper_func.instructions(bb).local_get(i).call(drop_fn);
+            }
+            wrapper_func.cfg.fill(*bb, Out::Return);
+
+            let stackified = stackify(&wrapper_func, *bb, stackifier::AsyncMode::Sync);
+            Some(self.add_function(&stackified.ty, stackified.code))
         } else if core_ty.params().len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
             let result = sig.result.as_ref().unwrap();
@@ -631,6 +649,9 @@ impl Compiler {
                 wrapper_func.instructions(bb).local_get(i as u32);
             }
             wrapper_func.instructions(bb).call(core_idx);
+            for (i, drop_fn) in borrow_drops {
+                wrapper_func.instructions(bb).local_get(i).call(drop_fn);
+            }
             // Write to our return slot.
             self.component_store(span, &mut wrapper_func, bb, result, 0);
             // Return our return slot.
@@ -656,8 +677,10 @@ impl Compiler {
         span: Span,
         sig: &ComponentAbiFunctionSignature,
         core: &CoreFn,
+        borrow_drops: Vec<(u32, u32)>,
     ) {
-        if let Some(func_idx) = self.make_component_export_wrapper_fn(span, sig, core.idx, &core.ty)
+        if let Some(func_idx) =
+            self.make_component_export_wrapper_fn(span, sig, core.idx, &core.ty, borrow_drops)
         {
             self.export_core_fn(wit_name, func_idx);
             self.world_type.export_fn(wit_name, sig);
@@ -1105,11 +1128,26 @@ impl Compiler {
                             &func.ty.params,
                             &func.ty.result,
                         );
+                        let mut borrow_drops = Vec::new();
+                        let mut flat_idx = 0;
+                        for p in &func.ty.params {
+                            if let Some(ty) = self.star_to_component_type(&p.ty)
+                                && let ComponentAbiType::Borrow { resource } = &*ty
+                                && let Some((_, drop_fn)) = self
+                                    .resource_drop_fns
+                                    .iter()
+                                    .find(|(r, _)| Rc::ptr_eq(r, resource))
+                            {
+                                borrow_drops.push((flat_idx, *drop_fn));
+                            }
+                            flat_idx += Self::star_count_core_types(&p.ty);
+                        }
                         self.export_component_fn(
                             &to_kebab_case(func.name.as_str()),
                             func.name.span,
                             &sig,
                             &core,
+                            borrow_drops,
                         );
                     }
                 }
@@ -1397,6 +1435,12 @@ impl Compiler {
                 resource: resource.clone(),
             }),
         );
+        let drop_fn = self.import_function(
+            &import_interface_name,
+            &format!("[resource-drop]{resource_name}"),
+            &FuncType::new([ValType::I32], []),
+        );
+        self.resource_drop_fns.push((resource.clone(), drop_fn));
 
         // Allocate the synthetic `resource.new` and `resource.drop` imports.
         let new_fn = self.import_function(
@@ -1593,6 +1637,7 @@ impl Compiler {
                             &sig,
                             core.idx,
                             &core.ty,
+                            Vec::new(),
                         ) {
                             self.export_core_fn(
                                 &format!("{export_interface_name}#{wit_name}"),
@@ -1638,6 +1683,7 @@ impl Compiler {
                             &sig,
                             core.idx,
                             &core.ty,
+                            Vec::new(),
                         ) {
                             self.export_core_fn(
                                 &format!("{export_interface_name}#{wit_name}"),
@@ -1695,6 +1741,12 @@ impl Compiler {
                 resource: resource.clone(),
             }),
         );
+        let drop_fn = self.import_function(
+            &import_interface_name,
+            &format!("[resource-drop]{resource_name}"),
+            &FuncType::new([ValType::I32], []),
+        );
+        self.resource_drop_fns.push((resource.clone(), drop_fn));
 
         // Allocate the synthetic `resource.new` and `resource.drop` imports.
         let new_fn = self.import_function(
@@ -1880,6 +1932,7 @@ impl Compiler {
                                 &sig,
                                 core.idx,
                                 &core.ty,
+                                Vec::new(),
                             ) {
                                 self.export_core_fn(
                                     &format!("{export_interface_name}#{wit_name}"),
@@ -1912,6 +1965,7 @@ impl Compiler {
                                 &sig,
                                 core.idx,
                                 &core.ty,
+                                Vec::new(),
                             ) {
                                 self.export_core_fn(
                                     &format!("{export_interface_name}#{wit_name}"),
@@ -1962,6 +2016,7 @@ impl Compiler {
                             &sig,
                             core.idx,
                             &core.ty,
+                            Vec::new(),
                         ) {
                             self.export_core_fn(
                                 &format!("{export_interface_name}#{wit_name}"),

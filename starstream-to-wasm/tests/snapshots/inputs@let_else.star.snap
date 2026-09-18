@@ -1,6 +1,5 @@
 ---
 source: starstream-to-wasm/tests/snapshots.rs
-assertion_line: 175
 input_file: starstream-to-wasm/tests/inputs/let_else.star
 ---
 ==== AST ====
@@ -363,11 +362,14 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;1;) (func (param i32 i64) (result i64)))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
-  (export "unwrap-or-zero" (func 1))
-  (func (;1;) (type 1) (param i32 i64) (result i64)
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;2;) (func (param i32 i64) (result i64)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (export "unwrap-or-zero" (func 3))
+  (func (;3;) (type 2) (param i32 i64) (result i64)
     (local i32 i64 i64 i64)
     (block ;; label = @1
       (local.set 2
