@@ -51,7 +51,9 @@ pub struct Module {
     pub contents: ModuleContents,
 }
 
+#[derive(Default)]
 pub enum ModuleContents {
+    #[default]
     Empty,
     Starstream(Program),
     Wasm(Vec<u8>),

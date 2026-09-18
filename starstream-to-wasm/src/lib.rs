@@ -7,6 +7,7 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
+use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_types::{
     AbiType, BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionKind, ImportSource,
     IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
@@ -158,7 +159,15 @@ impl CompileOptions {
         let mut definitions = Vec::new();
         for &module_id in &graph.topo_order {
             if reachable.contains(&module_id) {
-                definitions.extend(graph.module(module_id).program.definitions.iter());
+                match &graph.module(module_id).contents {
+                    TypedModuleContents::Empty => {}
+                    TypedModuleContents::Starstream(program) => {
+                        definitions.extend(program.definitions.iter());
+                    }
+                    TypedModuleContents::Wasm(typed_wasm_module) => {
+                        // todo!()
+                    }
+                };
             }
         }
         self.compile_definitions(&definitions)

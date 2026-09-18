@@ -35,7 +35,9 @@ use super::{
     warnings::{TypeWarning, TypeWarningKind},
 };
 use crate::{
-    ModuleId, formatter, import_wasm::import_wasm, module_graph::ModuleContents,
+    ModuleId, formatter,
+    import_wasm::{TypedWasmModule, import_wasm},
+    module_graph::ModuleContents,
     pointer_map::PointerMap,
 };
 
@@ -141,19 +143,27 @@ pub fn typecheck_program(
 }
 
 /// One typechecked module within a `TypedModuleGraph`.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct TypedModule {
     pub id: ModuleId,
     pub abs_path: std::path::PathBuf,
-    pub source: std::sync::Arc<str>,
-    pub program: TypedProgram,
+    pub source: Arc<str>,
+    pub contents: TypedModuleContents,
     pub edges: Vec<ModuleId>,
+}
+
+#[derive(Debug, Default)]
+pub enum TypedModuleContents {
+    #[default]
+    Empty,
+    Starstream(TypedProgram),
+    Wasm(TypedWasmModule),
 }
 
 /// Typechecked counterpart to `ModuleGraph`. Modules are listed in `id`
 /// order (matching the source graph), with `topo_order` giving the iteration
 /// order callers should use for downstream passes.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct TypedModuleGraph {
     pub modules: Vec<TypedModule>,
     pub topo_order: Vec<ModuleId>,
@@ -193,7 +203,7 @@ pub fn typecheck_modules(
 
     // `module_exports[id]` is populated as we finish typechecking each module.
     let mut module_exports: HashMap<ModuleId, Namespace> = HashMap::new();
-    let mut typed_modules: HashMap<ModuleId, TypedProgram> = HashMap::new();
+    let mut typed_modules: HashMap<ModuleId, TypedModuleContents> = HashMap::new();
 
     let mut all_errors: Vec<(ModuleId, TypeError)> = Vec::new();
     let mut warnings: Vec<(ModuleId, TypeWarning)> = Vec::new();
@@ -232,7 +242,7 @@ pub fn typecheck_modules(
                         }
                     };
 
-                typed_modules.insert(module_id, program);
+                typed_modules.insert(module_id, TypedModuleContents::Starstream(program));
 
                 // Capture this module's exports for downstream modules.
                 // TODO: exclude private items.
@@ -240,8 +250,9 @@ pub fn typecheck_modules(
                 module_exports.insert(module_id, exports);
             }
             ModuleContents::Wasm(wasm) => match import_wasm(&mut inferencer.next_name_id, wasm) {
-                Ok(namespace) => {
+                Ok((namespace, module)) => {
                     module_exports.insert(module_id, namespace);
+                    typed_modules.insert(module_id, TypedModuleContents::Wasm(module));
                 }
                 Err(err) => {
                     panic!("{err}"); // TODO
@@ -284,7 +295,9 @@ pub fn typecheck_modules(
 
     // Apply substitutions per module.
     for typed_program in typed_modules.values_mut() {
-        inferencer.apply_substitutions_program(typed_program);
+        if let TypedModuleContents::Starstream(typed_program) = typed_program {
+            inferencer.apply_substitutions_program(typed_program);
+        }
     }
 
     let generic_types = Inferencer::build_generic_type_defs(inferencer.builtins.prelude());
@@ -296,7 +309,7 @@ pub fn typecheck_modules(
             id: source_module.id,
             abs_path: source_module.abs_path.clone(),
             source: source_module.source.clone(),
-            program: typed_program,
+            contents: typed_program,
             edges: graph
                 .edges_of(source_module.id)
                 .iter()

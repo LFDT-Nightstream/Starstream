@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ropey::Rope;
+use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_types::FunctionKind;
 use tower_lsp_server::lsp_types::{
     DocumentSymbol, DocumentSymbolResponse, Hover, HoverContents, Location, MarkupContent,
@@ -385,13 +386,15 @@ impl DocumentState {
             .iter()
             .find(|m| m.id == module_id)
             .expect("module id we just observed must be present");
-        let entry_program = entry_typed.program.clone();
+        let TypedModuleContents::Starstream(entry_program) = &entry_typed.contents else {
+            return;
+        };
 
         let program_ast = self.program.clone();
         self.build_indexes(&entry_program, program_ast.as_deref(), text);
 
         self.typed = Some(TypecheckSuccess {
-            program: entry_program,
+            program: entry_program.clone(),
             traces: Vec::new(),
             generic_types: success.generic_types.clone(),
             warnings: Vec::new(),

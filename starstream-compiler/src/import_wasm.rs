@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use miette::miette;
 use starstream_types::{
@@ -10,7 +10,15 @@ use wit_parser::{Resolve, WorldItem, WorldKey, decoding::DecodedWasm};
 
 use crate::typecheck::env::{ConstantInfo, Namespace};
 
-pub fn import_wasm(name_id: &mut NameId, wasm: &[u8]) -> miette::Result<Namespace> {
+#[derive(Debug, Default)]
+pub struct TypedWasmModule {
+    pub functions: HashMap<NameId, String>,
+}
+
+pub fn import_wasm(
+    name_id: &mut NameId,
+    wasm: &[u8],
+) -> miette::Result<(Namespace, TypedWasmModule)> {
     // Accepts both component .wasm files and core .wasm files with a binary WIT custom section.
     let decoded = wit_parser::decoding::decode(wasm)
         .map_err(|e| miette!("error decoding .wasm file: {e}"))?;
@@ -32,6 +40,7 @@ pub fn import_wasm(name_id: &mut NameId, wasm: &[u8]) -> miette::Result<Namespac
     let world = &resolve.worlds[world_id];
 
     let mut namespace = Namespace::default();
+    let mut module = TypedWasmModule::default();
     for (key, item) in &world.imports {
         let WorldKey::Name(name) = key else { continue };
         match item {
@@ -61,12 +70,13 @@ pub fn import_wasm(name_id: &mut NameId, wasm: &[u8]) -> miette::Result<Namespac
                         })),
                     ),
                 );
+                module.functions.insert(id, name.clone());
             }
             _ => todo!(),
         }
     }
 
-    Ok(namespace)
+    Ok((namespace, module))
 }
 
 fn wit_to_star_type(resolve: &Resolve, ty: wit_parser::Type) -> Type {
