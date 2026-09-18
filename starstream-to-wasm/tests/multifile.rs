@@ -105,8 +105,4 @@ fn imported_utxo_exposes_public_methods() {
     let wit = print_wit(&wasm);
     assert!(wit.contains("value: func() -> s64"), "{wit}");
     assert!(wit.contains("run: func() -> s64"), "{wit}");
-    assert!(
-        !wit.contains("::pub"),
-        "synthetic ABI leaked into WIT: {wit}"
-    );
 }

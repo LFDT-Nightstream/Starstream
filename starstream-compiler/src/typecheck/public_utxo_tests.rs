@@ -8,7 +8,7 @@ fn check(source: &str) -> Result<super::TypecheckSuccess, super::TypecheckFailur
 }
 
 #[test]
-fn public_methods_are_lowered_and_exposed_at_every_yield() {
+fn public_methods_remain_direct_functions_in_the_typed_ast() {
     let checked = check(
         r#"
         abi Extra { fn extra(); }
@@ -26,10 +26,10 @@ fn public_methods_are_lowered_and_exposed_at_every_yield() {
     let TypedDefinition::Utxo(utxo) = &checked.program.definitions[1] else {
         panic!()
     };
-    assert_eq!(utxo.ty.always_abis.len(), 1);
-    let public = &utxo.ty.always_abis[0];
-    assert_eq!(public.methods.len(), 2);
-    assert!(utxo.ty.possible_abis.contains(public));
+    assert!(utxo.ty.always_abis.is_empty());
+    assert_eq!(utxo.ty.possible_abis.len(), 1);
+    assert_eq!(utxo.ty.possible_abis[0].name.as_str(), "Extra");
+    assert_eq!(utxo.ty.public_methods.len(), 2);
     let TypedUtxoPart::Function(main) = &utxo.parts[0] else {
         panic!()
     };
@@ -40,15 +40,21 @@ fn public_methods_are_lowered_and_exposed_at_every_yield() {
         let TypedExprKind::Yield { abis } = &expression.node.kind else {
             panic!()
         };
-        assert!(abis.contains(public));
-        assert_eq!(abis.len(), index + 1);
+        assert_eq!(abis.len(), index);
     }
-    let TypedUtxoPart::AbiImpl { abi, parts, .. } = utxo.parts.last().unwrap() else {
-        panic!()
-    };
-    assert_eq!(abi, public);
-    assert_eq!(parts.len(), 2);
-    assert!(parts.iter().all(|function| function.export.is_none()));
+    for (part, method) in utxo.parts[2..4].iter().zip(&utxo.ty.public_methods) {
+        let TypedUtxoPart::Function(function) = part else {
+            panic!()
+        };
+        assert_eq!(
+            function.export,
+            Some(starstream_types::FunctionExport::UtxoPublic)
+        );
+        assert_eq!(function.id, method.id);
+        assert_eq!(function.name, method.name);
+        assert_eq!(function.ty, method.ty);
+    }
+    assert_eq!(utxo.parts.len(), 5);
 }
 
 #[test]

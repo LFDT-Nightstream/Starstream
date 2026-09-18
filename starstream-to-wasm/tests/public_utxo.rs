@@ -7,6 +7,7 @@ fn public_methods_run_and_are_advertised_at_each_yield() {
         abi Extra { fn extra(); }
         utxo Counter {
             storage { let mut count: i64; }
+            pub fn advance() { resume; }
             main fn new() {
                 count = 10;
                 yield();
@@ -20,7 +21,6 @@ fn public_methods_run_and_are_advertised_at_each_yield() {
                 if (true) { yield(); } else { yield(Extra); }
             }
             pub fn add(x: i64) -> i64 { count = disclose(count + x); count }
-            pub fn advance() { resume; }
             impl Extra { fn extra() {} }
         }
         script fn chained() -> i64 { Counter::new().add(5) }

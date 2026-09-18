@@ -783,8 +783,8 @@ The basic flow for a coordination script interacting with a Utxo resembles:
 ### Public UTXO methods
 
 A `pub fn` directly inside a `utxo` declares a method exposed at every yield
-point in every `main fn` of that UTXO. Public methods form
-an implicit interface added to the explicitly yielded ABIs:
+point in every `main fn` of that UTXO. Public methods are available alongside
+the methods from explicitly yielded ABIs:
 
 ```starstream
 utxo Foo {
@@ -813,6 +813,6 @@ can advance execution from any yield point. Public methods cannot themselves
 
 A public method's name must not conflict with another function (including
 constructors and private helpers) or an ABI implementation method in the same
-UTXO. The implicit interface cannot be named, imported, or explicitly yielded.
+UTXO. Public methods do not declare a named ABI.
 `pub fn` is only permitted directly inside a `utxo`, not at the top level,
 in a token, or inside an ABI declaration or implementation.

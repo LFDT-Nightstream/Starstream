@@ -351,9 +351,6 @@ struct Inferencer {
     next_name_id: NameId,
     function_names: PointerMap<NameId>,
     typed_definitions: PointerMap<TypedDefinition>,
-    /// Synthetic interfaces, kept out of the source-level type namespace.
-    utxo_public_abis: PointerMap<Arc<AbiType>>,
-    main_public_abis: PointerMap<Arc<AbiType>>,
 
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
     abi_call_trackers: Vec<AbiCallTracker>,
@@ -373,7 +370,6 @@ struct FunctionCtx {
     /// Declaration spans for function parameters that are private (non-`pub`).
     private_param_decl_spans: Vec<Span>,
     is_coroutine: bool,
-    public_abi: Option<Arc<AbiType>>,
 }
 
 impl Inferencer {
@@ -390,8 +386,6 @@ impl Inferencer {
             next_name_id,
             function_names: Default::default(),
             typed_definitions: Default::default(),
-            utxo_public_abis: Default::default(),
-            main_public_abis: Default::default(),
             warnings: Default::default(),
             abi_call_trackers: Default::default(),
         }
@@ -992,6 +986,7 @@ impl Inferencer {
                 _ => None,
             })
             .collect::<Vec<_>>();
+        let mut public_methods = Vec::new();
         if !public_functions.is_empty() {
             // Public names must be unambiguous even when an explicit ABI is
             // exposed at only some yield points.
@@ -1015,32 +1010,13 @@ impl Inferencer {
                     }
                 }
             }
-            let mut methods = Vec::new();
             for function in public_functions {
                 let ty = Arc::new(self.function_def_to_type(env, function)?);
-                methods.push(TypedAbiMethodDecl {
+                public_methods.push(TypedAbiMethodDecl {
                     name: function.name.clone(),
                     id: *self.function_names.get(function).unwrap(),
                     ty,
                 });
-            }
-            let abi = Arc::new(AbiType {
-                // Not a valid source identifier; users cannot name or shadow it.
-                name: Identifier {
-                    name: format!("{}::pub", def.name),
-                    span: def.name.span,
-                },
-                methods,
-            });
-            possible_abis.push(abi.clone());
-            always_abis.push(abi.clone());
-            self.utxo_public_abis.insert(def, abi.clone());
-            for part in &def.parts {
-                if let UtxoPart::Function(function) = part
-                    && function.export == Some(FunctionExport::UtxoMain)
-                {
-                    self.main_public_abis.insert(function.as_ref(), abi.clone());
-                }
             }
         }
 
@@ -1049,6 +1025,7 @@ impl Inferencer {
             id: self.next_name_id.fresh(),
             possible_abis,
             always_abis,
+            public_methods,
         }));
         env.root.insert_type(
             &def.name,
@@ -1264,7 +1241,6 @@ impl Inferencer {
     ) -> Result<(TypedUtxoDef, InferenceTree), TypeError> {
         env.push_scope();
 
-        let mut public_functions = Vec::new();
         let mut parts = Vec::with_capacity(def.parts.len());
         let mut traces = Vec::with_capacity(def.parts.len());
 
@@ -1284,13 +1260,8 @@ impl Inferencer {
                             function.name.span(),
                         ));
                     }
-                    let (mut func, trace) = self.infer_function(env, function)?;
+                    let (func, trace) = self.infer_function(env, function)?;
                     traces.push(trace);
-                    if function.export == Some(FunctionExport::UtxoPublic) {
-                        func.export = None;
-                        public_functions.push(func);
-                        continue;
-                    }
                     TypedUtxoPart::Function(func.into())
                 }
                 UtxoPart::AbiImpl { abi, parts } => {
@@ -1317,14 +1288,6 @@ impl Inferencer {
             });
         }
 
-        if let Some(abi) = self.utxo_public_abis.get(def) {
-            parts.push(TypedUtxoPart::AbiImpl {
-                abi: abi.clone(),
-                // There is no source-level `impl` wrapper for public methods.
-                span: DUMMY_SPAN,
-                parts: public_functions,
-            });
-        }
         env.pop_scope();
 
         let Some(ty) = env.root.types.get(def.name.as_str()) else {
@@ -2042,7 +2005,6 @@ impl Inferencer {
             saw_return: false,
             private_param_decl_spans,
             is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
-            public_abi: self.main_public_abis.get(function).cloned(),
         };
 
         let (typed_body, body_traces) = self.infer_block(env, &function.body, &mut ctx, true)?;
@@ -3133,12 +3095,13 @@ impl Inferencer {
                         Type::Function(method.ty.clone())
                     }
                     Type::Utxo(utxo) => 'method: {
-                        for abi in &utxo.always_abis {
-                            if let Some(method) =
-                                abi.methods.iter().find(|m| m.name.as_str() == field.name)
-                            {
-                                break 'method Type::Function(method.ty.clone());
-                            }
+                        if let Some(method) = utxo
+                            .public_methods
+                            .iter()
+                            .chain(utxo.always_abis.iter().flat_map(|abi| &abi.methods))
+                            .find(|method| method.name.as_str() == field.name)
+                        {
+                            break 'method Type::Function(method.ty.clone());
                         }
                         return Err(TypeError::new(
                             TypeErrorKind::AbiMethodNotFound {
@@ -3501,11 +3464,10 @@ impl Inferencer {
                     return Err(TypeError::new(TypeErrorKind::YieldOutsideMainFn, expr.span));
                 }
                 // TODO: assert that this utxo impls each abi named
-                let mut abis = abis
+                let abis = abis
                     .iter()
                     .map(|abi| Ok(env.root.get_abi(abi)?.clone()))
                     .collect::<Result<Vec<_>, _>>()?;
-                abis.extend(ctx.public_abi.iter().cloned());
                 Ok((
                     Spanned::new(
                         TypedExpr::new(Type::Unit, TypedExprKind::Yield { abis }),

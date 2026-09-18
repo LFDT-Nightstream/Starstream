@@ -1531,9 +1531,9 @@ impl DocumentState {
 
         if let Type::Utxo(utxo) = ty {
             if let Some(method) = utxo
-                .always_abis
+                .public_methods
                 .iter()
-                .flat_map(|abi| &abi.methods)
+                .chain(utxo.always_abis.iter().flat_map(|abi| &abi.methods))
                 .find(|method| method.name.as_str() == field_name)
             {
                 if let Some(target) = method.name.opt_span() {
@@ -2210,12 +2210,6 @@ impl DocumentState {
                         .iter()
                         .filter_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
-                    // Public UTXO methods have a synthetic ABI implementation,
-                    // but appear directly under the UTXO in the source outline.
-                    if *span == DUMMY_SPAN {
-                        children.extend(impl_children);
-                        continue;
-                    }
                     children.push(DocumentSymbol {
                         name: Type::Abi(abi.clone()).compact_display().to_string(),
                         detail: Some(Type::Abi(abi.clone()).to_string()),

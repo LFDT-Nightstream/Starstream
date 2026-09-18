@@ -505,12 +505,13 @@ impl SubstituteType for EnumVariantKind {
 impl SubstituteType for UtxoType {
     fn contains_var(&self, var: TypeVarId, subst: &HashMap<TypeVarId, Type>) -> bool {
         // No need to check always_abis since it's a subset of possible_abis.
-        self.possible_abis.contains_var(var, subst)
+        self.possible_abis.contains_var(var, subst) || self.public_methods.contains_var(var, subst)
     }
 
     fn collect_free_type_vars(&self, set: &mut HashSet<TypeVarId>) {
         // No need to check always_abis since it's a subset of possible_abis.
         self.possible_abis.collect_free_type_vars(set);
+        self.public_methods.collect_free_type_vars(set);
     }
 
     fn substitute_type(
@@ -518,12 +519,16 @@ impl SubstituteType for UtxoType {
         subst: &HashMap<TypeVarId, Type>,
         int_vars: &HashSet<TypeVarId>,
     ) -> Cow<'_, Self> {
-        match self.possible_abis.substitute_type(subst, int_vars) {
-            Cow::Borrowed(_) => Cow::Borrowed(self),
-            Cow::Owned(possible_abis) => Cow::Owned(UtxoType {
+        match (
+            self.possible_abis.substitute_type(subst, int_vars),
+            self.public_methods.substitute_type(subst, int_vars),
+        ) {
+            (Cow::Borrowed(_), Cow::Borrowed(_)) => Cow::Borrowed(self),
+            (possible_abis, public_methods) => Cow::Owned(UtxoType {
                 name: self.name.clone(),
                 id: self.id,
-                possible_abis,
+                possible_abis: possible_abis.into_owned(),
+                public_methods: public_methods.into_owned(),
                 always_abis: self
                     .always_abis
                     .substitute_type(subst, int_vars)
@@ -538,6 +543,7 @@ impl SubstituteType for UtxoType {
         int_vars: &HashSet<TypeVarId>,
     ) {
         self.possible_abis.substitute_in_place(subst, int_vars);
+        self.public_methods.substitute_in_place(subst, int_vars);
         self.always_abis.substitute_in_place(subst, int_vars);
     }
 }
@@ -627,5 +633,46 @@ impl SubstituteType for TypedAbiMethodDecl {
         int_vars: &HashSet<TypeVarId>,
     ) {
         self.ty.substitute_in_place(subst, int_vars);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{DUMMY_SPAN, FunctionKind, Identifier, NameId};
+
+    #[test]
+    fn substitutes_public_method_types_without_explicit_abis() {
+        let variable = TypeVarId(0);
+        let mut utxo = UtxoType {
+            name: "Foo".to_owned(),
+            id: NameId(0),
+            possible_abis: Vec::new(),
+            always_abis: Vec::new(),
+            public_methods: vec![TypedAbiMethodDecl {
+                name: Identifier::anon("value"),
+                id: NameId(1),
+                ty: Arc::new(FunctionType {
+                    kind: FunctionKind::Normal,
+                    name_span: DUMMY_SPAN,
+                    params: Vec::new(),
+                    result: Type::Var(variable),
+                    callee: None,
+                }),
+            }],
+        };
+        assert!(utxo.contains_var(variable, &HashMap::new()));
+        let mut free = HashSet::new();
+        utxo.collect_free_type_vars(&mut free);
+        assert_eq!(free, HashSet::from([variable]));
+
+        let substitutions = HashMap::from([(variable, Type::Bool)]);
+        let substituted = utxo
+            .substitute_type(&substitutions, &HashSet::new())
+            .into_owned();
+        assert_eq!(substituted.public_methods[0].ty.result, Type::Bool);
+        utxo.substitute_in_place(&substitutions, &HashSet::new());
+        assert_eq!(utxo, substituted);
+        assert!(!utxo.contains_var(variable, &HashMap::new()));
     }
 }
