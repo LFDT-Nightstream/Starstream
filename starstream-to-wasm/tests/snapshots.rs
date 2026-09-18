@@ -218,10 +218,13 @@ fn multifile() {
         let mut fs = FileSystem::new();
         writeln!(output, "==== Workspace ====").unwrap();
         match module_graph::load_workspace(path, &mut fs) {
-            Err(err) => {
-                let txt = format!("{:?}", err);
-                let txt = txt.replace(&*std::env::current_dir().unwrap().to_string_lossy(), "$PWD");
-                writeln!(output, "{txt}").unwrap();
+            Err(errors) => {
+                for err in errors {
+                    let txt = format!("{}", err);
+                    let txt =
+                        txt.replace(&*std::env::current_dir().unwrap().to_string_lossy(), "$PWD");
+                    writeln!(output, "{txt}").unwrap();
+                }
             }
             Ok(graph) => {
                 writeln!(output, "{:#?}", graph).unwrap();
