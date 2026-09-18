@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use miette::IntoDiagnostic;
+use starstream_compiler::module_graph::ModuleContents;
 use starstream_compiler::{TypecheckOptions, generate_docs, module_graph, typecheck_modules};
 use starstream_types::FileSystem;
 
@@ -78,8 +79,12 @@ impl Docs {
             let entry_typed = typed.module(entry_id);
             let entry_source_module = graph.module(entry_id);
 
+            let ModuleContents::Starstream(entry_program) = &entry_source_module.contents else {
+                continue;
+            };
+
             let docs = generate_docs(
-                &entry_source_module.program,
+                entry_program,
                 &entry_typed.program,
                 &starstream_types::CommentMap::new(),
                 entry_source_module.source.as_ref(),

@@ -34,7 +34,10 @@ use super::{
     tree::InferenceTree,
     warnings::{TypeWarning, TypeWarningKind},
 };
-use crate::{ModuleId, formatter, pointer_map::PointerMap};
+use crate::{
+    ModuleId, formatter, import_wasm::import_wasm, module_graph::ModuleContents,
+    pointer_map::PointerMap,
+};
 
 /// Optional settings that control type-checker behavior.
 #[derive(Clone, Debug, Default)]
@@ -197,54 +200,57 @@ pub fn typecheck_modules(
 
     for &module_id in graph.topo_order() {
         let module = graph.module(module_id);
-        if let Some(external) = &module.external {
-            module_exports.insert(module.id, external.clone());
-            continue;
-        }
-        let mut env = TypeEnv::new();
 
-        // Pass 1: register imports
-        env.root
-            .import_all_from(inferencer.builtins.prelude())
-            .unwrap();
-        let resolved_imports = resolve_path_imports(graph, module_id, &module_exports);
-        if let Err(error) =
-            inferencer.register_imports(&mut env, &module.program.definitions, &resolved_imports)
-        {
-            all_errors.push((module_id, error));
-            warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
-            continue;
-        }
+        match &module.contents {
+            ModuleContents::Empty => {}
+            ModuleContents::Starstream(program) => {
+                let mut env = TypeEnv::new();
 
-        // Pass 2: process definitions
-        let (program, _) =
-            match inferencer.process_definitions(&mut env, &module.program.definitions) {
-                Ok(x) => x,
-                Err(errors) => {
-                    // Capture a (possibly partial) export table so other modules can
-                    // continue — they may still produce useful diagnostics. But we
-                    // flag the run as failed.
-                    all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
+                // Pass 1: register imports
+                env.root
+                    .import_all_from(inferencer.builtins.prelude())
+                    .unwrap();
+                let resolved_imports = resolve_path_imports(graph, module_id, &module_exports);
+                if let Err(error) =
+                    inferencer.register_imports(&mut env, &program.definitions, &resolved_imports)
+                {
+                    all_errors.push((module_id, error));
                     warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
-                    module_exports.insert(module_id, Namespace::default());
                     continue;
                 }
-            };
 
-        // Capture this module's exports for downstream modules.
-        // TODO: exclude private items.
-        let exports = env.root;
-        module_exports.insert(module_id, exports);
+                // Pass 2: process definitions
+                let (program, _) =
+                    match inferencer.process_definitions(&mut env, &program.definitions) {
+                        Ok(x) => x,
+                        Err(errors) => {
+                            // Capture a partial export table to try to continue to typecheck other modules.
+                            all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
+                            warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
+                            module_exports.insert(module_id, Namespace::default());
+                            continue;
+                        }
+                    };
 
-        typed_modules.insert(module_id, program);
+                typed_modules.insert(module_id, program);
+
+                // Capture this module's exports for downstream modules.
+                // TODO: exclude private items.
+                let exports = env.root;
+                module_exports.insert(module_id, exports);
+            }
+            ModuleContents::Wasm(wasm) => match import_wasm(wasm) {
+                Ok(namespace) => {
+                    module_exports.insert(module_id, namespace);
+                }
+                Err(err) => {
+                    panic!("{err}"); // TODO
+                }
+            },
+        }
 
         // Drain warnings emitted during this module's pass.
         warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
-
-        // Stop once any module has failed catastrophically.
-        if !all_errors.is_empty() {
-            break;
-        }
     }
 
     if !all_errors.is_empty() {

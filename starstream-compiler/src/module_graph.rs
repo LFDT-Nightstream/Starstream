@@ -48,17 +48,22 @@ pub struct Module {
     /// Canonical absolute path on disk.
     pub abs_path: PathBuf,
     pub source: Arc<str>,
-    pub program: Program,
-    pub external: Option<crate::typecheck::env::Namespace>,
+    pub contents: ModuleContents,
+}
+
+pub enum ModuleContents {
+    Empty,
+    Starstream(Program),
+    Wasm(Vec<u8>),
 }
 
 impl Module {
     /// True if this module's top-level definitions include `contract;`.
     pub fn declares_contract(&self) -> bool {
-        self.program
+        matches!(&self.contents, ModuleContents::Starstream(program) if program
             .definitions
             .iter()
-            .any(|d| matches!(d.node, Definition::Contract))
+            .any(|d| matches!(d.node, Definition::Contract)))
     }
 
     pub fn to_named_source(&self) -> NamedSource<Arc<str>> {
@@ -436,8 +441,7 @@ impl<'a> Builder<'a> {
             id,
             abs_path: abs_path.to_path_buf(),
             source: Default::default(),
-            program: Default::default(),
-            external: None,
+            contents: ModuleContents::Empty,
         });
 
         match abs_path.extension().and_then(|x| x.to_str()) {
@@ -459,7 +463,7 @@ impl<'a> Builder<'a> {
         let source = Arc::<str>::from(source);
         self.modules[idx].source = source.clone();
         if let Some(program) = parse_output.program {
-            self.modules[idx].program = program;
+            self.modules[idx].contents = ModuleContents::Starstream(program);
         }
         self.errors.extend(
             parse_output
@@ -475,10 +479,10 @@ impl<'a> Builder<'a> {
 
     fn parse_wasm_module(&mut self, abs_path: &Path, idx: usize) -> std::io::Result<()> {
         let source = self.fs.read(abs_path)?;
-        match crate::import_wasm::import_wasm(&source) {
-            Ok(namespace) => self.modules[idx].external = Some(namespace),
-            Err(error) => panic!("{error}"), // TODO self.errors.push,
-        }
+        // NOTE: currently assumes that imported .wasm files cannot themselves
+        // contain relevant imports. If that changes, they need to be parsed
+        // here so those imports can be resolved.
+        self.modules[idx].contents = ModuleContents::Wasm(source);
         Ok(())
     }
 
@@ -489,8 +493,11 @@ impl<'a> Builder<'a> {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
 
-        let raw_imports: Vec<(usize, String, Span)> = self.modules[id.index()]
-            .program
+        let ModuleContents::Starstream(program) = &self.modules[id.index()].contents else {
+            return;
+        };
+
+        let raw_imports: Vec<(usize, String, Span)> = program
             .definitions
             .iter()
             .enumerate()
