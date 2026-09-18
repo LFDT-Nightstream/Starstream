@@ -6,7 +6,7 @@
 import { PublicKey } from starstream:std/types;
 
 // package namespace to be discussed later
-import { assert_transaction_signed_by, error, TokenReleased } from starstream:std/host;
+import { assert_transaction_signed_by, TokenReleased } from starstream:std/host;
 
 abi IPayToPublicKey {
     fn consume() / [TokenReleased];

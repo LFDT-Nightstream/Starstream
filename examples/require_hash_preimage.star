@@ -1,3 +1,5 @@
+contract;
+
 fn sha256(input: u64) -> (u64, u64, u64, u64) {
     (input, 0, 0, 0)
 }
