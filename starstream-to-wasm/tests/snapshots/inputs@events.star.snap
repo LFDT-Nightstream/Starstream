@@ -611,26 +611,29 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;1;) (func (param i32 i32)))
-  (type (;2;) (func))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
-  (import "starstream:events/foo" "hello" (func (;1;) (type 1)))
-  (export "main" (func 2))
-  (export "test1" (func 3))
-  (export "test2" (func 4))
-  (func (;2;) (type 2)
-    (call 1
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;2;) (func (param i32 i32)))
+  (type (;3;) (func))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (import "starstream:events/foo" "hello" (func (;3;) (type 2)))
+  (export "main" (func 4))
+  (export "test1" (func 5))
+  (export "test2" (func 6))
+  (func (;4;) (type 3)
+    (call 3
       (i32.const 1)
       (i32.const 2))
   )
-  (func (;3;) (type 2)
-    (call 1
+  (func (;5;) (type 3)
+    (call 3
       (i32.const 13)
       (i32.const 17))
   )
-  (func (;4;) (type 2)
-    (call 2)
+  (func (;6;) (type 3)
+    (call 4)
   )
   (@custom "component-type"
     (component

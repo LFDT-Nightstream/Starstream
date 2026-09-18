@@ -382,39 +382,42 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;1;) (func (param i32) (result i32)))
-  (type (;2;) (func (param i32)))
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;2;) (func (param i32) (result i32)))
   (type (;3;) (func (result i32)))
   (type (;4;) (func (param i32 i32)))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
-  (import "[export]my-token" "[resource-new]token" (func (;1;) (type 1)))
-  (import "[export]my-token" "[resource-drop]token" (func (;2;) (type 2)))
-  (import "starstream:self/my-token" "[static]token.mint" (func (;3;) (type 3)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (import "starstream:self/my-token" "[resource-drop]token" (func (;3;) (type 0)))
+  (import "[export]my-token" "[resource-new]token" (func (;4;) (type 2)))
+  (import "[export]my-token" "[resource-drop]token" (func (;5;) (type 0)))
+  (import "starstream:self/my-token" "[static]token.mint" (func (;6;) (type 3)))
   (global (;0;) (mut i32) (i32.const 0))
-  (export "my-token#[static]token.mint" (func 4))
-  (export "my-token#[method]token.attach" (func 5))
-  (export "my-token#[method]token.detach" (func 6))
-  (export "my-token#get-storage" (func 7))
-  (export "my-token#set-storage" (func 8))
-  (func (;4;) (type 3) (result i32)
+  (export "my-token#[static]token.mint" (func 7))
+  (export "my-token#[method]token.attach" (func 8))
+  (export "my-token#[method]token.detach" (func 9))
+  (export "my-token#get-storage" (func 10))
+  (export "my-token#set-storage" (func 11))
+  (func (;7;) (type 3) (result i32)
     (local i32)
     (local.set 0
-      (call 1
+      (call 4
         (i32.const 0)))
     (global.set 0
       (i32.const 1))
     (local.get 0)
   )
-  (func (;5;) (type 4) (param i32 i32))
-  (func (;6;) (type 4) (param i32 i32))
-  (func (;7;) (type 1) (param i32) (result i32)
+  (func (;8;) (type 4) (param i32 i32))
+  (func (;9;) (type 4) (param i32 i32))
+  (func (;10;) (type 2) (param i32) (result i32)
     (global.get 0)
   )
-  (func (;8;) (type 1) (param i32) (result i32)
+  (func (;11;) (type 2) (param i32) (result i32)
     (global.set 0
       (local.get 0))
-    (return_call 1
+    (return_call 4
       (i32.const 0))
   )
   (@custom "component-type"
