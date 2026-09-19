@@ -106,6 +106,8 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_RESOURCE_RESOLVER_ADDR_CID] = input.resolver_address.0.field();
     wit[COL_RESOURCE_RESOLVER_ADDR_HANDLE] = F::new(u64::from(input.resolver_address.1.0));
     wit[COL_RESOURCE_RESOLVER_VALUE] = input.resolver_value.field();
+    // Binding writes assert an unbound key, rather than witnessing an overwrite.
+    wit[COL_RESOURCE_RESOLVER_BEFORE] = F::ZERO;
     wit[COL_RESOURCE_RESOLVER_READ] = if input.resolver_read { F::ONE } else { F::ZERO };
     wit[COL_RESOURCE_RESOLVER_WRITE] = if input.resolver_write {
         F::ONE

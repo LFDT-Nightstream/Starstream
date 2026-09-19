@@ -184,6 +184,7 @@ module starstream {
   // coordinator_handle is host metadata, not a return value of the UTXO export.
   action set_storage(storage: StarstreamValue, coordinator_handle: ResourceHandle): bool = all {
     state.tx_phase == Loading,
+    not(state.resource_resolver.keys().contains({ holder: state.curr, handle: coordinator_handle })),
     last_input_has_abi,
     state.next_utxo_id < state.tx_inputs.length(),
     storage.is_valid(),
@@ -397,6 +398,10 @@ module starstream {
   // need different semantics
   action return(result: Output[StarstreamValue]): bool = all {
     action_allowed(Return),
+    match state.pending_ctor_key {
+      | Some(key) => not(state.resource_resolver.keys().contains(key))
+      | None => true
+    },
     result.value.is_valid(),
     val frame = state.call_stack.last()
 

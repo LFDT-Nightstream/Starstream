@@ -100,7 +100,12 @@ fn resource_resolver_layout() -> [MemorySpec<MemoryId>; 1] {
                 address_columns: address_columns.clone(),
                 value_column,
                 kind: MemoryPortKind::Write {
-                    value_before_column: None,
+                    // We check that we are not overwriting an existing mapping,
+                    // so we use the value before and constrain it to Zero
+                    //
+                    // that works because utxo ids are always greater than 0 in
+                    // our encoding
+                    value_before_column: Some(crate::ccs::layout::COL_RESOURCE_RESOLVER_BEFORE),
                 },
                 activation: MemoryPortActivation::When(COL_RESOURCE_RESOLVER_WRITE),
             },
