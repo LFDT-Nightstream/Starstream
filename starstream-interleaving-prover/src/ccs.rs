@@ -42,6 +42,13 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     let mut builder = R1csBuilder::new(column_registry.column_count(), PUBLIC_INPUTS, COL_ONE)?;
     let mut b = builder.tagged(always("unlabeled"));
 
+    b.with_tag(always("resource bindings are fresh"), |b| {
+        b.push_gated_linear_zero(
+            COL_RESOURCE_RESOLVER_WRITE,
+            [(layout::COL_RESOURCE_RESOLVER_BEFORE, F::ONE)],
+        );
+    });
+
     b.with_tag(always("opcode selectors are one-hot"), |b| {
         b.push_row(
             SELECTORS.iter().map(|col| (*col, F::ONE)),

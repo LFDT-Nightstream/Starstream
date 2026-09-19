@@ -27,6 +27,33 @@ module replay_trace {
 
   action init_empty_transaction = { state' = new_transaction(List(), List()) }
 
+  run test_constructor_cannot_rebind_even_consumed_resource = init
+    .then(new_utxo(UNIT_VALUE, { value: 0 }))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(return({ value: UNIT_VALUE }))
+    .then(new_utxo(UNIT_VALUE, { value: 0 }))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(return({ value: UNIT_VALUE }))
+    .fail()
+
+  run test_constructor_cannot_rebind_input = init_transaction
+    .then(set_storage(UNIT_VALUE, 0))
+    .then(preload_method(method))
+    .then(new_utxo(UNIT_VALUE, { value: 0 }))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(return({ value: UNIT_VALUE }))
+    .fail()
+
+  run test_input_cannot_rebind_input = {
+    val input = { storage: UNIT_VALUE, methods: List(method) }
+    val initial = new_transaction(List(input, input), List())
+    { state' = initial }
+      .then(set_storage(UNIT_VALUE, 0))
+      .then(preload_method(method))
+      .then(set_storage(UNIT_VALUE, 0))
+      .fail()
+  }
+
   run test_coordinator_finalization_required = init_empty_transaction
     .then(return({ value: UNIT_VALUE }))
     .then(finish_transaction)

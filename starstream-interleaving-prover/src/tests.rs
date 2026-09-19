@@ -1,3 +1,5 @@
+mod resource_bindings;
+
 mod padding {
     use super::*;
     use crate::{
