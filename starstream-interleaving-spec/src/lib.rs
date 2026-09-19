@@ -1,4 +1,5 @@
 pub mod events;
+pub mod interleaver;
 pub mod quint;
 pub mod trace;
 

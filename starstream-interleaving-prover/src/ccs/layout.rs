@@ -74,6 +74,7 @@ define_column_region! {
         COL_RESOURCE_RESOLVER_ADDR_CID: U32 => "packed holder coroutine id in the resource key",
         COL_RESOURCE_RESOLVER_ADDR_HANDLE: U32 => "resource handle in the resource key",
         COL_RESOURCE_RESOLVER_VALUE: U32 => "the packed coroutine id assigned to the resource at (cid, handle)",
+        COL_RESOURCE_RESOLVER_BEFORE: Field => "zero old value required when binding a previously unbound resource",
         COL_RESOURCE_RESOLVER_WRITE: Boolean => "SetStorage or constructor Return writes a resource binding",
         COL_RESOURCE_RESOLVER_READ: Boolean => "1 if reading from the resource resolver map (on call_method)",
 
