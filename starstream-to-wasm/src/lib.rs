@@ -27,7 +27,6 @@ use wasm_encoder::{
     FunctionSection, GlobalSection, GlobalType, Ieee32, Ieee64, ImportSection, InstanceType,
     InstructionSink, MemorySection, MemoryType, Module, TypeSection, ValType,
 };
-use wit_component::ComponentEncoder;
 
 use crate::component_abi::{
     ComponentAbiFunctionSignature, ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS,
@@ -42,6 +41,7 @@ mod component_encoder;
 mod decision_tree;
 mod intrinsics;
 mod ir;
+mod linker;
 mod stackifier;
 mod world_spec;
 
@@ -91,6 +91,8 @@ pub struct CompileResult {
     pub binary_wit: Option<Vec<u8>>,
     /// List of (name, flowchart) pairs. Requires [`CompileOptions::output_mermaid`].
     pub mermaid: Vec<(String, String)>,
+
+    pub libraries: Vec<(String, Arc<[u8]>)>,
 }
 
 /// A Wasm compiler error.
@@ -182,20 +184,6 @@ impl CompileOptions {
     }
 }
 
-impl CompileResult {
-    pub fn to_component(&self) -> miette::Result<Vec<u8>> {
-        let Some(wasm) = &self.wasm else {
-            panic!("CompileResult::to_component has no wasm")
-        };
-        let mut encoder = ComponentEncoder::default();
-        encoder = encoder.validate(true);
-        encoder = encoder
-            .module(&wasm)
-            .expect("ComponentEncoder::module failed");
-        Ok(encoder.encode().expect("ComponentEncoder::encode failed"))
-    }
-}
-
 impl Diagnostic for CompileError {
     fn labels(&self) -> Option<Box<dyn Iterator<Item = miette::LabeledSpan> + '_>> {
         Some(Box::new(std::iter::once(
@@ -229,6 +217,8 @@ struct Compiler {
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
     resource_abi_fns: HashMap<Type, (u32, u32)>,
+
+    libraries: Vec<(String, Arc<[u8]>)>,
 
     // Diagnostics.
     fatal: bool,
@@ -313,6 +303,7 @@ impl Compiler {
                 wasm: None,
                 binary_wit: None,
                 mermaid: Vec::new(),
+                libraries: Vec::new(),
             };
         }
 
@@ -406,6 +397,7 @@ impl Compiler {
             wasm: Some(module.finish()),
             binary_wit: Some(component),
             mermaid: self.mermaid,
+            libraries: self.libraries,
         }
     }
 
@@ -1099,6 +1091,9 @@ impl Compiler {
         self.world_type
             .inner
             .import(&module.name, ComponentTypeRef::Instance(id));
+
+        self.libraries
+            .push((module.name.to_owned(), module.wasm.clone()));
     }
 
     /// Root visitor called by [compile] to start walking the AST for a program,
