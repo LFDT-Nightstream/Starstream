@@ -73,7 +73,7 @@ async fn cli() {
         .with_context(|| format!("failed to write Wasm to `{}`", wasm.path().display()))
         .unwrap();
 
-    let digest = run_cli(["contract", "digest", &wasm.path().to_string_lossy()])
+    let digest = run_cli(["digest", &wasm.path().to_string_lossy()])
         .await
         .unwrap();
     let digest = str::from_utf8(&digest).expect("contract digest is not valid UTF-8");

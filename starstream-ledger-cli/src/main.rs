@@ -63,6 +63,12 @@ enum Command {
     #[command(subcommand)]
     Contract(ContractCommand),
 
+    /// Compute the digest of a file.
+    Digest {
+        /// Path to the file.
+        path: PathBuf,
+    },
+
     /// Manage signing keys.
     #[command(subcommand)]
     Key(KeyCommand),
@@ -109,11 +115,6 @@ enum BlockCommand {
 #[derive(Debug, Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum ContractCommand {
-    /// Compute contract digest.
-    Digest {
-        /// Path to the contract.
-        wasm: PathBuf,
-    },
     /// Sign and publish a contract.
     Publish {
         #[command(flatten)]
@@ -321,11 +322,11 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .context("failed to write height to stdout")
         }
-        Command::Contract(ContractCommand::Digest { wasm }) => {
-            let wasm = fs::read(&wasm)
+        Command::Digest { path } => {
+            let buf = fs::read(&path)
                 .await
-                .with_context(|| format!("failed to read `{}`", wasm.display()))?;
-            let digest = Sha256::digest(&wasm);
+                .with_context(|| format!("failed to read `{}`", path.display()))?;
+            let digest = Sha256::digest(&buf);
             stdout()
                 .write_all(encode_digest(&digest.into()).as_bytes())
                 .await
