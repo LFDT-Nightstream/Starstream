@@ -1,6 +1,6 @@
 //! Starstream ledger client.
 
-use anyhow::Context as _;
+use anyhow::{Context as _, ensure};
 use coset::{
     CoseSign1Builder, CoseSignBuilder, CoseSignatureBuilder, TaggedCborSerializable as _, iana,
 };
@@ -121,7 +121,14 @@ pub fn encode_transaction(
 
 /// Decode a [TRANSACTION_CONTEXT] transaction payload.
 pub fn decode_transaction(buf: &[u8]) -> anyhow::Result<Envelope<Transaction>> {
-    minicbor::decode(buf).context("failed to decode CBOR")
+    let envelope: Envelope<Transaction> = minicbor::decode(buf).context("failed to decode CBOR")?;
+    ensure!(
+        envelope.context == EnvelopeContext::Transaction,
+        "unexpected envelope context `{}`, expected `{}`",
+        envelope.context,
+        EnvelopeContext::Transaction,
+    );
+    Ok(envelope)
 }
 
 /// Build and sign [TRANSACTION_CONTEXT] envelope.
