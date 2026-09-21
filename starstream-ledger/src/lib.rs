@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 use bytes::Bytes;
 use mediatype::MediaType;
 use minicbor::{Decode, Encode};
+use serde::Serialize;
 use thiserror::Error;
 
 #[cfg(feature = "client")]
@@ -37,35 +38,38 @@ pub const APPLICATION_CBOR: MediaType =
 /// [multihash]: https://github.com/multiformats/multihash
 const MULTIHASH_SHA2_256: u64 = 0x12;
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
 pub struct Fund {
     #[n(0)]
     pub nonce: u64,
     #[cbor(n(1), with = "minicbor::bytes")]
+    #[serde(serialize_with = "serialize_bytes")]
     pub account: [u8; 32],
     #[n(2)]
     pub amount: u64,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
 pub struct Publish {
     #[n(0)]
     pub nonce: u64,
     #[cbor(n(1), with = "minicbor::bytes")]
+    #[serde(serialize_with = "serialize_wasm")]
     pub wasm: Box<[u8]>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
 pub struct TransactionEvent {
     #[n(0)]
     pub abi_name: Box<str>,
     #[n(1)]
     pub name: Box<str>,
     #[cbor(n(2), with = "minicbor::bytes")]
+    #[serde(serialize_with = "serialize_bytes")]
     pub params: Box<[u8]>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
 pub struct TransactionInput {
     #[n(0)]
     pub transaction: Box<str>,
@@ -73,21 +77,24 @@ pub struct TransactionInput {
     pub index: u32,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
 pub struct TransactionOutput {
     #[n(0)]
     pub contract: Box<str>,
     #[n(1)]
     pub instance: Box<str>,
     #[n(2)]
+    #[serde(serialize_with = "serialize_methods")]
     pub methods: BTreeSet<(u64, u64, u64, u64)>,
     #[cbor(n(3), with = "minicbor::bytes")]
+    #[serde(serialize_with = "serialize_bytes")]
     pub storage: Box<[u8]>,
     #[cbor(n(4), with = "minicbor::bytes")]
+    #[serde(serialize_with = "serialize_wasm")]
     pub wasm: Box<[u8]>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
 pub struct Transaction {
     #[n(0)]
     pub inputs: Vec<TransactionInput>,
@@ -96,13 +103,17 @@ pub struct Transaction {
     #[n(2)]
     pub events: Vec<TransactionEvent>,
     #[cbor(n(3), with = "minicbor::bytes")]
+    #[serde(serialize_with = "serialize_bytes")]
     pub proof: Box<[u8]>,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 pub enum EnvelopeContext {
+    #[serde(rename = "starstream:fund")]
     Fund,
+    #[serde(rename = "starstream:publish")]
     Publish,
+    #[serde(rename = "starstream:transaction")]
     Transaction,
 }
 
@@ -120,6 +131,39 @@ impl fmt::Display for EnvelopeContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
+}
+
+fn serialize_bytes<S: serde::Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+    if serializer.is_human_readable() {
+        serializer.serialize_str(&hex::encode(bytes))
+    } else {
+        serializer.serialize_bytes(bytes)
+    }
+}
+
+fn serialize_methods<S: serde::Serializer>(
+    methods: &BTreeSet<(u64, u64, u64, u64)>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    if !serializer.is_human_readable() {
+        return methods.serialize(serializer);
+    }
+    serializer.collect_seq(methods.iter().map(|(a, b, c, d)| {
+        let mut digest = [0; 32];
+        digest[..8].copy_from_slice(&a.to_le_bytes());
+        digest[8..16].copy_from_slice(&b.to_le_bytes());
+        digest[16..24].copy_from_slice(&c.to_le_bytes());
+        digest[24..].copy_from_slice(&d.to_le_bytes());
+        hex::encode(digest)
+    }))
+}
+
+fn serialize_wasm<S: serde::Serializer>(wasm: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+    if !serializer.is_human_readable() {
+        return serializer.serialize_bytes(wasm);
+    }
+    let wat = wasmprinter::print_bytes(wasm).map_err(serde::ser::Error::custom)?;
+    serializer.serialize_str(&wat)
 }
 
 impl<C> Encode<C> for EnvelopeContext {
@@ -145,7 +189,7 @@ impl<'b, C> Decode<'b, C> for EnvelopeContext {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
 pub struct Envelope<T> {
     #[n(0)]
     pub context: EnvelopeContext,

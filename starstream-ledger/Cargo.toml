@@ -23,7 +23,6 @@ server = [
     "dep:futures",
     "dep:headers-accept",
     "dep:headers-core",
-    "dep:hex",
     "dep:http-body",
     "dep:hyper",
     "dep:tokio",
@@ -44,7 +43,7 @@ ed25519-dalek = { workspace = true, features = ["fast", "std", "zeroize"] }
 futures = { workspace = true, optional = true }
 headers-accept = { workspace = true, optional = true }
 headers-core = { workspace = true, optional = true }
-hex = { workspace = true, optional = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
 http = { workspace = true, features = ["std"] }
 http-body = { workspace = true, optional = true }
 http-body-util = { workspace = true }
@@ -54,6 +53,7 @@ mediatype = { workspace = true }
 minicbor = { workspace = true, features = ["derive", "std"] }
 multibase = { workspace = true, features = ["std"] }
 multihash = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
 starstream-runtime-next = { workspace = true }
 thiserror = { workspace = true }
@@ -67,6 +67,7 @@ tokio-util = { workspace = true, features = ["codec"] }
 tracing = { workspace = true, features = ["attributes"] }
 wasm-tokio = { workspace = true, optional = true }
 wasmparser = { workspace = true, optional = true }
+wasmprinter = { workspace = true }
 wasmtime = { workspace = true, optional = true, features = [
     "anyhow",
     "async",

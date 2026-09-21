@@ -103,26 +103,23 @@ async fn cli() {
     .unwrap();
     assert_eq!(stdout, b"()\n");
     let tx = fs::read(&tx_file).await.unwrap();
-    let Envelope {
-        context,
-        network,
-        payload: Transaction {
-            inputs, outputs, ..
-        },
-    } = minicbor::decode(&tx).expect("failed to decode transaction envelope");
-    assert_eq!(context, EnvelopeContext::Transaction);
-    assert_eq!(network.as_ref(), NETWORK);
-    assert_eq!(inputs, []);
-    let [
-        TransactionOutput {
-            contract, instance, ..
-        },
-    ] = outputs.as_slice()
-    else {
-        panic!("invalid outputs: {outputs:?}")
+    let envelope: Envelope<Transaction> =
+        minicbor::decode(&tx).expect("failed to decode transaction envelope");
+
+    assert_eq!(envelope.context, EnvelopeContext::Transaction);
+    assert_eq!(envelope.network.as_ref(), NETWORK);
+    assert_eq!(envelope.payload.inputs, []);
+    let [utxo] = envelope.payload.outputs.as_slice() else {
+        panic!("invalid outputs: {:?}", envelope.payload.outputs)
     };
-    assert_eq!(contract.as_ref(), digest);
-    assert_eq!(instance.as_ref(), "score-progress");
+    assert_eq!(utxo.contract.as_ref(), digest);
+    assert_eq!(utxo.instance.as_ref(), "score-progress");
+
+    let stdout = run_cli(["transaction", "show", &tx_file.path().to_string_lossy()])
+        .await
+        .unwrap();
+    let shown: toml::Value = toml::from_slice(&stdout).expect("failed to decode transaction TOML");
+    assert_eq!(shown, toml::Value::try_from(&envelope).unwrap());
 
     let publish_envelope = build_publish_envelope(
         account.clone(),

@@ -15,11 +15,11 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
-use starstream_ledger::client::encode_transaction;
 use starstream_ledger::client::http::ClientBuilder;
 use starstream_ledger::client::runtime::{
     Client, call_coordination_script, compile_component, new_contract,
 };
+use starstream_ledger::client::{decode_transaction, encode_transaction};
 use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest};
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
@@ -72,6 +72,10 @@ enum Command {
     /// Manage signing keys.
     #[command(subcommand)]
     Key(KeyCommand),
+
+    /// Inspect transactions.
+    #[command(subcommand)]
+    Transaction(TransactionCommand),
 
     /// Interact with UTXOs.
     #[command(subcommand)]
@@ -185,6 +189,15 @@ impl<T: Client> Client for ImportClient<'_, T> {
 enum KeyCommand {
     /// Generate a new Ed25519 key pair.
     Generate,
+}
+
+#[derive(Debug, Subcommand)]
+enum TransactionCommand {
+    /// Print a transaction written by `contract script call --output-transaction`.
+    Show {
+        /// Path to the encoded transaction.
+        path: PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -457,6 +470,17 @@ async fn main() -> anyhow::Result<()> {
                 .write_all(format!("{}\n", hex::encode(key.to_bytes())).as_bytes())
                 .await
                 .context("failed to write signing key to stdout")
+        }
+        Command::Transaction(TransactionCommand::Show { path }) => {
+            let buf = fs::read(&path)
+                .await
+                .with_context(|| format!("failed to read `{}`", path.display()))?;
+            let tx = decode_transaction(&buf)?;
+            let tx = toml::to_string_pretty(&tx).context("failed to encode TOML")?;
+            stdout()
+                .write_all(tx.as_bytes())
+                .await
+                .context("failed to write transaction to stdout")
         }
         Command::Utxo(UtxoCommand::Call {
             transaction,

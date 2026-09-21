@@ -119,6 +119,11 @@ pub fn encode_transaction(
     .context("failed to encode CBOR")
 }
 
+/// Decode a [TRANSACTION_CONTEXT] transaction payload.
+pub fn decode_transaction(buf: &[u8]) -> anyhow::Result<Envelope<Transaction>> {
+    minicbor::decode(buf).context("failed to decode CBOR")
+}
+
 /// Build and sign [TRANSACTION_CONTEXT] envelope.
 pub fn build_transaction_envelope(
     key: SigningKey,
