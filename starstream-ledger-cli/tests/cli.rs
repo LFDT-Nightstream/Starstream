@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, ensure};
 use ed25519_dalek::SigningKey;
+use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::server::Ledger;
 use starstream_ledger::{Envelope, EnvelopeContext, Publish, Transaction, TransactionOutput};
@@ -191,7 +192,7 @@ async fn cli() {
         "--simulate",
         "--output-transaction",
         &tx_file.path().to_string_lossy(),
-        digest,
+        &format!("sha256:{}", hex::encode(Sha256::digest(&*SCORE_WASM))),
         "example",
     ])
     .await

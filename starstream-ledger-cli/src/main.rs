@@ -20,7 +20,7 @@ use starstream_ledger::client::http::ClientBuilder;
 use starstream_ledger::client::runtime::{
     Client, call_coordination_script, compile_component, new_contract,
 };
-use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest, parse_digest};
+use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest};
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
 use tokio_util::codec::Encoder as _;
@@ -148,7 +148,7 @@ enum ScriptCommand {
         #[arg(long = "import", value_name = "PATH")]
         imports: Vec<PathBuf>,
 
-        /// Digest of the published contract.
+        /// Digest of the published contract, either as multibase multihash or `sha256:HEX`.
         #[arg(value_parser = parse_digest)]
         digest: [u8; 32],
 
@@ -156,7 +156,8 @@ enum ScriptCommand {
         script: Box<str>,
 
         /// Script arguments. UTXO parameters are given as `[TRANSACTION]:INDEX` input
-        /// references, where an empty `TRANSACTION` refers to the genesis block.
+        /// references, where `TRANSACTION` is a digest as multibase multihash or `sha256:HEX`
+        /// and an empty `TRANSACTION` refers to the genesis block.
         /// All other parameters are WAVE-encoded.
         args: Vec<Box<str>>,
     },
@@ -190,7 +191,8 @@ enum KeyCommand {
 enum UtxoCommand {
     /// Call a method of a UTXO on the ledger, discarding the resulting state.
     Call {
-        /// Digest of the transaction that produced the UTXO, defaults to the genesis block.
+        /// Digest of the transaction that produced the UTXO, either as multibase multihash
+        /// or `sha256:HEX`, defaults to the genesis block.
         #[arg(long, value_name = "DIGEST", value_parser = parse_digest)]
         transaction: Option<[u8; 32]>,
 
@@ -263,18 +265,29 @@ async fn read_signing_key(path: &Path) -> anyhow::Result<SigningKey> {
     Ok(SigningKey::from_bytes(&buf))
 }
 
+fn parse_digest(s: &str) -> anyhow::Result<[u8; 32]> {
+    if let Some(hex) = s.strip_prefix("sha256:") {
+        let mut buf = [0u8; 32];
+        hex::decode_to_slice(hex, &mut buf).context("sha256 digest hex is not valid")?;
+        return Ok(buf);
+    }
+    let digest =
+        starstream_ledger::parse_digest(s).context("digest is not a valid multibase multihash")?;
+    Ok(digest)
+}
+
 fn parse_input(s: &str) -> anyhow::Result<TransactionInput> {
     let (transaction, index) = s
         .rsplit_once(':')
         .context("input must be formatted as `[TRANSACTION]:INDEX`")?;
-    if !transaction.is_empty() {
-        parse_digest(transaction).context("transaction digest is not valid")?;
-    }
+    let transaction = if transaction.is_empty() {
+        Box::default()
+    } else {
+        let digest = parse_digest(transaction).context("transaction digest is not valid")?;
+        encode_digest(&digest).into()
+    };
     let index = index.parse().context("input index is not valid")?;
-    Ok(TransactionInput {
-        transaction: transaction.into(),
-        index,
-    })
+    Ok(TransactionInput { transaction, index })
 }
 
 fn parse_verifying_key(s: &str) -> anyhow::Result<VerifyingKey> {
