@@ -39,7 +39,8 @@ async fn run_cli(args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> anyhow::R
 async fn cli() {
     let account = run_cli(["key", "generate"]).await.unwrap();
     let mut buf = [0u8; 32];
-    hex::decode_to_slice(&account, &mut buf).expect("failed to parse generated key");
+    hex::decode_to_slice(account.trim_ascii_end(), &mut buf)
+        .expect("failed to parse generated key");
     let account = SigningKey::from_bytes(&buf);
 
     let account_file = NamedTempFile::new().unwrap();
@@ -76,7 +77,9 @@ async fn cli() {
     let digest = run_cli(["digest", &wasm.path().to_string_lossy()])
         .await
         .unwrap();
-    let digest = str::from_utf8(&digest).expect("contract digest is not valid UTF-8");
+    let digest = str::from_utf8(&digest)
+        .expect("contract digest is not valid UTF-8")
+        .trim_end();
 
     let tx_file = NamedTempFile::new().unwrap();
     let stdout = run_cli([
@@ -97,7 +100,7 @@ async fn cli() {
     ])
     .await
     .unwrap();
-    assert_eq!(stdout, b"()");
+    assert_eq!(stdout, b"()\n");
     let tx = fs::read(&tx_file).await.unwrap();
     let Envelope {
         context,
@@ -134,7 +137,7 @@ async fn cli() {
     let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"])
         .await
         .unwrap();
-    assert_eq!(stdout, b"0");
+    assert_eq!(stdout, b"0\n");
 
     let stdout = run_cli([
         "--url",
@@ -174,7 +177,7 @@ async fn cli() {
     let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"])
         .await
         .unwrap();
-    assert_eq!(stdout, b"2");
+    assert_eq!(stdout, b"2\n");
 
     let tx_file = NamedTempFile::new().unwrap();
     let stdout = run_cli([
@@ -193,7 +196,7 @@ async fn cli() {
     ])
     .await
     .unwrap();
-    assert_eq!(stdout, b"()");
+    assert_eq!(stdout, b"()\n");
     let tx = fs::read(&tx_file).await.unwrap();
     let Envelope {
         context,

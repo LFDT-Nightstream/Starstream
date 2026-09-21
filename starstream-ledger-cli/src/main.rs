@@ -244,10 +244,11 @@ async fn write_results(
         let v = wrpc_wave::read_value(&mut results, &ty)
             .await
             .context("failed to read result tuple")?;
-        let s = wasm_wave::to_string(&v).context("failed to encode result tuple")?;
+        let mut s = wasm_wave::to_string(&v).context("failed to encode result tuple")?;
+        s.push('\n');
         stdout().write_all(s.as_bytes()).await
     } else {
-        stdout().write_all(b"()").await
+        stdout().write_all(b"()\n").await
     }
     .context("failed to write result tuple to stdout")
 }
@@ -318,7 +319,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Block(BlockCommand::Height) => {
             let height = client.block_height().await?;
             stdout()
-                .write_all(height.to_string().as_bytes())
+                .write_all(format!("{height}\n").as_bytes())
                 .await
                 .context("failed to write height to stdout")
         }
@@ -328,7 +329,7 @@ async fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("failed to read `{}`", path.display()))?;
             let digest = Sha256::digest(&buf);
             stdout()
-                .write_all(encode_digest(&digest.into()).as_bytes())
+                .write_all(format!("{}\n", encode_digest(&digest.into())).as_bytes())
                 .await
                 .context("failed to write digest to stdout")
         }
@@ -416,7 +417,7 @@ async fn main() -> anyhow::Result<()> {
                 &mut results,
             )
             .await?;
-            let results = wasm_wave::to_string(&Val::Tuple(results))
+            let mut results = wasm_wave::to_string(&Val::Tuple(results))
                 .context("failed to encode result tuple")?;
             if let Some(path) = output_transaction {
                 let tx = encode_transaction(network, tx.clone())?;
@@ -427,6 +428,7 @@ async fn main() -> anyhow::Result<()> {
             if let Some(key) = key {
                 client.transact(key, tx).await?;
             }
+            results.push('\n');
             stdout()
                 .write_all(results.as_bytes())
                 .await
@@ -439,7 +441,7 @@ async fn main() -> anyhow::Result<()> {
                 "generated key pair"
             );
             stdout()
-                .write_all(hex::encode(key.to_bytes()).as_bytes())
+                .write_all(format!("{}\n", hex::encode(key.to_bytes())).as_bytes())
                 .await
                 .context("failed to write signing key to stdout")
         }
