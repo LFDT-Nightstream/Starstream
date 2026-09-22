@@ -25,8 +25,6 @@ starstream-runtime-next = { workspace = true, features = [
     "wasmtime-custom-virtual-memory",
 ] }
 wasmtime = { workspace = true }
-cranelift-codegen = { version = "0.134", default-features = false, features = [
-    "timing",
-] }
+cranelift-codegen = { workspace = true, features = ["timing"] }
 wasmprinter = { workspace = true, features = ["component-model"] }
 wit-component.workspace = true
