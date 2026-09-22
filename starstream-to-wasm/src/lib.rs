@@ -8,8 +8,8 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
-use starstream_compiler::TypedWasmModule;
 use starstream_compiler::typecheck::TypedModuleContents;
+use starstream_compiler::{TypedWasmModule, WasmLinkage};
 use starstream_types::DUMMY_SPAN;
 use starstream_types::{
     AbiType, BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionKind, ImportSource,
@@ -92,7 +92,7 @@ pub struct CompileResult {
     /// List of (name, flowchart) pairs. Requires [`CompileOptions::output_mermaid`].
     pub mermaid: Vec<(String, String)>,
 
-    pub libraries: Vec<(String, Arc<[u8]>)>,
+    pub libraries: Vec<(String, Arc<[u8]>, WasmLinkage)>,
 }
 
 /// A Wasm compiler error.
@@ -218,7 +218,7 @@ struct Compiler {
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
     resource_abi_fns: HashMap<Type, (u32, u32)>,
 
-    libraries: Vec<(String, Arc<[u8]>)>,
+    libraries: Vec<(String, Arc<[u8]>, WasmLinkage)>,
 
     // Diagnostics.
     fatal: bool,
@@ -1093,7 +1093,7 @@ impl Compiler {
             .import(&module.name, ComponentTypeRef::Instance(id));
 
         self.libraries
-            .push((module.name.to_owned(), module.wasm.clone()));
+            .push((module.name.to_owned(), module.wasm.clone(), module.linkage));
     }
 
     /// Root visitor called by [compile] to start walking the AST for a program,
