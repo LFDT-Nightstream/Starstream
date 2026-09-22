@@ -534,6 +534,32 @@ async function serve(data: RunWorkerRequest) {
       target: "run",
       body: String(crash),
     });
+    if (crash instanceof WebAssembly.RuntimeError) {
+      // A trap leaves the runtime's state inconsistent (a Rust panic does not
+      // unwind); start over with a fresh instance. Deployments are lost.
+      wasmPromise = null;
+      digestNumbers.clear();
+      fibers.clear();
+      parked = null;
+      wakePending = false;
+      send({
+        request_id,
+        type: "log",
+        level: 1,
+        target: "run",
+        body: "the runtime crashed and was restarted; deploy again to continue",
+      });
+    }
+    if (data.type === "deploy") {
+      send({ request_id, type: "deploy_failed", digest: data.digest });
+    } else if (data.type === "construct") {
+      send({
+        request_id,
+        type: "construct_failed",
+        digest: data.digest,
+        instance: data.instance,
+      });
+    }
   }
   send({ request_id, type: "idle" });
 }

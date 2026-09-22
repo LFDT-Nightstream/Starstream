@@ -865,23 +865,19 @@ export function Sandbox() {
     setDeployErrors([]);
   }, [componentWasm]);
 
-  // The in-flight deploy, to attribute its error logs to the deploy warning.
-  const pendingDeploy = useRef<string | undefined>(undefined);
-
-  // The in-flight method call, to attribute its logs/result to its UTXO.
-  const pendingCall = useRef<
-    { key: string; digest: string; handle: number; label: string } | undefined
-  >(undefined);
+  // In-flight deploys and method calls by request id, to attribute their
+  // logs and results to the deploy warning or to the UTXO being called.
+  type Pending =
+    | { kind: "deploy" }
+    | { kind: "call"; key: string; digest: string; handle: number; label: string };
+  const pending = useRef(new Map<number, Pending>());
 
   const run_request_id = useRef(0);
   const runWorker = useRunWorker((response) => {
     if (response.type == "idle") {
       // The request fully completed (its result responses, if any, arrived
-      // before this). Stop attributing later logs to it, so a subsequent
-      // operation that doesn't reset the refs (e.g. setCardano) can't be
-      // mis-attributed to this one.
-      pendingCall.current = undefined;
-      pendingDeploy.current = undefined;
+      // before this).
+      pending.current.delete(response.request_id);
     } else if (response.type == "log") {
       const level = ["", "Error", "Warn", "Info", "Debug", "Trace"][
         response.level
@@ -891,21 +887,20 @@ export function Sandbox() {
       // there is one, else to the deploy warning or the panel-level log.
       if (response.level <= 2) {
         const entry = `${level}: ${response.body}`;
-        const pending = pendingCall.current;
-        if (pending) {
-          appendUtxoLog(pending.key, {
+        const request = pending.current.get(response.request_id);
+        if (request?.kind === "call") {
+          appendUtxoLog(request.key, {
             kind: "error",
-            label: pending.label,
+            label: request.label,
             text: entry,
           });
-        } else if (pendingDeploy.current !== undefined) {
+        } else if (request?.kind === "deploy") {
           setDeployErrors((prev) => [...prev, entry]);
         } else {
           setRunLog((prev) => [...prev, entry]);
         }
       }
     } else if (response.type == "deployed") {
-      pendingDeploy.current = undefined;
       const { digest, describe } = response;
       const deployment = { digest, describe, deployedAt: new Date() };
       // Most recent deployment first; a re-deploy moves its digest up front.
@@ -914,7 +909,6 @@ export function Sandbox() {
         ...prev.filter((d) => d.digest !== digest),
       ]);
     } else if (response.type == "deploy_failed") {
-      pendingDeploy.current = undefined;
       // The cause arrived as "log" responses; ensure the warning shows anyway.
       setDeployErrors((prev) => (prev.length > 0 ? prev : ["Unknown error."]));
       // Re-enable the Deploy button that onDeploy optimistically disabled.
@@ -959,14 +953,14 @@ export function Sandbox() {
     } else if (response.type == "construct_failed") {
       // The cause arrived as "log" responses (attributed to the panel log).
     } else if (response.type == "called") {
-      const pending = pendingCall.current;
-      if (pending) {
+      const request = pending.current.get(response.request_id);
+      if (request?.kind === "call") {
         const text =
           response.results.length > 0
             ? JSON.stringify(response.results)
             : "(no return value)";
         const items: LogItem[] = [
-          { kind: "result", label: pending.label, text },
+          { kind: "result", label: request.label, text },
           ...response.events.map(
             (e: AbiEvent): LogItem => ({
               kind: "event",
@@ -978,14 +972,14 @@ export function Sandbox() {
         ];
         setUtxoLogs((prev) => ({
           ...prev,
-          [pending.key]: [...(prev[pending.key] ?? []), ...items],
+          [request.key]: [...(prev[request.key] ?? []), ...items],
         }));
         // The call may have mutated storage — refresh the view.
         runWorker.request({
           request_id: ++run_request_id.current,
           type: "storageGet",
-          digest: pending.digest,
-          handle: pending.handle,
+          digest: request.digest,
+          handle: request.handle,
         });
       }
     } else if (response.type == "storage") {
@@ -1017,12 +1011,12 @@ export function Sandbox() {
   const onDeploy = useCallback(() => {
     if (!componentWasm || !componentDigest) return;
     setLastDeployedDigest(componentDigest);
-    pendingCall.current = undefined;
-    pendingDeploy.current = componentDigest;
     setDeployErrors([]);
     setRunLog([]);
+    const request_id = ++run_request_id.current;
+    pending.current.set(request_id, { kind: "deploy" });
     runWorker.request({
-      request_id: ++run_request_id.current,
+      request_id,
       type: "deploy",
       digest: componentDigest,
       component: componentWasm,
@@ -1031,8 +1025,6 @@ export function Sandbox() {
 
   const onConstruct = useCallback(
     (digest: string, instance: string, ctor: string, args: unknown[]) => {
-      pendingCall.current = undefined;
-      pendingDeploy.current = undefined;
       setRunLog([]);
       runWorker.request({
         request_id: ++run_request_id.current,
@@ -1052,10 +1044,10 @@ export function Sandbox() {
       const label = `${exportLabel(method)}(${args
         .map((a) => JSON.stringify(a))
         .join(", ")})`;
-      pendingCall.current = { key, digest, handle, label };
-      pendingDeploy.current = undefined;
+      const request_id = ++run_request_id.current;
+      pending.current.set(request_id, { kind: "call", key, digest, handle, label });
       runWorker.request({
-        request_id: ++run_request_id.current,
+        request_id,
         type: "call",
         digest,
         handle,
@@ -1067,8 +1059,6 @@ export function Sandbox() {
   );
 
   const onDrop = useCallback((digest: string, handle: number) => {
-    pendingCall.current = undefined;
-    pendingDeploy.current = undefined;
     runWorker.request({
       request_id: ++run_request_id.current,
       type: "drop",
