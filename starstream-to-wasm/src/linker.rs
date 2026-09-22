@@ -15,6 +15,23 @@ impl CompileResult {
             .module(&wasm)
             .expect("ComponentEncoder::module failed");
 
+        // Imported core modules are combined into the main component using `ComponentEncoder`.
+        for (name, bytes, linkage) in &self.libraries {
+            if matches!(linkage, WasmLinkage::Core) {
+                encoder = encoder
+                    .library(
+                        name,
+                        bytes,
+                        LibraryInfo {
+                            // This must be `false` for our main module to see it.
+                            instantiate_after_shims: false,
+                            arguments: Default::default(),
+                        },
+                    )
+                    .expect("ComponentEncoder::library failed");
+            }
+        }
+
         let mut component = encoder.encode().expect("ComponentEncoder::encode failed");
 
         // Imported components are composed together using `wac_graph`.
