@@ -3,25 +3,28 @@
 //! compile worker ([`run`]) and a run worker ([`deploy`] + [`construct`],
 //! [`call`], …).
 //!
-//! The contract runtime is `starstream-runtime-next`, driven through its *sync*
-//! APIs; values cross the JS boundary as JSON, lowered to/from
-//! [`wasmtime::component::Val`] against each function's declared type.
+//! The contract runtime is `starstream-runtime-next`, driven through its
+//! `*_async` APIs on JSPI-backed fibers (see [`fiber`]); values cross the JS
+//! boundary as JSON, lowered to/from [`wasmtime::component::Val`] against each
+//! function's declared type.
+mod fiber;
 mod platform;
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::panic;
-use std::rc::Rc;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, MutexGuard};
 
+use fiber::block_on;
 use log::error;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use starstream_runtime_next::{
-    Contract, EventHandler, Utxo, UtxoExport, bindings, new_wasmtime_config,
-};
-use wasmtime::AsContext as _;
-use wasmtime::component::{Type, Val, types};
-use wit_component::{ComponentEncoder, DecodedWasm};
+use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
+use wasmtime::component::{Component, Resource, ResourceTable, Type, Val, types};
+use wasmtime::error::Context as _;
+use wasmtime::{StoreContextMut, bail, format_err};
+use wit_component::DecodedWasm;
 
 // Imports to manipulate the UI contents, provided by the JS page.
 #[link(wasm_import_module = "env")]
@@ -58,68 +61,161 @@ struct CardanoCtx {
     current_slot: i64,
 }
 
-/// Per-instantiation store data.
-///
-/// `events` is shared with the owning [`Deployment`] so emissions from any
-/// instantiation collect in one place. `implemented` is per-instantiation: the
-/// guest constructor populates it via `implements-method`, and [`call`] gates
-/// invocations on it.
-#[derive(Clone, Default)]
-struct Ctx {
-    cardano: CardanoCtx,
-    implemented: HashSet<MethodHash>,
-    events: Rc<RefCell<Vec<Value>>>,
+/// Host-side state of one UTXO: the methods it declared via
+/// `implements-method`, cleared again on `resume`. [`call`] gates invocations
+/// on it.
+#[derive(Default)]
+struct UtxoCtx {
+    methods: Vec<MethodHash>,
 }
 
-impl bindings::starstream::std::builtin::Host for Ctx {
-    fn implements_method(&mut self, hash: MethodHash) -> wasmtime::Result<()> {
-        self.implemented.insert(hash);
+fn lock(cx: &Mutex<UtxoCtx>) -> wasmtime::Result<MutexGuard<'_, UtxoCtx>> {
+    cx.lock().map_err(|err| format_err!("{err}"))
+}
+
+/// Per-store data. Every live UTXO owns one store, so the events its
+/// instance emits during an operation collect here and are flushed by
+/// [`flush_events`] afterwards.
+#[derive(Default)]
+struct Ctx {
+    table: ResourceTable,
+    cardano: CardanoCtx,
+    events: Vec<Value>,
+}
+
+impl bindings::starstream::std::cardano::Host for Ctx {
+    fn block_height(&mut self) -> wasmtime::Result<i64> {
+        Ok(self.cardano.block_height)
+    }
+
+    fn current_slot(&mut self) -> wasmtime::Result<i64> {
+        Ok(self.cardano.current_slot)
+    }
+}
+
+impl Host for Ctx {
+    type UtxoContext = Arc<Mutex<UtxoCtx>>;
+
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+
+    async fn call_utxo_main(
+        store: StoreContextMut<'_, Self>,
+        _instance_name: Arc<str>,
+        _external_id: Option<Arc<str>>,
+        _export: UtxoExport,
+        f: impl for<'a> FnOnce(
+            StoreContextMut<'a, Self>,
+            Self::UtxoContext,
+        ) -> Pin<
+            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
+        > + Send,
+    ) -> wasmtime::Result<Utxo<Self::UtxoContext>> {
+        f(store, Self::UtxoContext::default()).await
+    }
+
+    fn has_method(
+        store: StoreContextMut<Self>,
+        utxo: Resource<Utxo<Self::UtxoContext>>,
+        hash: MethodHash,
+    ) -> wasmtime::Result<bool> {
+        let utxo = store.data().table.get(&utxo)?;
+        let cx = lock(utxo.context())?;
+        Ok(cx.methods.contains(&hash))
+    }
+
+    fn drop_utxo(
+        mut store: StoreContextMut<Self>,
+        utxo: Resource<Utxo<Self::UtxoContext>>,
+    ) -> wasmtime::Result<()> {
+        store.data_mut().table.delete(utxo)?;
+        Ok(())
+    }
+
+    fn implements_method(
+        mut store: StoreContextMut<Self>,
+        cx: Resource<Self::UtxoContext>,
+        hash: MethodHash,
+    ) -> wasmtime::Result<()> {
+        let cx = store.data_mut().table.get(&cx)?;
+        lock(cx)?.methods.push(hash);
+        Ok(())
+    }
+
+    fn resume(
+        mut store: StoreContextMut<Self>,
+        cx: Resource<Self::UtxoContext>,
+    ) -> wasmtime::Result<()> {
+        let cx = store.data_mut().table.get(&cx)?;
+        lock(cx)?.methods.clear();
+        Ok(())
+    }
+
+    fn drop_utxo_context(
+        mut store: StoreContextMut<Self>,
+        cx: Resource<Self::UtxoContext>,
+    ) -> wasmtime::Result<()> {
+        store.data_mut().table.delete(cx)?;
+        Ok(())
+    }
+
+    fn drop_token(
+        mut store: StoreContextMut<Self>,
+        token: Resource<Token>,
+    ) -> wasmtime::Result<()> {
+        store.data_mut().table.delete(token)?;
+        Ok(())
+    }
+
+    fn emit_event(
+        mut store: StoreContextMut<Self>,
+        abi_name: &Arc<str>,
+        name: &Arc<str>,
+        params: &[Val],
+    ) -> wasmtime::Result<()> {
+        let params: Vec<Value> = params
+            .iter()
+            .map(|v| val_to_json(v).unwrap_or_else(Value::String))
+            .collect();
+        store.data_mut().events.push(json!({
+            "instance": &**abi_name,
+            "name": &**name,
+            "params": params,
+        }));
         Ok(())
     }
 }
 
-impl bindings::starstream::std::cardano::Host for Ctx {
-    fn block_height(&mut self) -> i64 {
-        self.cardano.block_height
-    }
+/// Contracts are deployed in isolation: imports of other contracts cannot be
+/// satisfied.
+struct NoContracts;
 
-    fn current_slot(&mut self) -> i64 {
-        self.cardano.current_slot
-    }
-}
-
-impl EventHandler for Ctx {
-    fn emit_event(&mut self, instance: &str, name: &str, params: &[Val]) {
-        let args: Vec<Value> = params
-            .iter()
-            .map(|v| val_to_json(v).unwrap_or_else(Value::String))
-            .collect();
-        self.events.borrow_mut().push(json!({
-            "instance": instance,
-            "name": name,
-            "params": args,
-        }));
+impl ContractLookup<Ctx> for NoContracts {
+    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<Ctx>> {
+        bail!("contract `{external_id}` is not deployed")
     }
 }
 
-/// A live `utxo` handle: the instance plus the export it came from.
+/// A live `utxo` handle: the UTXO, the store its instance lives in, and the
+/// export it came from.
 struct Handle {
     export: UtxoExport,
-    utxo: Utxo<Ctx>,
+    store: wasmtime::Store<Ctx>,
+    utxo: Utxo<Arc<Mutex<UtxoCtx>>>,
 }
 
 /// A deployed contract and its table of live UTXO handles.
 struct Deployment {
+    engine: wasmtime::Engine,
     contract: Contract<Ctx>,
     handles: BTreeMap<u32, Handle>,
     next_id: u32,
     cardano: CardanoCtx,
-    events: Rc<RefCell<Vec<Value>>>,
 }
 
 thread_local! {
-    /// Deployed contracts keyed by digest. Thread-local because a live [`Utxo`]
-    /// store is neither `Send` nor `Sync`; the sandbox is single-threaded.
+    /// Deployed contracts keyed by digest; the sandbox is single-threaded.
     static CONTRACTS: RefCell<BTreeMap<u32, Deployment>> = const { RefCell::new(BTreeMap::new()) };
 }
 
@@ -266,9 +362,9 @@ fn read_input_bytes(input_len: usize) -> Vec<u8> {
     input
 }
 
-/// Flush and report the ABI events buffered during an operation.
-fn flush_events(events: &Rc<RefCell<Vec<Value>>>) {
-    let drained: Vec<Value> = std::mem::take(&mut events.borrow_mut());
+/// Flush and report the ABI events buffered in `store` during an operation.
+fn flush_events(store: &mut wasmtime::Store<Ctx>) {
+    let drained = std::mem::take(&mut store.data_mut().events);
     if drained.is_empty() {
         return;
     }
@@ -284,23 +380,35 @@ struct DeployInput<'a> {
     wasm: &'a [u8],
 }
 
-fn handle_deploy(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_deploy(input_len: usize) -> wasmtime::Result<()> {
     let input = read_input_bytes(input_len);
     let DeployInput { digest, wasm } = serde_cbor::from_slice(&input)?;
 
-    let engine = wasmtime::Engine::new(&new_wasmtime_config())?;
-    let contract = Contract::<Ctx>::new(&engine, wasm)?;
+    let mut config = wasmtime::Config::new();
+    config.wasm_component_model_implements(true);
+    // Pulley bytecode in malloc-backed memory: no signals, guards or CoW images
+    // (see `platform`).
+    config.target("pulley32")?;
+    config.signals_based_traps(false);
+    config.memory_guard_size(0);
+    config.memory_reservation(0);
+    config.memory_reservation_for_growth(1 << 20);
+    config.memory_init_cow(false);
+    let engine = wasmtime::Engine::new(&config)?;
+    let component = Component::from_binary(&engine, wasm).context("failed to compile component")?;
+    let contract =
+        Contract::new(&component, None, NoContracts).context("failed to link contract")?;
     let describe = describe(&contract)?;
 
     CONTRACTS.with_borrow_mut(|contracts| {
         contracts.insert(
             digest,
             Deployment {
+                engine,
                 contract,
                 handles: BTreeMap::new(),
                 next_id: 0,
                 cardano: CardanoCtx::default(),
-                events: Rc::default(),
             },
         );
     });
@@ -320,7 +428,7 @@ pub unsafe extern "C" fn deploy(input_len: usize) -> i32 {
     match handle_deploy(input_len) {
         Ok(()) => 0,
         Err(error) => {
-            error!("deploy: {error}");
+            error!("deploy: {error:#}");
             -1
         }
     }
@@ -332,13 +440,13 @@ struct ConstructInput {
     digest: u32,
     /// Export name of the UTXO-owning instance.
     instance: String,
-    /// Export name of the `[static]` constructor to call.
+    /// Export name of the `[static]` `main fn` to call.
     constructor: String,
-    /// One JSON value per constructor parameter.
+    /// One JSON value per `main fn` parameter (excluding the `utxo-context`).
     args: Vec<Value>,
 }
 
-fn handle_construct(input_len: usize) -> Result<u32, Box<dyn std::error::Error>> {
+fn handle_construct(input_len: usize) -> wasmtime::Result<u32> {
     let input = read_input_bytes(input_len);
     let ConstructInput {
         digest,
@@ -348,30 +456,45 @@ fn handle_construct(input_len: usize) -> Result<u32, Box<dyn std::error::Error>>
     } = serde_json::from_slice(&input)?;
 
     CONTRACTS.with_borrow_mut(|contracts| {
-        let dep = contracts.get_mut(&digest).ok_or("contract not found")?;
+        let dep = contracts.get_mut(&digest).context("contract not found")?;
         let export = dep.contract.get_utxo(&instance)?;
-        let ctor = dep.contract.get_utxo_constructor(&export, &constructor)?;
-        let params = convert_args(ctor.ty().params(), 0, &args)?;
-        let ctx = Ctx {
-            cardano: dep.cardano,
-            implemented: HashSet::new(),
-            events: Rc::clone(&dep.events),
-        };
-        let utxo = dep.contract.create_utxo(
-            wasmtime::Store::new(dep.contract.engine(), ctx),
-            &ctor,
-            &params,
-        )?;
+        let main = dep.contract.get_utxo_main(&export, &constructor)?;
+        let params = convert_args(main.ty().params(), 1, &args)?;
+
+        let mut store = wasmtime::Store::new(
+            &dep.engine,
+            Ctx {
+                cardano: dep.cardano,
+                ..Ctx::default()
+            },
+        );
+        let cx = Arc::new(Mutex::new(UtxoCtx::default()));
+        let cx_res = store.data_mut().table.push(Arc::clone(&cx))?;
+        let cx_res = cx_res.try_into_resource_any(&mut store)?;
+        let mut full = Vec::with_capacity(params.len() + 1);
+        full.push(Val::Resource(cx_res));
+        full.extend(params);
+
+        let instance = block_on(dep.contract.instantiate(&mut store))?;
+        let utxo = block_on(instance.call_utxo_main(&mut store, &export, &main, cx, &full))?;
+        flush_events(&mut store);
+
         let id = dep.next_id;
         dep.next_id += 1;
-        dep.handles.insert(id, Handle { export, utxo });
-        flush_events(&dep.events);
+        dep.handles.insert(
+            id,
+            Handle {
+                export,
+                store,
+                utxo,
+            },
+        );
         Ok(id)
     })
 }
 
-/// Mint a UTXO via a `[static]` constructor. Returns the new handle id, or -1
-/// on failure.
+/// Mint a UTXO via a `[static]` `main fn`. Returns the new handle id, or -1 on
+/// failure.
 ///
 /// # Safety
 ///
@@ -382,7 +505,7 @@ pub unsafe extern "C" fn construct(input_len: usize) -> i32 {
     match handle_construct(input_len) {
         Ok(id) => id as i32,
         Err(error) => {
-            error!("construct: {error}");
+            error!("construct: {error:#}");
             -1
         }
     }
@@ -401,7 +524,7 @@ struct CallInput {
     args: Vec<Value>,
 }
 
-fn handle_call(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_call(input_len: usize) -> wasmtime::Result<()> {
     let input = read_input_bytes(input_len);
     let CallInput {
         digest,
@@ -411,37 +534,37 @@ fn handle_call(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
     } = serde_json::from_slice(&input)?;
 
     CONTRACTS.with_borrow_mut(|contracts| {
-        let Deployment {
-            contract,
-            handles,
-            events,
-            ..
-        } = contracts.get_mut(&digest).ok_or("contract not found")?;
-        let handle = handles.get_mut(&handle).ok_or("handle not found")?;
-        let method_export = contract.get_utxo_method(&handle.export, &method)?;
+        let dep = contracts.get_mut(&digest).context("contract not found")?;
+        let handle = dep.handles.get_mut(&handle).context("handle not found")?;
+        let export = dep.contract.get_utxo_method(&handle.export, &method)?;
 
         // Only callable if the UTXO declared this method via `implements-method`.
         let hash = method_hash(&method);
-        if !handle.utxo.as_context().data().implemented.contains(&hash) {
-            return Err(format!(
+        if !lock(handle.utxo.context())?.methods.contains(&hash) {
+            bail!(
                 "method `{method}` is not callable: this UTXO did not declare it via `implements-method`"
-            )
-            .into());
+            );
         }
 
-        let params = convert_args(method_export.ty().params(), 1, &args)?;
+        let params = convert_args(export.ty().params(), 1, &args)?;
         let mut full = Vec::with_capacity(params.len() + 1);
         full.push(Val::Resource(handle.utxo.resource()));
         full.extend(params);
+        let mut results = vec![Val::Bool(false); export.ty().results().len()];
 
-        let results = handle.utxo.call(&method_export, &full)?;
+        block_on(
+            handle
+                .utxo
+                .call_method(&mut handle.store, &export, &full, &mut results),
+        )?;
         let results = results
             .iter()
             .map(val_to_json)
-            .collect::<Result<Vec<Value>, String>>()?;
+            .collect::<Result<Vec<Value>, String>>()
+            .map_err(|err| format_err!("{err}"))?;
         let json = serde_json::to_string(&results)?;
         unsafe { set_call_result(json.as_ptr(), json.len()) };
-        flush_events(events);
+        flush_events(&mut handle.store);
         Ok(())
     })
 }
@@ -458,26 +581,26 @@ pub unsafe extern "C" fn call(input_len: usize) -> i32 {
     match handle_call(input_len) {
         Ok(()) => 0,
         Err(error) => {
-            error!("call: {error}");
+            error!("call: {error:#}");
             -1
         }
     }
 }
 
-fn handle_storage_get(digest: u32, handle: u32) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_storage_get(digest: u32, handle: u32) -> wasmtime::Result<()> {
     CONTRACTS.with_borrow_mut(|contracts| {
-        let dep = contracts.get_mut(&digest).ok_or("contract not found")?;
-        let handle = dep.handles.get_mut(&handle).ok_or("handle not found")?;
+        let dep = contracts.get_mut(&digest).context("contract not found")?;
+        let handle = dep.handles.get_mut(&handle).context("handle not found")?;
         let storage = handle
             .export
             .storage()
-            .cloned()
-            .ok_or("this resource has no storage")?;
-        let fields = handle.utxo.storage(&storage).get()?;
+            .context("this resource has no storage")?;
+        let fields = block_on(handle.utxo.storage(storage).call_get(&mut handle.store))?;
         let obj = fields
             .iter()
             .map(|(name, val)| Ok((name.clone(), val_to_json(val)?)))
-            .collect::<Result<Map<String, Value>, String>>()?;
+            .collect::<Result<Map<String, Value>, String>>()
+            .map_err(|err| format_err!("{err}"))?;
         let json = Value::Object(obj).to_string();
         unsafe { set_storage(json.as_ptr(), json.len()) };
         Ok(())
@@ -492,17 +615,17 @@ pub extern "C" fn storage_get(digest: u32, handle: u32) -> i32 {
     match handle_storage_get(digest, handle) {
         Ok(()) => 0,
         Err(error) => {
-            error!("storage_get: {error}");
+            error!("storage_get: {error:#}");
             -1
         }
     }
 }
 
-fn handle_implemented_methods(digest: u32, handle: u32) -> Result<(), Box<dyn std::error::Error>> {
-    CONTRACTS.with_borrow_mut(|contracts| {
-        let dep = contracts.get_mut(&digest).ok_or("contract not found")?;
-        let handle = dep.handles.get(&handle).ok_or("handle not found")?;
-        let declared = handle.utxo.as_context().data().implemented.clone();
+fn handle_implemented_methods(digest: u32, handle: u32) -> wasmtime::Result<()> {
+    CONTRACTS.with_borrow(|contracts| {
+        let dep = contracts.get(&digest).context("contract not found")?;
+        let handle = dep.handles.get(&handle).context("handle not found")?;
+        let declared = lock(handle.utxo.context())?.methods.clone();
         let names: Vec<&str> = dep
             .contract
             .utxo_methods(&handle.export)
@@ -524,18 +647,20 @@ pub extern "C" fn implemented_methods(digest: u32, handle: u32) -> i32 {
     match handle_implemented_methods(digest, handle) {
         Ok(()) => 0,
         Err(error) => {
-            error!("implemented_methods: {error}");
+            error!("implemented_methods: {error:#}");
             -1
         }
     }
 }
 
-fn handle_drop_resource(digest: u32, handle: u32) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_drop_resource(digest: u32, handle: u32) -> wasmtime::Result<()> {
     CONTRACTS.with_borrow_mut(|contracts| {
-        let dep = contracts.get_mut(&digest).ok_or("contract not found")?;
-        let handle = dep.handles.remove(&handle).ok_or("handle not found")?;
-        handle.utxo.drop()?;
-        flush_events(&dep.events);
+        let dep = contracts.get_mut(&digest).context("contract not found")?;
+        let Handle {
+            mut store, utxo, ..
+        } = dep.handles.remove(&handle).context("handle not found")?;
+        block_on(utxo.drop(&mut store))?;
+        flush_events(&mut store);
         Ok(())
     })
 }
@@ -548,7 +673,7 @@ pub extern "C" fn drop_resource(digest: u32, handle: u32) -> i32 {
     match handle_drop_resource(digest, handle) {
         Ok(()) => 0,
         Err(error) => {
-            error!("drop_resource: {error}");
+            error!("drop_resource: {error:#}");
             -1
         }
     }
@@ -583,7 +708,7 @@ pub extern "C" fn set_cardano(digest: u32, block_height: i64, current_slot: i64)
 /// Shape: `{ instances: [{ name, resource, constructors: [func], methods:
 /// [func], storage: [{name, kind}] | null }] }`, where `func` is
 /// `{ export, label, params: [{name, kind}] }`.
-fn describe(contract: &Contract<Ctx>) -> Result<String, Box<dyn std::error::Error>> {
+fn describe(contract: &Contract<Ctx>) -> wasmtime::Result<String> {
     // Collect owned pairs first to release the `utxos()` borrow before re-borrowing.
     let utxos: Vec<(String, UtxoExport)> = contract
         .utxos()
@@ -593,8 +718,9 @@ fn describe(contract: &Contract<Ctx>) -> Result<String, Box<dyn std::error::Erro
     let mut instances = Vec::with_capacity(utxos.len());
     for (name, utxo) in &utxos {
         let constructors: Vec<Value> = contract
-            .utxo_constructors(utxo)
-            .filter_map(|(export, ctor)| ctor.ok().map(|ctor| func_json(export, ctor.ty(), 0)))
+            .utxo_mains(utxo)
+            // Skip the leading `utxo-context`; the host mints it per UTXO.
+            .filter_map(|(export, main)| main.ok().map(|main| func_json(export, main.ty(), 1)))
             .collect();
         let methods: Vec<Value> = contract
             .utxo_methods(utxo)
@@ -675,16 +801,16 @@ fn convert_args<'a>(
     params: impl Iterator<Item = (&'a str, Type)>,
     skip: usize,
     args: &[Value],
-) -> Result<Vec<Val>, Box<dyn std::error::Error>> {
+) -> wasmtime::Result<Vec<Val>> {
     let tys: Vec<Type> = params.skip(skip).map(|(_, ty)| ty).collect();
     if tys.len() != args.len() {
-        return Err(format!("expected {} argument(s), got {}", tys.len(), args.len()).into());
+        bail!("expected {} argument(s), got {}", tys.len(), args.len());
     }
     tys.iter()
         .zip(args)
         .map(|(ty, arg)| json_to_val(ty, arg))
         .collect::<Result<Vec<_>, String>>()
-        .map_err(Into::into)
+        .map_err(|err| format_err!("{err}"))
 }
 
 /// Lower JSON into a [`Val`]. Integers and `bool` plus `record`/`tuple`/

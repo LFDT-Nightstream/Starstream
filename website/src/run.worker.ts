@@ -173,10 +173,19 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   set_storage(ptr: number, len: number): void;
   set_implemented(ptr: number, len: number): void;
   set_events(ptr: number, len: number): void;
+
+  // wasmtime's `custom-fiber` hooks and the `block_on` parking hooks, all
+  // implemented with JSPI (see `starstream-sandbox-web/src/fiber.rs`).
+  wasmtime_fiber_init(top: number, entry: number, arg0: number): void;
+  wasmtime_fiber_switch: WebAssembly.Suspending | ((top: number) => void);
+  host_park: WebAssembly.Suspending | (() => void);
+  host_unpark(): void;
 }
 
 interface SandboxWasmExports {
   memory: WebAssembly.Memory;
+  __stack_pointer: WebAssembly.Global;
+  wasmtime_fiber_enter(entry: number, arg0: number, top: number): void;
   deploy(input_len: number): number;
   construct(input_len: number): number;
   call(input_len: number): number;
@@ -185,7 +194,113 @@ interface SandboxWasmExports {
   drop_resource(digest: number, handle: number): number;
   set_cardano(digest: number, block_height: bigint, current_slot: bigint): number;
 }
+
+// The exports the worker actually calls. Exports that may run guest code are
+// wrapped in `WebAssembly.promising` so the fibers underneath can suspend the
+// activation; they resolve to the export's plain return value.
+interface RunWasm {
+  memory: WebAssembly.Memory;
+  deploy(input_len: number): number;
+  construct(input_len: number): Promise<number>;
+  call(input_len: number): Promise<number>;
+  storage_get(digest: number, handle: number): Promise<number>;
+  implemented_methods(digest: number, handle: number): number;
+  drop_resource(digest: number, handle: number): Promise<number>;
+  set_cardano(digest: number, block_height: bigint, current_slot: bigint): number;
+}
 // ----------------------------------------------------------------------------
+
+// The embedder half of wasmtime's custom-fiber C ABI, implemented with JSPI:
+// each fiber record's `slot` holds the parked "other side" for that fiber's
+// top-of-stack; a switch parks the caller, swaps the shadow-stack pointer and
+// wakes the other side, and the browser does the actual stack switching. The
+// fiber's shadow stack starts at `top - 16` (the top 16 bytes are reserved by
+// the wasmtime-fiber stack layout). At most one root (`promising`) activation
+// may be in flight: root activations share the main shadow stack, which is
+// only safe LIFO, so `onmessage` serializes requests.
+const JSPI = typeof WebAssembly.Suspending === "function";
+
+interface Fiber {
+  entry: number;
+  arg0: number;
+  started: boolean;
+  slot: { sp: number; resolve: () => void; reject: (err: unknown) => void } | null;
+}
+const fibers = new Map<number, Fiber>();
+let sp: WebAssembly.Global;
+let enterFiber: (entry: number, arg0: number, top: number) => Promise<void>;
+
+function fiberSwitch(top: number): Promise<void> {
+  const f = fibers.get(top);
+  if (!f) throw new Error(`switch to unknown fiber ${top}`);
+  const me: NonNullable<Fiber["slot"]> = {
+    sp: sp.value as number,
+    resolve: () => {},
+    reject: () => {},
+  };
+  const wait = new Promise<void>((resolve, reject) => {
+    me.resolve = resolve;
+    me.reject = reject;
+  });
+  if (!f.started) {
+    f.started = true;
+    f.slot = me;
+    sp.value = top - 16;
+    enterFiber(f.entry, f.arg0, top).then(
+      () => {
+        const back = f.slot!;
+        fibers.delete(top);
+        sp.value = back.sp;
+        back.resolve();
+      },
+      (err: unknown) => {
+        const back = f.slot!;
+        fibers.delete(top);
+        sp.value = back.sp;
+        back.reject(err);
+      },
+    );
+  } else {
+    const other = f.slot!;
+    f.slot = me;
+    sp.value = other.sp;
+    other.resolve();
+  }
+  return wait;
+}
+
+// `block_on` parking: when a wasmtime future returns Pending the activation
+// suspends on `host_park` and its waker resumes it through `host_unpark`.
+// Requests are serialized, so a single slot suffices; a wake with nobody
+// parked is remembered so the next park returns at once.
+let parked: (() => void) | null = null;
+let wakePending = false;
+
+function park(): Promise<void> {
+  if (wakePending) {
+    wakePending = false;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    parked = resolve;
+  });
+}
+
+function unpark() {
+  const resolve = parked;
+  if (resolve !== null) {
+    parked = null;
+    resolve();
+  } else {
+    wakePending = true;
+  }
+}
+
+function jspiUnavailable(): never {
+  throw new Error(
+    "running contracts requires JSPI (WebAssembly.Suspending): Chromium 137 or newer",
+  );
+}
 
 // State the Wasm imports below read and write; set per incoming message.
 let input = new Uint8Array();
@@ -200,9 +315,9 @@ let eventsJson: AbiEvent[] = [];
 // sha256 hex digest computed by the page.
 const digestNumbers = new Map<string, number>();
 
-let wasm: SandboxWasmExports;
-let wasmPromise: Promise<SandboxWasmExports> | null = null;
-function getWasmInstance(): Promise<SandboxWasmExports> {
+let wasm: RunWasm;
+let wasmPromise: Promise<RunWasm> | null = null;
+function getWasmInstance(): Promise<RunWasm> {
   wasmPromise ??= WebAssembly.instantiateStreaming(
     fetch(starstreamSandboxWasm),
     {
@@ -238,10 +353,31 @@ function getWasmInstance(): Promise<SandboxWasmExports> {
         set_events(ptr, len) {
           eventsJson = JSON.parse(utf8(ptr, len)) as AbiEvent[];
         },
+        wasmtime_fiber_init(top, entry, arg0) {
+          fibers.set(top, { entry, arg0, started: false, slot: null });
+        },
+        wasmtime_fiber_switch: JSPI
+          ? new WebAssembly.Suspending(fiberSwitch)
+          : jspiUnavailable,
+        host_park: JSPI ? new WebAssembly.Suspending(park) : jspiUnavailable,
+        host_unpark: unpark,
       } satisfies SandboxWasmImports,
     },
   ).then(({ instance }) => {
-    wasm = instance.exports as unknown as SandboxWasmExports;
+    const exports = instance.exports as unknown as SandboxWasmExports;
+    if (!JSPI) jspiUnavailable();
+    sp = exports.__stack_pointer;
+    enterFiber = WebAssembly.promising(exports.wasmtime_fiber_enter);
+    wasm = {
+      memory: exports.memory,
+      deploy: exports.deploy,
+      construct: WebAssembly.promising(exports.construct),
+      call: WebAssembly.promising(exports.call),
+      storage_get: WebAssembly.promising(exports.storage_get),
+      implemented_methods: exports.implemented_methods,
+      drop_resource: WebAssembly.promising(exports.drop_resource),
+      set_cardano: exports.set_cardano,
+    };
     return wasm;
   });
   return wasmPromise;
@@ -268,14 +404,17 @@ function digestNumber(digest: string): number {
   return n;
 }
 
-self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
-  // Capture locally and only publish to the global once instantiation has
-  // settled: messages arriving while `getWasmInstance()` is in-flight must not
-  // overwrite the id of the request currently being served. The body below is
-  // synchronous from here on, so the global stays correct for its duration.
-  const wasm = await getWasmInstance();
+// Requests run strictly one after another: a guest call suspends the worker's
+// activation at `await`s, and only one root activation may be in flight.
+let chain: Promise<void> = Promise.resolve();
+self.onmessage = function ({ data }: { data: RunWorkerRequest }) {
+  chain = chain.then(() => serve(data)).catch(() => {});
+};
+
+async function serve(data: RunWorkerRequest) {
   request_id = data.request_id;
   try {
+    const wasm = await getWasmInstance();
     if (data.type === "deploy") {
       // Assign the digest a number; re-deploying the same digest reuses it.
       let digest = digestNumbers.get(data.digest);
@@ -309,7 +448,7 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
         }),
       );
       eventsJson = [];
-      const handle = wasm.construct(input.length);
+      const handle = await wasm.construct(input.length);
       if (handle >= 0) {
         send({
           request_id,
@@ -340,7 +479,7 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
       );
       callResult = undefined;
       eventsJson = [];
-      if (wasm.call(input.length) >= 0) {
+      if ((await wasm.call(input.length)) >= 0) {
         send({
           request_id,
           type: "called",
@@ -351,7 +490,7 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
     } else if (data.type === "storageGet") {
       const digest = digestNumber(data.digest);
       storageJson = undefined;
-      if (wasm.storage_get(digest, data.handle) >= 0 && storageJson) {
+      if ((await wasm.storage_get(digest, data.handle)) >= 0 && storageJson) {
         send({
           request_id,
           type: "storage",
@@ -374,7 +513,7 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
       }
     } else if (data.type === "drop") {
       const digest = digestNumber(data.digest);
-      if (wasm.drop_resource(digest, data.handle) >= 0) {
+      if ((await wasm.drop_resource(digest, data.handle)) >= 0) {
         send({ request_id, type: "dropped", digest: data.digest, handle: data.handle });
       }
     } else if (data.type === "setCardano") {
@@ -397,4 +536,4 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
     });
   }
   send({ request_id, type: "idle" });
-};
+}

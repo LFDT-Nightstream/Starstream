@@ -21,10 +21,14 @@ sha2 = "0.10.9"
 starstream-compiler.workspace = true
 starstream-to-wasm.workspace = true
 termcolor = "1.4.1"
-starstream-runtime-next = { workspace = true, features = [
-    "wasmtime-custom-virtual-memory",
-] }
+starstream-runtime-next.workspace = true
 wasmtime = { workspace = true }
 cranelift-codegen = { workspace = true, features = ["timing"] }
 wasmprinter = { workspace = true, features = ["component-model"] }
 wit-component.workspace = true
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+starstream-runtime-next = { workspace = true, features = [
+    "wasmtime-custom-fiber",
+    "wasmtime-custom-virtual-memory",
+] }
