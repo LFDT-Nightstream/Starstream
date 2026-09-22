@@ -12,7 +12,7 @@ mod pointer_map;
 pub mod typecheck;
 
 pub use docs::{DocsOutput, generate_docs};
-pub use import_wasm::TypedWasmModule;
+pub use import_wasm::{TypedWasmModule, WasmLinkage};
 pub use module_graph::{Module, ModuleGraph, ModuleGraphError, ModuleId, PathImport};
 pub use parser::parse_program;
 pub use typecheck::{

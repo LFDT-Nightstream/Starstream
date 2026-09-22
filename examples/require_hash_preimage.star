@@ -1,6 +1,6 @@
 contract;
 
-import { sha256_u64 } from "../target/wasm32-wasip2/release/sha256lib.wasm";
+import { sha256_u64 } from "../target/wasm32-unknown-unknown/release/sha256lib.wasm";
 
 abi IRequireHashPreimage {
     // `u64` used for illustration purposes because compiler doesn't implement `list<u8>` yet.

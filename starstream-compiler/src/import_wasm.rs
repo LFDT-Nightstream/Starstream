@@ -14,9 +14,16 @@ use crate::typecheck::env::{ConstantInfo, Namespace};
 pub struct TypedWasmModule {
     pub name: String,
     pub wasm: Arc<[u8]>,
+    pub linkage: WasmLinkage,
     pub resolve: Resolve,
     pub world_id: WorldId,
     pub functions: HashMap<NameId, (String, Arc<FunctionType>)>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum WasmLinkage {
+    Component,
+    Core,
 }
 
 pub fn import_wasm(
@@ -25,12 +32,30 @@ pub fn import_wasm(
     wasm: &Arc<[u8]>,
 ) -> miette::Result<(Namespace, TypedWasmModule)> {
     // Accepts both component .wasm files and core .wasm files with a binary WIT custom section.
-    let decoded = wit_parser::decoding::decode(wasm)
-        .map_err(|e| miette!("error decoding .wasm file: {e}"))?;
+    let (decoded, linkage) = if wasmparser::Parser::is_component(wasm) {
+        (
+            wit_parser::decoding::decode(wasm)
+                .map_err(|e| miette!("error decoding .wasm component {name:?}: {e}"))?,
+            WasmLinkage::Component,
+        )
+    } else {
+        let (wasm, bindgen) = wit_component::metadata::decode(wasm)
+            .map_err(|e| miette!("error decoding .wasm module {name:?}: {e}"))?;
+        if wasm.is_none() {
+            return Err(miette!(
+                ".wasm module {name:?} does not contain `component-type` custom sections"
+            ));
+        }
+        (
+            DecodedWasm::Component(bindgen.resolve, bindgen.world),
+            WasmLinkage::Core,
+        )
+    };
     let (mut resolve, world_id) = match decoded {
         DecodedWasm::Component(resolve, world) => (resolve, world),
         DecodedWasm::WitPackage(_, _) => {
             // Reached if the file is a component .wasm with no implementation attached (binary WIT).
+            // TODO: route to the `.wit` import path.
             return Err(miette!(
                 "cannot import `.wasm` file containing binary WIT only"
             ));
@@ -46,6 +71,7 @@ pub fn import_wasm(
     let mut module = TypedWasmModule {
         name,
         wasm: wasm.clone(),
+        linkage,
         resolve,
         world_id,
         functions: Default::default(),
