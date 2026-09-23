@@ -3,9 +3,9 @@ use core::pin::Pin;
 use std::sync::Arc;
 
 use starstream_runtime_next::bindings::starstream;
-use starstream_runtime_next::{Token, Utxo};
+use starstream_runtime_next::{Token, Utxo, UtxoExport};
 use wasmtime::component::{Resource, ResourceTable, Val};
-use wasmtime::{AsContextMut as _, StoreContextMut, bail, format_err};
+use wasmtime::{StoreContextMut, bail};
 
 use crate::server::{Ctx, UtxoCtx};
 
@@ -20,24 +20,25 @@ impl starstream::std::cardano::Host for Ctx {
 }
 
 impl starstream_runtime_next::Host for Ctx {
-    type UtxoContext = Arc<std::sync::Mutex<UtxoCtx>>;
+    type UtxoContext = Arc<UtxoCtx>;
 
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
     }
 
     async fn call_utxo_main(
-        mut store: StoreContextMut<'_, Self>,
-        f: impl for<'a> FnOnce(
+        _store: StoreContextMut<'_, Self>,
+        instance_name: Arc<str>,
+        _external_id: Option<Arc<str>>,
+        _export: UtxoExport,
+        _f: impl for<'a> FnOnce(
             StoreContextMut<'a, Self>,
             Self::UtxoContext,
         ) -> Pin<
             Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
         > + Send,
     ) -> wasmtime::Result<Utxo<Self::UtxoContext>> {
-        let utxo = f(store.as_context_mut(), Self::UtxoContext::default()).await?;
-        store.as_context_mut().data_mut().outputs.push(utxo.clone());
-        Ok(utxo)
+        bail!("attempted to call `main fn` of UTXO `{instance_name}`")
     }
 
     fn has_method(
@@ -47,61 +48,48 @@ impl starstream_runtime_next::Host for Ctx {
     ) -> wasmtime::Result<bool> {
         let Ctx { table, .. } = store.data();
         let utxo = table.get(&utxo)?;
-        let cx = utxo.context().lock().map_err(|err| format_err!("{err}"))?;
-        Ok(cx.methods.contains(&hash))
+        Ok(utxo.context().methods.contains(&hash))
     }
 
     fn drop_utxo(
-        mut store: StoreContextMut<Self>,
-        utxo: Resource<Utxo<Self::UtxoContext>>,
+        _store: StoreContextMut<Self>,
+        _utxo: Resource<Utxo<Self::UtxoContext>>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        table.delete(utxo)?;
-        Ok(())
+        bail!("attempted to drop UTXO")
     }
 
     fn implements_method(
-        mut store: StoreContextMut<Self>,
-        cx: Resource<Self::UtxoContext>,
-        hash: (u64, u64, u64, u64),
+        _store: StoreContextMut<Self>,
+        _cx: Resource<Self::UtxoContext>,
+        _hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.get_mut(&cx)?;
-        let mut cx = cx.lock().map_err(|err| format_err!("{err}"))?;
-        cx.methods.push(hash);
-        Ok(())
+        bail!("attempted to update method set")
     }
 
     fn resume(
-        mut store: StoreContextMut<Self>,
-        cx: Resource<Self::UtxoContext>,
+        _store: StoreContextMut<Self>,
+        _cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.get_mut(&cx)?;
-        let mut cx = cx.lock().map_err(|err| format_err!("{err}"))?;
-        cx.methods.clear();
-        Ok(())
+        bail!("attempted to resume")
     }
 
     fn drop_utxo_context(
-        mut store: StoreContextMut<Self>,
-        cx: Resource<Self::UtxoContext>,
+        _store: StoreContextMut<Self>,
+        _cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        table.delete(cx)?;
-        Ok(())
+        bail!("attempted to drop UTXO context")
     }
 
     fn drop_token(_store: StoreContextMut<Self>, _token: Resource<Token>) -> wasmtime::Result<()> {
-        bail!("TODO")
+        bail!("attempted to drop token")
     }
 
     fn emit_event(
         _store: StoreContextMut<Self>,
-        _abi_name: &Arc<str>,
-        _name: &Arc<str>,
-        _params: &[Val],
+        abi_name: &Arc<str>,
+        name: &Arc<str>,
+        params: &[Val],
     ) -> wasmtime::Result<()> {
-        bail!("TODO")
+        bail!("attempted to emit event `{abi_name}` `{name}` with `{params:?}`")
     }
 }
