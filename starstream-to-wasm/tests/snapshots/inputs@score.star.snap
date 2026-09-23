@@ -1712,6 +1712,7 @@ TypedProgram {
                 ty: UtxoType {
                     name: "ScoreProgress",
                     id: NameId(9),
+                    public_methods: [],
                     possible_abis: [
                         AbiType {
                             name: Identifier {
@@ -1989,6 +1990,7 @@ TypedProgram {
                                         UtxoType {
                                             name: "ScoreProgress",
                                             id: NameId(9),
+                                            public_methods: [],
                                             possible_abis: [
                                                 AbiType {
                                                     name: Identifier {
@@ -2239,6 +2241,7 @@ TypedProgram {
                                                             UtxoType {
                                                                 name: "ScoreProgress",
                                                                 id: NameId(9),
+                                                                public_methods: [],
                                                                 possible_abis: [
                                                                     AbiType {
                                                                         name: Identifier {
@@ -2548,6 +2551,7 @@ TypedProgram {
                                                                 UtxoType {
                                                                     name: "ScoreProgress",
                                                                     id: NameId(9),
+                                                                    public_methods: [],
                                                                     possible_abis: [
                                                                         AbiType {
                                                                             name: Identifier {

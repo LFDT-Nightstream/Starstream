@@ -1530,6 +1530,23 @@ impl DocumentState {
     fn add_field_access_usage(&mut self, span: Option<Span>, ty: &Type, field_name: &str) {
         let Some(usage_span) = span else { return };
 
+        if let Type::Utxo(utxo) = ty {
+            if let Some(method) = utxo
+                .public_methods
+                .iter()
+                .chain(utxo.always_abis.iter().flat_map(|abi| &abi.methods))
+                .find(|method| method.name.as_str() == field_name)
+            {
+                if let Some(target) = method.name.opt_span() {
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: usage_span,
+                        target,
+                    });
+                }
+                self.add_hover_span(usage_span, &Type::Function(method.ty.clone()));
+            }
+            return;
+        }
         if !matches!(ty, Type::Record(_)) {
             return;
         }
@@ -2621,4 +2638,54 @@ fn workspace_root_for(file_path: &Path, workspace_folders: &[PathBuf]) -> PathBu
     file_path
         .parent()
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_utxo_method_symbols_hover_and_definition() {
+        let uri: Uri = "untitled:public-utxo.star".parse().unwrap();
+        let source = r#"utxo Foo {
+    main fn new() {
+        yield();
+    }
+
+    pub fn value() -> i64 {
+        42
+    }
+}
+
+script fn example() -> i64 {
+    Foo::new().value()
+}
+"#;
+        let state = DocumentState::from_text(&uri, source, None, &[]);
+        assert!(state.diagnostics.is_empty(), "{:?}", state.diagnostics);
+        let Some(DocumentSymbolResponse::Nested(symbols)) = state.document_symbols() else {
+            panic!("expected document symbols");
+        };
+        let utxo = symbols.iter().find(|symbol| symbol.name == "Foo").unwrap();
+        let children = utxo.children.as_ref().unwrap();
+        assert_eq!(
+            children
+                .iter()
+                .map(|child| child.name.as_str())
+                .collect::<Vec<_>>(),
+            ["new", "value"]
+        );
+        assert!(
+            children
+                .iter()
+                .all(|child| child.kind == SymbolKind::FUNCTION)
+        );
+
+        let usage = state.offset_to_position(source.rfind("value()").unwrap());
+        assert!(state.hover(usage).is_some());
+        let method = children.iter().find(|child| child.name == "value").unwrap();
+        let definition = state.goto_definition(&uri, usage).unwrap();
+        assert_eq!(definition.uri, uri);
+        assert_eq!(definition.range, method.selection_range);
+    }
 }

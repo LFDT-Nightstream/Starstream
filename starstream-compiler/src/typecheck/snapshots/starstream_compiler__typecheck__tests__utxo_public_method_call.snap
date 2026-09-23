@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Foo {\n    main fn new() {\n        yield();\n    }\n    pub fn value(x: i64) -> i64 {\n        x\n    }\n}\nscript fn example() -> i64 {\n    Foo::new().value(42)\n}\n"
+---
+T-Utxo: Foo => 
+  T-Fn: new => ()
+    T-Expr: {new: fn() -> ()} ⊢ yield(); ⇒ ()
+  T-Fn: value => i64
+    T-ReturnTail: x => i64
+      T-Var: {new: fn() -> (), value: fn(x: i64) -> i64, x: i64} ⊢ x ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+
+T-Fn: example => i64
+  T-ReturnTail: Foo::new().value(42) => i64
+    T-Call: {example: fn() -> i64} ⊢ Foo::new().value(42) ⇒ i64
+      T-FieldAccess: {example: fn() -> i64} ⊢ Foo::new().value ⇒ fn(x: i64) -> i64
+        T-Call: {example: fn() -> i64} ⊢ Foo::new() ⇒ Foo
+          T-Var: {example: fn() -> i64} ⊢ Foo::new ⇒ fn() -> Foo
+      T-Int: {example: fn() -> i64} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t3}
+    Unify-Const: i64 ~ i64 => {}

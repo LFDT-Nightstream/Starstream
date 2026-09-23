@@ -206,6 +206,7 @@ TypedProgram {
                 ty: UtxoType {
                     name: "MyUtxo",
                     id: NameId(5),
+                    public_methods: [],
                     possible_abis: [],
                     always_abis: [],
                 },

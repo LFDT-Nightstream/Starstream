@@ -162,6 +162,8 @@ pub enum EnumVariantKind {
 pub struct UtxoType {
     pub name: String,
     pub id: NameId,
+    /// Methods declared directly with `pub fn`, available at every yield point.
+    pub public_methods: Vec<TypedAbiMethodDecl>,
     /// All [AbiType]s that this Utxo sometimes implements.
     pub possible_abis: Vec<Arc<AbiType>>,
     /// [AbiType]s that this Utxo implements at all of its yield points.

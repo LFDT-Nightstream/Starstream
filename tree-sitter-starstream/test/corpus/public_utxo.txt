@@ -1,0 +1,27 @@
+==================
+Public UTXO methods
+==================
+
+utxo Foo {
+    main fn new() { yield(); }
+    pub fn value() -> i64 { 42 }
+}
+
+---
+
+(program
+  (utxo_definition
+    (identifier)
+    (fn_utxo_part
+      (identifier)
+      (block
+        (expression
+          (yield_expression))))
+    (fn_utxo_part
+      (identifier)
+      (type_annotation
+        (scoped_name
+          (identifier)))
+      (block
+        (expression
+          (integer_literal))))))

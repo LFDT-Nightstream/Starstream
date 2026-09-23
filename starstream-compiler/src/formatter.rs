@@ -261,6 +261,7 @@ fn function_export_to_doc<'a>(export: &FunctionExport, _source: &'a str) -> RcDo
     match export {
         FunctionExport::Script => RcDoc::text("script"),
         FunctionExport::UtxoMain => RcDoc::text("main"),
+        FunctionExport::UtxoPublic => RcDoc::text("pub"),
         FunctionExport::TokenMint => RcDoc::text("mint"),
         FunctionExport::TokenBurn => RcDoc::text("burn"),
     }
@@ -2383,6 +2384,19 @@ mod tests {
                 fn transfer(amount: i64) -> bool;
                 /// Get balance
                 fn balance() -> i64;
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn utxo_public_methods() {
+        assert_format_snapshot!(
+            r#"
+            utxo Foo {
+                main fn new(){yield();}
+                pub fn value( pub x:i64 )->i64 {x}
+                pub fn advance(){resume;}
             }
             "#,
         );

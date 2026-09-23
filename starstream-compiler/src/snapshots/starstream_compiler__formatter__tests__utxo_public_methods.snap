@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nutxo Foo {\n    main fn new(){yield();}\n    pub fn value( pub x:i64 )->i64 {x}\n    pub fn advance(){resume;}\n}\n"
+---
+utxo Foo {
+    main fn new() {
+        yield();
+    }
+
+    pub fn value(pub x: i64) -> i64 {
+        x
+    }
+
+    pub fn advance() {
+        resume;
+    }
+}

@@ -1,0 +1,18 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Foo {\n    main fn new() { yield(); }\n    pub fn value(x: i64) {}\n}\nscript fn example() {\n    Foo::new().value(true);\n}\n"
+---
+E0031 (https://starstream.nightstream.dev/errors/E0031)
+
+  x argument 1 has type `bool` but `i64` was expected
+   ,-[test.star:6:22]
+ 2 |     main fn new() { yield(); }
+ 3 |     pub fn value(x: i64) {}
+   :                     ^|^
+   :                      `-- parameter expects `i64`
+ 4 | }
+ 5 | script fn example() {
+ 6 |     Foo::new().value(true);
+   :                      ^^^^
+ 7 | }
+   `----

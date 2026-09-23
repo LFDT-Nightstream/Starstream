@@ -93,6 +93,7 @@ TypedProgram {
                 ty: UtxoType {
                     name: "MyUtxo",
                     id: NameId(4),
+                    public_methods: [],
                     possible_abis: [],
                     always_abis: [],
                 },
@@ -131,6 +132,7 @@ TypedProgram {
                                 UtxoType {
                                     name: "MyUtxo",
                                     id: NameId(4),
+                                    public_methods: [],
                                     possible_abis: [],
                                     always_abis: [],
                                 },
