@@ -9,6 +9,7 @@ use std::sync::{Arc, LazyLock, OnceLock};
 
 use tempfile::TempDir;
 
+use crate::FIELD_MODULUS;
 use crate::trace::{MethodHash, Out, ResourceHandle, StarstreamValue, Step, Trace};
 
 const SPEC_MODULE: &str = "starstream";
@@ -164,6 +165,19 @@ impl QuintVerifier {
     /// coordinator state.
     pub fn verify(&self, trace: &Trace) -> Result<(), QuintError> {
         let module = render(trace);
+        self.verify_module(trace, module)
+    }
+
+    /// Replay explicit transaction boundaries against caller-supplied IO.
+    pub fn verify_transaction(
+        &self,
+        trace: &Trace,
+        statement: &crate::TransactionStatement,
+    ) -> Result<(), QuintError> {
+        self.verify_module(trace, render_with_statement(trace, Some(statement)))
+    }
+
+    fn verify_module(&self, trace: &Trace, module: RenderedModule) -> Result<(), QuintError> {
         let id = self.next_module.fetch_add(1, Ordering::Relaxed);
 
         let module_path = self.staged_spec.path().join(format!("replay_{id}.qnt"));
@@ -324,11 +338,59 @@ impl RenderedModule {
 }
 
 fn render(trace: &Trace) -> RenderedModule {
+    render_with_statement(trace, None)
+}
+
+fn render_with_statement(
+    trace: &Trace,
+    statement: Option<&crate::TransactionStatement>,
+) -> RenderedModule {
+    let initial = statement.map_or_else(
+        || "new_tx".to_owned(),
+        |statement| {
+            let inputs = statement
+                .inputs
+                .iter()
+                .map(|input| {
+                    let methods = input
+                        .methods
+                        .iter()
+                        .map(|method| Qnt(method).to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!(
+                        "{{ storage: {}, methods: List({methods}) }}",
+                        Qnt(&input.storage)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let outputs = statement
+                .outputs
+                .iter()
+                .map(|output| {
+                    format!(
+                        "{{ utxo: {}, storage: {}, methods: List({}) }}",
+                        output.utxo,
+                        Qnt(&output.storage),
+                        output
+                            .methods
+                            .iter()
+                            .map(|m| Qnt(m).to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("new_transaction(List({inputs}), List({outputs}))")
+        },
+    );
     let mut lines = vec![
         format!("module {MODULE_NAME} {{"),
         format!("  import {SPEC_MODULE}.* from \"./{SPEC_MODULE}\""),
         String::new(),
-        "  action init = { state' = new_tx }".to_owned(),
+        format!("  action init = {{ state' = {initial} }}"),
         String::new(),
         format!("  run {RUN_NAME} = init"),
     ];
@@ -341,7 +403,14 @@ fn render(trace: &Trace) -> RenderedModule {
     }
 
     let complete_line = lines.len() + 1;
-    lines.push("    .then(execution_complete)".to_owned());
+    lines.push(format!(
+        "    .then({})",
+        if statement.is_some() {
+            "transaction_complete"
+        } else {
+            "execution_complete"
+        }
+    ));
     lines.push("}".to_owned());
 
     RenderedModule {
@@ -399,15 +468,29 @@ fn source_line(location: &str) -> Option<usize> {
 /// Renders `T` as the Quint literal the specification expects.
 struct Qnt<T>(T);
 
+const FIELD_HALF: u64 = (FIELD_MODULUS - 1) / 2;
+
+fn centered_word(word: u64) -> i64 {
+    if word >= FIELD_MODULUS {
+        // Preserve rejection of malformed Rust traces: never reduce an invalid
+        // word modulo p. This out-of-domain sentinel still fits Quint's i64.
+        (FIELD_HALF + 1) as i64
+    } else if word > FIELD_HALF {
+        -((FIELD_MODULUS - word) as i64)
+    } else {
+        word as i64
+    }
+}
+
 impl fmt::Display for Qnt<&StarstreamValue> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("List(")?;
 
-        for (index, limb) in self.0.0.iter().enumerate() {
+        for (index, word) in self.0.0.iter().copied().enumerate() {
             if index > 0 {
                 f.write_str(", ")?;
             }
-            write!(f, "{limb}")?;
+            write!(f, "{}", centered_word(word))?;
         }
 
         f.write_str(")")
@@ -438,6 +521,23 @@ where
 impl fmt::Display for Qnt<&Step> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
+            Step::SetStorage {
+                storage,
+                coordinator_handle,
+            } => {
+                write!(
+                    f,
+                    "set_storage({}, {})",
+                    Qnt(storage),
+                    Qnt(coordinator_handle)
+                )
+            }
+            Step::PreloadMethod { method } => write!(f, "preload_method({})", Qnt(method)),
+            Step::GetStorage { storage } => write!(f, "get_storage({})", Qnt(storage)),
+            Step::SkipConsumed => f.write_str("skip_consumed"),
+            Step::ReadAbi { method } => write!(f, "read_abi({})", Qnt(method)),
+            Step::FinishTransaction => f.write_str("finish_transaction"),
+            Step::FinalizeCoordinator => f.write_str("finalize_coordinator"),
             Step::NewUtxo {
                 arguments,
                 resource,
@@ -475,14 +575,29 @@ mod tests {
     use super::*;
     use crate::trace::{MethodHash, ResourceHandle, StarstreamValue};
 
-    // TODO:
-    // for now these are just tests of the spec
-    //
-    // naturally it doesn't really make much sense to do this, since this just
-    // translates Rust to a Quint test module and runs the CLI
-    //
-    // this currently mainly a placeholder for the next step, in which the Rust
-    // trace generated from the proving runtime will generate the trace to verify
+    #[test]
+    fn opaque_roots_use_canonical_centered_words() {
+        let root = StarstreamValue([0, FIELD_HALF, FIELD_HALF + 1, FIELD_MODULUS - 1]);
+        assert_eq!(
+            Qnt(&root).to_string(),
+            "List(0, 9223372034707292160, -9223372034707292160, -1)"
+        );
+        for word in [0, 1, FIELD_HALF, FIELD_HALF + 1, FIELD_MODULUS - 1] {
+            let centered = centered_word(word);
+            let restored = if centered < 0 {
+                i128::from(centered) + i128::from(FIELD_MODULUS)
+            } else {
+                i128::from(centered)
+            };
+            assert_eq!(restored, i128::from(word));
+        }
+        for invalid in [FIELD_MODULUS, u64::MAX] {
+            assert!(centered_word(invalid) > FIELD_HALF as i64);
+        }
+    }
+
+    // Middleware smoke tests: one accepted trace and one rejected trace ensure
+    // the Rust-to-Quint translation, CLI invocation, and error mapping work.
     #[test]
     #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
     fn replays_a_utxo_constructor() {
@@ -494,15 +609,14 @@ mod tests {
             EnterConstructor {
                 arguments: vec![0, 1, 2, 3].into(),
             },
-            YieldBegin,
             RegisterMethod {
-                method: MethodHash([1, 1, 1, 1]),
+                method: MethodHash([1, 0, 1, 0, 1, 0, 1, 0]),
             },
             Return {
-                result: StarstreamValue::from(vec![]).into(),
+                result: StarstreamValue::UNIT_VALUE.into(),
             },
             Return {
-                result: StarstreamValue::from(vec![]).into(),
+                result: StarstreamValue::UNIT_VALUE.into(),
             },
         ]);
 
@@ -514,27 +628,6 @@ mod tests {
 
     #[test]
     #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
-    fn rejects_a_constructor_that_disagrees_on_its_arguments() {
-        let trace = Trace::new([
-            NewUtxo {
-                arguments: vec![0, 1, 2, 3].into(),
-                resource: ResourceHandle(0).into(),
-            },
-            EnterConstructor {
-                arguments: vec![4, 5, 6, 7].into(),
-            },
-        ]);
-
-        let error = QuintVerifier::new().unwrap().verify(&trace).unwrap_err();
-
-        assert!(
-            matches!(error, QuintError::RejectedStep { index: 1, .. }),
-            "{error}"
-        );
-    }
-
-    #[test]
-    #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
     fn rejects_a_return_without_entering_constructor() {
         let trace = Trace::new([
             NewUtxo {
@@ -542,7 +635,7 @@ mod tests {
                 resource: ResourceHandle(0).into(),
             },
             Return {
-                result: StarstreamValue::from(vec![]).into(),
+                result: StarstreamValue::UNIT_VALUE.into(),
             },
         ]);
 
