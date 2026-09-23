@@ -391,7 +391,7 @@ module.exports = grammar({
     runtime_expression: ($) =>
       seq("runtime", field("callee", $._primary_expression), $.arguments),
 
-    error_expression: ($) => "error",
+    error_expression: ($) => seq("error"),
 
     yield_expression: ($) =>
       seq(

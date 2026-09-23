@@ -22,6 +22,7 @@
   "abi"
   "event"
   "emit"
+  "error"
   "import"
   "from"
   "as"
