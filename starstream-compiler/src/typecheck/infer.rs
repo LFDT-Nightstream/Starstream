@@ -609,6 +609,11 @@ impl Inferencer {
             }
         }
 
+        // Bodies require successfully registered signatures and UTXO types.
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+
         // Typecheck function bodies.
         for definition in definitions {
             match &definition.node {
@@ -1025,11 +1030,58 @@ impl Inferencer {
             }
         }
 
+        let public_functions = def
+            .parts
+            .iter()
+            .filter_map(|part| match part {
+                UtxoPart::Function(function)
+                    if function.export == Some(FunctionExport::UtxoPublic) =>
+                {
+                    Some(function.as_ref())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let mut public_methods = Vec::new();
+        if !public_functions.is_empty() {
+            // Public names must be unambiguous even when an explicit ABI is
+            // exposed at only some yield points.
+            for public in &public_functions {
+                for part in &def.parts {
+                    let functions: Vec<&FunctionDef> = match part {
+                        UtxoPart::Function(function) => vec![function.as_ref()],
+                        UtxoPart::AbiImpl { parts, .. } => parts.iter().collect(),
+                        UtxoPart::Storage(_) => vec![],
+                    };
+                    for other in functions {
+                        if !std::ptr::eq(*public, other) && public.name == other.name {
+                            return Err(TypeError::new(
+                                TypeErrorKind::Redeclaration {
+                                    name: public.name.to_string(),
+                                },
+                                public.name.span,
+                            )
+                            .with_secondary(other.name.span, "also defined here"));
+                        }
+                    }
+                }
+            }
+            for function in public_functions {
+                let ty = Arc::new(self.function_def_to_type(env, function)?);
+                public_methods.push(TypedAbiMethodDecl {
+                    name: function.name.clone(),
+                    id: *self.function_names.get(function).unwrap(),
+                    ty,
+                });
+            }
+        }
+
         let ty = Type::Utxo(Arc::new(UtxoType {
             name: def.name.to_string(),
             id: self.next_name_id.fresh(),
             possible_abis,
             always_abis,
+            public_methods,
         }));
         env.root.insert_type(
             &def.name,
@@ -1176,23 +1228,18 @@ impl Inferencer {
 
         let mut methods = Vec::new();
         for part in &def.parts {
-            match part {
-                TokenPart::Function(function_def) => match function_def.export {
-                    Some(FunctionExport::TokenBurn) => {
-                        let ty = self.function_def_to_type(env, function_def)?;
-                        let Some(StaticFunction::Named(id)) = ty.callee else {
-                            unreachable!()
-                        };
-                        methods.push(TypedAbiMethodDecl {
-                            name: function_def.name.clone(),
-                            id,
-                            ty: Arc::new(ty),
-                        });
-                    }
-                    // TODO: `pub fn`s
-                    _ => {}
-                },
-                _ => {}
+            if let TokenPart::Function(function_def) = part
+                && let Some(FunctionExport::TokenBurn) = function_def.export
+            {
+                let ty = self.function_def_to_type(env, function_def)?;
+                let Some(StaticFunction::Named(id)) = ty.callee else {
+                    unreachable!()
+                };
+                methods.push(TypedAbiMethodDecl {
+                    name: function_def.name.clone(),
+                    id,
+                    ty: Arc::new(ty),
+                });
             }
         }
 
@@ -1215,19 +1262,15 @@ impl Inferencer {
         let mut ns = Namespace::default();
 
         for part in &def.parts {
-            match part {
-                TokenPart::Function(function_def) => match function_def.export {
-                    Some(FunctionExport::TokenMint) => {
-                        let mut func_ty = self.function_def_to_type(env, function_def)?;
-                        func_ty.result = ty.clone();
-                        ns.insert_constant(
-                            &function_def.name,
-                            ConstantInfo::new(function_def.name.span, Type::from(func_ty)),
-                        )?;
-                    }
-                    _ => {}
-                },
-                _ => {}
+            if let TokenPart::Function(function_def) = part
+                && let Some(FunctionExport::TokenMint) = function_def.export
+            {
+                let mut func_ty = self.function_def_to_type(env, function_def)?;
+                func_ty.result = ty.clone();
+                ns.insert_constant(
+                    &function_def.name,
+                    ConstantInfo::new(function_def.name.span, Type::from(func_ty)),
+                )?;
             }
         }
 
@@ -3146,12 +3189,13 @@ impl Inferencer {
                         Type::Function(method.ty.clone())
                     }
                     Type::Utxo(utxo) => 'method: {
-                        for abi in &utxo.always_abis {
-                            if let Some(method) =
-                                abi.methods.iter().find(|m| m.name.as_str() == field.name)
-                            {
-                                break 'method Type::Function(method.ty.clone());
-                            }
+                        if let Some(method) = utxo
+                            .public_methods
+                            .iter()
+                            .chain(utxo.always_abis.iter().flat_map(|abi| &abi.methods))
+                            .find(|method| method.name.as_str() == field.name)
+                        {
+                            break 'method Type::Function(method.ty.clone());
                         }
                         return Err(TypeError::new(
                             TypeErrorKind::AbiMethodNotFound {

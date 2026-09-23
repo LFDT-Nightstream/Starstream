@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Foo {\n    main fn new() { yield(); }\n    pub fn value() -> i64 { resume; }\n}\n"
+---
+E0009 (https://starstream.nightstream.dev/errors/E0009)
+
+  x return type `()` does not match function signature `i64`
+   ,-[test.star:3:23]
+ 2 |     main fn new() { yield(); }
+ 3 |     pub fn value() -> i64 { resume; }
+   :                       ^^^
+ 4 | }
+   `----

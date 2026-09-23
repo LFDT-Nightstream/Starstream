@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Foo {\n    main fn new() { yield(); }\n    pub fn value() {}\n}\nscript fn example(handle: Utxo) {\n    handle.value();\n}\n"
+---
+E0021 (https://starstream.nightstream.dev/errors/E0021)
+
+  x cannot access fields on value of type `Utxo`
+   ,-[test.star:6:5]
+ 5 | script fn example(handle: Utxo) {
+ 6 |     handle.value();
+   :     ^^^^^^
+ 7 | }
+   `----

@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi Extra { fn value(); }\nutxo Foo {\n    main fn new() { yield(); }\n    pub fn value() {}\n    impl Extra { fn value() {} }\n}\n"
+---
+E0002 (https://starstream.nightstream.dev/errors/E0002)
+
+  x variable `value` is already defined in this scope
+   ,-[test.star:4:12]
+ 3 |     main fn new() { yield(); }
+ 4 |     pub fn value() {}
+   :            ^^^^^
+ 5 |     impl Extra { fn value() {} }
+   :                     ^^|^^
+   :                       `-- also defined here
+ 6 | }
+   `----

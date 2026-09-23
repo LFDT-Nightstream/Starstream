@@ -1,0 +1,118 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/multifile/public_utxo
+---
+==== Workspace ====
+ModuleGraph {
+    modules.len(): 2,
+    topo_order: [
+        ModuleId(1),
+        ModuleId(0),
+    ],
+    edges: {
+        0: [
+            PathImport {
+                def_index: 1,
+                target: ModuleId(1),
+                span: 35..51,
+            },
+        ],
+    },
+    contract_entries: [
+        ModuleId(0),
+    ],
+}
+==== main.star ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  import starstream:std/utxo-context;
+  import starstream:events/observations;
+  import starstream:self/counter;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+  use starstream:std/utxo-context.{utxo-context as s-utxo-context};
+  use starstream:self/counter.{utxo as u-counter};
+
+  export run: func() -> s64;
+  @external-id("starstream:test:Call a public method on an imported UTXO")
+  export test8: func();
+  export counter: interface {
+    use starstream:std/utxo-context.{utxo-context as s-utxo-context};
+
+    resource utxo {
+      new: static func(utxo-context: s-utxo-context) -> utxo;
+      value: func() -> s64;
+    }
+
+    record storage {
+      yield: s32,
+      yield1: s32,
+      yield1-v1: s32,
+    }
+
+    get-storage: func(self: borrow<utxo>) -> storage;
+
+    set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
+  }
+}
+package starstream:std {
+  interface builtin {
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
+
+    resource token;
+  }
+  interface utxo-context {
+    resource utxo-context {
+      resume: func();
+      implements-method: func(hash: tuple<u64, u64, u64, u64>);
+    }
+  }
+}
+
+
+package starstream:events {
+  interface observations {
+    value: func(value: s64);
+  }
+}
+
+
+package starstream:self {
+  interface counter {
+    resource utxo {
+      new: static func() -> utxo;
+      value: func() -> s64;
+    }
+  }
+}
+
+==== Test: Call a public method on an imported UTXO ====
+events: [
+    Event {
+        abi_name: "observations",
+        name: "value",
+        params: [
+            S64(
+                42,
+            ),
+        ],
+    },
+]
+outputs: [
+    Ok(
+        UtxoCtx {
+            methods: [
+                (
+                    14723865125752685261,
+                    11928490445703387898,
+                    2262953834422274688,
+                    1803183780567105468,
+                ),
+            ],
+            dropped: false,
+        },
+    ),
+]

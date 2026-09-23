@@ -254,6 +254,8 @@ struct Compiler {
 }
 
 struct ResourceContext {
+    /// UTXO public methods advertised at every yield; empty for tokens.
+    public_methods: Vec<TypedAbiMethodDecl>,
     resume_fn: u32,
     resource_new_fn: u32,
     // resource_drop_fn: u32,
@@ -1550,6 +1552,14 @@ impl Compiler {
                             &wit_name,
                             &self.star_to_component_signature(None, &function.ty.params, &this_ty),
                         );
+                    } else if function.export == Some(FunctionExport::UtxoPublic) {
+                        self.import_utxo_method(
+                            &mut iface,
+                            &import_interface_name,
+                            &this_ty,
+                            function,
+                            function.id,
+                        );
                     }
                 }
                 TypedUtxoPart::AbiImpl {
@@ -1560,49 +1570,18 @@ impl Compiler {
                     let always_on = utxo.ty.always_abis.iter().any(|a| a == abi);
                     if always_on {
                         for function in parts {
-                            // Core import.
-                            let mut params = Vec::with_capacity(16);
-                            _ = self.star_to_core_types(function.name.span, &mut params, &this_ty);
-                            for p in &function.ty.params {
-                                _ = self.star_to_core_types(
-                                    p.name.span_or(function.name.span()),
-                                    &mut params,
-                                    &p.ty,
-                                );
-                            }
-                            let mut results = Vec::with_capacity(1);
-                            _ = self.star_to_core_types(
-                                function.name.span(),
-                                &mut results,
-                                &function.ty.result,
-                            );
-
-                            let wit_name = format!(
-                                "[method]{resource_name}.{}",
-                                to_kebab_case(function.name.as_str())
-                            );
-                            let idx = self.import_function(
-                                &import_interface_name,
-                                &wit_name,
-                                &FuncType::new(params, results),
-                            );
-                            let abi_function_id = abi
+                            let method_id = abi
                                 .methods
                                 .iter()
-                                .find(|m| m.name == function.name)
+                                .find(|method| method.name == function.name)
                                 .unwrap()
                                 .id;
-                            self.method_callables
-                                .insert((this_ty.clone(), abi_function_id), idx);
-
-                            // Component import.
-                            iface.export_fn(
-                                &wit_name,
-                                &self.star_to_component_signature(
-                                    Some(&this_ty),
-                                    &function.ty.params,
-                                    &function.ty.result,
-                                ),
+                            self.import_utxo_method(
+                                &mut iface,
+                                &import_interface_name,
+                                &this_ty,
+                                function,
+                                method_id,
                             );
                         }
                     }
@@ -1613,6 +1592,44 @@ impl Compiler {
         // Import interface.
         self.world_type
             .import_interface(&import_interface_name, &iface);
+    }
+
+    /// Import a method on a concrete UTXO, whether public or provided by an ABI.
+    fn import_utxo_method(
+        &mut self,
+        iface: &mut TypeBuilder<InstanceType>,
+        import_interface_name: &str,
+        this_ty: &Type,
+        function: &TypedFunctionDef,
+        method_id: NameId,
+    ) {
+        // Core import.
+        let mut params = Vec::with_capacity(16);
+        _ = self.star_to_core_types(function.name.span, &mut params, this_ty);
+        for p in &function.ty.params {
+            _ = self.star_to_core_types(p.name.span_or(function.name.span()), &mut params, &p.ty);
+        }
+        let mut results = Vec::with_capacity(1);
+        _ = self.star_to_core_types(function.name.span(), &mut results, &function.ty.result);
+
+        let wit_name = format!("[method]utxo.{}", to_kebab_case(function.name.as_str()));
+        let idx = self.import_function(
+            import_interface_name,
+            &wit_name,
+            &FuncType::new(params, results),
+        );
+        self.method_callables
+            .insert((this_ty.clone(), method_id), idx);
+
+        // Component import.
+        iface.export_fn(
+            &wit_name,
+            &self.star_to_component_signature(
+                Some(this_ty),
+                &function.ty.params,
+                &function.ty.result,
+            ),
+        );
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
@@ -1644,6 +1661,7 @@ impl Compiler {
             resource_new_fn,
             // resource_drop_fn,
             resource_local: u32::MAX,
+            public_methods: utxo.ty.public_methods.clone(),
         });
 
         let utxo_context_resource = self.builtins.utxo_context_resource.clone().unwrap();
@@ -1700,6 +1718,14 @@ impl Compiler {
                             );
                             iface.export_fn(&wit_name, &sig);
                         }
+                    } else if function.export == Some(FunctionExport::UtxoPublic) {
+                        self.export_utxo_method(
+                            &mut iface,
+                            &export_interface_name,
+                            &this_ty,
+                            function,
+                            &(&() as &dyn Locals, &utxo_storage),
+                        );
                     } else {
                         // No context on private fns for now.
                         self.visit_function(
@@ -1717,35 +1743,13 @@ impl Compiler {
                 } => {
                     // TODO: generate cast functions
                     for function in parts {
-                        // Core export.
-                        let core = self.visit_function(
-                            Some(&this_ty),
-                            None,
+                        self.export_utxo_method(
+                            &mut iface,
+                            &export_interface_name,
+                            &this_ty,
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
-                        let sig = self.star_to_component_signature(
-                            Some(&this_ty),
-                            &function.ty.params,
-                            &function.ty.result,
-                        );
-                        let wit_name = format!(
-                            "[method]{resource_name}.{}",
-                            to_kebab_case(function.name.as_str())
-                        );
-                        if let Some(func_idx) = self.make_component_export_wrapper_fn(
-                            function.name.span,
-                            &sig,
-                            core.idx,
-                            &core.ty,
-                            Vec::new(),
-                        ) {
-                            self.export_core_fn(
-                                &format!("{export_interface_name}#{wit_name}"),
-                                func_idx,
-                            );
-                            iface.export_fn(&wit_name, &sig);
-                        }
                     }
                 }
             }
@@ -1775,6 +1779,35 @@ impl Compiler {
         self.star_to_component
             .insert(this_ty, old_resource.unwrap());
         self.current_resource = None;
+    }
+
+    /// Export a UTXO method using the same receiver convention for public and ABI methods.
+    fn export_utxo_method(
+        &mut self,
+        iface: &mut TypeBuilder<InstanceType>,
+        export_interface_name: &str,
+        this_ty: &Type,
+        function: &TypedFunctionDef,
+        locals: &dyn Locals,
+    ) {
+        // Core export.
+        let core = self.visit_function(Some(this_ty), None, function, locals);
+        let sig = self.star_to_component_signature(
+            Some(this_ty),
+            &function.ty.params,
+            &function.ty.result,
+        );
+        let wit_name = format!("[method]utxo.{}", to_kebab_case(function.name.as_str()));
+        if let Some(func_idx) = self.make_component_export_wrapper_fn(
+            function.name.span,
+            &sig,
+            core.idx,
+            &core.ty,
+            Vec::new(),
+        ) {
+            self.export_core_fn(&format!("{export_interface_name}#{wit_name}"), func_idx);
+            iface.export_fn(&wit_name, &sig);
+        }
     }
 
     fn pre_visit_token(&mut self, token: &TypedTokenDef) {
@@ -1940,6 +1973,7 @@ impl Compiler {
         // a `mint fn` body cannot yield.
         self.current_resource = Some(ResourceContext {
             resume_fn: u32::MAX,
+            public_methods: Vec::new(),
             resource_new_fn,
             resource_local: u32::MAX,
         });
@@ -3383,15 +3417,18 @@ impl Compiler {
                         .global_set(globals + (i as u32));
                 }
 
-                // Calls to indicate ABIs exposed
-                for abi in abis {
-                    for method in &abi.methods {
-                        func.instructions(bb)
-                            .global_get(self.context_global.unwrap());
-                        self.push_method_identity(func, bb, method);
-                        func.instructions(bb)
-                            .call(self.builtins.implements_method.unwrap());
-                    }
+                // Advertise explicit ABI methods and public methods at every yield.
+                let public_methods = &self.current_resource.as_ref().unwrap().public_methods;
+                for method in abis
+                    .iter()
+                    .flat_map(|abi| &abi.methods)
+                    .chain(public_methods)
+                {
+                    func.instructions(bb)
+                        .global_get(self.context_global.unwrap());
+                    self.push_method_identity(func, bb, method);
+                    func.instructions(bb)
+                        .call(self.builtins.implements_method.unwrap());
                 }
 
                 // Split yield & resume blocks
@@ -3457,7 +3494,7 @@ impl Compiler {
     }
 
     fn push_method_identity(
-        &mut self,
+        &self,
         func: &mut StFunction,
         bb: &mut usize,
         method: &TypedAbiMethodDecl,

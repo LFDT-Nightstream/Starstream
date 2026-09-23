@@ -63,7 +63,6 @@ fn try_paths<F: Fn(&Path, &mut String)>(pattern: &str, func: F) {
                     "==== Partial output for {path:?} ====\n{output}==== End partial output for {path:?} ===="
                 );
                 panicked.push((path.to_owned(), e));
-                return;
             }
         }
     };
@@ -98,7 +97,7 @@ where
 }
 
 fn wit(component_wasm: &[u8]) -> impl std::fmt::Display {
-    let decoded = wit_component::decode(&component_wasm).unwrap();
+    let decoded = wit_component::decode(component_wasm).unwrap();
     let mut printer = wit_component::WitPrinter::default();
     printer.emit_docs(true);
     let ids = decoded

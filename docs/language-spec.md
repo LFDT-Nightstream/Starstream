@@ -105,7 +105,7 @@ storage_utxo_part ::= "storage" "{" utxo_global* "}"
 
 utxo_global ::= "let" "mut" identifier ":" type_annotation ";"
 
-fn_utxo_part ::= ("main")? function
+fn_utxo_part ::= ("main" | "pub")? function
 
 abi_impl_utxo_part ::= "impl" identifier "{" impl_part* "}"
 
@@ -780,3 +780,40 @@ The basic flow for a coordination script interacting with a Utxo resembles:
     - Methods containing `resume` statements must return unit. The `resume` statement transfers control flow to the current `yield` point and runs until another `yield` point is hit, at which point the caller sees the method as having returned. Such methods therefore affect the Utxo's lifetime.
       - Flow typing by the caller is responsible for tracking the handle used to call the method.
       - In Rust terms, `fn(self) -> Self`, `-> Utxo`, `-> Option<Utxo>`, etc.
+
+### Public UTXO methods
+
+A `pub fn` directly inside a `utxo` declares a method exposed at every yield
+point in every `main fn` of that UTXO. Public methods are available alongside
+the methods from explicitly yielded ABIs:
+
+```starstream
+utxo Foo {
+    main fn new() {
+        yield();
+    }
+
+    pub fn value() -> i64 {
+        42
+    }
+}
+
+script fn example() -> i64 {
+    Foo::new().value()
+}
+```
+
+Public methods are callable on concrete `Foo` handles without an ABI cast.
+Erasing a handle to `Utxo` loses this static access; downcast it back to `Foo`
+to recover access. Public methods do not bypass UTXO lifetime rules.
+
+Their bodies follow the same rules as explicit ABI methods: they may access
+storage, and methods using `resume` must return unit. A public `resume` method
+can advance execution from any yield point. Public methods cannot themselves
+`yield`. Plain `fn` declarations remain private helpers.
+
+A public method's name must not conflict with another function (including
+constructors and private helpers) or an ABI implementation method in the same
+UTXO. Public methods do not declare a named ABI.
+`pub fn` is only permitted directly inside a `utxo`, not at the top level,
+in a token, or inside an ABI declaration or implementation.

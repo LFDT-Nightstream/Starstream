@@ -1,0 +1,35 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Foo {\n    main fn new() { yield(); }\n    pub fn value() -> i64 { 1 }\n}\nutxo Bar {\n    main fn new() { yield(); }\n    pub fn value() -> bool { true }\n}\nscript fn number() -> i64 { Foo::new().value() }\nscript fn boolean() -> bool { Bar::new().value() }\n"
+---
+T-Utxo: Foo => 
+  T-Fn: new => ()
+    T-Expr: {new: fn() -> ()} ⊢ yield(); ⇒ ()
+  T-Fn: value => i64
+    T-ReturnTail: 1 => i64
+      T-Int: {new: fn() -> (), value: fn() -> i64} ⊢ 1 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t3}
+
+T-Utxo: Bar => 
+  T-Fn: new => ()
+    T-Expr: {new: fn() -> ()} ⊢ yield(); ⇒ ()
+  T-Fn: value => bool
+    T-ReturnTail: true => bool
+      T-Bool: {new: fn() -> (), value: fn() -> bool} ⊢ true ⇒ bool
+      Unify-Const: bool ~ bool => {}
+
+T-Fn: number => i64
+  T-ReturnTail: Foo::new().value() => i64
+    T-Call: {number: fn() -> i64} ⊢ Foo::new().value() ⇒ i64
+      T-FieldAccess: {number: fn() -> i64} ⊢ Foo::new().value ⇒ fn() -> i64
+        T-Call: {number: fn() -> i64} ⊢ Foo::new() ⇒ Foo
+          T-Var: {number: fn() -> i64} ⊢ Foo::new ⇒ fn() -> Foo
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: boolean => bool
+  T-ReturnTail: Bar::new().value() => bool
+    T-Call: {boolean: fn() -> bool, number: fn() -> i64} ⊢ Bar::new().value() ⇒ bool
+      T-FieldAccess: {boolean: fn() -> bool, number: fn() -> i64} ⊢ Bar::new().value ⇒ fn() -> bool
+        T-Call: {boolean: fn() -> bool, number: fn() -> i64} ⊢ Bar::new() ⇒ Bar
+          T-Var: {boolean: fn() -> bool, number: fn() -> i64} ⊢ Bar::new ⇒ fn() -> Bar
+    Unify-Const: bool ~ bool => {}

@@ -157,7 +157,7 @@ module.exports = grammar({
     utxo_global: ($) =>
       seq("let", "mut", $.identifier, ":", $.type_annotation, ";"),
 
-    fn_utxo_part: ($) => seq(optional("main"), $._function),
+    fn_utxo_part: ($) => seq(optional(choice("main", "pub")), $._function),
 
     abi_impl_utxo_part: ($) =>
       seq("impl", $.identifier, "{", repeat($.impl_part), "}"),

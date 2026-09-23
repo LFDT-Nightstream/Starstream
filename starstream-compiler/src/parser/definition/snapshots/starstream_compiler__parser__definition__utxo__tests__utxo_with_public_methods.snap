@@ -1,0 +1,122 @@
+---
+source: starstream-compiler/src/parser/definition/utxo.rs
+description: "Code:\n\nutxo Foo {\n    main fn new() { yield(); }\n    pub fn value(pub x: i64) -> i64 { x }\n    pub fn advance() { resume; }\n}\n"
+---
+UtxoDef {
+    name: Identifier {
+        name: "Foo",
+        span: 5..8,
+    },
+    parts: [
+        Function(
+            FunctionDef {
+                export: Some(
+                    UtxoMain,
+                ),
+                name: Identifier {
+                    name: "new",
+                    span: 23..26,
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [
+                        Spanned {
+                            node: Expression(
+                                Spanned {
+                                    node: Yield {
+                                        abis: [],
+                                    },
+                                    span: 31..38,
+                                },
+                            ),
+                            span: 31..40,
+                        },
+                    ],
+                    tail_expression: None,
+                    span: 29..46,
+                },
+            },
+        ),
+        Function(
+            FunctionDef {
+                export: Some(
+                    UtxoPublic,
+                ),
+                name: Identifier {
+                    name: "value",
+                    span: 53..58,
+                },
+                params: [
+                    FunctionParam {
+                        public: true,
+                        name: Identifier {
+                            name: "x",
+                            span: 63..64,
+                        },
+                        ty: Named {
+                            name: [
+                                Identifier {
+                                    name: "i64",
+                                    span: 66..69,
+                                },
+                            ],
+                            generics: [],
+                        },
+                    },
+                ],
+                return_type: Some(
+                    Named {
+                        name: [
+                            Identifier {
+                                name: "i64",
+                                span: 74..77,
+                            },
+                        ],
+                        generics: [],
+                    },
+                ),
+                body: Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: ScopedName(
+                                [
+                                    Identifier {
+                                        name: "x",
+                                        span: 80..81,
+                                    },
+                                ],
+                            ),
+                            span: 80..82,
+                        },
+                    ),
+                    span: 78..88,
+                },
+            },
+        ),
+        Function(
+            FunctionDef {
+                export: Some(
+                    UtxoPublic,
+                ),
+                name: Identifier {
+                    name: "advance",
+                    span: 95..102,
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [
+                        Spanned {
+                            node: Resume,
+                            span: 107..115,
+                        },
+                    ],
+                    tail_expression: None,
+                    span: 105..117,
+                },
+            },
+        ),
+    ],
+}

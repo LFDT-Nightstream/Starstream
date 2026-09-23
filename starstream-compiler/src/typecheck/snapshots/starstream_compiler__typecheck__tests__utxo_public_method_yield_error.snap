@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Foo {\n    main fn new() { yield(); }\n    pub fn value() { yield(); }\n}\n"
+---
+E0051 (https://starstream.nightstream.dev/errors/E0051)
+
+  x `yield` can only be used inside a `main fn`
+   ,-[test.star:3:22]
+ 2 |     main fn new() { yield(); }
+ 3 |     pub fn value() { yield(); }
+   :                      ^^^^^^^
+ 4 | }
+   `----
