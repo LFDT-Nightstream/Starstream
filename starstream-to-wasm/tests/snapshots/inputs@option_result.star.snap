@@ -2665,21 +2665,24 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;1;) (func (result i32 i64)))
-  (type (;2;) (func (param i32 i64) (result i64)))
-  (type (;3;) (func (param i32 i64 i32 i64)))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
-  (export "run" (func 7))
-  (func (;1;) (type 1) (result i32 i64)
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;2;) (func (result i32 i64)))
+  (type (;3;) (func (param i32 i64) (result i64)))
+  (type (;4;) (func (param i32 i64 i32 i64)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (export "run" (func 9))
+  (func (;3;) (type 2) (result i32 i64)
     (i32.const 1)
     (i64.const 42)
   )
-  (func (;2;) (type 1) (result i32 i64)
+  (func (;4;) (type 2) (result i32 i64)
     (i32.const 0)
     (i64.const 0)
   )
-  (func (;3;) (type 2) (param i32 i64) (result i64)
+  (func (;5;) (type 3) (param i32 i64) (result i64)
     (local i32 i64 i64)
     (block (result i64) ;; label = @1
       (block ;; label = @2
@@ -2703,11 +2706,11 @@ TypedProgram {
         (local.get 3))
       (local.get 4))
   )
-  (func (;4;) (type 1) (result i32 i64)
+  (func (;6;) (type 2) (result i32 i64)
     (i32.const 0)
     (i64.const 42)
   )
-  (func (;5;) (type 1) (result i32 i64)
+  (func (;7;) (type 2) (result i32 i64)
     (local i64)
     (i32.const 1)
     (local.set 0
@@ -2715,7 +2718,7 @@ TypedProgram {
         (i32.const 0)))
     (local.get 0)
   )
-  (func (;6;) (type 2) (param i32 i64) (result i64)
+  (func (;8;) (type 3) (param i32 i64) (result i64)
     (local i32 i64 i64 i32)
     (block (result i64) ;; label = @1
       (block ;; label = @2
@@ -2742,13 +2745,13 @@ TypedProgram {
         (local.get 3))
       (local.get 4))
   )
-  (func (;7;) (type 3) (param i32 i64 i32 i64)
+  (func (;9;) (type 4) (param i32 i64 i32 i64)
     (drop
-      (call 3
-        (call 1)))
+      (call 5
+        (call 3)))
     (drop
-      (call 6
-        (call 4)))
+      (call 8
+        (call 6)))
   )
   (@custom "component-type"
     (component
