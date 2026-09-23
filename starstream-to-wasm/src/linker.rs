@@ -10,21 +10,19 @@ impl CompileResult {
             panic!("CompileResult::to_component has no wasm")
         };
         let mut encoder = ComponentEncoder::default();
-        encoder = encoder.validate(true);
-        encoder = encoder
+        encoder.validate(true);
+        encoder
             .module(&wasm)
             .expect("ComponentEncoder::module failed");
 
         // Imported core modules are combined into the main component using `ComponentEncoder`.
         for (name, bytes, linkage) in &self.libraries {
             if matches!(linkage, WasmLinkage::Core) {
-                encoder = encoder
+                encoder
                     .library(
                         name,
                         bytes,
                         LibraryInfo {
-                            // This must be `false` for our main module to see it.
-                            instantiate_after_shims: false,
                             arguments: Default::default(),
                         },
                     )

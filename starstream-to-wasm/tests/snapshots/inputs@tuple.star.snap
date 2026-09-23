@@ -1589,15 +1589,18 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;1;) (func (param i64 i32) (result i32 i64)))
-  (type (;2;) (func (param i64 i64) (result i64)))
-  (type (;3;) (func (param i64 i64 i32) (result i64)))
-  (type (;4;) (func (result i64)))
-  (type (;5;) (func))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
-  (export "run-tuples" (func 5))
-  (func (;1;) (type 1) (param i64 i32) (result i32 i64)
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;2;) (func (param i64 i32) (result i32 i64)))
+  (type (;3;) (func (param i64 i64) (result i64)))
+  (type (;4;) (func (param i64 i64 i32) (result i64)))
+  (type (;5;) (func (result i64)))
+  (type (;6;) (func))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (export "run-tuples" (func 7))
+  (func (;3;) (type 2) (param i64 i32) (result i32 i64)
     (local i64 i32 i32 i64)
     (local.set 2
       (local.get 0)
@@ -1610,7 +1613,7 @@ TypedProgram {
     (local.get 4)
     (local.get 5)
   )
-  (func (;2;) (type 2) (param i64 i64) (result i64)
+  (func (;4;) (type 3) (param i64 i64) (result i64)
     (local i64)
     (local.tee 2
       (i64.add
@@ -1633,7 +1636,7 @@ TypedProgram {
       (then
         (unreachable)))
   )
-  (func (;3;) (type 3) (param i64 i64 i32) (result i64)
+  (func (;5;) (type 4) (param i64 i64 i32) (result i64)
     (local i64 i64 i32)
     (block (result i64) ;; label = @1
       (block ;; label = @2
@@ -1652,15 +1655,15 @@ TypedProgram {
           (unreachable))
         (br 1 (;@1;)
           (local.get 3)))
-      (call 2
+      (call 4
         (local.get 3)
         (local.get 4)))
   )
-  (func (;4;) (type 4) (result i64)
+  (func (;6;) (type 5) (result i64)
     (local i32 i64)
     (block (result i64) ;; label = @1
       (block ;; label = @2
-        (call 1
+        (call 3
           (i64.const 1)
           (i32.const 1))
         (local.set 1)
@@ -1676,11 +1679,11 @@ TypedProgram {
           (i64.const 0)))
       (local.get 1))
   )
-  (func (;5;) (type 5)
+  (func (;7;) (type 6)
     (drop
-      (call 4))
+      (call 6))
     (drop
-      (call 3
+      (call 5
         (i64.const 1)
         (i64.const 2)
         (i32.const 1)))

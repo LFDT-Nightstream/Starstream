@@ -243,11 +243,13 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;1;) (func (param i32)))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
-  (export "assert-small" (func 1))
-  (func (;1;) (type 1) (param i32)
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (export "assert-small" (func 3))
+  (func (;3;) (type 0) (param i32)
     (block ;; label = @1
       (block ;; label = @2
         (br_if 0 (;@2;)

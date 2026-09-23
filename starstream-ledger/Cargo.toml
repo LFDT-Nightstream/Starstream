@@ -10,6 +10,10 @@ license.workspace = true
 [features]
 default = ["client", "server"]
 client = [
+    "dep:tokio",
+    "dep:wasm-tokio",
+    "dep:wasmtime",
+    "dep:wasmtime-wizer",
     "dep:wit-bindgen-wrpc",
     "hyper-util/client",
     "hyper-util/client-legacy",
@@ -19,14 +23,12 @@ server = [
     "dep:futures",
     "dep:headers-accept",
     "dep:headers-core",
-    "dep:hex",
     "dep:http-body",
     "dep:hyper",
-    "dep:starstream-runtime-next",
     "dep:tokio",
     "dep:wasm-tokio",
+    "dep:wasmparser",
     "dep:wasmtime",
-    "dep:wasmtime-wizer",
     "hyper-util/server",
     "hyper-util/server-auto",
     "hyper-util/server-graceful",
@@ -36,23 +38,24 @@ server = [
 [dependencies]
 anyhow = { workspace = true }
 bytes = { workspace = true }
-ciborium = { workspace = true, features = ["std"] }
 coset = { workspace = true, features = ["std"] }
 ed25519-dalek = { workspace = true, features = ["fast", "std", "zeroize"] }
 futures = { workspace = true, optional = true }
 headers-accept = { workspace = true, optional = true }
 headers-core = { workspace = true, optional = true }
-hex = { workspace = true, optional = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
 http = { workspace = true, features = ["std"] }
 http-body = { workspace = true, optional = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true, optional = true, features = ["server"] }
 hyper-util = { workspace = true, features = ["http1", "http2"] }
 mediatype = { workspace = true }
+minicbor = { workspace = true, features = ["derive", "std"] }
 multibase = { workspace = true, features = ["std"] }
 multihash = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
-starstream-runtime-next = { workspace = true, optional = true }
+starstream-runtime-next = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true, features = [
     "net",
@@ -63,6 +66,8 @@ tokio = { workspace = true, optional = true, features = [
 tokio-util = { workspace = true, features = ["codec"] }
 tracing = { workspace = true, features = ["attributes"] }
 wasm-tokio = { workspace = true, optional = true }
+wasmparser = { workspace = true, optional = true }
+wasmprinter = { workspace = true }
 wasmtime = { workspace = true, optional = true, features = [
     "anyhow",
     "async",
@@ -85,4 +90,5 @@ tokio = { workspace = true, features = [
     "macros",
     "rt-multi-thread",
 ] }
+wat = { workspace = true }
 wit-component = { workspace = true }

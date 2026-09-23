@@ -4,9 +4,9 @@ use std::sync::{Arc, LazyLock, Mutex};
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::typecheck::TypecheckSuccess;
 use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
-use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, bindings};
+use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use tracing::instrument;
-use wasmtime::component::{Component, Resource, ResourceTable, Val};
+use wasmtime::component::{Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, StoreContextMut, bail, ensure, format_err};
 
@@ -16,7 +16,7 @@ pub static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(|| {
     wasmtime::Engine::new(config).expect("failed to construct engine")
 });
 
-pub fn compile_contract(source: &str) -> wasmtime::Result<Component> {
+pub fn compile_contract(source: &str) -> wasmtime::Result<Vec<u8>> {
     let (program, errs) = parse_program(source).into_output_errors();
     ensure!(errs.is_empty(), "failed to parse program: {errs:?}");
     let program = program.context("parser did not produce a program")?;
@@ -33,8 +33,7 @@ pub fn compile_contract(source: &str) -> wasmtime::Result<Component> {
         compile_result.errors
     );
 
-    let wasm = compile_result.to_component().unwrap();
-    Component::from_binary(&ENGINE, &wasm).context("failed to compile component")
+    Ok(compile_result.to_component().unwrap())
 }
 
 pub fn method_hash(name: &str) -> (u64, u64, u64, u64) {
@@ -99,6 +98,9 @@ impl Host for Ctx {
 
     async fn call_utxo_main(
         mut store: StoreContextMut<'_, Self>,
+        _instance_name: Arc<str>,
+        _external_id: Option<Arc<str>>,
+        _export: UtxoExport,
         f: impl for<'a> FnOnce(
             StoreContextMut<'a, Self>,
             Self::UtxoContext,

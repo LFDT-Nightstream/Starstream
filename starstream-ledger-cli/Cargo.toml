@@ -20,7 +20,11 @@ clap = { workspace = true, features = [
     "suggestions",
     "usage",
 ] }
-ed25519-dalek = { workspace = true, features = ["fast", "rand_core", "zeroize"] }
+ed25519-dalek = { workspace = true, features = [
+    "fast",
+    "rand_core",
+    "zeroize",
+] }
 hex = { workspace = true, features = ["std"] }
 http = { workspace = true, features = ["std"] }
 hyper-util = { workspace = true, features = [
@@ -32,6 +36,7 @@ hyper-util = { workspace = true, features = [
 rand_core = { workspace = true, features = ["getrandom", "std"] }
 sha2 = { workspace = true }
 starstream-ledger = { workspace = true, features = ["client"] }
+toml = { workspace = true, features = ["display", "serde"] }
 tokio = { workspace = true, features = [
     "fs",
     "io-std",
@@ -48,17 +53,23 @@ tracing-subscriber = { workspace = true, features = [
     "tracing-log",
 ] }
 wasm-wave = { workspace = true, features = ["wit"] }
-wit-parser = { version = "0.258.0", default-features = false, features = [
-    "decoding",
+wasmtime = { workspace = true, features = [
+    "anyhow",
+    "component-model",
+    "cranelift",
+    "wave",
 ] }
+wit-parser = { workspace = true, features = ["decoding"] }
 wrpc-wave = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+minicbor = { workspace = true, features = ["std"] }
 starstream-compiler = { workspace = true }
 starstream-ledger = { workspace = true, features = ["server"] }
+starstream-runtime-next = { workspace = true }
 starstream-to-wasm = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs", "net", "process"] }
-wasmtime = { workspace = true }
+toml = { workspace = true, features = ["parse"] }
 wit-component = { workspace = true }

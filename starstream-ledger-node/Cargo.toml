@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true, features = [
     "color",
     "derive",
@@ -21,14 +22,17 @@ clap = { workspace = true, features = [
 ] }
 ed25519-dalek = { workspace = true, features = ["fast", "zeroize"] }
 hex = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
-starstream-ledger = { workspace = true, features = ["server"] }
+starstream-ledger = { workspace = true, features = ["client", "server"] }
 tokio = { workspace = true, features = [
+    "fs",
     "macros",
     "rt-multi-thread",
     "signal",
     "time",
 ] }
+toml = { workspace = true, features = ["parse", "serde"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "ansi",
@@ -37,4 +41,6 @@ tracing-subscriber = { workspace = true, features = [
     "smallvec",
     "tracing-log",
 ] }
-wasmtime = { workspace = true }
+wasm-wave = { workspace = true }
+wasmtime = { workspace = true, features = ["component-model", "wave"] }
+wasmtime-wizer = { workspace = true, features = ["component-model", "wasmtime"] }

@@ -3494,8 +3494,8 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func (param i64) (result i64)))
-  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;2;) (func (param i32)))
+  (type (;1;) (func (param i32)))
+  (type (;2;) (func (param i32 i64 i64 i64 i64) (result i32)))
   (type (;3;) (func (param i32 i64 i64 i64 i64)))
   (type (;4;) (func (param i32 i64)))
   (type (;5;) (func (param i32) (result i32)))
@@ -3505,15 +3505,18 @@ TypedProgram {
   (type (;9;) (func (param i32) (result i32 i64 i32 i64 i32)))
   (type (;10;) (func (param i32 i32 i64 i32 i64 i32) (result i32)))
   (import "sha256lib" "sha256-u64" (func (;0;) (type 0)))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
-  (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;2;) (type 2)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;3;) (type 2)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;4;) (type 3)))
-  (import "starstream:contract/dynamic-utxo" "consume" (func (;5;) (type 4)))
-  (import "[export]require-hash-preimage" "[resource-new]utxo" (func (;6;) (type 5)))
-  (import "[export]require-hash-preimage" "[resource-drop]utxo" (func (;7;) (type 2)))
-  (import "starstream:self/require-hash-preimage" "[static]utxo.create" (func (;8;) (type 6)))
-  (import "starstream:self/require-hash-preimage" "[method]utxo.consume" (func (;9;) (type 4)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;2;) (type 2)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;3;) (type 1)))
+  (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;4;) (type 1)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;5;) (type 1)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;6;) (type 3)))
+  (import "starstream:contract/dynamic-utxo" "consume" (func (;7;) (type 4)))
+  (import "starstream:self/require-hash-preimage" "[resource-drop]utxo" (func (;8;) (type 1)))
+  (import "[export]require-hash-preimage" "[resource-new]utxo" (func (;9;) (type 5)))
+  (import "[export]require-hash-preimage" "[resource-drop]utxo" (func (;10;) (type 1)))
+  (import "starstream:self/require-hash-preimage" "[static]utxo.create" (func (;11;) (type 6)))
+  (import "starstream:self/require-hash-preimage" "[method]utxo.consume" (func (;12;) (type 4)))
   (memory (;0;) 1)
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
@@ -3521,31 +3524,31 @@ TypedProgram {
   (global (;3;) (mut i32) (i32.const 0))
   (global (;4;) (mut i64) (i64.const 0))
   (global (;5;) (mut i32) (i32.const 0))
-  (export "require-hash-preimage#[static]utxo.create" (func 11))
-  (export "require-hash-preimage#[method]utxo.consume" (func 13))
-  (export "require-hash-preimage#get-storage" (func 15))
-  (export "require-hash-preimage#set-storage" (func 16))
-  (export "create-hash" (func 17))
-  (export "consume-hash" (func 18))
-  (export "test9" (func 19))
-  (export "test10" (func 20))
-  (export "test11" (func 21))
+  (export "require-hash-preimage#[static]utxo.create" (func 14))
+  (export "require-hash-preimage#[method]utxo.consume" (func 16))
+  (export "require-hash-preimage#get-storage" (func 18))
+  (export "require-hash-preimage#set-storage" (func 19))
+  (export "create-hash" (func 20))
+  (export "consume-hash" (func 22))
+  (export "test10" (func 23))
+  (export "test11" (func 24))
+  (export "test12" (func 25))
   (export "memory" (memory 0))
-  (func (;10;) (type 7)
-    (call 3
+  (func (;13;) (type 7)
+    (call 5
       (global.get 1))
     (block ;; label = @1
       (br_if 0 (;@1;)
         (i32.ne
           (global.get 0)
           (i32.const 1)))
-      (return_call 12))
+      (return_call 15))
     (unreachable)
   )
-  (func (;11;) (type 8) (param i32 i64) (result i32)
+  (func (;14;) (type 8) (param i32 i64) (result i32)
     (local i32)
     (local.set 2
-      (call 6
+      (call 9
         (i32.const 0)))
     (global.set 1
       (local.get 0))
@@ -3559,7 +3562,7 @@ TypedProgram {
       (local.get 1))
     (global.set 5
       (local.get 2))
-    (call 4
+    (call 6
       (global.get 1)
       (i64.const -8176306661852515434)
       (i64.const -6925212332898645045)
@@ -3567,7 +3570,7 @@ TypedProgram {
       (i64.const -2385339763266749307))
     (local.get 2)
   )
-  (func (;12;) (type 7)
+  (func (;15;) (type 7)
     (local i32 i64 i32)
     (local.set 0
       (global.get 3))
@@ -3581,10 +3584,10 @@ TypedProgram {
       (global.get 5))
     (global.set 5
       (i32.const 0))
-    (call 2
+    (call 4
       (local.get 0))
   )
-  (func (;13;) (type 4) (param i32 i64)
+  (func (;16;) (type 4) (param i32 i64)
     (local i64 i64)
     (block ;; label = @1
       (block ;; label = @2
@@ -3599,19 +3602,19 @@ TypedProgram {
             (global.get 2)))
         (br 1 (;@1;)))
       (unreachable))
-    (return_call 10)
+    (return_call 13)
   )
-  (func (;14;) (type 9) (param i32) (result i32 i64 i32 i64 i32)
+  (func (;17;) (type 9) (param i32) (result i32 i64 i32 i64 i32)
     (global.get 0)
     (global.get 2)
     (global.get 3)
     (global.get 4)
     (global.get 5)
   )
-  (func (;15;) (type 5) (param i32) (result i32)
+  (func (;18;) (type 5) (param i32) (result i32)
     (local i32 i32 i64 i32 i64 i32)
     (i32.const 8)
-    (call 14
+    (call 17
       (local.get 0))
     (local.set 6)
     (local.set 5)
@@ -3636,7 +3639,7 @@ TypedProgram {
       (local.get 6))
     (i32.const 8)
   )
-  (func (;16;) (type 10) (param i32 i32 i64 i32 i64 i32) (result i32)
+  (func (;19;) (type 10) (param i32 i32 i64 i32 i64 i32) (result i32)
     (global.set 1
       (local.get 0))
     (global.set 0
@@ -3649,44 +3652,51 @@ TypedProgram {
       (local.get 4))
     (global.set 5
       (local.get 5))
-    (return_call 6
+    (return_call 9
       (i32.const 0))
   )
-  (func (;17;) (type 6) (param i64) (result i32)
-    (call 8
+  (func (;20;) (type 6) (param i64) (result i32)
+    (call 11
       (call 0
         (local.get 0)))
   )
-  (func (;18;) (type 4) (param i32 i64)
-    (call 9
+  (func (;21;) (type 4) (param i32 i64)
+    (call 12
       (local.get 0)
       (local.get 1))
   )
-  (func (;19;) (type 7)
+  (func (;22;) (type 4) (param i32 i64)
+    (call 21
+      (local.get 0)
+      (local.get 1))
+    (call 8
+      (local.get 0))
+  )
+  (func (;23;) (type 7)
     (local i32 i32)
     (local.set 0
-      (call 17
+      (call 20
         (i64.const 1)))
     (local.set 1
       (local.get 0))
-    (call 18
+    (call 21
       (local.get 1)
       (i64.const 1))
   )
-  (func (;20;) (type 7)
+  (func (;24;) (type 7)
     (local i32 i32)
     (local.set 0
-      (call 17
+      (call 20
         (i64.const 1)))
     (local.set 1
       (local.get 0))
-    (call 18
+    (call 21
       (local.get 1)
       (i64.const 2))
   )
-  (func (;21;) (type 7)
+  (func (;25;) (type 7)
     (drop
-      (call 17
+      (call 20
         (i64.const 1)))
   )
   (@custom "component-type"
@@ -3796,11 +3806,11 @@ TypedProgram {
               (type (;23;) (func (param "utxo" 19) (param "input" u64)))
               (export (;1;) "consume-hash" (func (type 23)))
               (type (;24;) (func))
-              (export (;2;) "test9" (external-id "starstream:test:Succeeds when matching") (func (type 24)))
+              (export (;2;) "test10" (external-id "starstream:test:Succeeds when matching") (func (type 24)))
               (type (;25;) (func))
-              (export (;3;) "test10" (external-id "starstream:test:Fails when not matching") (func (type 25)))
+              (export (;3;) "test11" (external-id "starstream:test:Fails when not matching") (func (type 25)))
               (type (;26;) (func))
-              (export (;4;) "test11" (external-id "starstream:test:Alive UTXO") (func (type 26)))
+              (export (;4;) "test12" (external-id "starstream:test:Alive UTXO") (func (type 26)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -3826,11 +3836,11 @@ world root {
   export create-hash: func(input: u64) -> u-require-hash-preimage;
   export consume-hash: func(utxo: borrow<u-require-hash-preimage>, input: u64);
   @external-id("starstream:test:Succeeds when matching")
-  export test9: func();
-  @external-id("starstream:test:Fails when not matching")
   export test10: func();
-  @external-id("starstream:test:Alive UTXO")
+  @external-id("starstream:test:Fails when not matching")
   export test11: func();
+  @external-id("starstream:test:Alive UTXO")
+  export test12: func();
   export require-hash-preimage: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
@@ -3905,9 +3915,9 @@ panic: call_coordination_script: failed to call function
 Caused by:
     0: failed to call function
     1: error while executing at wasm backtrace:
-    0:    0x6c6 - <unknown>!<wasm function 13>
-    1:    0x74f - <unknown>!<wasm function 18>
-    2:    0x779 - <unknown>!<wasm function 20>
+    0:    0x75f - <unknown>!<wasm function 16>
+    1:    0x7e8 - <unknown>!<wasm function 21>
+    2:    0x81f - <unknown>!<wasm function 24>
     2: wasm trap: wasm `unreachable` instruction executed
 
 ==== Test: Alive UTXO ====

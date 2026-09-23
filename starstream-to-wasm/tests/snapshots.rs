@@ -322,7 +322,7 @@ fn run_tests(output: &mut String, component_wasm: &[u8]) {
         return;
     }
 
-    let contract = Contract::<Ctx>::new(&component, common::NoopContractLookup)
+    let contract = Contract::<Ctx>::new(&component, None, common::NoopContractLookup)
         .expect("failed to create contract");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
