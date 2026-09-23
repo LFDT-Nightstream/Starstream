@@ -42,7 +42,7 @@ pub(crate) enum TxPhase {
 // TODO: Bind the payloads to the transaction's coordinator/UTXO domains once
 // those counts become part of the circuit instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum CoroutineId {
+pub enum CoroutineId {
     Coord(u32),
     Utxo(u32),
 }
@@ -70,7 +70,8 @@ impl CoroutineId {
         }
     }
 
-    pub(crate) fn encoded(self) -> u32 {
+    /// Pack the kind tag and local ID. Panics if the ID exceeds 31 bits.
+    pub fn encoded(self) -> u32 {
         self.checked_encoded()
             .expect("coroutine ID fits the packed u32 encoding")
     }
