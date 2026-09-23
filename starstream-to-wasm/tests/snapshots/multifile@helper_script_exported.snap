@@ -6,20 +6,20 @@ input_file: starstream-to-wasm/tests/multifile/helper_script_exported
 ModuleGraph {
     modules.len(): 2,
     topo_order: [
-        ModuleId(1),
         ModuleId(0),
+        ModuleId(1),
     ],
     edges: {
-        0: [
+        1: [
             PathImport {
                 def_index: 1,
-                target: ModuleId(1),
+                target: ModuleId(0),
                 span: 41..63,
             },
         ],
     },
     contract_entries: [
-        ModuleId(0),
+        ModuleId(1),
     ],
 }
 ==== main.star ====
