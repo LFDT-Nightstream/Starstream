@@ -1,8 +1,9 @@
 use std::fmt::Write;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::{fs, path::Path};
+use std::path::Path;
 
 use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, Report, SourceCode};
+use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
 use starstream_runtime_next::Contract;
 use starstream_types::FileSystem;
@@ -116,79 +117,102 @@ fn wit(component_wasm: &[u8]) -> impl std::fmt::Display {
 #[test]
 fn inputs() {
     try_paths("inputs/*.star", |path, output| {
-        let source = fs::read_to_string(path).unwrap();
-        let parse_output = starstream_compiler::parse_program(&source);
-        let comments = parse_output.comment_map();
-        let (program, errors) = parse_output.into_output_errors();
         writeln!(output, "==== AST ====").unwrap();
-        for error in errors {
-            print_diagnostic(output, source.clone(), error);
-        }
-        if let Some(program) = program {
-            writeln!(output, "{program:#?}\n").unwrap();
 
-            let formatted_source =
-                starstream_compiler::formatter::program(&program, &source, &comments)
-                    .expect("formatter error");
-            assert!(
-                source == formatted_source,
-                "Formatted source differs from original, replace with:\n----\n{formatted_source}\n----"
-            );
-
-            match starstream_compiler::typecheck_program(
-                &program,
-                TypecheckOptions {
-                    capture_traces: true,
-                },
-            ) {
-                Err(failure) => {
-                    if !failure.warnings.is_empty() {
-                        writeln!(output, "==== Type warnings ====").unwrap();
-                        for warning in failure.warnings {
-                            print_diagnostic(output, source.clone(), warning);
-                        }
-                    }
-                    writeln!(output, "==== Type error ====").unwrap();
-                    for error in failure.errors {
-                        print_diagnostic(output, source.clone(), error);
-                    }
+        let mut fs = FileSystem::default();
+        match ModuleGraph::from_entry(&mut fs, path) {
+            Err(errors) => {
+                for error in errors {
+                    GraphicalReportHandler::new_themed(GraphicalTheme::none())
+                        .render_report(output, &error)
+                        .expect("failed to render diagnostic");
                 }
-                Ok(mut success) => {
-                    if !success.warnings.is_empty() {
-                        writeln!(output, "==== Type warnings ====").unwrap();
-                        for warning in success.warnings.drain(..) {
-                            print_diagnostic(output, source.clone(), warning);
+            }
+            Ok((graph, module_id)) => {
+                let source = graph.module(module_id).source.clone();
+                let parse_output = starstream_compiler::parse_program(&source);
+                let comments = parse_output.comment_map();
+                let program = match &graph.module(module_id).contents {
+                    starstream_compiler::module_graph::ModuleContents::Starstream(program) => {
+                        program
+                    }
+                    _ => unreachable!(),
+                };
+
+                writeln!(output, "{program:#?}\n").unwrap();
+
+                let formatted_source =
+                    starstream_compiler::formatter::program(&program, &source, &comments)
+                        .expect("formatter error");
+                assert!(
+                    &*source == formatted_source,
+                    "Formatted source differs from original, replace with:\n----\n{formatted_source}\n----"
+                );
+
+                match starstream_compiler::typecheck_modules(
+                    &graph,
+                    TypecheckOptions {
+                        capture_traces: true,
+                    },
+                ) {
+                    Err(failure) => {
+                        if !failure.warnings.is_empty() {
+                            writeln!(output, "==== Type warnings ====").unwrap();
+                            for (_, warning) in failure.warnings {
+                                print_diagnostic(output, source.clone(), warning);
+                            }
+                        }
+                        writeln!(output, "==== Type error ====").unwrap();
+                        for (_, error) in failure.errors {
+                            print_diagnostic(output, source.clone(), error);
                         }
                     }
-                    writeln!(
-                        output,
-                        "==== Inference trace ====\n{}",
-                        success.display_traces()
-                    )
-                    .unwrap();
-                    writeln!(output, "==== Typed AST ====\n{:#?}\n", success.program).unwrap();
-                    let compile_result = starstream_to_wasm::compile(&success.program);
-                    writeln!(output, "==== Core WebAssembly ====").unwrap();
-                    for error in &compile_result.errors {
-                        print_diagnostic(output, source.clone(), error.clone());
-                    }
-                    if let Some(wasm) = &compile_result.wasm {
-                        wasmprinter::Config::new()
-                            .fold_instructions(true)
-                            .print(
-                                &wasm,
-                                &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut *output)),
-                            )
-                            .unwrap();
-                        writeln!(output).unwrap();
+                    Ok(mut success) => {
+                        if !success.warnings.is_empty() {
+                            writeln!(output, "==== Type warnings ====").unwrap();
+                            for (_, warning) in success.warnings.drain(..) {
+                                print_diagnostic(output, source.clone(), warning);
+                            }
+                        }
+                        writeln!(
+                            output,
+                            "==== Inference trace ====\n{}",
+                            success.display_traces()
+                        )
+                        .unwrap();
+                        writeln!(
+                            output,
+                            "==== Typed AST ====\n{:#?}\n",
+                            match &success.module(module_id).contents {
+                                TypedModuleContents::Starstream(program) => program,
+                                _ => unreachable!(),
+                            }
+                        )
+                        .unwrap();
+                        let compile_result =
+                            starstream_to_wasm::compile_contract(&success, module_id);
+                        writeln!(output, "==== Core WebAssembly ====").unwrap();
+                        for error in &compile_result.errors {
+                            print_diagnostic(output, source.clone(), error.clone());
+                        }
+                        if let Some(wasm) = &compile_result.wasm {
+                            wasmprinter::Config::new()
+                                .fold_instructions(true)
+                                .print(
+                                    &wasm,
+                                    &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut *output)),
+                                )
+                                .unwrap();
+                            writeln!(output).unwrap();
 
-                        // Componentize and then extract WIT from the final component.
-                        // Not printing component Wasm because it's mostly core Wasm but inside-out.
-                        writeln!(output, "==== WIT ====").unwrap();
-                        let component_wasm = compile_result.to_component().unwrap();
-                        writeln!(output, "{}", wit(&component_wasm)).unwrap();
+                            // Componentize and then extract WIT from the final component.
+                            // Not printing component Wasm because it's mostly core Wasm but inside-out.
+                            writeln!(output, "==== WIT ====").unwrap();
+                            let component_wasm = compile_result.to_component().unwrap();
+                            writeln!(output, "{}", wit(&component_wasm)).unwrap();
 
-                        run_tests(output, &component_wasm);
+                            run_tests(output, &component_wasm);
+                        }
                     }
                 }
             }

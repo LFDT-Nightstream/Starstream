@@ -174,11 +174,24 @@ pub struct TypedModuleGraph {
     /// path-import-in-single-file). Carried even on success so callers can
     /// decide whether to render them.
     pub warnings: Vec<(ModuleId, TypeWarning)>,
+    pub traces: Vec<InferenceTree>,
 }
 
 impl TypedModuleGraph {
     pub fn module(&self, id: ModuleId) -> &TypedModule {
         &self.modules[id.index()]
+    }
+
+    pub fn display_traces(&self) -> impl Display {
+        std::fmt::from_fn(|f| {
+            for (index, tree) in self.traces.iter().enumerate() {
+                if index > 0 {
+                    f.write_str("\n")?;
+                }
+                tree.fmt(f)?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -207,6 +220,7 @@ pub fn typecheck_modules(
 
     let mut all_errors: Vec<(ModuleId, TypeError)> = Vec::new();
     let mut warnings: Vec<(ModuleId, TypeWarning)> = Vec::new();
+    let mut traces = Vec::new();
 
     for &module_id in graph.topo_order() {
         let module = graph.module(module_id);
@@ -230,7 +244,7 @@ pub fn typecheck_modules(
                 }
 
                 // Pass 2: process definitions
-                let (program, _) =
+                let (program, program_traces) =
                     match inferencer.process_definitions(&mut env, &program.definitions) {
                         Ok(x) => x,
                         Err(errors) => {
@@ -243,6 +257,7 @@ pub fn typecheck_modules(
                     };
 
                 typed_modules.insert(module_id, TypedModuleContents::Starstream(program));
+                traces.extend(program_traces);
 
                 // Capture this module's exports for downstream modules.
                 // TODO: exclude private items.
@@ -332,6 +347,7 @@ pub fn typecheck_modules(
         contract_entries: graph.contract_entries().to_vec(),
         generic_types,
         warnings,
+        traces,
     })
 }
 
