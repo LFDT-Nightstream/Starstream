@@ -349,6 +349,7 @@ fn collect_star_files(dir: &Path) -> Vec<PathBuf> {
             out.push(path.to_path_buf());
         }
     });
+    out.sort();
     out
 }
 

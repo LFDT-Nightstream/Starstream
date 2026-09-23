@@ -1390,6 +1390,7 @@ TypedProgram {
                 ty: UtxoType {
                     name: "RequireHashPreimage",
                     id: NameId(6),
+                    public_methods: [],
                     possible_abis: [
                         AbiType {
                             name: Identifier {
@@ -1503,6 +1504,7 @@ TypedProgram {
                         UtxoType {
                             name: "RequireHashPreimage",
                             id: NameId(6),
+                            public_methods: [],
                             possible_abis: [
                                 AbiType {
                                     name: Identifier {
@@ -1600,6 +1602,7 @@ TypedProgram {
                                     UtxoType {
                                         name: "RequireHashPreimage",
                                         id: NameId(6),
+                                        public_methods: [],
                                         possible_abis: [
                                             AbiType {
                                                 name: Identifier {
@@ -1706,6 +1709,7 @@ TypedProgram {
                                                         UtxoType {
                                                             name: "RequireHashPreimage",
                                                             id: NameId(6),
+                                                            public_methods: [],
                                                             possible_abis: [
                                                                 AbiType {
                                                                     name: Identifier {
@@ -1919,6 +1923,7 @@ TypedProgram {
                                 UtxoType {
                                     name: "RequireHashPreimage",
                                     id: NameId(6),
+                                    public_methods: [],
                                     possible_abis: [
                                         AbiType {
                                             name: Identifier {
@@ -2063,6 +2068,7 @@ TypedProgram {
                                                             UtxoType {
                                                                 name: "RequireHashPreimage",
                                                                 id: NameId(6),
+                                                                public_methods: [],
                                                                 possible_abis: [
                                                                     AbiType {
                                                                         name: Identifier {
@@ -2217,6 +2223,7 @@ TypedProgram {
                                         UtxoType {
                                             name: "RequireHashPreimage",
                                             id: NameId(6),
+                                            public_methods: [],
                                             possible_abis: [
                                                 AbiType {
                                                     name: Identifier {
@@ -2323,6 +2330,7 @@ TypedProgram {
                                                             UtxoType {
                                                                 name: "RequireHashPreimage",
                                                                 id: NameId(6),
+                                                                public_methods: [],
                                                                 possible_abis: [
                                                                     AbiType {
                                                                         name: Identifier {
@@ -2470,6 +2478,7 @@ TypedProgram {
                                                                     UtxoType {
                                                                         name: "RequireHashPreimage",
                                                                         id: NameId(6),
+                                                                        public_methods: [],
                                                                         possible_abis: [
                                                                             AbiType {
                                                                                 name: Identifier {
@@ -2593,6 +2602,7 @@ TypedProgram {
                                                         UtxoType {
                                                             name: "RequireHashPreimage",
                                                             id: NameId(6),
+                                                            public_methods: [],
                                                             possible_abis: [
                                                                 AbiType {
                                                                     name: Identifier {
@@ -2739,6 +2749,7 @@ TypedProgram {
                                         UtxoType {
                                             name: "RequireHashPreimage",
                                             id: NameId(6),
+                                            public_methods: [],
                                             possible_abis: [
                                                 AbiType {
                                                     name: Identifier {
@@ -2845,6 +2856,7 @@ TypedProgram {
                                                             UtxoType {
                                                                 name: "RequireHashPreimage",
                                                                 id: NameId(6),
+                                                                public_methods: [],
                                                                 possible_abis: [
                                                                     AbiType {
                                                                         name: Identifier {
@@ -2992,6 +3004,7 @@ TypedProgram {
                                                                     UtxoType {
                                                                         name: "RequireHashPreimage",
                                                                         id: NameId(6),
+                                                                        public_methods: [],
                                                                         possible_abis: [
                                                                             AbiType {
                                                                                 name: Identifier {
@@ -3115,6 +3128,7 @@ TypedProgram {
                                                         UtxoType {
                                                             name: "RequireHashPreimage",
                                                             id: NameId(6),
+                                                            public_methods: [],
                                                             possible_abis: [
                                                                 AbiType {
                                                                     name: Identifier {
@@ -3253,6 +3267,7 @@ TypedProgram {
                                         UtxoType {
                                             name: "RequireHashPreimage",
                                             id: NameId(6),
+                                            public_methods: [],
                                             possible_abis: [
                                                 AbiType {
                                                     name: Identifier {
@@ -3359,6 +3374,7 @@ TypedProgram {
                                                             UtxoType {
                                                                 name: "RequireHashPreimage",
                                                                 id: NameId(6),
+                                                                public_methods: [],
                                                                 possible_abis: [
                                                                     AbiType {
                                                                         name: Identifier {
