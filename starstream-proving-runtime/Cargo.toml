@@ -10,6 +10,7 @@ license.workspace = true
 [features]
 default = []
 proof-tests = []
+nebula-proofs = []
 
 [dependencies]
 neo-wasm = { workspace = true }
@@ -28,6 +29,10 @@ wasmtime = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+neo-application = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tiny_http = "0.12"
 neo-ccs = { workspace = true }
 neo-fold-clean = { workspace = true }
 neo-math = { workspace = true }
@@ -37,4 +42,17 @@ starstream-interleaving-prover = { path = "../starstream-interleaving-prover" }
 starstream-to-wasm = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 wat = "1"
+wasmprinter = { workspace = true }
 wit-component = { workspace = true }
+
+[target.'cfg(target_vendor = "apple")'.dev-dependencies]
+neo-prover-metal = { workspace = true }
+
+[[test]]
+name = "runtime_prove"
+required-features = ["nebula-proofs"]
+
+[[example]]
+name = "demo"
+path = "examples/demo/main.rs"
+required-features = ["nebula-proofs"]

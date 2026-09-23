@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Starstream · Interleaving demo</title>
+    <link rel="icon" type="image/svg+xml" href="/starstream.svg" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="masthead">
+        <div class="brand">
+          <img class="mark" src="/starstream.svg" alt="" /><strong
+            >Starstream</strong
+          ><span class="divider"></span><span>interleaving demo</span>
+        </div>
+        <div class="local">
+          <span class="dot"></span
+          ><span id="connection">Native runtime · local</span>
+        </div>
+      </header>
+      <div class="intro">
+        <div>
+          <h1>Starstream trace explorer.</h1>
+          <p>
+            Follow the execution, inspect the calls, and verify what they commit
+            to.
+          </p>
+        </div>
+        <span class="quiet">Starstream → Wasm → Nightstream</span>
+      </div>
+      <div class="example-picker">
+        <label for="example">Example</label>
+        <select id="example">
+          <option value="small">Simple counter</option>
+          <option value="dynamic">Oracle and consumer</option>
+        </select>
+      </div>
+      <section class="panel">
+        <div class="source-side">
+          <div class="toolbar">
+            <div
+              id="source-tabs"
+              class="tabs"
+              role="tablist"
+              aria-label="Source files"
+            ></div>
+            <div class="source-actions">
+              <span id="source-mode" class="tag">EDITABLE SOURCE</span>
+              <button id="expand-source" class="text-button">Expand ↗</button>
+            </div>
+          </div>
+          <pre id="source" aria-label="Generated Wasm" tabindex="0" hidden></pre>
+          <div id="source-editor-wrap" class="source-editor-wrap">
+            <pre id="source-highlight" aria-hidden="true"></pre>
+            <textarea id="source-editor" aria-label="Edit Starstream source" spellcheck="false" wrap="off"></textarea>
+          </div>
+        </div>
+      </section>
+      <div class="stage-action">
+        <button id="run" class="primary">Run</button>
+        <p id="run-status" class="caption" role="status">
+          Compiles and executes locally. No proof yet.
+        </p>
+      </div>
+      <div id="error" class="error-banner" role="alert" hidden></div>
+      <section class="stage" id="trace-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PROGRAMS</p>
+            <h2>Separate traces. Separate proofs.</h2>
+          </div>
+          <div id="execution-stats" class="quiet">
+            Run the script to capture its instructions.
+          </div>
+        </div>
+        <div class="trace-controls">
+          <div class="segmented" id="trace-modes">
+            <button data-mode="captured" class="selected">Wasm instructions</button>
+            <button data-mode="normalized">Normalized trace</button>
+            <button data-mode="events">Host events</button>
+          </div>
+          <span class="caption">Click a row for details · scroll sideways for more programs</span>
+        </div>
+        <div class="trace-grid" id="trace-panels">
+          <div class="panel empty wide">Program traces will appear after execution.</div>
+        </div>
+      </section>
+      <section class="stage" id="transaction-section">
+        <div class="stage-action">
+          <button id="interleave" class="primary" disabled>Interleave</button>
+          <p>Combine the selected program traces into a transaction.</p>
+        </div>
+        <div id="statement-notice" class="statement-notice" hidden>
+          <strong>The transaction statement differs from the latest run.</strong>
+          <a href="#statement-choice">Compare statements and choose which to use ↓</a>
+        </div>
+        <div class="transaction-grid">
+          <div class="panel interleaving-panel">
+            <div class="toolbar">
+              <h3>Interleaving</h3>
+              <button id="expand-interleaving" class="text-button" disabled>
+                Expand ↗
+              </button>
+            </div>
+            <div class="table-wrap" id="interleaving">
+              <div class="empty">
+                The scheduled host events will appear here.
+              </div>
+            </div>
+          </div>
+          <div class="panel output-panel">
+            <div class="toolbar">
+              <h3>Transaction outputs</h3>
+              <span class="tag">STORAGE + ABI</span>
+            </div>
+            <div id="outputs">
+              <div class="empty">Storage is read from each surviving UTXO.</div>
+            </div>
+            <div class="commitment">
+              <span class="eyebrow">CURRENT CLAIM COMMITMENT</span
+              ><code id="commitment">Awaiting execution</code>
+              <p>
+                Output storage, registered methods, and each program’s trace
+                root are bound together.
+              </p>
+              <div id="commitment-inputs" class="commitment-inputs"></div>
+            </div>
+          </div>
+        </div>
+        <p id="interleaving-count" class="caption">No transaction trace yet.</p>
+        <div class="panel transaction-check-panel">
+          <div class="transaction-check-heading">
+            <div>
+              <h3>Check the interleaving</h3>
+              <p>Check the built event trace against the current program roots and selected transaction statement.</p>
+            </div>
+            <button id="check-transaction" class="primary" disabled>Check transaction →</button>
+          </div>
+          <div class="statement-choice" id="statement-choice"></div>
+          <div id="transaction-check-result" class="verification" role="status" hidden></div>
+        </div>
+        <div class="proof-grid" id="interleaving-proof"></div>
+        <div class="transaction-actions">
+          <button id="prove-all" class="text-button" disabled>Prove all sequentially →</button>
+          <button id="verify" class="primary" disabled>Verify complete proof →</button>
+        </div>
+        <div id="verification" class="verification" role="status" hidden></div>
+        <p class="caption proof-note">
+          Native Metal · one proof at a time · preprocessing is shown separately
+          from proving. Wasm proofs include Nebula memory; interleaving memory
+          is host-checked only. Uses demo security parameters.
+        </p>
+      </section>
+    </main>
+    <dialog id="source-dialog">
+      <div class="toolbar">
+        <h2 id="source-dialog-title">Source</h2>
+        <button data-close="source-dialog" class="text-button">Close ✕</button>
+      </div>
+      <pre id="source-full" tabindex="0"></pre>
+    </dialog>
+    <dialog id="trace-dialog">
+      <div class="toolbar">
+        <h2 id="dialog-title">Trace</h2>
+        <button data-close="trace-dialog" class="text-button">Close ✕</button>
+      </div>
+      <div id="dialog-table" class="table-wrap expanded"></div>
+    </dialog>
+    <dialog id="row-dialog">
+      <div class="toolbar">
+        <h2 id="row-title">Captured row</h2>
+        <button data-close="row-dialog" class="text-button">Close ✕</button>
+      </div>
+      <textarea id="row-json" spellcheck="false" readonly></textarea>
+      <button id="save-row" class="primary" hidden>Save edited row →</button>
+    </dialog>
+    <script src="/app.js"></script>
+  </body>
+</html>

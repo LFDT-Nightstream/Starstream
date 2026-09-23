@@ -930,7 +930,8 @@ fn method_hash_from_segment(method: &str) -> Result<MethodHash, TemplateBuildErr
     Ok(method_hash_from_name(method))
 }
 
-pub(crate) fn first_core_module(wasm: &[u8]) -> Result<&[u8], TemplateBuildError> {
+/// Return the first core module in a component, or the input if it is core Wasm.
+pub fn first_core_module(wasm: &[u8]) -> Result<&[u8], TemplateBuildError> {
     if Parser::is_core_wasm(wasm) {
         return Ok(wasm);
     }

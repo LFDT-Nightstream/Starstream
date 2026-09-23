@@ -9,6 +9,7 @@ use crate::terminal::TerminalClaim;
 pub use neo_ajtai::AjtaiError;
 use neo_application::range_checked_variable_widths;
 use neo_fold_clean::{
+    FinalWitnessOpeningBackend,
     engine::ccs_native::poseidon2::POSEIDON2_GOLDILOCKS_BITS,
     frontends::{
         f_prime::{
@@ -23,13 +24,14 @@ use neo_fold_clean::{
             ivc::{R1csIvc, R1csIvcPreprocessing, R1csIvcRelation},
         },
     },
-    lifecycle::verify_uncompressed,
+    lifecycle::{verify_uncompressed, verify_uncompressed_with_opening_backend},
     paper::{
         digest::digest_fields_as_digest32,
         f_prime::{
             poseidon_trace::encode_poseidon_trace,
             ring_action_trace::{LowNormEncoding, RingActionTraceLayout},
         },
+        nifs::{NifsProverAdapter, OptimizedCpuNifsProver},
     },
 };
 pub use neo_fold_clean::{
@@ -114,13 +116,24 @@ impl TransactionProofContext {
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
     ) -> Result<TransactionProof, ProvingError> {
+        self.prove_with_nifs_adapter(&mut OptimizedCpuNifsProver, trace, statement, roots)
+    }
+
+    /// Reuses a caller-owned backend for the recursive folds.
+    pub fn prove_with_nifs_adapter(
+        &self,
+        adapter: &mut dyn NifsProverAdapter,
+        trace: &Trace,
+        statement: &TransactionStatement,
+        roots: &crate::TraceCommitments,
+    ) -> Result<TransactionProof, ProvingError> {
         let normalized = normalize(trace);
         let packed =
             super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
         let final_state = final_state(&self.batch, &packed);
         let mut chain = R1csIvc::new(&self.preprocessing);
         for row in packed.rows {
-            chain.extend(row)?;
+            chain.extend_with_nifs_adapter(adapter, row)?;
         }
         Ok(TransactionProof {
             proof: chain.finish()?,
@@ -136,6 +149,17 @@ impl TransactionProofContext {
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
     ) -> Result<(), ProvingError> {
+        self.verify_with_opening_backend(proof, statement, roots, None)
+    }
+
+    /// Uses an optional arithmetic backend for the verifier's final openings.
+    pub fn verify_with_opening_backend(
+        &self,
+        proof: &TransactionProof,
+        statement: &TransactionStatement,
+        roots: &crate::TraceCommitments,
+        backend: Option<&mut dyn FinalWitnessOpeningBackend>,
+    ) -> Result<(), ProvingError> {
         let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
         check_final_state(
             proof.proof.state.semantic_state_digest,
@@ -144,7 +168,15 @@ impl TransactionProofContext {
                 commitment: expected,
             },
         )?;
-        verify_uncompressed(&self.preprocessing.prep, &proof.proof)?;
+        if let Some(backend) = backend {
+            verify_uncompressed_with_opening_backend(
+                &self.preprocessing.prep,
+                &proof.proof,
+                backend,
+            )?;
+        } else {
+            verify_uncompressed(&self.preprocessing.prep, &proof.proof)?;
+        }
         Ok(())
     }
 }
@@ -177,35 +209,43 @@ fn state_digest(fields: &[F]) -> [u8; 32] {
 // Verifier-owned initial state, independent of the witness being proved.
 // An added carried column must acquire an explicit initialization here.
 fn initial_state() -> Vec<F> {
-    build_ivc_state_continuity_links()
-        .iter()
-        .flat_map(|group| &group.links)
-        .map(|link| match link.next_step_column {
-            COL_CURR_BEFORE => crate::ivc_state::CoroutineId::Coord(1).field(),
-            COL_CURR_PHASE_BEFORE => F::from_u8(crate::ivc_state::CurrPhase::Executing.value()),
-            COL_CALL_SP_BEFORE | COL_LAST_INPUT_HAS_ABI_BEFORE => F::ONE,
-            COL_NEXT_UTXO_ID_BEFORE
-            | COL_TX_PHASE_BEFORE
-            | COL_COORD_FINALIZED_BEFORE
-            | COL_ABI_READ_REMAINING_BEFORE
-            | COL_ABI_READ_ORDINAL_BEFORE
-            | COL_OUTPUT_CURSOR_BEFORE
-            | COL_ENABLED_METHOD_LOG_LEN_BEFORE
-            | COL_PENDING_CTOR_PRESENT_BEFORE
-            | COL_PENDING_CTOR_HOLDER_BEFORE
-            | COL_PENDING_CTOR_HANDLE_BEFORE => F::ZERO,
-            column if COL_IO_BEFORE.contains(&column) => F::ZERO,
-            column => panic!("missing canonical initial value for carried column {column}"),
-        })
+    std::iter::once(F::ONE)
+        .chain(
+            build_ivc_state_continuity_links()
+                .iter()
+                .flat_map(|group| &group.links)
+                .map(|link| match link.next_step_column {
+                    COL_CURR_BEFORE => crate::ivc_state::CoroutineId::Coord(1).field(),
+                    COL_CURR_PHASE_BEFORE => {
+                        F::from_u8(crate::ivc_state::CurrPhase::Executing.value())
+                    }
+                    COL_CALL_SP_BEFORE | COL_LAST_INPUT_HAS_ABI_BEFORE => F::ONE,
+                    COL_NEXT_UTXO_ID_BEFORE
+                    | COL_TX_PHASE_BEFORE
+                    | COL_COORD_FINALIZED_BEFORE
+                    | COL_ABI_READ_REMAINING_BEFORE
+                    | COL_ABI_READ_ORDINAL_BEFORE
+                    | COL_OUTPUT_CURSOR_BEFORE
+                    | COL_ENABLED_METHOD_LOG_LEN_BEFORE
+                    | COL_PENDING_CTOR_PRESENT_BEFORE
+                    | COL_PENDING_CTOR_HOLDER_BEFORE
+                    | COL_PENDING_CTOR_HANDLE_BEFORE => F::ZERO,
+                    column if COL_IO_BEFORE.contains(&column) => F::ZERO,
+                    column => panic!("missing canonical initial value for carried column {column}"),
+                }),
+        )
         .collect()
 }
 
 fn final_state(batch: &Batch, packed: &PackedWitness) -> Vec<F> {
     let last = packed.rows.last().expect("nonempty execution");
-    batch
-        .continuity
-        .links()
-        .map(|link| last[link.previous_step_column])
+    std::iter::once(F::ONE)
+        .chain(
+            batch
+                .continuity
+                .links()
+                .map(|link| last[link.previous_step_column]),
+        )
         .collect()
 }
 
@@ -229,9 +269,9 @@ fn check_final_state(
         .iter()
         .flat_map(|group| &group.links)
         .collect::<Vec<_>>();
-    if final_state.len() != links.len() {
+    if final_state.len() != links.len() + 1 {
         return Err(FinalClaimError::LengthMismatch {
-            expected: links.len(),
+            expected: links.len() + 1,
             actual: final_state.len(),
         });
     }
@@ -239,7 +279,8 @@ fn check_final_state(
         let index = links
             .iter()
             .position(|link| link.previous_step_column == column)
-            .expect("terminal columns are carried");
+            .expect("terminal columns are carried")
+            + 1;
         final_state[index]
     })?;
     if state_digest(final_state) != authenticated_state_digest {
@@ -281,15 +322,16 @@ fn recursive_plan(batch: &Batch, r1cs: &SparseR1cs) -> RecursiveStepImagePlan {
         app_public_input_bit_var_indices: vec![],
         // Batch already eliminated the middle links and remapped the endpoints
         // into its column-major assignment layout.
-        semantic_state_in_var_indices: batch
-            .continuity
-            .links()
-            .map(|link| link.next_step_column)
+        semantic_state_in_var_indices: std::iter::once(COL_ONE)
+            .chain(batch.continuity.links().map(|link| link.next_step_column))
             .collect(),
-        semantic_state_out_var_indices: batch
-            .continuity
-            .links()
-            .map(|link| link.previous_step_column)
+        semantic_state_out_var_indices: std::iter::once(COL_ONE)
+            .chain(
+                batch
+                    .continuity
+                    .links()
+                    .map(|link| link.previous_step_column),
+            )
             .collect(),
         initial_semantic_state_digest_anchor: Some(state_digest(&initial_state())),
     });

@@ -205,6 +205,26 @@ async fn minimal_method_call_transaction_satisfies_the_circuit() -> wasmtime::Re
 }
 
 #[tokio::test]
+async fn method_call_rejects_different_callee_arguments() -> wasmtime::Result<()> {
+    let execution = trace_coordination_script(MINIMAL_METHOD_CALL, "example").await?;
+    let mut trace = execution.transaction.execution.clone();
+    let entry = trace
+        .0
+        .iter_mut()
+        .find(|step| matches!(step, Step::EnterMethod { .. }))
+        .expect("method entry");
+    let Step::EnterMethod { arguments, .. } = entry else {
+        unreachable!()
+    };
+    *arguments = u64_root(14);
+    assert!(matches!(
+        verify_sat(&trace),
+        Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
+    ));
+    Ok(())
+}
+
+#[tokio::test]
 async fn score_transaction_satisfies_the_circuit() -> wasmtime::Result<()> {
     let execution = trace_coordination_script(SCORE, "example").await?;
     let storage = check_execution(&execution, expected_score_traces)?;

@@ -67,10 +67,13 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
             },
         )
         .unwrap();
-        let actual_initial: Vec<_> = batch
-            .continuity
-            .links()
-            .map(|link| packed.rows[0][link.next_step_column])
+        let actual_initial: Vec<_> = std::iter::once(F::ONE)
+            .chain(
+                batch
+                    .continuity
+                    .links()
+                    .map(|link| packed.rows[0][link.next_step_column]),
+            )
             .collect();
         assert_eq!(actual_initial, initial_state());
 
@@ -105,11 +108,7 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
             ))
         );
 
-        let phase_index = build_ivc_state_continuity_links()
-            .into_iter()
-            .flat_map(|g| g.links)
-            .position(|l| l.previous_step_column == COL_TX_PHASE_AFTER)
-            .unwrap();
+        let phase_index = carried_index(COL_TX_PHASE_AFTER);
         let mut running = claim.clone();
         running[phase_index] = F::new(crate::ivc_state::TxPhase::Running as u64);
         assert!(matches!(
@@ -152,7 +151,7 @@ fn transaction_proof_round_trip() -> Result<(), ProvingError> {
     assert!(matches!(
         &proof.proof.state.proof,
         neo_fold_clean::paper::construction2::ProofState::Active { running, .. }
-            if !running.claims.is_empty()
+            if running.as_materialized().is_some_and(|running| !running.claims.is_empty())
     ));
     context.verify(&proof, &statement, &roots)?;
     let mut changed = statement.clone();
@@ -193,7 +192,8 @@ fn relation_adapter_preserves_assignments_widths_and_state_endpoints() {
         for ((&input, &output), link) in binding
             .semantic_state_in_var_indices
             .iter()
-            .zip(&binding.semantic_state_out_var_indices)
+            .skip(1)
+            .zip(binding.semantic_state_out_var_indices.iter().skip(1))
             .zip(single_links)
         {
             assert_eq!(input, link.next_step_column * size);
@@ -205,10 +205,13 @@ fn relation_adapter_preserves_assignments_widths_and_state_endpoints() {
                 assert!(width == 64 || value.as_canonical_u64() < (1u64 << width));
             }
         }
-        let actual_initial = batch
-            .continuity
-            .links()
-            .map(|link| packed.rows[0][link.next_step_column])
+        let actual_initial = std::iter::once(F::ONE)
+            .chain(
+                batch
+                    .continuity
+                    .links()
+                    .map(|link| packed.rows[0][link.next_step_column]),
+            )
             .collect::<Vec<_>>();
         assert_eq!(actual_initial, initial_state());
         let claim = final_state(&batch, &packed);
@@ -245,7 +248,8 @@ fn final_claim_requires_termination_and_authentication() {
         .into_iter()
         .flat_map(|group| group.links)
         .position(|link| link.previous_step_column == COL_CALL_SP_AFTER)
-        .unwrap();
+        .unwrap()
+        + 1;
     nonterminal[stack_index] = F::ONE;
     assert_eq!(
         check_execution_final_claim(state_digest(&nonterminal), &nonterminal),
@@ -261,6 +265,7 @@ fn carried_index(column: usize) -> usize {
         .flat_map(|g| g.links)
         .position(|link| link.previous_step_column == column)
         .unwrap()
+        + 1
 }
 
 #[test]

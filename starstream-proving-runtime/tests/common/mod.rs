@@ -301,6 +301,7 @@ pub struct TracedInstance {
 }
 
 pub struct TracedExecution {
+    pub component_wasm: Vec<u8>,
     pub templates: ComponentTemplates,
     pub artifacts: Arc<neo_wasm::WasmProgramArtifacts>,
     pub instances: Vec<TracedInstance>,
@@ -476,6 +477,7 @@ pub async fn trace_coordination_script(
     }
 
     Ok(TracedExecution {
+        component_wasm: wasm,
         templates,
         artifacts,
         instances,
@@ -524,44 +526,64 @@ pub fn storage_counter_statement() -> starstream_interleaving_spec::TransactionS
 
 /// Check each program's memory accesses before recursive preprocessing.
 pub fn check_wasm_memory(execution: &TracedExecution) -> wasmtime::Result<()> {
+    for index in 0..execution.instances.len() {
+        check_wasm_instance_memory(execution, index)?;
+    }
+    Ok(())
+}
+
+fn check_wasm_instance_memory(execution: &TracedExecution, index: usize) -> wasmtime::Result<()> {
     let layout = neo_wasm::build_wasm_relation_layout();
     let mut preload = neo_wasm::preload_from_program_artifacts(&execution.artifacts);
     neo_wasm::memory_semantics::preload_host_event_tables(
         &mut preload,
         &execution.templates.bindings,
     );
-    for (index, instance) in execution.instances.iter().enumerate() {
-        let witnesses = instance
-            .trace
-            .iter()
-            .map(neo_wasm::witness_builder::build_witness_vector)
-            .collect::<Vec<_>>();
-        neo_wasm::sanity_check_memory_rows(layout, &witnesses, &preload)
-            .map_err(|error| wasmtime::format_err!("Wasm instance {index}: {error}"))?;
-    }
+    let instance = &execution.instances[index];
+    let witnesses = instance
+        .trace
+        .iter()
+        .map(neo_wasm::witness_builder::build_witness_vector)
+        .collect::<Vec<_>>();
+    neo_wasm::sanity_check_memory_rows(layout, &witnesses, &preload)
+        .map_err(|error| wasmtime::format_err!("Wasm instance {index}: {error}"))?;
     Ok(())
 }
 
 pub fn check_wasm_constraints(execution: &TracedExecution) -> wasmtime::Result<()> {
-    check_wasm_memory(execution)?;
+    for index in 0..execution.instances.len() {
+        check_wasm_instance(execution, index)?;
+    }
+    Ok(())
+}
+
+pub fn check_wasm_instance(
+    execution: &TracedExecution,
+    instance_index: usize,
+) -> wasmtime::Result<()> {
+    check_wasm_instance_memory(execution, instance_index)?;
     let relation = neo_wasm::build_wasm_relation()
         .map_err(|error| wasmtime::format_err!("Wasm relation: {error}"))?;
     let layout = neo_wasm::build_wasm_relation_layout();
-    for (instance_index, instance) in execution.instances.iter().enumerate() {
-        for (row_index, row) in instance.trace.iter().enumerate() {
-            let witness = neo_wasm::witness_builder::build_witness_vector(row);
-            let (public, private) = witness.split_at(relation.r1cs().public_input_count());
-            neo_ccs::check_ccs_rowwise_zero(relation.r1cs().structure(), public, private).map_err(
-                |error| {
-                    wasmtime::format_err!(
-                        "Wasm instance {instance_index}, row {row_index}: {error}"
-                    )
-                },
-            )?;
-            neo_wasm::sanity_check_lookup_row(&layout.auxiliary, &witness).map_err(|error| {
+    let instance = &execution.instances[instance_index];
+    for (row_index, row) in instance.trace.iter().enumerate() {
+        let witness = neo_wasm::witness_builder::build_witness_vector(row);
+        let (public, private) = witness.split_at(relation.r1cs().public_input_count());
+        neo_ccs::check_ccs_rowwise_zero(relation.r1cs().structure(), public, private).map_err(
+            |error| {
                 wasmtime::format_err!("Wasm instance {instance_index}, row {row_index}: {error}")
-            })?;
-        }
+            },
+        )?;
+        neo_wasm::sanity_check_lookup_row(&layout.auxiliary, &witness).map_err(|error| {
+            wasmtime::format_err!("Wasm instance {instance_index}, row {row_index}: {error}")
+        })?;
+    }
+    for (row_index, pair) in instance.trace.windows(2).enumerate() {
+        wasmtime::ensure!(
+            pair[0].state_after == pair[1].state_before,
+            "Wasm instance {instance_index}: state discontinuity between rows {row_index} and {}",
+            row_index + 1
+        );
     }
     Ok(())
 }

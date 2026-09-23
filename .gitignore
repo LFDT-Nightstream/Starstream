@@ -10,3 +10,4 @@ papers/
 .claude/settings.local.json
 .nvim.lua
 /tree-sitter-starstream/queries/starstream
+/starstream-proving-runtime/examples/demo/recording/

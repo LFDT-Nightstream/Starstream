@@ -93,13 +93,14 @@ wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2
 wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
 
-neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "23b8f914c26147b5a2885f4f1769441bb6f47e56" }
-neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "23b8f914c26147b5a2885f4f1769441bb6f47e56" }
-neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "23b8f914c26147b5a2885f4f1769441bb6f47e56" }
-neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "23b8f914c26147b5a2885f4f1769441bb6f47e56" }
-neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "23b8f914c26147b5a2885f4f1769441bb6f47e56" }
-neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "23b8f914c26147b5a2885f4f1769441bb6f47e56" }
-neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "23b8f914c26147b5a2885f4f1769441bb6f47e56" }
+neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "41651067b9ba1c59e227149b3dd0faeb945cdbb3" }
+neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "41651067b9ba1c59e227149b3dd0faeb945cdbb3" }
+neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "41651067b9ba1c59e227149b3dd0faeb945cdbb3" }
+neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "41651067b9ba1c59e227149b3dd0faeb945cdbb3" }
+neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "41651067b9ba1c59e227149b3dd0faeb945cdbb3" }
+neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "41651067b9ba1c59e227149b3dd0faeb945cdbb3" }
+neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "41651067b9ba1c59e227149b3dd0faeb945cdbb3" }
+neo-prover-metal = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "41651067b9ba1c59e227149b3dd0faeb945cdbb3", features = ["metal"] }
 
 [profile.dev.package]
 insta.opt-level = 3
