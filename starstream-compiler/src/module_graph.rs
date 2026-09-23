@@ -410,7 +410,7 @@ impl<'a> Builder<'a> {
         }
 
         if let Err(err) = self.validate_cross_contract(force_entry) {
-            self.errors.push(err);
+            self.errors.push(*err);
         }
 
         if !self.errors.is_empty() {
@@ -431,7 +431,7 @@ impl<'a> Builder<'a> {
         // Topo sort starting from contract entries first (so the meaningful
         // codegen roots get walked first), then sweep in any unreached loose
         // nodes so every module ends up in the order.
-        let topo_order = self.topo_order(&contract_entries).map_err(|e| vec![e])?;
+        let topo_order = self.topo_order(&contract_entries).map_err(|e| vec![*e])?;
 
         Ok(ModuleGraph {
             modules: self.modules,
@@ -577,7 +577,7 @@ impl<'a> Builder<'a> {
     fn validate_cross_contract(
         &self,
         allow_target: Option<ModuleId>,
-    ) -> Result<(), ModuleGraphError> {
+    ) -> Result<(), Box<ModuleGraphError>> {
         for (importer_raw, edges) in &self.edges {
             let importer = ModuleId(*importer_raw);
             for edge in edges {
@@ -585,13 +585,13 @@ impl<'a> Builder<'a> {
                     continue;
                 }
                 if self.modules[edge.target.index()].declares_contract() {
-                    return Err(ModuleGraphError::CrossContractImport {
+                    return Err(Box::new(ModuleGraphError::CrossContractImport {
                         importer,
                         importer_path: self.modules[importer.index()].abs_path.clone(),
                         target: edge.target,
                         target_path: self.modules[edge.target.index()].abs_path.clone(),
                         span: edge.span,
-                    });
+                    }));
                 }
             }
         }
@@ -602,7 +602,7 @@ impl<'a> Builder<'a> {
     /// in the graph (dependencies first), seeded from `seeds` and then
     /// sweeping in any modules not yet visited. Reports cycles with the
     /// import spans that closed them.
-    fn topo_order(&self, seeds: &[ModuleId]) -> Result<Vec<ModuleId>, ModuleGraphError> {
+    fn topo_order(&self, seeds: &[ModuleId]) -> Result<Vec<ModuleId>, Box<ModuleGraphError>> {
         let n = self.modules.len();
         let mut color = vec![DfsColor::White; n];
         let mut order = Vec::with_capacity(n);
@@ -626,7 +626,7 @@ impl<'a> Builder<'a> {
         start: ModuleId,
         color: &mut [DfsColor],
         order: &mut Vec<ModuleId>,
-    ) -> Result<(), ModuleGraphError> {
+    ) -> Result<(), Box<ModuleGraphError>> {
         let mut stack: Vec<(ModuleId, usize)> = Vec::new();
         let mut path_stack: Vec<(ModuleId, Span)> = Vec::new();
 
@@ -671,7 +671,7 @@ impl<'a> Builder<'a> {
                         self.modules[edge.target.index()].abs_path.clone(),
                         edge.span,
                     ));
-                    return Err(ModuleGraphError::Cycle { chain });
+                    return Err(Box::new(ModuleGraphError::Cycle { chain }));
                 }
                 DfsColor::Black => {}
             }

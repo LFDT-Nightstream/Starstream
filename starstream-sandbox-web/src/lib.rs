@@ -94,7 +94,7 @@ pub unsafe extern "C" fn run(input_len: usize) {
     unsafe { set_core_wasm(wasm.as_ptr(), wasm.len()) };
 
     // WITify core version if we can.
-    match print_wit(&wasm, true) {
+    match print_wit(wasm, true) {
         Ok(wit) => unsafe { set_wit(wit.as_ptr(), wit.len()) },
         Err(error) => error!("print_wit(core): {error}"),
     }
@@ -123,7 +123,7 @@ pub unsafe extern "C" fn run(input_len: usize) {
     // Format to WAT.
     let mut wat = Vec::new();
     match wasmprinter::Config::new().fold_instructions(true).print(
-        &wasm,
+        wasm,
         &mut wasmprinter::PrintTermcolor(termcolor::Ansi::new(&mut wat)),
     ) {
         Ok(()) => {

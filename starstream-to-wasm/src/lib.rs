@@ -1044,11 +1044,11 @@ impl Compiler {
     ) -> FuncType {
         let mut params = Vec::new();
         for (_, ty) in &signature.params {
-            _ = self.component_to_core_types(span, &mut params, &ty);
+            _ = self.component_to_core_types(span, &mut params, ty);
         }
         let mut results = Vec::new();
         if let Some(result) = &signature.result {
-            _ = self.component_to_core_types(span, &mut results, &result);
+            _ = self.component_to_core_types(span, &mut results, result);
         }
         FuncType::new(params, results)
     }

@@ -12,7 +12,7 @@ impl CompileResult {
         let mut encoder = ComponentEncoder::default();
         encoder.validate(true);
         encoder
-            .module(&wasm)
+            .module(wasm)
             .expect("ComponentEncoder::module failed");
 
         // Imported core modules are combined into the main component using `ComponentEncoder`.

@@ -385,7 +385,7 @@ impl DocumentState {
         };
 
         let program_ast = self.program.clone();
-        self.build_indexes(&entry_program, program_ast.as_deref(), text);
+        self.build_indexes(entry_program, program_ast.as_deref(), text);
 
         self.typed = Some(TypecheckSuccess {
             program: entry_program.clone(),

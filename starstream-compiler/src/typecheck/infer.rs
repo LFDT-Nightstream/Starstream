@@ -157,7 +157,7 @@ pub enum TypedModuleContents {
     #[default]
     Empty,
     Starstream(TypedProgram),
-    Wasm(TypedWasmModule),
+    Wasm(Box<TypedWasmModule>),
 }
 
 /// Typechecked counterpart to `ModuleGraph`. Modules are listed in `id`
@@ -275,7 +275,7 @@ pub fn typecheck_modules(
             ) {
                 Ok((namespace, module)) => {
                     module_exports.insert(module_id, namespace);
-                    typed_modules.insert(module_id, TypedModuleContents::Wasm(module));
+                    typed_modules.insert(module_id, TypedModuleContents::Wasm(Box::new(module)));
                 }
                 Err(err) => {
                     panic!("{err}"); // TODO
@@ -3614,7 +3614,7 @@ impl Inferencer {
                 let ty: Type = self.fresh_var();
                 let subject = self.maybe_string(|| self.format_expr_src(expr));
                 let result = self.maybe_string(|| self.format_type(&ty));
-                let tree = self.make_trace("T-Error", None, subject, result, || vec![]);
+                let tree = self.make_trace("T-Error", None, subject, result, Vec::new);
                 let typed = Spanned::new(TypedExpr::new(ty, TypedExprKind::Error), expr.span);
                 Ok((typed, tree))
             }

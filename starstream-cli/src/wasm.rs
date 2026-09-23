@@ -102,7 +102,7 @@ impl Wasm {
         };
 
         if let Some(output_core) = &self.output_core {
-            fs.write(output_core, &wasm)
+            fs.write(output_core, wasm)
                 .expect("Error writing Wasm output");
         }
 
@@ -111,7 +111,7 @@ impl Wasm {
                 .binary_wit
                 .as_ref()
                 .expect("Strange: compilation succeeded, but there was no binary WIT");
-            fs.write(&output_binary_wit, &binary_wit)
+            fs.write(&output_binary_wit, binary_wit)
                 .expect("Error writing binary WIT output");
         }
 
