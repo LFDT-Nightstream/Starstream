@@ -1,6 +1,7 @@
 use std::fmt::Write;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
+use std::process::Command;
 
 use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, Report, SourceCode};
 use starstream_compiler::typecheck::TypedModuleContents;
@@ -115,6 +116,8 @@ fn wit(component_wasm: &[u8]) -> impl std::fmt::Display {
 
 #[test]
 fn inputs() {
+    build_wasm_examples();
+
     try_paths("inputs/*.star", |path, output| {
         writeln!(output, "==== AST ====").unwrap();
 
@@ -378,4 +381,21 @@ fn format_panic(output: &mut String, error: &Box<dyn std::any::Any + Send + 'sta
     } else if let Some(str) = error.downcast_ref::<&'static str>() {
         writeln!(output, "{}", str.trim()).unwrap();
     }
+}
+
+fn build_wasm_examples() {
+    assert!(
+        Command::new(env!("CARGO"))
+            .args([
+                "build",
+                "-p",
+                "sha256lib",
+                "--target",
+                "wasm32-unknown-unknown",
+                "--release",
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
 }
