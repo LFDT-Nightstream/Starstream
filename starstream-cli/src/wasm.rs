@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
+use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
 use starstream_to_wasm::CompileOptions;
 use starstream_types::FileSystem;
 
@@ -52,7 +52,7 @@ impl Wasm {
     pub fn exec(self) -> miette::Result<()> {
         let mut fs = FileSystem::new();
 
-        let graph = match module_graph::load_from_entry(&self.compile_file, &mut fs) {
+        let graph = match ModuleGraph::from_entry(&mut fs, &self.compile_file) {
             Ok(graph) => graph,
             Err(errors) => {
                 for error in errors {
@@ -66,7 +66,7 @@ impl Wasm {
             .contract_entries()
             .first()
             .copied()
-            .expect("load_from_entry always sets a single contract entry");
+            .expect("ModuleGraph::from_entry always sets a single contract entry");
 
         let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {

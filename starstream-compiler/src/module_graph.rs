@@ -1,10 +1,10 @@
 //! Build a topologically sorted graph of `.star` files.
 //!
 //! Two entry points:
-//!   - [`load_from_entry`] for the single-file flow (`starstream wasm -c <file>`).
+//!   - [ModuleGraph::from_entry] for the single-file flow (`starstream wasm -c <file>`).
 //!     The given file is treated as a contract regardless of header; its
 //!     transitive imports populate the graph.
-//!   - [`load_workspace`] for the scan-based commands (`check`, `docs`,
+//!   - [ModuleGraph::from_workspace] for the scan-based commands (`check`, `docs`,
 //!     `build`) and the language server. Walks a directory for every
 //!     `.star` file, follows imports out of the scan dir as needed, and
 //!     enforces the cross-contract guard on every edge.
@@ -25,9 +25,9 @@ use starstream_types::{
 
 use crate::parser::{self, ParseError};
 
-/// Stable identifier for a module within a `ModuleGraph`.
+/// Stable identifier for a module within a [ModuleGraph].
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub struct ModuleId(pub u32);
+pub struct ModuleId(u32);
 
 impl ModuleId {
     pub fn index(self) -> usize {
@@ -42,7 +42,7 @@ impl std::fmt::Debug for ModuleId {
     }
 }
 
-/// One parsed `.star` file.
+/// One loaded module node.
 pub struct Module {
     pub id: ModuleId,
     /// Canonical absolute path on disk.
@@ -53,9 +53,12 @@ pub struct Module {
 
 #[derive(Default)]
 pub enum ModuleContents {
+    /// A module that could not be loaded.
     #[default]
     Empty,
+    /// A parsed `.star` file.
     Starstream(Program),
+    /// A `.wasm` file.
     Wasm(Arc<[u8]>),
 }
 
@@ -85,6 +88,7 @@ pub struct PathImport {
     pub span: Span,
 }
 
+/// Graph of modules and their import edges.
 pub struct ModuleGraph {
     modules: Vec<Module>,
     topo_order: Vec<ModuleId>,
@@ -96,6 +100,68 @@ pub struct ModuleGraph {
 }
 
 impl ModuleGraph {
+    /// Build a graph rooted at `entry` for the single-file `wasm -c` flow.
+    ///
+    /// The entry point is treated as a contract even if it doesn't start with a
+    /// `contract;` item.
+    pub fn from_entry(
+        fs: &mut FileSystem,
+        entry: &Path,
+    ) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
+        let canonical_entry = std::fs::canonicalize(entry).map_err(|error| {
+            vec![ModuleGraphError::EntryIo {
+                path: entry.to_path_buf(),
+                error,
+            }]
+        })?;
+
+        let mut builder = Builder::new(fs);
+        let entry_id = builder.parse_module(&canonical_entry).map_err(|error| {
+            vec![ModuleGraphError::EntryIo {
+                path: entry.to_path_buf(),
+                error,
+            }]
+        })?;
+
+        builder.finish(Some(entry_id))
+    }
+
+    /// Build a workspace graph by recursively scanning `scan_dir` for `.star`
+    /// files, then resolving every path import they declare (which may pull in
+    /// files outside `scan_dir`).
+    ///
+    /// Every scanned file is included in the graph.
+    /// `.star` files declaring `contract;` become codegen entry points.
+    pub fn from_workspace(
+        fs: &mut FileSystem,
+        scan_dir: &Path,
+    ) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
+        let mut builder = Builder::new(fs);
+
+        // Seed the graph with every `.star` file under scan_dir.
+        let star_files = collect_star_files(scan_dir);
+        for path in &star_files {
+            match std::fs::canonicalize(path) {
+                Err(error) => {
+                    builder.errors.push(ModuleGraphError::EntryIo {
+                        path: path.clone(),
+                        error,
+                    });
+                }
+                Ok(canonical) => {
+                    if let Err(error) = builder.parse_module(&canonical) {
+                        builder.errors.push(ModuleGraphError::EntryIo {
+                            path: path.clone(),
+                            error,
+                        });
+                    }
+                }
+            }
+        }
+
+        builder.finish(None)
+    }
+
     pub fn modules(&self) -> &[Module] {
         &self.modules
     }
@@ -274,67 +340,6 @@ impl Diagnostic for ModuleGraphError {
             _ => None,
         }
     }
-}
-
-/// Build a graph rooted at `entry` for the single-file `wasm -c` flow.
-///
-/// The entry point is treated as a contract even if it doesn't start with a
-/// `contract;` item.
-pub fn load_from_entry(
-    entry: &Path,
-    fs: &mut FileSystem,
-) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
-    let canonical_entry = std::fs::canonicalize(entry).map_err(|error| {
-        vec![ModuleGraphError::EntryIo {
-            path: entry.to_path_buf(),
-            error,
-        }]
-    })?;
-
-    let mut builder = Builder::new(fs);
-    let entry_id = builder.parse_module(&canonical_entry).map_err(|error| {
-        vec![ModuleGraphError::EntryIo {
-            path: entry.to_path_buf(),
-            error,
-        }]
-    })?;
-    builder.finish(Some(entry_id))
-}
-
-/// Build a workspace graph by recursively scanning `scan_dir` for `.star`
-/// files, then resolving every path import they declare (which may pull in
-/// files outside `scan_dir`).
-///
-/// Every scanned file is included in the graph.
-/// `.star` files declaring `contract;` become codegen entry points.
-pub fn load_workspace(
-    scan_dir: &Path,
-    fs: &mut FileSystem,
-) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
-    let mut builder = Builder::new(fs);
-
-    // Seed the graph with every `.star` file under scan_dir.
-    let star_files = collect_star_files(scan_dir);
-    for path in &star_files {
-        match std::fs::canonicalize(path) {
-            Err(error) => {
-                builder.errors.push(ModuleGraphError::EntryIo {
-                    path: path.clone(),
-                    error,
-                });
-            }
-            Ok(canonical) => {
-                if let Err(error) = builder.parse_module(&canonical) {
-                    builder.errors.push(ModuleGraphError::EntryIo {
-                        path: path.clone(),
-                        error,
-                    });
-                }
-            }
-        }
-    }
-
-    builder.finish(None)
 }
 
 fn collect_star_files(dir: &Path) -> Vec<PathBuf> {
@@ -726,7 +731,7 @@ mod tests {
         );
 
         let mut fs = FileSystem::new();
-        let graph = load_from_entry(&entry, &mut fs).unwrap();
+        let graph = ModuleGraph::from_entry(&mut fs, &entry).unwrap();
         assert_eq!(graph.modules().len(), 2);
         assert_eq!(graph.contract_entries().len(), 1);
     }
@@ -742,7 +747,7 @@ mod tests {
         );
 
         let mut fs = FileSystem::new();
-        match load_from_entry(&entry, &mut fs)
+        match ModuleGraph::from_entry(&mut fs, &entry)
             .err()
             .unwrap_or_default()
             .as_slice()
@@ -768,7 +773,7 @@ mod tests {
         );
 
         let mut fs = FileSystem::new();
-        let graph = load_workspace(&dir, &mut fs).unwrap();
+        let graph = ModuleGraph::from_workspace(&mut fs, &dir).unwrap();
         // helper + a + b = 3 nodes total; helper is shared.
         assert_eq!(graph.modules().len(), 3);
         assert_eq!(graph.contract_entries().len(), 2);
@@ -781,7 +786,7 @@ mod tests {
         write_file(&dir, "main.star", "contract;\nfn main() { }\n");
 
         let mut fs = FileSystem::new();
-        let graph = load_workspace(&dir, &mut fs).unwrap();
+        let graph = ModuleGraph::from_workspace(&mut fs, &dir).unwrap();
         assert_eq!(graph.modules().len(), 2);
         assert_eq!(graph.contract_entries().len(), 1);
         // orphan.star is in the graph but has no contract;
@@ -804,7 +809,7 @@ mod tests {
         );
 
         let mut fs = FileSystem::new();
-        match load_workspace(&dir, &mut fs)
+        match ModuleGraph::from_workspace(&mut fs, &dir)
             .err()
             .unwrap_or_default()
             .as_slice()
@@ -836,7 +841,7 @@ mod tests {
         );
 
         let mut fs = FileSystem::new();
-        match load_workspace(&dir, &mut fs)
+        match ModuleGraph::from_workspace(&mut fs, &dir)
             .err()
             .unwrap_or_default()
             .as_slice()
@@ -858,7 +863,7 @@ mod tests {
         write_file(&dir, "b.star", "contract;\nfn b() { }\n");
 
         let mut fs = FileSystem::new();
-        let graph = load_workspace(&dir, &mut fs).unwrap();
+        let graph = ModuleGraph::from_workspace(&mut fs, &dir).unwrap();
         let a_id = graph
             .find_by_path(&std::fs::canonicalize(&a).unwrap())
             .unwrap();

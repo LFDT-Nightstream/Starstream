@@ -3,7 +3,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::{fs, path::Path};
 
 use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, Report, SourceCode};
-use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
+use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
 use starstream_runtime_next::Contract;
 use starstream_types::FileSystem;
 use wasmprinter::Print;
@@ -208,7 +208,7 @@ fn multifile() {
     try_paths("multifile/*", |path, output| {
         let mut fs = FileSystem::new();
         writeln!(output, "==== Workspace ====").unwrap();
-        match module_graph::load_workspace(path, &mut fs) {
+        match ModuleGraph::from_workspace(&mut fs, path) {
             Err(errors) => {
                 for err in errors {
                     let txt = format!("{}", err);

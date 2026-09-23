@@ -5,7 +5,7 @@ use clap::Args;
 use miette::IntoDiagnostic;
 use starstream_compiler::module_graph::ModuleContents;
 use starstream_compiler::typecheck::TypedModuleContents;
-use starstream_compiler::{TypecheckOptions, generate_docs, module_graph, typecheck_modules};
+use starstream_compiler::{ModuleGraph, TypecheckOptions, generate_docs, typecheck_modules};
 use starstream_types::FileSystem;
 
 use crate::diagnostics::{print_diagnostic, print_report};
@@ -35,8 +35,8 @@ impl Docs {
             None => default_scan_dir().into_diagnostic()?,
         };
 
-        let mut tracker = FileSystem::new();
-        let graph = match module_graph::load_workspace(&scan_dir, &mut tracker) {
+        let mut fs = FileSystem::new();
+        let graph = match ModuleGraph::from_workspace(&mut fs, &scan_dir) {
             Ok(g) => g,
             Err(errors) => {
                 for error in errors {

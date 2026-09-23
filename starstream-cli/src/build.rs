@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use miette::IntoDiagnostic;
-use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
+use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
 use starstream_types::FileSystem;
 
 use crate::diagnostics::{print_diagnostic, print_report};
@@ -27,8 +27,8 @@ impl Build {
             None => default_scan_dir().into_diagnostic()?,
         };
 
-        let mut fs_tracker = FileSystem::new();
-        let graph = match module_graph::load_workspace(&scan_dir, &mut fs_tracker) {
+        let mut fs = FileSystem::new();
+        let graph = match ModuleGraph::from_workspace(&mut fs, &scan_dir) {
             Ok(g) => g,
             Err(errors) => {
                 for error in errors {
@@ -100,9 +100,7 @@ impl Build {
                 continue;
             };
 
-            if let Err(err) =
-                write_outputs(&out_dir, &wasm, &compile_result, &stem, &mut fs_tracker)
-            {
+            if let Err(err) = write_outputs(&out_dir, &wasm, &compile_result, &stem, &mut fs) {
                 eprintln!("error: {err}");
                 had_errors = true;
             }

@@ -302,7 +302,7 @@ impl DocumentState {
         // graph knows about it.
         let mut fs = starstream_types::FileSystem::new();
         let graph = if let Ok(g) =
-            starstream_compiler::module_graph::load_workspace(&workspace_root, &mut fs)
+            starstream_compiler::ModuleGraph::from_workspace(&mut fs, &workspace_root)
         {
             g
         } else {
@@ -311,7 +311,7 @@ impl DocumentState {
             // diagnostics by rooting a single-file graph at it.
             let mut local_fs = starstream_types::FileSystem::new();
             let Ok(local_graph) =
-                starstream_compiler::module_graph::load_from_entry(&canonical_file, &mut local_fs)
+                starstream_compiler::ModuleGraph::from_entry(&mut local_fs, &canonical_file)
             else {
                 return false;
             };
@@ -330,7 +330,7 @@ impl DocumentState {
         // The open file isn't reachable from the workspace scan (e.g. an
         // ad-hoc file outside the scanned tree). Build a graph rooted at it.
         let mut local_fs = starstream_types::FileSystem::new();
-        match starstream_compiler::module_graph::load_from_entry(&canonical_file, &mut local_fs) {
+        match starstream_compiler::ModuleGraph::from_entry(&mut local_fs, &canonical_file) {
             Ok(local_graph) => {
                 let module_id = local_graph
                     .find_by_path(&canonical_file)
