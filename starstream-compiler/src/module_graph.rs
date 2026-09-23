@@ -107,7 +107,7 @@ impl ModuleGraph {
     pub fn from_entry(
         fs: &mut FileSystem,
         entry: &Path,
-    ) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
+    ) -> Result<(ModuleGraph, ModuleId), Vec<ModuleGraphError>> {
         let canonical_entry = std::fs::canonicalize(entry).map_err(|error| {
             vec![ModuleGraphError::EntryIo {
                 path: entry.to_path_buf(),
@@ -123,7 +123,7 @@ impl ModuleGraph {
             }]
         })?;
 
-        builder.finish(Some(entry_id))
+        Ok((builder.finish(Some(entry_id))?, entry_id))
     }
 
     /// Build a workspace graph by recursively scanning `scan_dir` for `.star`
@@ -731,7 +731,7 @@ mod tests {
         );
 
         let mut fs = FileSystem::new();
-        let graph = ModuleGraph::from_entry(&mut fs, &entry).unwrap();
+        let (graph, _) = ModuleGraph::from_entry(&mut fs, &entry).unwrap();
         assert_eq!(graph.modules().len(), 2);
         assert_eq!(graph.contract_entries().len(), 1);
     }

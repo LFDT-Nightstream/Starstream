@@ -310,14 +310,11 @@ impl DocumentState {
             // somewhere we don't own), still try to give *this* file
             // diagnostics by rooting a single-file graph at it.
             let mut local_fs = starstream_types::FileSystem::new();
-            let Ok(local_graph) =
+            let Ok((local_graph, module_id)) =
                 starstream_compiler::ModuleGraph::from_entry(&mut local_fs, &canonical_file)
             else {
                 return false;
             };
-            let module_id = local_graph
-                .find_by_path(&canonical_file)
-                .expect("entry module is always in its own graph");
             self.run_graph_typecheck(uri, text, &local_graph, module_id);
             return true;
         };
@@ -331,10 +328,7 @@ impl DocumentState {
         // ad-hoc file outside the scanned tree). Build a graph rooted at it.
         let mut local_fs = starstream_types::FileSystem::new();
         match starstream_compiler::ModuleGraph::from_entry(&mut local_fs, &canonical_file) {
-            Ok(local_graph) => {
-                let module_id = local_graph
-                    .find_by_path(&canonical_file)
-                    .expect("entry module is always in its own graph");
+            Ok((local_graph, module_id)) => {
                 self.run_graph_typecheck(uri, text, &local_graph, module_id);
                 true
             }

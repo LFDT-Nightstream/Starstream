@@ -52,7 +52,7 @@ impl Wasm {
     pub fn exec(self) -> miette::Result<()> {
         let mut fs = FileSystem::new();
 
-        let graph = match ModuleGraph::from_entry(&mut fs, &self.compile_file) {
+        let (graph, entry_id) = match ModuleGraph::from_entry(&mut fs, &self.compile_file) {
             Ok(graph) => graph,
             Err(errors) => {
                 for error in errors {
@@ -61,12 +61,6 @@ impl Wasm {
                 std::process::exit(1);
             }
         };
-
-        let entry_id = graph
-            .contract_entries()
-            .first()
-            .copied()
-            .expect("ModuleGraph::from_entry always sets a single contract entry");
 
         let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {

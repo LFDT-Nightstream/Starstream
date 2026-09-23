@@ -15,8 +15,8 @@ fn fixture(scenario: &str) -> PathBuf {
 
 fn compile_contract(entry: &Path) -> Vec<u8> {
     let mut tracker = starstream_types::FileSystem::new();
-    let graph = starstream_compiler::ModuleGraph::from_entry(&mut tracker, entry).expect("graph");
-    let entry_id = graph.contract_entries()[0];
+    let (graph, entry_id) =
+        starstream_compiler::ModuleGraph::from_entry(&mut tracker, entry).expect("graph");
     let typed =
         starstream_compiler::typecheck_modules(&graph, Default::default()).expect("typecheck");
     let result = starstream_to_wasm::compile_contract(&typed, entry_id);
