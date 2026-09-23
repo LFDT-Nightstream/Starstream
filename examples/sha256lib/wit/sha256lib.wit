@@ -1,0 +1,5 @@
+package root:root;
+
+world sha256lib {
+    export sha256-u64: func(input: u64) -> u64;
+}

@@ -5,12 +5,10 @@ use sha2::{Digest as _, Sha256};
 use starstream_compiler::typecheck::TypecheckSuccess;
 use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
-use starstream_to_wasm::CompileResult;
 use tracing::instrument;
 use wasmtime::component::{Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, StoreContextMut, bail, ensure, format_err};
-use wit_component::ComponentEncoder;
 
 pub static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(|| {
     let mut config = wasmtime::Config::default();
@@ -28,18 +26,14 @@ pub fn compile_contract(source: &str) -> wasmtime::Result<Vec<u8>> {
             format_err!("failed to typecheck program: {:?}", errors)
         })?;
 
-    let CompileResult { errors, wasm, .. } = starstream_to_wasm::compile(&program);
-    ensure!(errors.is_empty(), "failed to compile program: {errors:?}");
+    let compile_result = starstream_to_wasm::compile(&program);
+    ensure!(
+        compile_result.errors.is_empty(),
+        "failed to compile program: {:#?}",
+        compile_result.errors
+    );
 
-    let wasm = wasm.context("compilation did not produce Wasm")?;
-    ComponentEncoder::default()
-        .validate(true)
-        .module(&wasm)
-        .map_err(wasmtime::error::Error::from_anyhow)
-        .context("failed to set core component module")?
-        .encode()
-        .map_err(wasmtime::error::Error::from_anyhow)
-        .context("failed to encode a component")
+    Ok(compile_result.to_component().unwrap())
 }
 
 pub fn method_hash(name: &str) -> (u64, u64, u64, u64) {

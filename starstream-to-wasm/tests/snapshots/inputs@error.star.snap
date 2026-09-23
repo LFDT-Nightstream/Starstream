@@ -1,0 +1,320 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/error.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "assert_small",
+                        span: 10..22,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "value",
+                                span: 23..28,
+                            },
+                            ty: Named {
+                                name: [
+                                    Identifier {
+                                        name: "u8",
+                                        span: 30..32,
+                                    },
+                                ],
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: None,
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: If {
+                                    branches: [
+                                        (
+                                            Bool(
+                                                Spanned {
+                                                    node: Binary {
+                                                        op: GreaterEqual,
+                                                        left: Spanned {
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "value",
+                                                                        span: 44..49,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                            span: 44..50,
+                                                        },
+                                                        right: Spanned {
+                                                            node: Literal(
+                                                                Integer(
+                                                                    IntegerLiteral {
+                                                                        digits: "10",
+                                                                        radix: Decimal,
+                                                                    },
+                                                                ),
+                                                            ),
+                                                            span: 53..55,
+                                                        },
+                                                    },
+                                                    span: 44..55,
+                                                },
+                                            ),
+                                            Block {
+                                                statements: [
+                                                    Spanned {
+                                                        node: Expression(
+                                                            Spanned {
+                                                                node: Error,
+                                                                span: 67..72,
+                                                            },
+                                                        ),
+                                                        span: 67..78,
+                                                    },
+                                                ],
+                                                tail_expression: None,
+                                                span: 57..80,
+                                            },
+                                        ),
+                                    ],
+                                    else_branch: None,
+                                },
+                                span: 40..80,
+                            },
+                        ),
+                        span: 34..82,
+                    },
+                },
+            ),
+            span: 0..82,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Fn: assert_small => ()
+  T-ReturnTail: if (value >= 10) {
+    error;
+} => ()
+    T-If: {assert_small: fn(value: u8) -> (), value: u8} ⊢ if (value >= 10) {
+    error;
+} ⇒ ()
+      T-Bin-Ge: {assert_small: fn(value: u8) -> (), value: u8} ⊢ value >= 10 ⇒ bool
+        T-Var: {assert_small: fn(value: u8) -> (), value: u8} ⊢ value ⇒ u8
+        T-Int: {assert_small: fn(value: u8) -> (), value: u8} ⊢ 10 ⇒ i64
+        Check-Compare: u8 vs u8 => ok (int)
+          Unify-Var: u8 ~ i64 => {u8/t3}
+      Check-Bool: bool => ok
+      T-Expr: {assert_small: fn(value: u8) -> (), value: u8} ⊢ error; ⇒ ()
+        T-Error: error => t4
+      Unify-Const: () ~ () => {}
+    Unify-Const: () ~ () => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "assert_small",
+                    span: 10..22,
+                },
+                id: NameId(4),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 10..22,
+                    params: [
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "value",
+                                span: 23..28,
+                            },
+                            ty: Int(
+                                U8,
+                            ),
+                            ty_span: 30..32,
+                        },
+                    ],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Unit,
+                                kind: If {
+                                    branches: [
+                                        (
+                                            Bool(
+                                                Spanned {
+                                                    node: TypedExpr {
+                                                        ty: Bool,
+                                                        kind: Binary {
+                                                            op: GreaterEqual,
+                                                            left: Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Int(
+                                                                        U8,
+                                                                    ),
+                                                                    kind: ScopedName {
+                                                                        name: [
+                                                                            Identifier {
+                                                                                name: "value",
+                                                                                span: 44..49,
+                                                                            },
+                                                                        ],
+                                                                        constant: None,
+                                                                    },
+                                                                },
+                                                                span: 44..50,
+                                                            },
+                                                            right: Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Int(
+                                                                        U8,
+                                                                    ),
+                                                                    kind: Literal(
+                                                                        Integer(
+                                                                            IntegerLiteral {
+                                                                                digits: "10",
+                                                                                radix: Decimal,
+                                                                            },
+                                                                        ),
+                                                                    ),
+                                                                },
+                                                                span: 53..55,
+                                                            },
+                                                        },
+                                                    },
+                                                    span: 44..55,
+                                                },
+                                            ),
+                                            TypedBlock {
+                                                statements: [
+                                                    Expression(
+                                                        Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Var(
+                                                                    TypeVarId(4),
+                                                                ),
+                                                                kind: Error,
+                                                            },
+                                                            span: 67..72,
+                                                        },
+                                                    ),
+                                                ],
+                                                tail_expression: None,
+                                            },
+                                        ),
+                                    ],
+                                    else_branch: None,
+                                },
+                            },
+                            span: 40..80,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (export "assert-small" (func 3))
+  (func (;3;) (type 0) (param i32)
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ge_u
+            (local.get 0)
+            (i32.const 10)))
+        (br 1 (;@1;)))
+      (unreachable))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (type (;3;) (tuple u64 u64 u64 u64))
+                  (type (;4;) (func (param "self" 1) (param "hash" 3) (result bool)))
+                  (export (;0;) "[method]utxo.has-method" (func (type 4)))
+                  (export (;5;) "token" (type (sub resource)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
+                )
+              )
+              (import "starstream:std/builtin" (instance (;0;) (type 0)))
+              (alias export 0 "utxo" (type (;1;)))
+              (import "s-utxo" (type (;2;) (eq 1)))
+              (type (;3;) (borrow 2))
+              (type (;4;) (own 2))
+              (alias export 0 "token" (type (;5;)))
+              (import "s-token" (type (;6;) (eq 5)))
+              (type (;7;) (borrow 6))
+              (type (;8;) (own 6))
+              (type (;9;) (func (param "value" u8)))
+              (export (;0;) "assert-small" (func (type 9)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
+  export assert-small: func(value: u8);
+}
+package starstream:std {
+  interface builtin {
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
+
+    resource token;
+  }
+}

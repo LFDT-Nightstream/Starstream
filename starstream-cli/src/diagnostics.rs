@@ -16,8 +16,15 @@ where
     S: SourceCode + 'static,
     E: Diagnostic + Send + Sync + 'static,
 {
-    let report = Report::new(error).with_source_code(source);
+    print_report(Report::new(error).with_source_code(source))
+}
 
+/// Render a diagnostic using the fancy miette renderer and print it to stderr.
+///
+/// This helper wraps the common pattern of turning an error into a `Report`,
+/// configuring the graphical renderer, and handling any rendering failures so
+/// callers only need to supply the source and diagnostic value.
+pub fn print_report(report: miette::Report) -> miette::Result<()> {
     let mut rendered = String::new();
 
     GraphicalReportHandler::new()

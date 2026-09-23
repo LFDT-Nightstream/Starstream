@@ -110,6 +110,7 @@ pub async fn new_contract(
     starstream_runtime_next::Contract::new(component, external_id, ContractLookup(imports))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn call_coordination_script(
     client: &(impl Client + ?Sized),
     wizer: &Wizer,

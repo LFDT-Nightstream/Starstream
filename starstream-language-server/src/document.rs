@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ropey::Rope;
+use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_types::FunctionKind;
 use tower_lsp_server::lsp_types::{
     DocumentSymbol, DocumentSymbolResponse, Hover, HoverContents, Location, MarkupContent,
@@ -301,7 +302,7 @@ impl DocumentState {
         // graph knows about it.
         let mut fs = starstream_types::FileSystem::new();
         let graph = if let Ok(g) =
-            starstream_compiler::module_graph::load_workspace(&workspace_root, &mut fs)
+            starstream_compiler::ModuleGraph::from_workspace(&mut fs, &workspace_root)
         {
             g
         } else {
@@ -309,14 +310,11 @@ impl DocumentState {
             // somewhere we don't own), still try to give *this* file
             // diagnostics by rooting a single-file graph at it.
             let mut local_fs = starstream_types::FileSystem::new();
-            let Ok(local_graph) =
-                starstream_compiler::module_graph::load_from_entry(&canonical_file, &mut local_fs)
+            let Ok((local_graph, module_id)) =
+                starstream_compiler::ModuleGraph::from_entry(&mut local_fs, &canonical_file)
             else {
                 return false;
             };
-            let module_id = local_graph
-                .find_by_path(&canonical_file)
-                .expect("entry module is always in its own graph");
             self.run_graph_typecheck(uri, text, &local_graph, module_id);
             return true;
         };
@@ -329,11 +327,8 @@ impl DocumentState {
         // The open file isn't reachable from the workspace scan (e.g. an
         // ad-hoc file outside the scanned tree). Build a graph rooted at it.
         let mut local_fs = starstream_types::FileSystem::new();
-        match starstream_compiler::module_graph::load_from_entry(&canonical_file, &mut local_fs) {
-            Ok(local_graph) => {
-                let module_id = local_graph
-                    .find_by_path(&canonical_file)
-                    .expect("entry module is always in its own graph");
+        match starstream_compiler::ModuleGraph::from_entry(&mut local_fs, &canonical_file) {
+            Ok((local_graph, module_id)) => {
                 self.run_graph_typecheck(uri, text, &local_graph, module_id);
                 true
             }
@@ -385,13 +380,15 @@ impl DocumentState {
             .iter()
             .find(|m| m.id == module_id)
             .expect("module id we just observed must be present");
-        let entry_program = entry_typed.program.clone();
+        let TypedModuleContents::Starstream(entry_program) = &entry_typed.contents else {
+            return;
+        };
 
         let program_ast = self.program.clone();
-        self.build_indexes(&entry_program, program_ast.as_deref(), text);
+        self.build_indexes(entry_program, program_ast.as_deref(), text);
 
         self.typed = Some(TypecheckSuccess {
-            program: entry_program,
+            program: entry_program.clone(),
             traces: Vec::new(),
             generic_types: success.generic_types.clone(),
             warnings: Vec::new(),
@@ -1171,54 +1168,6 @@ impl DocumentState {
                     }
                 }
             }
-            /*
-            TypedExprKind::EnumConstructor {
-                enum_name,
-                variant,
-                payload,
-            } => {
-                self.add_type_usage(enum_name.opt_span(), &enum_name.name);
-
-                // Add hover for enum name with doc comment
-                if let Some(span) = enum_name.opt_span() {
-                    let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
-                    self.add_generic_or_concrete_type_hover(
-                        span,
-                        &enum_name.name,
-                        Some(&expr.node.ty),
-                        enum_doc,
-                    );
-                }
-
-                self.add_enum_variant_usage(variant.opt_span(), &enum_name.name, &variant.name);
-                self.add_variant_hover(
-                    variant.opt_span(),
-                    &enum_name.name,
-                    &variant.name,
-                    Some(&expr.node.ty),
-                );
-
-                match payload {
-                    TypedEnumConstructorPayload::Unit => {}
-                    TypedEnumConstructorPayload::Tuple(values) => {
-                        for expr in values {
-                            self.collect_expr(expr, scopes);
-                        }
-                    }
-                    TypedEnumConstructorPayload::Struct(fields) => {
-                        for field in fields {
-                            self.collect_expr(&field.value, scopes);
-                            self.add_enum_variant_field_usage(
-                                field.name.opt_span(),
-                                &enum_name.name,
-                                &variant.name,
-                                &field.name.name,
-                            );
-                        }
-                    }
-                }
-            }
-            */
             TypedExprKind::Block(block) => self.collect_block(block, scopes),
             TypedExprKind::If {
                 branches,
@@ -1307,6 +1256,7 @@ impl DocumentState {
                     self.collect_expr(arg, scopes);
                 }
             }
+            TypedExprKind::Error => {}
         }
     }
 

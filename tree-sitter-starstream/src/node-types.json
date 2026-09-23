@@ -238,6 +238,10 @@
             "named": true
           },
           {
+            "type": "error_expression",
+            "named": true
+          },
+          {
             "type": "expression",
             "named": true
           },
@@ -368,6 +372,11 @@
     }
   },
   {
+    "type": "error_expression",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "event_definition",
     "named": true,
     "fields": {},
@@ -412,6 +421,10 @@
         },
         {
           "type": "emit_expression",
+          "named": true
+        },
+        {
+          "type": "error_expression",
           "named": true
         },
         {
@@ -977,6 +990,10 @@
             "named": true
           },
           {
+            "type": "error_expression",
+            "named": true
+          },
+          {
             "type": "expression",
             "named": true
           },
@@ -1084,6 +1101,10 @@
           },
           {
             "type": "emit_expression",
+            "named": true
+          },
+          {
+            "type": "error_expression",
             "named": true
           },
           {
@@ -1646,6 +1667,10 @@
   },
   {
     "type": "enum",
+    "named": false
+  },
+  {
+    "type": "error",
     "named": false
   },
   {

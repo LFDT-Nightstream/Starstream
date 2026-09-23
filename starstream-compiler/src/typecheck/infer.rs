@@ -34,7 +34,12 @@ use super::{
     tree::InferenceTree,
     warnings::{TypeWarning, TypeWarningKind},
 };
-use crate::{ModuleId, formatter, pointer_map::PointerMap};
+use crate::{
+    ModuleId, formatter,
+    import_wasm::{TypedWasmModule, import_wasm},
+    module_graph::ModuleContents,
+    pointer_map::PointerMap,
+};
 
 /// Optional settings that control type-checker behavior.
 #[derive(Clone, Debug, Default)]
@@ -138,19 +143,27 @@ pub fn typecheck_program(
 }
 
 /// One typechecked module within a `TypedModuleGraph`.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct TypedModule {
     pub id: ModuleId,
     pub abs_path: std::path::PathBuf,
-    pub source: std::sync::Arc<str>,
-    pub program: TypedProgram,
+    pub source: Arc<str>,
+    pub contents: TypedModuleContents,
     pub edges: Vec<ModuleId>,
+}
+
+#[derive(Debug, Default)]
+pub enum TypedModuleContents {
+    #[default]
+    Empty,
+    Starstream(TypedProgram),
+    Wasm(Box<TypedWasmModule>),
 }
 
 /// Typechecked counterpart to `ModuleGraph`. Modules are listed in `id`
 /// order (matching the source graph), with `topo_order` giving the iteration
 /// order callers should use for downstream passes.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct TypedModuleGraph {
     pub modules: Vec<TypedModule>,
     pub topo_order: Vec<ModuleId>,
@@ -161,11 +174,24 @@ pub struct TypedModuleGraph {
     /// path-import-in-single-file). Carried even on success so callers can
     /// decide whether to render them.
     pub warnings: Vec<(ModuleId, TypeWarning)>,
+    pub traces: Vec<InferenceTree>,
 }
 
 impl TypedModuleGraph {
     pub fn module(&self, id: ModuleId) -> &TypedModule {
         &self.modules[id.index()]
+    }
+
+    pub fn display_traces(&self) -> impl Display {
+        std::fmt::from_fn(|f| {
+            for (index, tree) in self.traces.iter().enumerate() {
+                if index > 0 {
+                    f.write_str("\n")?;
+                }
+                tree.fmt(f)?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -190,57 +216,75 @@ pub fn typecheck_modules(
 
     // `module_exports[id]` is populated as we finish typechecking each module.
     let mut module_exports: HashMap<ModuleId, Namespace> = HashMap::new();
-    let mut typed_modules: HashMap<ModuleId, TypedProgram> = HashMap::new();
+    let mut typed_modules: HashMap<ModuleId, TypedModuleContents> = HashMap::new();
 
     let mut all_errors: Vec<(ModuleId, TypeError)> = Vec::new();
     let mut warnings: Vec<(ModuleId, TypeWarning)> = Vec::new();
+    let mut traces = Vec::new();
 
     for &module_id in graph.topo_order() {
         let module = graph.module(module_id);
-        let mut env = TypeEnv::new();
 
-        // Pass 1: register imports
-        env.root
-            .import_all_from(inferencer.builtins.prelude())
-            .unwrap();
-        let resolved_imports = resolve_path_imports(graph, module_id, &module_exports);
-        if let Err(error) =
-            inferencer.register_imports(&mut env, &module.program.definitions, &resolved_imports)
-        {
-            all_errors.push((module_id, error));
-            continue;
-        }
+        match &module.contents {
+            ModuleContents::Empty => {}
+            ModuleContents::Starstream(program) => {
+                let mut env = TypeEnv::new();
 
-        // Pass 2: process definitions
-        let (program, _) =
-            match inferencer.process_definitions(&mut env, &module.program.definitions) {
-                Ok(x) => x,
-                Err(errors) => {
-                    // Capture a (possibly partial) export table so other modules can
-                    // continue — they may still produce useful diagnostics. But we
-                    // flag the run as failed.
-                    all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
-                    module_exports.insert(module_id, Namespace::default());
+                // Pass 1: register imports
+                env.root
+                    .import_all_from(inferencer.builtins.prelude())
+                    .unwrap();
+                let resolved_imports = resolve_path_imports(graph, module_id, &module_exports);
+                if let Err(error) =
+                    inferencer.register_imports(&mut env, &program.definitions, &resolved_imports)
+                {
+                    all_errors.push((module_id, error));
+                    warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
                     continue;
                 }
-            };
 
-        // Capture this module's exports for downstream modules.
-        // TODO: exclude private items.
-        let exports = env.root;
-        module_exports.insert(module_id, exports);
+                // Pass 2: process definitions
+                let (program, program_traces) =
+                    match inferencer.process_definitions(&mut env, &program.definitions) {
+                        Ok(x) => x,
+                        Err(errors) => {
+                            // Capture a partial export table to try to continue to typecheck other modules.
+                            all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
+                            warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
+                            module_exports.insert(module_id, Namespace::default());
+                            continue;
+                        }
+                    };
 
-        typed_modules.insert(module_id, program);
+                typed_modules.insert(module_id, TypedModuleContents::Starstream(program));
+                traces.extend(program_traces);
+
+                // Capture this module's exports for downstream modules.
+                // TODO: exclude private items.
+                let exports = env.root;
+                module_exports.insert(module_id, exports);
+            }
+            ModuleContents::Wasm(wasm) => match import_wasm(
+                &mut inferencer.next_name_id,
+                module
+                    .abs_path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "anonymous".to_string()),
+                wasm,
+            ) {
+                Ok((namespace, module)) => {
+                    module_exports.insert(module_id, namespace);
+                    typed_modules.insert(module_id, TypedModuleContents::Wasm(Box::new(module)));
+                }
+                Err(err) => {
+                    panic!("{err}"); // TODO
+                }
+            },
+        }
 
         // Drain warnings emitted during this module's pass.
-        for warning in inferencer.warnings.drain(..) {
-            warnings.push((module_id, warning));
-        }
-
-        // Stop once any module has failed catastrophically.
-        if !all_errors.is_empty() {
-            break;
-        }
+        warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
     }
 
     if !all_errors.is_empty() {
@@ -274,7 +318,9 @@ pub fn typecheck_modules(
 
     // Apply substitutions per module.
     for typed_program in typed_modules.values_mut() {
-        inferencer.apply_substitutions_program(typed_program);
+        if let TypedModuleContents::Starstream(typed_program) = typed_program {
+            inferencer.apply_substitutions_program(typed_program);
+        }
     }
 
     let generic_types = Inferencer::build_generic_type_defs(inferencer.builtins.prelude());
@@ -286,7 +332,7 @@ pub fn typecheck_modules(
             id: source_module.id,
             abs_path: source_module.abs_path.clone(),
             source: source_module.source.clone(),
-            program: typed_program,
+            contents: typed_program,
             edges: graph
                 .edges_of(source_module.id)
                 .iter()
@@ -301,6 +347,7 @@ pub fn typecheck_modules(
         contract_entries: graph.contract_entries().to_vec(),
         generic_types,
         warnings,
+        traces,
     })
 }
 
@@ -451,7 +498,7 @@ impl Inferencer {
                         // the single-file so emit a warning explaining why
                         // the names aren't available.
                         self.warnings.push(TypeWarning::new(
-                            TypeWarningKind::PathImportIgnoredInSingleFile {
+                            TypeWarningKind::PathImportNotResolved {
                                 path: path.value.clone(),
                             },
                             path.span,
@@ -1141,6 +1188,7 @@ impl Inferencer {
                     Self::collect_yields_expr(dest, &each.node);
                 }
             }
+            Expr::Error => {}
             Expr::Block(block) => Self::collect_yields(dest, block),
             Expr::If {
                 branches,
@@ -3562,6 +3610,14 @@ impl Inferencer {
             Expr::Runtime { callee, args } => {
                 self.infer_call(env, ctx, expr, callee, args, FunctionKind::Runtime)
             }
+            Expr::Error => {
+                let ty: Type = self.fresh_var();
+                let subject = self.maybe_string(|| self.format_expr_src(expr));
+                let result = self.maybe_string(|| self.format_type(&ty));
+                let tree = self.make_trace("T-Error", None, subject, result, Vec::new);
+                let typed = Spanned::new(TypedExpr::new(ty, TypedExprKind::Error), expr.span);
+                Ok((typed, tree))
+            }
         }
     }
 
@@ -3775,6 +3831,7 @@ impl Inferencer {
             | Expr::Emit { .. }
             | Expr::Raise { .. }
             | Expr::Runtime { .. }
+            | Expr::Error
             | Expr::Yield { .. } => BindingVisibility::Private,
         }
     }
@@ -4198,7 +4255,6 @@ impl Inferencer {
                     self.apply_expr(arg);
                 }
             }
-            TypedExprKind::Disclose { expr } => self.apply_expr(expr),
             TypedExprKind::Emit { callee, args } => {
                 self.apply_expr(callee);
                 for arg in args {
@@ -4217,6 +4273,8 @@ impl Inferencer {
                     self.apply_expr(arg);
                 }
             }
+            TypedExprKind::Error => {}
+            TypedExprKind::Disclose { expr } => self.apply_expr(expr),
         }
     }
 

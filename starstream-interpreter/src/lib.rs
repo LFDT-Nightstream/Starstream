@@ -250,6 +250,7 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
         | TypedExprKind::Yield { .. } => {
             todo!("not supported in the interpreter yet")
         }
+        TypedExprKind::Error => panic!("explicit error"),
     })
 }
 

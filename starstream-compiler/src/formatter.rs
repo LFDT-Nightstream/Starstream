@@ -1298,6 +1298,7 @@ fn expr_with_prec<'a>(
                         .append(callee_doc)
                         .append(arguments_to_doc(args, source, comments))
                 }
+                Expr::Error => RcDoc::text("error"),
             };
 
             if needs_parentheses(prec, parent_prec, position) {
@@ -1337,7 +1338,8 @@ fn precedence(expr: &Expr) -> u8 {
         | Expr::Disclose { .. }
         | Expr::Emit { .. }
         | Expr::Raise { .. }
-        | Expr::Runtime { .. } => PREC_PRIMARY,
+        | Expr::Runtime { .. }
+        | Expr::Error => PREC_PRIMARY,
         Expr::Grouping(inner) => precedence(&inner.node),
         Expr::Unary { .. } => PREC_UNARY,
         Expr::Binary { op, .. } => precedence_binary(op),

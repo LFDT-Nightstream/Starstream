@@ -1,0 +1,15 @@
+[package]
+name = "sha256lib"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sha2.workspace = true
+wit-bindgen.workspace = true

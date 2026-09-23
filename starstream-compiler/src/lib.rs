@@ -5,12 +5,14 @@
 
 pub mod docs;
 pub mod formatter;
+mod import_wasm;
 pub mod module_graph;
 pub mod parser;
 mod pointer_map;
 pub mod typecheck;
 
 pub use docs::{DocsOutput, generate_docs};
+pub use import_wasm::{TypedWasmModule, WasmLinkage};
 pub use module_graph::{Module, ModuleGraph, ModuleGraphError, ModuleId, PathImport};
 pub use parser::parse_program;
 pub use typecheck::{

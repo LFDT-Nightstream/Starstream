@@ -8,8 +8,9 @@
 //! from the typed AST patterns. This separation keeps the algorithm clean while
 //! allowing the AST to maintain richer information for formatting and error reporting.
 //!
-//! Reference: "Warnings for pattern matching" by Luc Maranget
-//! http://moscova.inria.fr/~maranget/papers/warn/warn.pdf
+//! Reference: ["Warnings for pattern matching" by Luc Maranget][warn].
+//!
+//! [warn]: http://moscova.inria.fr/~maranget/papers/warn/warn.pdf
 
 use starstream_types::{
     Span,

@@ -31,7 +31,7 @@ pub struct Server {
     /// Workspace roots announced by the editor during `initialize`. The
     /// LSP uses these as the scan root for multi-file type-checking: when a
     /// file is edited, the first workspace folder that contains it becomes
-    /// the `load_workspace` root. If the editor didn't announce any, the
+    /// the `from_workspace` root. If the editor didn't announce any, the
     /// document falls back to its parent directory.
     workspace_folders: RwLock<Vec<PathBuf>>,
     document_map: DashMap<Uri, DocumentState>,

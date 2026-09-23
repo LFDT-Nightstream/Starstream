@@ -48,6 +48,10 @@ pub fn runtime<'a>(
         .spanned()
 }
 
+pub fn error<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    just("error").to(Expr::Error).spanned()
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

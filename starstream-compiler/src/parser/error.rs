@@ -40,10 +40,6 @@ impl ParseError {
 }
 
 impl Diagnostic for ParseError {
-    fn code(&self) -> Option<Box<dyn std::fmt::Display + '_>> {
-        Some(Box::new("parser"))
-    }
-
     fn help(&self) -> Option<Box<dyn std::fmt::Display + '_>> {
         self.help
             .as_ref()

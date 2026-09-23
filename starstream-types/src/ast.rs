@@ -184,7 +184,7 @@ impl Comment {
 }
 
 /// Entire program: a sequence of definitions.
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Default, Clone, Debug, Serialize, PartialEq)]
 pub struct Program {
     #[serde(skip)]
     pub shebang: Option<Comment>,
@@ -657,6 +657,8 @@ pub enum Expr {
         callee: Box<Spanned<Expr>>,
         args: Arguments,
     },
+    /// Error: `error`
+    Error,
     // Control-flow primary expressions ----------
     /// `yield` and `yield(AbiName, ...)`
     Yield {

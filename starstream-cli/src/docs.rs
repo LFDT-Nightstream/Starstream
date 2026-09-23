@@ -3,10 +3,12 @@ use std::path::PathBuf;
 
 use clap::Args;
 use miette::IntoDiagnostic;
-use starstream_compiler::{TypecheckOptions, generate_docs, module_graph, typecheck_modules};
+use starstream_compiler::module_graph::ModuleContents;
+use starstream_compiler::typecheck::TypedModuleContents;
+use starstream_compiler::{ModuleGraph, TypecheckOptions, generate_docs, typecheck_modules};
 use starstream_types::FileSystem;
 
-use crate::diagnostics::print_diagnostic;
+use crate::diagnostics::{print_diagnostic, print_report};
 use crate::project::default_scan_dir;
 
 /// Generate JSON documentation for every contract under the target directory.
@@ -33,11 +35,13 @@ impl Docs {
             None => default_scan_dir().into_diagnostic()?,
         };
 
-        let mut tracker = FileSystem::new();
-        let graph = match module_graph::load_workspace(&scan_dir, &mut tracker) {
+        let mut fs = FileSystem::new();
+        let graph = match ModuleGraph::from_workspace(&mut fs, &scan_dir) {
             Ok(g) => g,
-            Err(err) => {
-                eprintln!("{err}");
+            Err(errors) => {
+                for error in errors {
+                    print_report(miette::Report::new(error))?;
+                }
                 std::process::exit(1);
             }
         };
@@ -73,14 +77,22 @@ impl Docs {
         fs::create_dir_all(&artifacts_dir).into_diagnostic()?;
 
         for &entry_id in &typed.contract_entries {
-            let entry_typed = typed.module(entry_id);
-            let entry_source_module = graph.module(entry_id);
+            let entry_module = graph.module(entry_id);
+            let entry_typed_module = typed.module(entry_id);
+
+            let ModuleContents::Starstream(entry_program) = &entry_module.contents else {
+                continue;
+            };
+            let TypedModuleContents::Starstream(entry_typed_program) = &entry_typed_module.contents
+            else {
+                continue;
+            };
 
             let docs = generate_docs(
-                &entry_source_module.program,
-                &entry_typed.program,
+                entry_program,
+                entry_typed_program,
                 &starstream_types::CommentMap::new(),
-                entry_source_module.source.as_ref(),
+                entry_module.source.as_ref(),
             );
 
             let json = if self.pretty {
@@ -89,7 +101,7 @@ impl Docs {
                 serde_json::to_string(&docs).into_diagnostic()?
             };
 
-            let stem = entry_typed
+            let stem = entry_typed_module
                 .abs_path
                 .file_stem()
                 .and_then(|s| s.to_str())

@@ -1,10 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
+use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
 use starstream_to_wasm::CompileOptions;
 use starstream_types::FileSystem;
-use wit_component::ComponentEncoder;
 
 use crate::diagnostics::print_diagnostic;
 
@@ -53,19 +52,15 @@ impl Wasm {
     pub fn exec(self) -> miette::Result<()> {
         let mut fs = FileSystem::new();
 
-        let graph = match module_graph::load_from_entry(&self.compile_file, &mut fs) {
+        let (graph, entry_id) = match ModuleGraph::from_entry(&mut fs, &self.compile_file) {
             Ok(graph) => graph,
-            Err(err) => {
-                eprintln!("{err}");
+            Err(errors) => {
+                for error in errors {
+                    eprintln!("{error}");
+                }
                 std::process::exit(1);
             }
         };
-
-        let entry_id = graph
-            .contract_entries()
-            .first()
-            .copied()
-            .expect("load_from_entry always sets a single contract entry");
 
         let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {
@@ -91,41 +86,37 @@ impl Wasm {
             output_mermaid: self.output_mermaid.is_some(),
         };
         let compile_result = options.compile_contract(&typed, entry_id);
-        for error in compile_result.errors {
-            print_diagnostic(graph.source(entry_id), error)?;
+        for error in &compile_result.errors {
+            print_diagnostic(graph.source(entry_id), error.clone())?;
         }
         if let Some(output_mermaid) = self.output_mermaid {
             std::fs::create_dir_all(&output_mermaid).unwrap();
-            for (name, text) in compile_result.mermaid {
+            for (name, text) in &compile_result.mermaid {
                 let mermaid = output_mermaid.join(format!("{name}.mmd"));
                 fs.write(&mermaid, text.as_bytes())
                     .expect("Error writing Mermaid output");
             }
         }
-        let Some(wasm) = compile_result.wasm else {
+        let Some(wasm) = &compile_result.wasm else {
             std::process::exit(1);
         };
 
         if let Some(output_core) = &self.output_core {
-            fs.write(output_core, &wasm)
+            fs.write(output_core, wasm)
                 .expect("Error writing Wasm output");
         }
 
         if let Some(output_binary_wit) = self.output_binary_wit {
             let binary_wit = compile_result
                 .binary_wit
+                .as_ref()
                 .expect("Strange: compilation succeeded, but there was no binary WIT");
-            fs.write(&output_binary_wit, &binary_wit)
+            fs.write(&output_binary_wit, binary_wit)
                 .expect("Error writing binary WIT output");
         }
 
         if self.output_component.is_some() || self.output_wit.is_some() {
-            let component_wasm = ComponentEncoder::default()
-                .validate(true)
-                .module(&wasm)
-                .expect("ComponentEncoder::module failed")
-                .encode()
-                .expect("ComponentEncoder::encode failed");
+            let component_wasm = compile_result.to_component().expect("error linking");
 
             if let Some(output_component) = &self.output_component {
                 fs.write(output_component, &component_wasm)

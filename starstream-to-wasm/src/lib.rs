@@ -3,10 +3,14 @@
 
 use std::collections::BTreeMap;
 use std::ops::Range;
+use std::sync::Arc;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
+use starstream_compiler::typecheck::TypedModuleContents;
+use starstream_compiler::{TypedWasmModule, WasmLinkage};
+use starstream_types::DUMMY_SPAN;
 use starstream_types::{
     AbiType, BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionKind, ImportSource,
     IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
@@ -37,6 +41,7 @@ mod component_encoder;
 mod decision_tree;
 mod intrinsics;
 mod ir;
+mod linker;
 mod stackifier;
 mod world_spec;
 
@@ -86,10 +91,12 @@ pub struct CompileResult {
     pub binary_wit: Option<Vec<u8>>,
     /// List of (name, flowchart) pairs. Requires [`CompileOptions::output_mermaid`].
     pub mermaid: Vec<(String, String)>,
+
+    pub libraries: Vec<(String, Arc<[u8]>, WasmLinkage)>,
 }
 
 /// A Wasm compiler error.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 #[error("{message}")]
 pub struct CompileError {
     pub message: String,
@@ -132,7 +139,9 @@ impl CompileOptions {
     #[must_use]
     pub fn compile(self, program: &TypedProgram) -> CompileResult {
         let definitions = program.definitions.iter().collect::<Vec<_>>();
-        self.compile_definitions(&definitions)
+        let mut compiler = Compiler::new(self);
+        compiler.visit_program(&definitions);
+        compiler.finish()
     }
 
     #[must_use]
@@ -155,18 +164,22 @@ impl CompileOptions {
             }
         }
 
+        let mut compiler = Compiler::new(self);
         let mut definitions = Vec::new();
         for &module_id in &graph.topo_order {
             if reachable.contains(&module_id) {
-                definitions.extend(graph.module(module_id).program.definitions.iter());
+                match &graph.module(module_id).contents {
+                    TypedModuleContents::Empty => {}
+                    TypedModuleContents::Starstream(program) => {
+                        definitions.extend(program.definitions.iter());
+                    }
+                    TypedModuleContents::Wasm(typed_wasm_module) => {
+                        compiler.visit_embedded_wasm(typed_wasm_module);
+                    }
+                };
             }
         }
-        self.compile_definitions(&definitions)
-    }
-
-    fn compile_definitions(self, definitions: &[&TypedDefinition]) -> CompileResult {
-        let mut compiler = Compiler::new(self);
-        compiler.visit_program(definitions);
+        compiler.visit_program(&definitions);
         compiler.finish()
     }
 }
@@ -205,6 +218,8 @@ struct Compiler {
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
     resource_abi_fns: HashMap<Type, (u32, u32)>,
     resource_drop_fns: Vec<(Rc<Resource>, u32)>,
+
+    libraries: Vec<(String, Arc<[u8]>, WasmLinkage)>,
 
     // Diagnostics.
     fatal: bool,
@@ -291,6 +306,7 @@ impl Compiler {
                 wasm: None,
                 binary_wit: None,
                 mermaid: Vec::new(),
+                libraries: Vec::new(),
             };
         }
 
@@ -384,12 +400,13 @@ impl Compiler {
             wasm: Some(module.finish()),
             binary_wit: Some(component),
             mermaid: self.mermaid,
+            libraries: self.libraries,
         }
     }
 
     fn push_error(&mut self, span: Span, message: impl Into<String>) -> ErrorToken {
         self.errors.push(CompileError {
-            message: dbg!(message.into()),
+            message: message.into(),
             span,
         });
         self.fatal = true;
@@ -427,7 +444,7 @@ impl Compiler {
                         ValType::I64 => ComponentAbiType::S64,
                         other => panic!("unhandled global type {other:?}"),
                     };
-                    (name.to_owned(), Rc::new(ty))
+                    (to_kebab_case(name), Rc::new(ty))
                 })
                 .collect(),
         });
@@ -1020,6 +1037,22 @@ impl Compiler {
         ok
     }
 
+    fn component_to_core_signature(
+        &mut self,
+        span: Span,
+        signature: &ComponentAbiFunctionSignature,
+    ) -> FuncType {
+        let mut params = Vec::new();
+        for (_, ty) in &signature.params {
+            _ = self.component_to_core_types(span, &mut params, ty);
+        }
+        let mut results = Vec::new();
+        if let Some(result) = &signature.result {
+            _ = self.component_to_core_types(span, &mut results, result);
+        }
+        FuncType::new(params, results)
+    }
+
     fn join(a: ValType, b: ValType) -> ValType {
         match (a, b) {
             (a, b) if a == b => a,
@@ -1065,6 +1098,28 @@ impl Compiler {
 
     // ------------------------------------------------------------------------
     // Visitors
+
+    fn visit_embedded_wasm(&mut self, module: &TypedWasmModule) {
+        let mut instance_type = TypeBuilder::<InstanceType>::default();
+
+        for (&id, (wit_name, ty)) in &module.functions {
+            let signature = self.star_to_component_signature(None, &ty.params, &ty.result);
+            instance_type.export_fn(wit_name, &signature);
+
+            let func_type = self.component_to_core_signature(DUMMY_SPAN, &signature);
+            let func_idx = self.import_function(&module.name, wit_name, &func_type);
+            self.callables.insert(id, func_idx);
+        }
+
+        let id = self.world_type.inner.type_count();
+        self.world_type.inner.ty().instance(&instance_type.inner);
+        self.world_type
+            .inner
+            .import(&module.name, ComponentTypeRef::Instance(id));
+
+        self.libraries
+            .push((module.name.to_owned(), module.wasm.clone(), module.linkage));
+    }
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
@@ -2498,6 +2553,9 @@ impl Compiler {
                     func.instructions(bb).drop();
                 }
             }
+            TypedExprKind::Error => {
+                func.instructions(bb).unreachable();
+            }
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_drop(func, bb, locals, span, scrutinee, arms)?;
             }
@@ -3332,6 +3390,10 @@ impl Compiler {
                     }
                     None => Err(self.push_error(callee_span, "function pointers not supported")),
                 }
+            }
+            TypedExprKind::Error => {
+                func.instructions(bb).unreachable();
+                Ok(())
             }
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_stack(func, bb, locals, span, expr, scrutinee, arms)

@@ -16,8 +16,13 @@ they are finalized and implemented.
 - Utxo types are linear/affine (use exactly once, with including a Utxo in the output either explicit or implicit).
 - `abi MyAbi` declares a handle type similar to that of `utxo MyUtxo`.
 - Expand Utxo types, which currently allow constraints on ABI and contract, to allow constraints on tokens as well. Syntax TBD.
-- Effects and resumable errors are typed as part of the signature of a function.
-  - Fatal errors (fail the transaction) are not typed.
+- Effects are typed as part of the signature of a function.
+
+### Typed fatal errors
+
+- Declare: `abi Foo { error MyError(x: i32) }`
+- Raise: `error MyError(17);`
+- Not introspectable by Starstream code, just for outside world's benefit.
 
 ## Type identities
 

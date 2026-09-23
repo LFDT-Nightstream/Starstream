@@ -15,9 +15,8 @@ fn fixture(scenario: &str) -> PathBuf {
 
 fn compile_contract(entry: &Path) -> Vec<u8> {
     let mut tracker = starstream_types::FileSystem::new();
-    let graph =
-        starstream_compiler::module_graph::load_from_entry(entry, &mut tracker).expect("graph");
-    let entry_id = graph.contract_entries()[0];
+    let (graph, entry_id) =
+        starstream_compiler::ModuleGraph::from_entry(&mut tracker, entry).expect("graph");
     let typed =
         starstream_compiler::typecheck_modules(&graph, Default::default()).expect("typecheck");
     let result = starstream_to_wasm::compile_contract(&typed, entry_id);
@@ -26,17 +25,11 @@ fn compile_contract(entry: &Path) -> Vec<u8> {
         "compile errors: {:?}",
         result.errors
     );
-    result.wasm.expect("wasm produced")
+    result.to_component().expect("linking failed")
 }
 
 fn print_wit(wasm: &[u8]) -> String {
-    let component_bytes = wit_component::ComponentEncoder::default()
-        .validate(true)
-        .module(wasm)
-        .expect("ComponentEncoder::module")
-        .encode()
-        .expect("ComponentEncoder::encode");
-    let decoded = wit_component::decode(&component_bytes).expect("decode");
+    let decoded = wit_component::decode(&wasm).expect("decode");
     let mut printer = wit_component::WitPrinter::default();
     let ids: Vec<_> = decoded
         .resolve()
@@ -92,9 +85,13 @@ fn imports_are_importer_relative() {
 fn cross_contract_import_errors() {
     // Helper file also declares `contract;` — must be rejected at graph build.
     let entry = fixture("cross_contract").join("main.star");
-    let mut tracker = starstream_types::FileSystem::new();
-    match starstream_compiler::module_graph::load_from_entry(&entry, &mut tracker) {
-        Err(starstream_compiler::ModuleGraphError::CrossContractImport { .. }) => {}
-        other => panic!("expected CrossContractImport, got {:?}", other.map(|_| ())),
+    let mut fs = starstream_types::FileSystem::new();
+    match starstream_compiler::ModuleGraph::from_entry(&mut fs, &entry)
+        .err()
+        .unwrap_or_default()
+        .as_slice()
+    {
+        [starstream_compiler::ModuleGraphError::CrossContractImport { .. }] => {}
+        other => panic!("expected CrossContractImport, got {:?}", other),
     }
 }

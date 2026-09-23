@@ -347,6 +347,7 @@ fn link_utxo_upcast<T: Host>(linker: &mut LinkerInstance<T>) -> wasmtime::Result
 
 /// Link typed UTXO main in a [`LinkerInstance`]
 #[instrument(level = "trace", skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn link_typed_utxo_main<T: Host>(
     target: &ContractImportTarget<'_, T>,
     linker: &mut LinkerInstance<T>,
@@ -827,6 +828,7 @@ fn link_coordination_script_instance<T: Host>(
 
 /// Link non-std instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip(contract, component, linker, contracts, ty))]
+#[allow(clippy::too_many_arguments)]
 fn link_instance<T: Host>(
     contract: &Arc<OnceLock<Contract<T>>>,
     component: &Component,
