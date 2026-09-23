@@ -5,6 +5,7 @@ mod commitment;
 mod transaction_commitment;
 pub use transaction_commitment::transaction_commitment;
 mod ivc_state;
+pub use ivc_state::CoroutineId;
 mod memory;
 mod opcode;
 mod step;
