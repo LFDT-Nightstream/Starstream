@@ -7,7 +7,7 @@ use core::task::{Poll, ready};
 use core::time::Duration;
 
 use std::collections::{HashMap, HashSet, hash_map};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 use anyhow::Context as _;
 use bytes::{Buf, Bytes, BytesMut};
@@ -34,17 +34,19 @@ use tokio::time::sleep;
 use tokio_util::codec::{Encoder as _, FramedRead};
 use tokio_util::io::StreamReader;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
-use wasm_tokio::{AsyncReadCore as _, AsyncReadLeb128 as _, cm::U64Codec};
+use wasm_tokio::cm::{AsyncReadValue as _, U64Codec};
+use wasm_tokio::{AsyncReadCore as _, AsyncReadLeb128 as _};
 use wasmparser::WasmFeatures;
 use wasmtime::component::{ResourceTable, Type, Val};
 use wrpc_transport::FrameDecoder;
 
+use crate::runtime::apply_state;
 use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx};
 use crate::wrpc::codec::{ValEncoder, read_value};
 use crate::wrpc::{LEDGER_PACKAGE, UTXO_PACKAGE};
 use crate::{
     APPLICATION_CBOR, APPLICATION_COSE, APPLICATION_WASM, Action, Block, Envelope, EnvelopeContext,
-    Fund, Publish, TransactionInput, TransactionOutput, parse_digest,
+    Fund, Publish, TransactionInput, parse_digest,
 };
 
 mod error;
@@ -476,12 +478,10 @@ impl Ledger {
     fn handle_genesis_get(
         &self,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, GenesisGetError> {
-        let genesis =
-            minicbor::to_vec(&self.genesis.tx_outputs).map_err(GenesisGetError::Encoding)?;
         http::Response::builder()
             .header(CONTENT_TYPE, APPLICATION_CBOR.to_string())
             .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
-            .body(http_body_util::Full::new(Bytes::from(genesis)))
+            .body(http_body_util::Full::new(self.genesis.encoded.clone()))
             .map_err(GenesisGetError::Http)
     }
 
@@ -578,45 +578,28 @@ impl Ledger {
             }
         }
         // TODO: Verify sum(inputs) >= sum(outputs) + fee
-        let mut tx_outputs = Vec::with_capacity(outputs.len());
-        {
-            let mut utxos = self.utxos.write().await;
-            for TransactionOutput { wasm, .. } in outputs {
-                let digest: [u8; 32] = Sha256::digest(&wasm).into();
-                let utxo = if let Some(utxo) = utxos.get(&digest).and_then(Weak::upgrade) {
-                    utxo
-                } else {
-                    let utxo = Arc::new(wasm.into());
-                    utxos.insert(digest, Arc::downgrade(&utxo));
-                    utxo
-                };
-                tx_outputs.push(Some(utxo));
-            }
-            for (tx, i) in resolved_inputs {
-                let utxo = if let Some(tx) = tx {
-                    let Some(Transaction { outputs, .. }) = txs.get_mut(&tx) else {
-                        unreachable!();
-                    };
-                    outputs[i].take()
-                } else {
-                    genesis[i].take()
-                };
-                let Some(utxo) = utxo else {
+        for (tx, i) in resolved_inputs {
+            let utxo = if let Some(tx) = tx {
+                let Some(Transaction { outputs, .. }) = txs.get_mut(&tx) else {
                     unreachable!();
                 };
-                if let Some(utxo) = Arc::into_inner(utxo) {
-                    let digest: [u8; 32] = Sha256::digest(utxo).into();
-                    utxos.remove(&digest);
-                }
-            }
+                outputs[i].take()
+            } else {
+                genesis[i].take()
+            };
+            let Some(..) = utxo else {
+                unreachable!();
+            };
         }
-        txs.insert(
-            digest,
-            Transaction {
-                outputs: tx_outputs,
-                envelope: envelope.clone(),
-            },
-        );
+        let outputs = outputs
+            .into_iter()
+            .map(|utxo| Some(Arc::new(utxo)))
+            .collect();
+        let tx = Transaction {
+            outputs,
+            envelope: envelope.clone(),
+        };
+        txs.insert(digest, tx);
 
         let mut blocks = self.blocks.write().await;
         blocks.push(Block {
@@ -647,18 +630,7 @@ impl Ledger {
                 }
                 _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
             },
-            Some((UTXO_PACKAGE, digest)) => {
-                let digest = parse_digest(digest).map_err(RpcPostError::UtxoDigestParsing)?;
-                let wasm = {
-                    let utxos = self.utxos.read().await;
-                    let utxo = utxos.get(&digest).ok_or(RpcPostError::UtxoNotFound)?;
-                    let utxo = utxo.upgrade().ok_or(RpcPostError::UtxoNotFound)?;
-                    Bytes::clone(&utxo)
-                };
-
-                // TODO: Insert traps in place of all coordination script imports
-                // TODO: Merge the UTXO snapshot with the contract code
-
+            Some((UTXO_PACKAGE, utxo_instance)) => {
                 let body = FramedRead::new(body, FrameDecoder::default()).map(|frame| {
                     let wrpc_transport::Frame { path, data } = frame?;
                     anyhow::ensure!(path.is_empty(), "async values not supported");
@@ -666,29 +638,55 @@ impl Ledger {
                 });
                 let mut body = StreamReader::new(body.map_err(std::io::Error::other));
 
-                // TODO: Get instance from nested interface
-                let mut instance = String::default();
-                body.read_core_name(&mut instance)
+                let tx = if body
+                    .read_option_status()
                     .await
-                    .map_err(RpcPostError::ParameterDecoding)?;
-
-                let n = body
+                    .map_err(RpcPostError::ParameterDecoding)?
+                {
+                    let mut transaction = String::default();
+                    body.read_core_name(&mut transaction)
+                        .await
+                        .map_err(RpcPostError::ParameterDecoding)?;
+                    let transaction = parse_digest(&transaction)
+                        .map_err(RpcPostError::TransactionDigestParsing)?;
+                    Some(transaction)
+                } else {
+                    None
+                };
+                let index = body
                     .read_u32_leb128()
                     .await
                     .map_err(RpcPostError::ParameterDecoding)?;
-                let mut methods = HashSet::default();
-                for _ in 0..n {
-                    let mut hash = [0; 4];
-                    for v in &mut hash {
-                        *v = body
-                            .read_u64_leb128()
-                            .await
-                            .map_err(RpcPostError::ParameterDecoding)?;
-                    }
-                    let [a, b, c, d] = hash;
-                    methods.insert((a, b, c, d));
+                let index = usize::try_from(index).map_err(|_| RpcPostError::UtxoIndexOverflow)?;
+
+                let utxo = if let Some(transaction) = tx {
+                    let txs = self.transactions.read().await;
+                    let Transaction { outputs, .. } =
+                        txs.get(&transaction).ok_or(RpcPostError::UtxoNotFound)?;
+                    outputs.get(index).cloned()
+                } else {
+                    let outputs = self.genesis.outputs.read().await;
+                    outputs.get(index).cloned()
+                };
+                let utxo = utxo.ok_or(RpcPostError::UtxoNotFound)?;
+                let utxo = utxo.as_deref().ok_or(RpcPostError::UtxoNotFound)?;
+                if utxo.instance.as_ref() != utxo_instance {
+                    return Err(RpcPostError::UtxoInstanceMismatch {
+                        name: utxo_instance.into(),
+                        instance: utxo.instance.clone(),
+                    });
                 }
-                let cx = Arc::new(UtxoCtx { methods });
+                let contract =
+                    parse_digest(&utxo.contract).map_err(RpcPostError::ContractDigestParsing)?;
+                let wasm = {
+                    let contracts = self.contracts.read().await;
+                    let contract = contracts
+                        .get(&contract)
+                        .ok_or(RpcPostError::ContractNotFound)?;
+                    apply_state(&contract.wasm, &utxo.state).map_err(RpcPostError::StateMerge)?
+                };
+
+                // TODO: Insert traps in place of all coordination script imports
 
                 let mut imports = HashMap::default();
                 let contract = self
@@ -696,9 +694,9 @@ impl Ledger {
                     .await
                     .map_err(RpcPostError::Runtime)?;
 
-                let utxo_export = contract.get_utxo(&instance).map_err(|source| {
+                let utxo_export = contract.get_utxo(utxo_instance).map_err(|source| {
                     RpcPostError::UtxoInstanceNotFound {
-                        instance: instance.clone(),
+                        instance: utxo_instance.into(),
                         source,
                     }
                 })?;
@@ -708,19 +706,23 @@ impl Ledger {
                 let method_export = contract
                     .get_utxo_method(&utxo_export, &format!("[method]utxo.{name}"))
                     .map_err(|source| RpcPostError::UtxoMethodNotFound {
-                        instance,
+                        instance: utxo_instance.into(),
                         name,
                         source,
                     })?;
 
+                let methods = utxo.methods.iter().copied().collect();
+                let cx = Arc::new(UtxoCtx { methods });
+
                 let mut storage = Val::Record(Vec::default());
+                // TODO: use sync API
                 read_value(
-                    &mut body,
+                    &mut utxo.storage.as_ref(),
                     &mut storage,
                     &Type::Record(storage_export.ty().clone()),
                 )
                 .await
-                .map_err(RpcPostError::ParameterDecoding)?;
+                .map_err(RpcPostError::StorageDecoding)?;
 
                 let param_tys = method_export.ty().params().skip(1);
                 let mut params = vec![Val::Bool(false); param_tys.len() + 1];

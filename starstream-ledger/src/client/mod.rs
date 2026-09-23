@@ -8,9 +8,7 @@ use ed25519_dalek::{Signer as _, SigningKey};
 use wasmtime::component::Val;
 
 use crate::wrpc::UTXO_PACKAGE;
-use crate::{
-    Envelope, EnvelopeContext, Fund, Publish, Transaction, TransactionInput, encode_digest,
-};
+use crate::{Envelope, EnvelopeContext, Fund, Publish, Transaction, TransactionInput};
 
 pub mod http;
 pub mod runtime;
@@ -20,9 +18,9 @@ pub mod bindings {
     wit_bindgen_wrpc::generate!();
 }
 
-/// The wRPC instance name of the UTXO identified by `digest`.
-fn utxo_instance(digest: &[u8; 32]) -> String {
-    format!("{UTXO_PACKAGE}/{}", encode_digest(digest))
+/// The wRPC instance name of the UTXO named `name`.
+fn utxo_instance(name: &str) -> String {
+    format!("{UTXO_PACKAGE}/{name}")
 }
 
 /// Build a signed `COSE_Sign` envelope.

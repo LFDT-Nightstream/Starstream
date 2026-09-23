@@ -210,7 +210,7 @@ enum UtxoCommand {
         transaction: Option<[u8; 32]>,
 
         /// Index of the UTXO in the transaction outputs.
-        index: usize,
+        index: u32,
 
         /// Method to call.
         method: Box<str>,
@@ -488,17 +488,18 @@ async fn main() -> anyhow::Result<()> {
             method,
             args,
         }) => {
-            let TransactionOutput {
-                instance,
-                methods,
-                storage,
-                wasm,
-                ..
-            } = if let Some(transaction) = transaction {
-                client.get_transaction_utxo(transaction, index).await?
+            let transaction = if let Some(transaction) = transaction {
+                encode_digest(&transaction).into()
             } else {
-                client.get_genesis_utxo(index).await?
+                Box::default()
             };
+            let input = TransactionInput { transaction, index };
+            let TransactionOutput {
+                contract, instance, ..
+            } = client.get_input_utxo(&input).await?;
+            let digest = starstream_ledger::parse_digest(&contract)
+                .with_context(|| format!("failed to parse `{contract}` as multibase multihash"))?;
+            let wasm = client.get_contract_wasm(digest).await?;
             let (resolve, world) = decode_component(&wasm)?;
             let world = &resolve.worlds[world];
             let ty = world
@@ -529,9 +530,8 @@ async fn main() -> anyhow::Result<()> {
             let ty = wasm_wave::value::resolve_wit_func_type(&resolve, &ty)
                 .context("failed to resolve method type")?;
             let args = encode_args(&ty, args)?;
-            let digest = Sha256::digest(&wasm).into();
             let rx = client
-                .call_utxo_method(&digest, &instance, &method, &methods, &storage, &args)
+                .call_utxo_method(&input, &instance, &method, &args)
                 .await?;
             write_results(&ty, rx).await
         }

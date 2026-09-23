@@ -144,12 +144,13 @@ async fn build_genesis(
             )
             .await?;
             let contract = Contract {
-                contract,
+                contract: Some(contract),
                 wasm: wasm.clone(),
             };
             contracts.insert(digest, contract.clone());
             contract
         };
+        let contract = contract.context("contract was not compiled")?;
         let script = contract.get_coordination_script(&script)?;
         let ty = script.ty();
         let mut params = Vec::with_capacity(ty.params().len());

@@ -104,7 +104,9 @@ async fn http() {
         instance: "score-progress".into(),
         methods: SCORE_EXAMPLE_METHODS.clone(),
         storage: score_progress_utxo_storage_buf.to_vec().into(),
-        wasm: score_progress_utxo.into(),
+        state: starstream_ledger::runtime::parse_state(&score_progress_utxo)
+            .collect::<Result<_, _>>()
+            .unwrap(),
     };
     let genesis = [
         score_progress_genesis_utxo.clone(),
@@ -336,7 +338,7 @@ async fn http() {
             ref instance,
             ref methods,
             ref storage,
-            wasm: ref utxo_wasm,
+            ..
         },
     ] = *outputs
     else {
@@ -407,27 +409,34 @@ async fn http() {
         .expect_err("spent inputs must be rejected");
     assert_eq!(err.to_string(), "input not found");
 
-    let genesis_utxo_digest = Sha256::digest(&genesis[1].wasm).into();
     let mut rx = client
         .call_utxo_method(
-            &genesis_utxo_digest,
+            &TransactionInput {
+                transaction: Box::default(),
+                index: 1,
+            },
             &genesis[1].instance,
             "get-chips",
-            &genesis[1].methods,
-            &genesis[1].storage,
             &[],
         )
         .await
-        .expect("unspent genesis output must remain callable");
+        .expect("genesis output must remain callable");
     let mut buf = Vec::default();
     rx.read_to_end(&mut buf).await.unwrap();
     assert_eq!(buf, [42]);
 
-    let utxo_digest = Sha256::digest(utxo_wasm).into();
     let mut rx = client
-        .call_utxo_method(&utxo_digest, instance, "get-chips", methods, storage, &[])
+        .call_utxo_method(
+            &TransactionInput {
+                transaction: encode_digest(&tx_digest).into(),
+                index: 0,
+            },
+            instance,
+            "get-chips",
+            &[],
+        )
         .await
-        .expect("should succeed, because UTXO is present in genesis");
+        .expect("transaction output must be callable");
     let mut buf = Vec::default();
     rx.read_to_end(&mut buf).await.unwrap();
     assert_eq!(buf, [42]);
