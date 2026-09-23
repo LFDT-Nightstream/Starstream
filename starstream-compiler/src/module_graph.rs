@@ -380,17 +380,21 @@ fn walk(dir: &Path, visit: &mut dyn FnMut(&Path)) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        // Skip dot-dirs (.git, .vscode, ...), `target/`, `artifacts/`.
-        if path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|n| n.starts_with('.') || n == "target" || n == "artifacts")
-            .unwrap_or(false)
-        {
-            continue;
-        }
+    let mut paths: Vec<_> = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            let name = path.file_name()?;
+            // Skip dot-dirs (.git, .vscode, ...), `target/`, `artifacts/`.
+            match name.to_str()? {
+                "artifacts" | "target" => None,
+                name if name.starts_with('.') => None,
+                _ => Some(path),
+            }
+        })
+        .collect();
+    paths.sort();
+    for path in paths {
         if path.is_dir() {
             walk(&path, visit);
         } else if path.is_file() {
