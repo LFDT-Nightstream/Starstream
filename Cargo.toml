@@ -24,7 +24,7 @@ members = [
 version = "0.0.0"
 authors = []
 edition = "2024"
-rust-version = "1.95.0"
+rust-version = "1.96.0"
 repository = "https://github.com/LFDT-Nightstream/Starstream"
 license = "MIT/Apache-2.0"
 
@@ -81,8 +81,8 @@ wasm-wave = { version = "0.258.0", default-features = false }
 wasmprinter = "0.254.0"
 wat = "1.258.0"
 wasmparser = "0.254.0"
-wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
-wasmtime-wizer = { git = "https://github.com/bytecodealliance/wasmtime", rev = "56cce8cfef552f458c2044187ad2ba1512e3e2df", default-features = false }
+wasmtime = { version = "49", default-features = false }
+wasmtime-wizer = { version = "49", default-features = false }
 wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
 wit-component = "0.254.0"
 wit-parser = { version = "0.258.0", default-features = false }
