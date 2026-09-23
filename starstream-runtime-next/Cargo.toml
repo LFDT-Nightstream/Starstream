@@ -12,7 +12,6 @@ wasmtime-custom-fiber = ["wasmtime/custom-fiber"]
 wasmtime-custom-virtual-memory = ["wasmtime/custom-virtual-memory"]
 
 [dependencies]
-anyhow = { workspace = true }
 tracing = { workspace = true, features = ["attributes"] }
 wasmtime = { workspace = true, features = [
     "anyhow",

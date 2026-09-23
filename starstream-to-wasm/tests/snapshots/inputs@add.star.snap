@@ -217,11 +217,14 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;1;) (func (param i64 i64) (result i64)))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
-  (export "add" (func 2))
-  (func (;1;) (type 1) (param i64 i64) (result i64)
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;2;) (func (param i64 i64) (result i64)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (export "add" (func 4))
+  (func (;3;) (type 2) (param i64 i64) (result i64)
     (local i64)
     (local.tee 2
       (i64.add
@@ -244,8 +247,8 @@ TypedProgram {
       (then
         (unreachable)))
   )
-  (func (;2;) (type 1) (param i64 i64) (result i64)
-    (call 1
+  (func (;4;) (type 2) (param i64 i64) (result i64)
+    (call 3
       (local.get 0)
       (local.get 1))
   )

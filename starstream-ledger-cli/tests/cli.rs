@@ -1,50 +1,20 @@
-use core::net::Ipv6Addr;
-
 use std::ffi::OsStr;
 use std::process::{Output, Stdio};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
-use anyhow::{Context as _, anyhow, ensure};
+use anyhow::{Context as _, ensure};
 use ed25519_dalek::SigningKey;
-use starstream_compiler::typecheck::TypecheckSuccess;
-use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
+use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::server::Ledger;
-use starstream_to_wasm::CompileResult;
+use starstream_ledger::{Envelope, EnvelopeContext, Publish, Transaction};
 use tempfile::NamedTempFile;
 use tokio::fs;
-use tokio::net::TcpListener;
 use tokio::process::Command;
-use wit_component::ComponentEncoder;
 
-fn compile_contract(source: &str) -> anyhow::Result<Vec<u8>> {
-    let (program, errs) = parse_program(source).into_output_errors();
-    ensure!(errs.is_empty(), "failed to parse program: {errs:?}");
-    let program = program.context("parser did not produce a program")?;
-
-    let TypecheckSuccess { program, .. } = typecheck_program(&program, TypecheckOptions::default())
-        .map_err(|TypecheckFailure { errors, .. }| {
-            anyhow!("failed to typecheck program: {:?}", errors)
-        })?;
-
-    let CompileResult { errors, wasm, .. } = starstream_to_wasm::compile(&program);
-    ensure!(errors.is_empty(), "failed to compile program: {errors:?}");
-
-    let wasm = wasm.context("compilation did not produce Wasm")?;
-    ComponentEncoder::default()
-        .validate(true)
-        .module(&wasm)
-        .context("failed to set core component module")?
-        .encode()
-        .context("failed to encode a component")
-}
-
-const NETWORK: &str = "starstream:test";
-
-static SCORE_WASM: LazyLock<Vec<u8>> =
-    LazyLock::new(|| compile_contract(include_str!("../../examples/score.star")).unwrap());
-
-static ADMIN: LazyLock<SigningKey> = LazyLock::new(|| SigningKey::from_bytes(&[0x42; 32]));
+#[path = "../../starstream-ledger/tests/common/mod.rs"]
+pub mod ledger;
+pub use ledger::*;
 
 async fn run_cli(args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> anyhow::Result<Vec<u8>> {
     let cmd = Command::new(env!("CARGO_BIN_EXE_starstream-ledger-cli"))
@@ -61,60 +31,115 @@ async fn run_cli(args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> anyhow::R
         .wait_with_output()
         .await
         .context("failed to wait for CLI")?;
-    assert!(status.success());
-    assert_eq!(stderr, b"");
+    ensure!(status.success());
+    ensure!(stderr == b"");
     Ok(stdout)
 }
 
+fn assert_score_transaction(tx: &[u8], digest: &str) -> Envelope<Transaction> {
+    let envelope: Envelope<Transaction> =
+        minicbor::decode(tx).expect("failed to decode transaction envelope");
+    assert_eq!(envelope.context, EnvelopeContext::Transaction);
+    assert_eq!(envelope.network.as_ref(), NETWORK);
+    assert_eq!(envelope.payload.inputs, []);
+    let [utxo] = envelope.payload.outputs.as_slice() else {
+        panic!("invalid outputs: {:?}", envelope.payload.outputs)
+    };
+    assert_eq!(utxo.contract.as_ref(), digest);
+    assert_eq!(utxo.instance.as_ref(), "score-progress");
+    envelope
+}
+
 #[tokio::test]
-async fn cli() -> anyhow::Result<()> {
-    let account = run_cli(["key", "generate"]).await?;
+async fn cli() {
+    let account = run_cli(["key", "generate"]).await.unwrap();
     let mut buf = [0u8; 32];
-    hex::decode_to_slice(&account, &mut buf).context("failed to parse generated key")?;
+    hex::decode_to_slice(account.trim_ascii_end(), &mut buf)
+        .expect("failed to parse generated key");
     let account = SigningKey::from_bytes(&buf);
 
-    let account_file = NamedTempFile::new()?;
+    let account_file = NamedTempFile::new().unwrap();
     fs::write(&account_file, hex::encode(account.to_bytes()))
         .await
-        .context("failed to write account key file")?;
+        .expect("failed to write account key file");
 
-    let admin_file = NamedTempFile::new()?;
+    let admin_file = NamedTempFile::new().unwrap();
     fs::write(&admin_file, hex::encode(ADMIN.to_bytes()))
         .await
-        .context("failed to write admin key file")?;
-
-    let addr = {
-        let lis = TcpListener::bind((Ipv6Addr::LOCALHOST, 0))
-            .await
-            .context("failed to bind TCP listener")?;
-        lis.local_addr()
-            .context("failed to get TCP listener local address")?
-    };
+        .expect("failed to write admin key file");
 
     let ledger = Ledger::new(
         wasmtime::Engine::default(),
         128,
         NETWORK,
         ADMIN.verifying_key(),
+        [],
     );
     let ledger = Arc::new(ledger);
+    let addr = free_tcp_addr().await.unwrap();
     let (ledger, shutdown) = ledger
         .handle_http(addr)
         .await
-        .context("failed to handle HTTP")?;
+        .expect("failed to handle HTTP");
     let ledger = tokio::spawn(ledger);
 
-    let wasm = NamedTempFile::new()?;
+    let wasm = NamedTempFile::new().unwrap();
     fs::write(&wasm, &*SCORE_WASM)
         .await
-        .with_context(|| format!("failed to write Wasm to `{}`", wasm.path().display()))?;
+        .with_context(|| format!("failed to write Wasm to `{}`", wasm.path().display()))
+        .unwrap();
 
-    let publish_envelope =
-        build_publish_envelope(account.clone(), NETWORK, 1, SCORE_WASM.as_slice())?;
+    let digest = run_cli(["digest", &wasm.path().to_string_lossy()])
+        .await
+        .unwrap();
+    let digest = str::from_utf8(&digest)
+        .expect("contract digest is not valid UTF-8")
+        .trim_end();
+
+    let tx_file = NamedTempFile::new().unwrap();
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "contract",
+        "script",
+        "call",
+        "--network",
+        NETWORK,
+        "--simulate",
+        "--output-transaction",
+        &tx_file.path().to_string_lossy(),
+        "--import",
+        &wasm.path().to_string_lossy(),
+        digest,
+        "example",
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"()\n");
+    let tx = fs::read(&tx_file).await.unwrap();
+    let envelope = assert_score_transaction(&tx, digest);
+
+    let stdout = run_cli(["transaction", "show", &tx_file.path().to_string_lossy()])
+        .await
+        .unwrap();
+    let shown: toml::Value = toml::from_slice(&stdout).expect("failed to decode transaction TOML");
+    assert_eq!(shown, toml::Value::try_from(&envelope).unwrap());
+
+    let publish_envelope = build_publish_envelope(
+        account.clone(),
+        NETWORK,
+        Publish {
+            nonce: 1,
+            wasm: SCORE_WASM.clone(),
+        },
+    )
+    .unwrap();
     let publish_cost = publish_envelope.len();
 
-    let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"]).await?;
-    assert_eq!(stdout, b"0");
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"])
+        .await
+        .unwrap();
+    assert_eq!(stdout, b"0\n");
 
     let stdout = run_cli([
         "--url",
@@ -130,7 +155,8 @@ async fn cli() -> anyhow::Result<()> {
         &hex::encode(account.verifying_key().to_bytes()),
         &publish_cost.to_string(),
     ])
-    .await?;
+    .await
+    .unwrap();
     assert_eq!(stdout, b"");
 
     let stdout = run_cli([
@@ -146,27 +172,36 @@ async fn cli() -> anyhow::Result<()> {
         "1",
         &wasm.path().to_string_lossy(),
     ])
-    .await?;
+    .await
+    .unwrap();
     assert_eq!(stdout, b"");
 
-    let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"]).await?;
-    assert_eq!(stdout, b"2");
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"])
+        .await
+        .unwrap();
+    assert_eq!(stdout, b"2\n");
 
-    let digest = run_cli(["contract", "digest", &wasm.path().to_string_lossy()]).await?;
-    let digest = str::from_utf8(&digest).context("contract digest is not valid UTF-8")?;
-
+    let tx_file = NamedTempFile::new().unwrap();
     let stdout = run_cli([
         "--url",
         &format!("http://{addr}"),
         "contract",
         "script",
         "call",
-        digest,
+        "--network",
+        NETWORK,
+        "--simulate",
+        "--output-transaction",
+        &tx_file.path().to_string_lossy(),
+        &format!("sha256:{}", hex::encode(Sha256::digest(&*SCORE_WASM))),
         "example",
     ])
-    .await?;
-    assert_eq!(stdout, b"()");
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"()\n");
+    let tx = fs::read(&tx_file).await.unwrap();
+    assert_score_transaction(&tx, digest);
 
     shutdown.notify_one();
-    ledger.await.context("ledger task panicked")
+    ledger.await.expect("ledger task panicked");
 }

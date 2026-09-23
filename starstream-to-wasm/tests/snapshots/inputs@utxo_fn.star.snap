@@ -324,55 +324,58 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;1;) (func (param i32)))
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
   (type (;2;) (func (param i32 i64 i64 i64 i64)))
   (type (;3;) (func))
   (type (;4;) (func (param i32) (result i32)))
   (type (;5;) (func (result i32)))
   (type (;6;) (func (param i32 i32) (result i32)))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;0;) (type 0)))
-  (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;1;) (type 1)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;2;) (type 1)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;3;) (type 2)))
-  (import "starstream:events/foo-abi" "hello-event" (func (;4;) (type 3)))
-  (import "[export]my-utxo" "[resource-new]utxo" (func (;5;) (type 4)))
-  (import "[export]my-utxo" "[resource-drop]utxo" (func (;6;) (type 1)))
-  (import "starstream:self/my-utxo" "[static]utxo.hello-utxo" (func (;7;) (type 5)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;3;) (type 0)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;4;) (type 0)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;5;) (type 2)))
+  (import "starstream:events/foo-abi" "hello-event" (func (;6;) (type 3)))
+  (import "starstream:self/my-utxo" "[resource-drop]utxo" (func (;7;) (type 0)))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;8;) (type 4)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;9;) (type 0)))
+  (import "starstream:self/my-utxo" "[static]utxo.hello-utxo" (func (;10;) (type 5)))
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
-  (export "my-utxo#[static]utxo.hello-utxo" (func 10))
-  (export "my-utxo#get-storage" (func 11))
-  (export "my-utxo#set-storage" (func 12))
-  (func (;8;) (type 3)
-    (call 2
+  (export "my-utxo#[static]utxo.hello-utxo" (func 13))
+  (export "my-utxo#get-storage" (func 14))
+  (export "my-utxo#set-storage" (func 15))
+  (func (;11;) (type 3)
+    (call 4
       (global.get 1))
     (unreachable)
   )
-  (func (;9;) (type 3)
-    (call 4)
+  (func (;12;) (type 3)
+    (call 6)
   )
-  (func (;10;) (type 4) (param i32) (result i32)
+  (func (;13;) (type 4) (param i32) (result i32)
     (local i32)
     (local.set 1
-      (call 5
+      (call 8
         (i32.const 0)))
     (global.set 1
       (local.get 0))
-    (call 9)
-    (call 1
+    (call 12)
+    (call 3
       (local.get 0))
     (local.get 1)
   )
-  (func (;11;) (type 4) (param i32) (result i32)
+  (func (;14;) (type 4) (param i32) (result i32)
     (global.get 0)
   )
-  (func (;12;) (type 6) (param i32 i32) (result i32)
+  (func (;15;) (type 6) (param i32 i32) (result i32)
     (global.set 1
       (local.get 0))
     (global.set 0
       (local.get 1))
-    (return_call 5
+    (return_call 8
       (i32.const 0))
   )
   (@custom "component-type"
