@@ -1310,15 +1310,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "debugid"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
-dependencies = [
- "uuid",
-]
-
-[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1588,12 +1579,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52051878f80a721bb68ebfbc930e07b65ba72f2da88968ea5c06fd6ca3d3a127"
 
 [[package]]
-name = "fixedbitset"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
-
-[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1724,20 +1709,6 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
-]
-
-[[package]]
-name = "fxprof-processed-profile"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25234f20a3ec0a962a61770cfe39ecf03cb529a6e474ad8cff025ed497eda557"
-dependencies = [
- "bitflags 2.9.4",
- "debugid",
- "rustc-hash",
- "serde",
- "serde_derive",
- "serde_json",
 ]
 
 [[package]]
@@ -2250,26 +2221,6 @@ name = "itoa"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
-
-[[package]]
-name = "ittapi"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b996fe614c41395cdaedf3cf408a9534851090959d90d54a535f675550b64b1"
-dependencies = [
- "anyhow",
- "ittapi-sys",
- "log",
-]
-
-[[package]]
-name = "ittapi-sys"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52f5385394064fa2c886205dba02598013ce83d3e92d33dbdc0c52fe0e7bf4fc"
-dependencies = [
- "cc",
-]
 
 [[package]]
 name = "jobserver"
@@ -3024,16 +2975,6 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
-
-[[package]]
-name = "petgraph"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
-dependencies = [
- "fixedbitset",
- "indexmap 2.14.0",
-]
 
 [[package]]
 name = "pin-project-lite"
@@ -4669,16 +4610,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
-name = "uuid"
-version = "1.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee48d38b119b0cd71fe4141b30f5ba9c7c5d9f4e7a3a8b4a674e4b6ef789976f"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4795,23 +4726,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76f218a38c84bcb33c25ec7059b07847d465ce0e0a76b995e134a45adcb6af76"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "wasm-compose"
-version = "0.258.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dd08e5283f98238f2f16f5f978188a33af9901b81186bb549faad306a7b5388"
-dependencies = [
- "anyhow",
- "heck",
- "indexmap 2.14.0",
- "log",
- "petgraph",
- "smallvec",
- "wasm-encoder 0.258.0",
- "wasmparser 0.258.0",
- "wat",
 ]
 
 [[package]]
@@ -4955,9 +4869,6 @@ dependencies = [
  "cc",
  "encoding_rs",
  "futures",
- "fxprof-processed-profile",
- "gimli 0.33.0",
- "ittapi",
  "libc",
  "log",
  "mach2",
@@ -4966,17 +4877,12 @@ dependencies = [
  "once_cell",
  "postcard",
  "pulley-interpreter",
- "rayon",
  "rustix",
  "semver",
  "serde",
  "serde_derive",
- "serde_json",
  "smallvec",
  "target-lexicon",
- "tempfile",
- "wasm-compose",
- "wasm-encoder 0.258.0",
  "wasm-wave",
  "wasmparser 0.258.0",
  "wasmtime-environ",
@@ -4990,7 +4896,6 @@ dependencies = [
  "wasmtime-internal-jit-icache-coherence",
  "wasmtime-internal-unwinder",
  "wasmtime-internal-versioned-export-macros",
- "wat",
  "windows-sys 0.61.2",
  "wit-parser 0.258.0",
 ]
@@ -5126,8 +5031,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a077f592728c8d9be8013e47a7ae34586aac00e0b857734eb967450d08f39bb"
 dependencies = [
  "cc",
- "object 0.40.0",
- "rustix",
  "wasmtime-internal-versioned-export-macros",
 ]
 

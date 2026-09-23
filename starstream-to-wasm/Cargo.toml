@@ -19,7 +19,7 @@ wasmparser.workspace = true
 [dev-dependencies]
 insta = { workspace = true, features = ["glob"] }
 wasmprinter = { workspace = true, features = ["component-model"] }
-wasmtime = { workspace = true, default-features = true }
+wasmtime = { workspace = true, features = ["component-model", "cranelift", "runtime"] }
 wit-component.workspace = true
 starstream-runtime-next.workspace = true
 tracing = { workspace = true, features = ["attributes"] }
