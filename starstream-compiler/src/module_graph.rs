@@ -458,7 +458,12 @@ impl<'a> Builder<'a> {
                     })
                 })?;
             }
-            _ => {}
+            _ => {
+                return Err(Box::new(ModuleGraphError::UnknownExtension {
+                    path: abs_path.to_path_buf(),
+                    importer,
+                }));
+            }
         }
 
         Ok(id)
