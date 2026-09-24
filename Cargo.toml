@@ -93,13 +93,13 @@ wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2
 wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
 
-neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "393eafc18b8cf39edd6e666a62df6f96eb71175b" }
-neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "393eafc18b8cf39edd6e666a62df6f96eb71175b" }
-neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "393eafc18b8cf39edd6e666a62df6f96eb71175b" }
-neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "393eafc18b8cf39edd6e666a62df6f96eb71175b" }
-neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "393eafc18b8cf39edd6e666a62df6f96eb71175b" }
-neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "393eafc18b8cf39edd6e666a62df6f96eb71175b" }
-neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "393eafc18b8cf39edd6e666a62df6f96eb71175b" }
+neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "0ac280e3d302814e65124f9567371e2415e75771" }
+neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "0ac280e3d302814e65124f9567371e2415e75771" }
+neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "0ac280e3d302814e65124f9567371e2415e75771" }
+neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "0ac280e3d302814e65124f9567371e2415e75771" }
+neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "0ac280e3d302814e65124f9567371e2415e75771" }
+neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "0ac280e3d302814e65124f9567371e2415e75771" }
+neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "0ac280e3d302814e65124f9567371e2415e75771" }
 
 [profile.dev.package]
 insta.opt-level = 3

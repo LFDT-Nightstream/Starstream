@@ -19,7 +19,7 @@ use starstream_proving_runtime::{
     new_tracing_wasmtime_store, new_wasmtime_config,
 };
 use starstream_runtime_next::{
-    Contract, ContractLookup, Host, StorageExport, Token, Utxo, bindings,
+    Contract, ContractLookup, Host, StorageExport, Token, Utxo, UtxoExport, bindings,
 };
 use starstream_to_wasm::compile;
 use wasmtime::component::{Component, Resource, ResourceTable, Val};
@@ -205,6 +205,9 @@ impl Host for Ctx {
 
     async fn call_utxo_main(
         mut store: StoreContextMut<'_, Self>,
+        _instance_name: Arc<str>,
+        _external_id: Option<Arc<str>>,
+        _export: UtxoExport,
         f: impl for<'a> FnOnce(
             StoreContextMut<'a, Self>,
             Self::UtxoContext,
@@ -382,7 +385,7 @@ pub async fn trace_coordination_script(
     config.wasm_component_model_implements(true);
     let engine = Engine::new(&config)?;
     let component = Component::from_binary(&engine, &wasm)?;
-    let contract = Contract::new(&component, NoopContractLookup)?;
+    let contract = Contract::new(&component, None, NoopContractLookup)?;
     let artifacts = Arc::new(
         neo_wasm::extract_first_component_core_program_artifacts(&wasm).map_err(|error| {
             wasmtime::format_err!("failed to extract program artifacts: {error}")
