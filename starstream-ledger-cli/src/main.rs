@@ -451,6 +451,7 @@ async fn main() -> anyhow::Result<()> {
             ensure!(args.next().is_none(), "trailing arguments");
             let mut results = vec![Val::Bool(false); ty.results().len()];
 
+            let mut utxos = Vec::default();
             let tx = call_coordination_script(
                 &imports,
                 client.wizer(),
@@ -460,8 +461,19 @@ async fn main() -> anyhow::Result<()> {
                 &mut contracts,
                 params,
                 &mut results,
+                &mut utxos,
             )
             .await?;
+            for result in &mut results {
+                if let &mut Val::Resource(res) = result {
+                    for (i, utxo) in zip(0.., &utxos) {
+                        if res == utxo.resource() {
+                            *result = Val::U32(i);
+                            break;
+                        }
+                    }
+                }
+            }
             let mut results = wasm_wave::to_string(&Val::Tuple(results))
                 .context("failed to encode result tuple")?;
             if let Some(path) = output_transaction {

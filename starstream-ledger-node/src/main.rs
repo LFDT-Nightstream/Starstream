@@ -174,6 +174,7 @@ async fn build_genesis(
             &mut contracts,
             params,
             &mut results,
+            &mut Vec::default(),
         )
         .await?;
         outputs.extend(tx.outputs);

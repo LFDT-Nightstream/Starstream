@@ -315,6 +315,7 @@ async fn http() {
     .await
     .unwrap();
     let score_example_export = score_contract.get_coordination_script("example").unwrap();
+    let mut utxos = Vec::default();
     let Transaction {
         inputs,
         outputs,
@@ -328,6 +329,7 @@ async fn http() {
             &mut HashMap::default(),
             [],
             &mut [],
+            &mut utxos,
         )
         .await
         .unwrap();

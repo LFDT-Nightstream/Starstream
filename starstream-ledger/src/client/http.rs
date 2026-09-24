@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::{Context as _, ensure};
 use bytes::{Bytes, BytesMut};
@@ -12,7 +13,7 @@ use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::Connect;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
-use starstream_runtime_next::CoordinationScriptExport;
+use starstream_runtime_next::{CoordinationScriptExport, Utxo};
 use tokio_util::codec::Encoder as _;
 use tracing::{instrument, warn};
 use wasm_tokio::cm::OptionEncoder;
@@ -21,7 +22,7 @@ use wasmtime::component::Val;
 use wasmtime_wizer::Wizer;
 use wrpc_transport::Invoke as _;
 
-use crate::client::runtime::{Contract, Ctx, call_coordination_script};
+use crate::client::runtime::{Contract, Ctx, UtxoCtx, call_coordination_script};
 use crate::client::{
     CoordinationScriptArg, bindings, build_fund_envelope, build_publish_envelope,
     build_sign_envelope, encode_transaction, utxo_instance,
@@ -323,6 +324,7 @@ where
         imports: &mut HashMap<[u8; 32], Contract>,
         args: impl IntoIterator<Item = CoordinationScriptArg>,
         results: &mut [Val],
+        utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
     ) -> anyhow::Result<Transaction> {
         let tx = call_coordination_script(
             self,
@@ -333,6 +335,7 @@ where
             imports,
             args,
             results,
+            utxos,
         )
         .await?;
         Ok(tx)

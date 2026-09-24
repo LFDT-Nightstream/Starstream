@@ -136,6 +136,7 @@ pub async fn call_coordination_script(
     imports: &mut HashMap<[u8; 32], Contract>,
     args: impl IntoIterator<Item = CoordinationScriptArg>,
     results: &mut [Val],
+    utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
 ) -> wasmtime::Result<Transaction> {
     let engine = contract.component().engine();
     let mut store = wasmtime::Store::new(engine, Ctx::default());
@@ -285,6 +286,7 @@ pub async fn call_coordination_script(
         for &(a, b, c, d) in &cx.methods {
             methods.insert((a, b, c, d));
         }
+        utxos.push(utxo);
         tx_outputs.push(TransactionOutput {
             contract,
             instance: cx.instance.as_ref().into(),
