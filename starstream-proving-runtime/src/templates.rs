@@ -73,7 +73,6 @@ struct FunctionExport {
     name: String,
     params: Box<[ValType]>,
     results: Box<[ValType]>,
-    locals: Box<[ValType]>,
 }
 
 struct ExportEvents {
@@ -503,26 +502,11 @@ fn return_exit_events(root: Root) -> Result<Vec<EventBlock>, TemplateBuildError>
     Ok(Sequence::op(EventKind::Return).root(root)?.finish()?)
 }
 
-fn bootstrap_receiver_and_locals(
+fn bootstrap_receiver(
     export: &FunctionExport,
     inputs: &mut EntryInputs,
 ) -> Result<Vec<EventBlock>, TemplateBuildError> {
-    bootstrap_advice(
-        export,
-        inputs,
-        std::iter::once((0, ValType::I32)).chain(declared_locals(export)),
-        "bootstrap local",
-    )
-}
-
-/// Declared locals, which must be reset on export entry.
-fn declared_locals(export: &FunctionExport) -> impl Iterator<Item = (usize, ValType)> + '_ {
-    export
-        .locals
-        .iter()
-        .copied()
-        .enumerate()
-        .map(move |(offset, ty)| (export.params.len() + offset, ty))
+    bootstrap_advice(export, inputs, [(0, ValType::I32)], "bootstrap local")
 }
 
 fn require_receiver(
@@ -652,7 +636,7 @@ fn build_export_events(
                 1,
             )?)?;
             let mut entry = entry.finish()?;
-            entry.extend(bootstrap_receiver_and_locals(export, &mut inputs)?);
+            entry.extend(bootstrap_receiver(export, &mut inputs)?);
             // Constructor returns expose no caller-local handle.
             Ok(ExportEvents {
                 entry,
@@ -671,7 +655,7 @@ fn build_export_events(
             }
             entry = entry.root(entry_arguments_root(export, &mut inputs, 1)?)?;
             let mut entry = entry.finish()?;
-            entry.extend(bootstrap_receiver_and_locals(export, &mut inputs)?);
+            entry.extend(bootstrap_receiver(export, &mut inputs)?);
             Ok(ExportEvents {
                 entry,
                 exit: return_exit_events(export_result_root(export)?)?,
@@ -686,12 +670,7 @@ fn build_export_events(
             let entry = bootstrap_advice(
                 export,
                 &mut inputs,
-                export
-                    .params
-                    .iter()
-                    .copied()
-                    .enumerate()
-                    .chain(declared_locals(export)),
+                export.params.iter().copied().enumerate(),
                 "bootstrap local",
             )?;
             Ok(ExportEvents {
@@ -703,7 +682,7 @@ fn build_export_events(
         ExportKind::GetStorage => {
             require_receiver(export, kind, "resource receiver")?;
             let record = storage_record_types(export, exports)?;
-            let entry = bootstrap_receiver_and_locals(export, &mut inputs)?;
+            let entry = bootstrap_receiver(export, &mut inputs)?;
             let exit =
                 Sequence::op(EventKind::GetStorage).root(get_storage_root(export, &record)?)?;
             Ok(ExportEvents {
@@ -721,7 +700,7 @@ fn build_export_events(
                 1,
             )?)?;
             let mut entry = entry.finish()?;
-            entry.extend(bootstrap_receiver_and_locals(export, &mut inputs)?);
+            entry.extend(bootstrap_receiver(export, &mut inputs)?);
             // The returned resource is not the coordinator-local binding.
             Ok(ExportEvents {
                 entry,
@@ -1036,7 +1015,7 @@ fn parse_function_exports(
     let mut function_types = Vec::<u32>::new();
     let mut imported_function_count = 0_usize;
     let mut raw_exports = Vec::<(u32, String)>::new();
-    let mut code_locals = Vec::<Vec<(u32, ValType)>>::new();
+    let mut code_body_count = 0_usize;
     for payload in Parser::new(0).parse_all(module) {
         match payload? {
             Payload::ImportSection(reader) => {
@@ -1062,13 +1041,7 @@ fn parse_function_exports(
                     raw_exports.push((export.index, export.name.to_owned()));
                 }
             }
-            Payload::CodeSectionEntry(body) => {
-                let declarations = body
-                    .get_locals_reader()?
-                    .into_iter()
-                    .collect::<Result<Vec<_>, _>>()?;
-                code_locals.push(declarations);
-            }
+            Payload::CodeSectionEntry(_) => code_body_count += 1,
             _ => {}
         }
     }
@@ -1082,34 +1055,16 @@ fn parse_function_exports(
             let Some((params, results)) = types.get(type_index as usize) else {
                 return Err(TemplateBuildError::MissingExportFunctionType { name, type_index });
             };
-            let mut locals = Vec::new();
-            if let Some(defined_index) = (index as usize).checked_sub(imported_function_count) {
-                let declarations = code_locals
-                    .get(defined_index)
-                    .ok_or_else(|| TemplateBuildError::MissingExportBody { name: name.clone() })?;
-                for &(count, ty) in declarations {
-                    let count = usize::try_from(count).map_err(|_| {
-                        TemplateBuildError::ExportArityOverflow { name: name.clone() }
-                    })?;
-                    let total = params
-                        .len()
-                        .checked_add(locals.len())
-                        .and_then(|total| total.checked_add(count))
-                        .ok_or_else(|| TemplateBuildError::ExportArityOverflow {
-                            name: name.clone(),
-                        })?;
-                    if total > usize::from(u8::MAX) {
-                        return Err(TemplateBuildError::ExportArityOverflow { name });
-                    }
-                    locals.extend(std::iter::repeat_n(ty, count));
-                }
+            if let Some(defined_index) = (index as usize).checked_sub(imported_function_count)
+                && defined_index >= code_body_count
+            {
+                return Err(TemplateBuildError::MissingExportBody { name });
             }
             Ok(FunctionExport {
                 index,
                 name,
                 params: params.clone(),
                 results: results.clone(),
-                locals: locals.into_boxed_slice(),
             })
         })
         .collect()
@@ -1193,7 +1148,7 @@ pub enum TemplateBuildError {
         ty: ValType,
     },
 
-    #[error("function export `{name}` has too many locals or flattened input limbs")]
+    #[error("function export `{name}` has too many flattened input limbs")]
     ExportArityOverflow { name: String },
 
     #[error("defined function export `{name}` has no matching code body")]
@@ -1490,16 +1445,12 @@ mod tests {
                 resource: Out(ResourceHandle(7)),
             }])
         );
-        // Entry inputs: the i64 argument's limbs, then the context handle,
-        // then the declared i64 local.
+        // Entry inputs: the i64 argument's limbs, then the context handle.
         let (_, template) = export(&templates, "counter#[static]utxo.new");
-        assert_eq!(template.entry_input_count, 5);
+        assert_eq!(template.entry_input_count, 3);
+        assert_eq!(bootstrap_writes(template), [(2, 0, false)]);
         assert_eq!(
-            bootstrap_writes(template),
-            [(2, 0, false), (3, 2, false), (4, 2, true)]
-        );
-        assert_eq!(
-            enter(&templates, "counter#[static]utxo.new", &[55, 0, 3, 0, 0]),
+            enter(&templates, "counter#[static]utxo.new", &[55, 0, 3]),
             Trace::new([Step::EnterConstructor { arguments }])
         );
         assert_eq!(
@@ -1542,9 +1493,9 @@ mod tests {
             }])
         );
         let (_, template) = export(&templates, "counter#[method]utxo.add");
-        assert_eq!(bootstrap_writes(template), [(2, 0, false), (3, 2, false)]);
+        assert_eq!(bootstrap_writes(template), [(2, 0, false)]);
         assert_eq!(
-            enter(&templates, "counter#[method]utxo.add", &[13, 0, 0, 0]),
+            enter(&templates, "counter#[method]utxo.add", &[13, 0, 0]),
             Trace::new([Step::EnterMethod { method, arguments }])
         );
     }
@@ -1681,7 +1632,7 @@ mod tests {
         assert!(template.entry.iter().all(|event| !event.absorb));
         assert_eq!(
             bootstrap_writes(template),
-            [(0, 0, false), (1, 1, false), (2, 1, true), (3, 2, false)]
+            [(0, 0, false), (1, 1, false), (2, 1, true)]
         );
         assert!(templates.decoder.get(fref, 7).is_none());
         assert_eq!(
