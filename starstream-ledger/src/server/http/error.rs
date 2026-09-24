@@ -282,8 +282,6 @@ pub enum RpcPostError {
     UtxoIndexOverflow,
     #[error("UTXO not found")]
     UtxoNotFound,
-    #[error("UTXO is an instance of `{instance}`, not `{name}`")]
-    UtxoInstanceMismatch { name: Box<str>, instance: Box<str> },
     #[error("failed to parse contract digest: {0}")]
     ContractDigestParsing(DigestParseError),
     #[error("contract not found")]
@@ -294,12 +292,12 @@ pub enum RpcPostError {
     StorageDecoding(std::io::Error),
     #[error("UTXO instance `{instance}` not found: {source:#}")]
     UtxoInstanceNotFound {
-        instance: String,
+        instance: Box<str>,
         source: wasmtime::Error,
     },
     #[error("method `{name}` not found in UTXO instance `{instance}`: {source:#}")]
     UtxoMethodNotFound {
-        instance: String,
+        instance: Box<str>,
         name: String,
         source: wasmtime::Error,
     },
@@ -333,7 +331,6 @@ impl RpcPostError {
             Self::InstanceNotFound(..)
             | Self::FunctionNotFound { .. }
             | Self::UtxoNotFound
-            | Self::UtxoInstanceMismatch { .. }
             | Self::ContractNotFound
             | Self::UtxoInstanceNotFound { .. }
             | Self::UtxoMethodNotFound { .. } => http::StatusCode::NOT_FOUND,

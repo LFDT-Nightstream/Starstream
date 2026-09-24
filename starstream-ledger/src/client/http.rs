@@ -26,8 +26,9 @@ use wrpc_transport::Invoke as _;
 use crate::client::runtime::{Contract, Ctx, UtxoCtx, call_coordination_script};
 use crate::client::{
     CoordinationScriptArg, bindings, build_fund_envelope, build_publish_envelope,
-    build_sign_envelope, encode_transaction, utxo_instance,
+    build_sign_envelope, encode_transaction,
 };
+use crate::wrpc::LEDGER_PACKAGE;
 use crate::{
     APPLICATION_COSE, APPLICATION_WASM, Envelope, EnvelopeContext, Fund, Publish, Transaction,
     TransactionInput, TransactionOutput, encode_digest, parse_digest,
@@ -345,13 +346,12 @@ where
         Ok(tx)
     }
 
-    /// Call the method `name` exported by the UTXO `utxo`
+    /// Call the method `name` exported by the UTXO
     /// created by the transaction output `input` with encoded `args`.
     #[instrument(skip_all)]
     pub async fn call_utxo_method(
         &self,
         TransactionInput { transaction, index }: &TransactionInput,
-        utxo: &str,
         name: &str,
         args: &[u8],
     ) -> anyhow::Result<wrpc_transport::frame::Incoming> {
@@ -371,7 +371,13 @@ where
         params.extend_from_slice(args);
         let (tx, rx) = self
             .wrpc
-            .invoke(cx, &utxo_instance(utxo), name, params.freeze(), [[]])
+            .invoke(
+                cx,
+                &format!("{LEDGER_PACKAGE}/utxo"),
+                name,
+                params.freeze(),
+                [[]],
+            )
             .await?;
         drop(tx);
         Ok(rx)

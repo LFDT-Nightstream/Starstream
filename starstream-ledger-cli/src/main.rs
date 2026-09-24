@@ -585,9 +585,7 @@ async fn main() -> anyhow::Result<()> {
             let ty = wasm_wave::value::resolve_wit_func_type(&resolve, &ty)
                 .context("failed to resolve method type")?;
             let args = encode_args(&ty, args)?;
-            let rx = client
-                .call_utxo_method(&input, &instance, &method, &args)
-                .await?;
+            let rx = client.call_utxo_method(&input, &method, &args).await?;
             write_results(&ty, rx).await
         }
     }

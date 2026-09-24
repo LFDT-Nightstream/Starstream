@@ -42,8 +42,8 @@ use wrpc_transport::FrameDecoder;
 
 use crate::runtime::apply_state;
 use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx};
+use crate::wrpc::LEDGER_PACKAGE;
 use crate::wrpc::codec::{ValEncoder, read_value};
-use crate::wrpc::{LEDGER_PACKAGE, UTXO_PACKAGE};
 use crate::{
     APPLICATION_CBOR, APPLICATION_COSE, APPLICATION_WASM, Action, Block, Envelope, EnvelopeContext,
     Fund, Publish, TransactionInput, parse_digest,
@@ -630,7 +630,7 @@ impl Ledger {
                 }
                 _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
             },
-            Some((UTXO_PACKAGE, utxo_instance)) => {
+            Some((LEDGER_PACKAGE, "utxo")) => {
                 let body = FramedRead::new(body, FrameDecoder::default()).map(|frame| {
                     let wrpc_transport::Frame { path, data } = frame?;
                     anyhow::ensure!(path.is_empty(), "async values not supported");
@@ -670,12 +670,6 @@ impl Ledger {
                 };
                 let utxo = utxo.ok_or(RpcPostError::UtxoNotFound)?;
                 let utxo = utxo.as_deref().ok_or(RpcPostError::UtxoNotFound)?;
-                if utxo.instance.as_ref() != utxo_instance {
-                    return Err(RpcPostError::UtxoInstanceMismatch {
-                        name: utxo_instance.into(),
-                        instance: utxo.instance.clone(),
-                    });
-                }
                 let contract =
                     parse_digest(&utxo.contract).map_err(RpcPostError::ContractDigestParsing)?;
                 let wasm = {
@@ -694,9 +688,9 @@ impl Ledger {
                     .await
                     .map_err(RpcPostError::Runtime)?;
 
-                let utxo_export = contract.get_utxo(utxo_instance).map_err(|source| {
+                let utxo_export = contract.get_utxo(&utxo.instance).map_err(|source| {
                     RpcPostError::UtxoInstanceNotFound {
-                        instance: utxo_instance.into(),
+                        instance: utxo.instance.clone(),
                         source,
                     }
                 })?;
@@ -706,7 +700,7 @@ impl Ledger {
                 let method_export = contract
                     .get_utxo_method(&utxo_export, &format!("[method]utxo.{name}"))
                     .map_err(|source| RpcPostError::UtxoMethodNotFound {
-                        instance: utxo_instance.into(),
+                        instance: utxo.instance.clone(),
                         name,
                         source,
                     })?;

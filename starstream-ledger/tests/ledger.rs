@@ -422,7 +422,6 @@ async fn http() {
                 transaction: Box::default(),
                 index: 1,
             },
-            &genesis[1].instance,
             "get-chips",
             &[],
         )
@@ -438,7 +437,6 @@ async fn http() {
                 transaction: encode_digest(&tx_digest).into(),
                 index: 0,
             },
-            instance,
             "get-chips",
             &[],
         )
