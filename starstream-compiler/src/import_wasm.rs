@@ -21,8 +21,9 @@ pub struct TypedWasmModule {
 
 #[derive(Debug, Clone, Copy)]
 pub enum WasmLinkage {
-    Component,
+    External,
     Core,
+    Component,
 }
 
 #[derive(Debug)]
@@ -40,30 +41,24 @@ pub fn import_wasm(
     wasm: &Arc<[u8]>,
 ) -> Result<(Namespace, TypedWasmModule), ImportWasmError> {
     // Accepts both component .wasm files and core .wasm files with a binary WIT custom section.
-    let (decoded, linkage) = if wasmparser::Parser::is_component(wasm) {
-        (
-            wit_parser::decoding::decode(wasm)
-                .map_err(|error| ImportWasmError::DecodeComponent(error.into()))?,
-            WasmLinkage::Component,
-        )
+    let (mut resolve, world_id, linkage) = if wasmparser::Parser::is_component(wasm) {
+        match wit_parser::decoding::decode(wasm)
+            .map_err(|error| ImportWasmError::DecodeComponent(error.into()))?
+        {
+            // Component with root world.
+            DecodedWasm::Component(resolve, world) => (resolve, world, WasmLinkage::Component),
+            // Component containing binary WIT only.
+            DecodedWasm::WitPackage(_, _) => {
+                return Err(ImportWasmError::TypesOnly);
+            }
+        }
     } else {
         let (wasm, bindgen) = wit_component::metadata::decode(wasm)
             .map_err(|error| ImportWasmError::DecodeCore(error.into()))?;
         if wasm.is_none() {
             return Err(ImportWasmError::UntypedCore);
         }
-        (
-            DecodedWasm::Component(bindgen.resolve, bindgen.world),
-            WasmLinkage::Core,
-        )
-    };
-    let (mut resolve, world_id) = match decoded {
-        DecodedWasm::Component(resolve, world) => (resolve, world),
-        DecodedWasm::WitPackage(_, _) => {
-            // Reached if the file is a component .wasm with no implementation attached (binary WIT).
-            // TODO: route to the `.wit` import path.
-            return Err(ImportWasmError::TypesOnly);
-        }
+        (bindgen.resolve, bindgen.world, WasmLinkage::Core)
     };
 
     // We now have resolve, package, and world.
