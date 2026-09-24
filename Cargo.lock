@@ -1502,7 +1502,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2187,7 +2187,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2546,7 +2546,7 @@ dependencies = [
 [[package]]
 name = "neo-ajtai"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2564,7 +2564,7 @@ dependencies = [
 [[package]]
 name = "neo-application"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2578,7 +2578,7 @@ dependencies = [
 [[package]]
 name = "neo-ccs"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "neo-math",
  "neo-params",
@@ -2600,7 +2600,7 @@ dependencies = [
 [[package]]
 name = "neo-fold-clean"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "bellpepper-core",
  "ff",
@@ -2623,7 +2623,7 @@ dependencies = [
 [[package]]
 name = "neo-math"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "neo-params",
  "p3-field",
@@ -2638,7 +2638,7 @@ dependencies = [
 [[package]]
 name = "neo-params"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
@@ -2647,7 +2647,7 @@ dependencies = [
 [[package]]
 name = "neo-reductions"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "bincode",
  "neo-ajtai",
@@ -2672,7 +2672,7 @@ dependencies = [
 [[package]]
 name = "neo-transcript"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2686,7 +2686,7 @@ dependencies = [
 [[package]]
 name = "neo-wasm"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "bincode",
  "ff",
@@ -2717,7 +2717,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3487,7 +3487,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3756,7 +3756,7 @@ dependencies = [
 [[package]]
 name = "spartan2"
 version = "0.4.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=0ac280e3d302814e65124f9567371e2415e75771#0ac280e3d302814e65124f9567371e2415e75771"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=23b8f914c26147b5a2885f4f1769441bb6f47e56#23b8f914c26147b5a2885f4f1769441bb6f47e56"
 dependencies = [
  "bellpepper",
  "bellpepper-core",
@@ -4263,7 +4263,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5255,7 +5255,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
