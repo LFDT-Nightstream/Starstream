@@ -18,6 +18,7 @@ use tokio_util::codec::Encoder as _;
 use tracing::{instrument, warn};
 use wasm_tokio::cm::OptionEncoder;
 use wasm_tokio::{CoreNameEncoder, Leb128Encoder};
+use wasmtime::Store;
 use wasmtime::component::Val;
 use wasmtime_wizer::Wizer;
 use wrpc_transport::Invoke as _;
@@ -316,8 +317,10 @@ where
     /// Contracts in `imports` are used to resolve imports instead of the ledger.
     /// `wasm` must be equal to original component bytes.
     #[instrument(skip_all)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn call_coordination_script(
         &self,
+        store: &mut Store<Ctx>,
         contract: &starstream_runtime_next::Contract<Ctx>,
         wasm: &[u8],
         export: &CoordinationScriptExport,
@@ -327,6 +330,7 @@ where
         utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
     ) -> anyhow::Result<Transaction> {
         let tx = call_coordination_script(
+            store,
             self,
             &self.wizer,
             contract,

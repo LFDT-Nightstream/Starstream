@@ -5,6 +5,7 @@ use core::pin::pin;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context as _, bail, ensure};
 use bytes::{Bytes, BytesMut};
@@ -16,16 +17,19 @@ use hyper_util::rt::TokioExecutor;
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::http::ClientBuilder;
+use starstream_ledger::client::runtime::UtxoCtx;
 use starstream_ledger::client::runtime::{
-    Client, call_coordination_script, compile_component, new_contract,
+    Client, Ctx, call_coordination_script, compile_component, new_contract,
 };
 use starstream_ledger::client::{decode_transaction, encode_transaction};
 use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest};
+use starstream_runtime_next::Utxo;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
 use tokio_util::codec::Encoder as _;
 use tracing::info;
 use wasm_wave::wasm::WasmFunc as _;
+use wasmtime::Store;
 use wasmtime::component::{Val, types};
 use zeroize::Zeroizing;
 
@@ -452,7 +456,9 @@ async fn main() -> anyhow::Result<()> {
             let mut results = vec![Val::Bool(false); ty.results().len()];
 
             let mut utxos = Vec::default();
+            let mut store = Store::new(client.engine(), Ctx::default());
             let tx = call_coordination_script(
+                &mut store,
                 &imports,
                 client.wizer(),
                 &contract,
@@ -464,14 +470,24 @@ async fn main() -> anyhow::Result<()> {
                 &mut utxos,
             )
             .await?;
-            for result in &mut results {
-                if let &mut Val::Resource(res) = result {
-                    for (i, utxo) in zip(0.., &utxos) {
-                        if res == utxo.resource() {
+            'outer: for result in &mut results {
+                if let &mut Val::Resource(utxo) = result {
+                    let utxo = utxo
+                        .try_into_resource(&mut store)
+                        .map_err(anyhow::Error::from)
+                        .context("result resource is not a UTXO")?;
+                    let utxo: &Utxo<Arc<std::sync::Mutex<UtxoCtx>>> = store
+                        .data()
+                        .table
+                        .get(&utxo)
+                        .context("result UTXO not found")?;
+                    for (i, out) in zip(0.., &utxos) {
+                        if utxo.resource() == out.resource() {
                             *result = Val::U32(i);
-                            break;
+                            continue 'outer;
                         }
                     }
+                    bail!("failed to identify result resource");
                 }
             }
             let mut results = wasm_wave::to_string(&Val::Tuple(results))

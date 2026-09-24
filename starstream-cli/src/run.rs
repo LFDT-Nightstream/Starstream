@@ -13,7 +13,7 @@ use tokio::fs;
 use tracing::{debug, info, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
-use wasmtime::{AsContextMut as _, Store, StoreContextMut, ensure};
+use wasmtime::{AsContextMut as _, Store, StoreContextMut, bail, ensure};
 
 /// Run a coordination script exported by a Wasm component
 #[derive(Args, Debug)]
@@ -228,6 +228,25 @@ async fn exec(
         .call_coordination_script(&mut store, &script, &params, &mut results)
         .await?;
     debug!(outputs = store.data().outputs.len(), "script returned");
+    'outer: for result in &mut results {
+        if let &mut Val::Resource(utxo) = result {
+            let utxo = utxo
+                .try_into_resource(&mut store)
+                .context("result resource is not a UTXO")?;
+            let utxo: &Utxo<Arc<Mutex<UtxoCtx>>> = store
+                .data()
+                .table
+                .get(&utxo)
+                .context("result UTXO not found")?;
+            for (i, out) in zip(0.., &store.data().outputs) {
+                if utxo.resource() == out.resource() {
+                    *result = Val::U32(i);
+                    continue 'outer;
+                }
+            }
+            bail!("failed to identify result resource");
+        }
+    }
     let results = Val::Tuple(results)
         .to_wave()
         .context("failed to encode results")?;

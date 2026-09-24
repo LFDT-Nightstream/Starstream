@@ -15,7 +15,7 @@ use tokio_util::codec::Encoder as _;
 use tracing::error;
 use wasmtime::component::{Component, Resource, ResourceTable, Type, Val};
 use wasmtime::error::Context as _;
-use wasmtime::{AsContextMut as _, Engine, StoreContextMut, bail, ensure, format_err};
+use wasmtime::{AsContextMut as _, Engine, Store, StoreContextMut, bail, ensure, format_err};
 use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
 
 use crate::client::CoordinationScriptArg;
@@ -128,6 +128,7 @@ pub async fn new_contract(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn call_coordination_script(
+    store: &mut Store<Ctx>,
     client: &(impl Client + ?Sized),
     wizer: &Wizer,
     contract: &starstream_runtime_next::Contract<Ctx>,
@@ -139,8 +140,7 @@ pub async fn call_coordination_script(
     utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
 ) -> wasmtime::Result<Transaction> {
     let engine = contract.component().engine();
-    let mut store = wasmtime::Store::new(engine, Ctx::default());
-    let instance = contract.instantiate(&mut store).await?;
+    let instance = contract.instantiate(&mut *store).await?;
 
     let digest = Sha256::digest(wasm).into();
     let mut inputs = Vec::default();
@@ -213,11 +213,11 @@ pub async fn call_coordination_script(
                     dropped: false,
                 }));
                 let cx_res = store.data_mut().table.push(Arc::clone(&cx))?;
-                let cx_res = cx_res.try_into_resource_any(&mut store)?;
-                let contract = contract.instantiate(&mut store).await?;
+                let cx_res = cx_res.try_into_resource_any(&mut *store)?;
+                let contract = contract.instantiate(&mut *store).await?;
                 let utxo = contract
                     .load_utxo(
-                        &mut store,
+                        &mut *store,
                         &utxo_export,
                         storage_export,
                         cx,
@@ -227,7 +227,7 @@ pub async fn call_coordination_script(
                 let Ctx { table, outputs, .. } = store.data_mut();
                 outputs.push(utxo.clone());
                 let utxo = table.push(utxo)?;
-                let utxo = utxo.try_into_resource_any(&mut store)?;
+                let utxo = utxo.try_into_resource_any(&mut *store)?;
                 inputs.push(input);
                 Val::Resource(utxo)
             }
@@ -236,7 +236,7 @@ pub async fn call_coordination_script(
     }
     ensure!(args.next().is_none(), "trailing arguments");
     instance
-        .call_coordination_script(&mut store, export, &params, results)
+        .call_coordination_script(&mut *store, export, &params, results)
         .await?;
     let Ctx {
         outputs, events, ..
@@ -252,7 +252,7 @@ pub async fn call_coordination_script(
             cx.clone()
         };
         let mut instance = WasmtimeWizerComponent {
-            store: &mut store,
+            store: &mut *store,
             instance: utxo.instance(),
         };
         let (contract, wasm) = if let Some(external_id) = cx.external_id.as_deref() {
@@ -273,7 +273,7 @@ pub async fn call_coordination_script(
             .map_err(wasmtime::Error::from_anyhow)
             .context("failed to parse UTXO state")?;
         let storage = if let Some(export) = cx.export.storage() {
-            let storage = utxo.storage(export).call_get(&mut store).await?;
+            let storage = utxo.storage(export).call_get(&mut *store).await?;
             let mut buf = BytesMut::new();
             ValEncoder::new(&Type::Record(export.ty().clone()))
                 .encode(&Val::Record(storage), &mut buf)

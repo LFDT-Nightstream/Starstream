@@ -36,6 +36,7 @@ hyper-util = { workspace = true, features = [
 rand_core = { workspace = true, features = ["getrandom", "std"] }
 sha2 = { workspace = true }
 starstream-ledger = { workspace = true, features = ["client"] }
+starstream-runtime-next = { workspace = true }
 toml = { workspace = true, features = ["display", "serde"] }
 tokio = { workspace = true, features = [
     "fs",
@@ -67,8 +68,8 @@ zeroize = { workspace = true }
 minicbor = { workspace = true, features = ["std"] }
 starstream-compiler = { workspace = true }
 starstream-ledger = { workspace = true, features = ["server"] }
-starstream-runtime-next = { workspace = true }
 starstream-to-wasm = { workspace = true }
+starstream-types = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["fs", "net", "process"] }
 toml = { workspace = true, features = ["parse"] }

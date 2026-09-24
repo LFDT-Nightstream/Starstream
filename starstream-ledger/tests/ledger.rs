@@ -25,6 +25,7 @@ use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{Transaction, TransactionInput, TransactionOutput, encode_digest};
 use tokio::io::AsyncReadExt as _;
 use tokio_util::codec::Encoder as _;
+use wasmtime::Store;
 use wasmtime::component::{Component, Type, Val};
 use wasmtime_wizer::WasmtimeWizerComponent;
 
@@ -64,7 +65,7 @@ async fn http() {
     let score_example_export = score.get_coordination_script("example").unwrap();
     let scope_progress_utxo_export = score.get_utxo("score-progress").unwrap();
     let score_progress_utxo_storage_export = scope_progress_utxo_export.storage().unwrap();
-    let mut store = wasmtime::Store::new(&engine, Ctx::default());
+    let mut store = Store::new(&engine, Ctx::default());
     let score = score.instantiate(&mut store).await.unwrap();
     score
         .call_coordination_script(&mut store, &score_example_export, &[], &mut [])
@@ -323,6 +324,10 @@ async fn http() {
         proof,
     } = client
         .call_coordination_script(
+            &mut Store::new(
+                client.engine(),
+                starstream_ledger::client::runtime::Ctx::default(),
+            ),
             &score_contract,
             &SCORE_WASM,
             &score_example_export,

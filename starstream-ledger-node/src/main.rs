@@ -15,7 +15,7 @@ use ed25519_dalek::VerifyingKey;
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::runtime::{
-    Client, Contract, call_coordination_script, compile_component, new_contract,
+    Client, Contract, Ctx, call_coordination_script, compile_component, new_contract,
 };
 use starstream_ledger::server::Ledger;
 use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest, parse_digest};
@@ -23,6 +23,7 @@ use tokio::fs;
 use tokio::signal;
 use tokio::time::timeout;
 use tracing::{error, info, warn};
+use wasmtime::Store;
 use wasmtime::component::Val;
 use wasmtime_wizer::Wizer;
 
@@ -166,6 +167,7 @@ async fn build_genesis(
         ensure!(args.next().is_none(), "trailing arguments");
         let mut results = vec![Val::Bool(false); ty.results().len()];
         let tx = call_coordination_script(
+            &mut Store::new(engine, Ctx::default()),
             &GenesisClient(&imported),
             &wizer,
             &contract,

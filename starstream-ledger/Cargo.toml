@@ -85,6 +85,7 @@ wrpc-transport = { workspace = true }
 [dev-dependencies]
 starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
+starstream-types = { workspace = true }
 tokio = { workspace = true, features = [
     "io-util",
     "macros",
