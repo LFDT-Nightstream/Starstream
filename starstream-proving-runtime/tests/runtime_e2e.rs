@@ -108,7 +108,17 @@ fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
     coordinator.push(ret());
 
     let mut utxo = vec![Step::EnterConstructor { arguments: UNIT }];
-    utxo.extend(["plus_chips", "plus_mult", "mult_mult", "finish"].map(register));
+    utxo.extend(
+        [
+            "get_chips",
+            "get_mult",
+            "plus_chips",
+            "plus_mult",
+            "mult_mult",
+            "finish",
+        ]
+        .map(register),
+    );
     utxo.push(ret());
     for (method, argument) in calls {
         utxo.extend([enter(method, argument), ret()]);
@@ -201,7 +211,14 @@ async fn score_transaction_satisfies_the_circuit() -> wasmtime::Result<()> {
     check_transaction(
         &execution,
         storage,
-        &["plus_chips", "plus_mult", "mult_mult", "finish"],
+        &[
+            "get_chips",
+            "get_mult",
+            "plus_chips",
+            "plus_mult",
+            "mult_mult",
+            "finish",
+        ],
     )
 }
 
