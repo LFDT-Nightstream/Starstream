@@ -69,6 +69,9 @@ enum Command {
         path: PathBuf,
     },
 
+    /// Print the genesis outputs.
+    Genesis,
+
     /// Manage signing keys.
     #[command(subcommand)]
     Key(KeyCommand),
@@ -193,6 +196,12 @@ enum KeyCommand {
 
 #[derive(Debug, Subcommand)]
 enum TransactionCommand {
+    /// Get a transaction from the ledger.
+    Get {
+        /// Digest of the transaction, either as multibase multihash or `sha256:HEX`.
+        #[arg(value_parser = parse_digest)]
+        digest: [u8; 32],
+    },
     /// Print a transaction written by `contract script call --output-transaction`.
     Show {
         /// Path to the encoded transaction.
@@ -359,6 +368,16 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .context("failed to write digest to stdout")
         }
+        Command::Genesis => {
+            let outputs = client.get_genesis().await?;
+            let outputs = toml::Value::try_from(outputs).context("failed to encode TOML")?;
+            let genesis = toml::Table::from_iter([("outputs".to_string(), outputs)]);
+            let genesis = toml::to_string_pretty(&genesis).context("failed to encode TOML")?;
+            stdout()
+                .write_all(genesis.as_bytes())
+                .await
+                .context("failed to write genesis to stdout")
+        }
         Command::Contract(ContractCommand::Publish {
             signing: SigningArgs { key, nonce },
             wasm,
@@ -470,6 +489,14 @@ async fn main() -> anyhow::Result<()> {
                 .write_all(format!("{}\n", hex::encode(key.to_bytes())).as_bytes())
                 .await
                 .context("failed to write signing key to stdout")
+        }
+        Command::Transaction(TransactionCommand::Get { digest }) => {
+            let tx = client.get_transaction(digest).await?;
+            let tx = toml::to_string_pretty(&tx).context("failed to encode TOML")?;
+            stdout()
+                .write_all(tx.as_bytes())
+                .await
+                .context("failed to write transaction to stdout")
         }
         Command::Transaction(TransactionCommand::Show { path }) => {
             let buf = fs::read(&path)
