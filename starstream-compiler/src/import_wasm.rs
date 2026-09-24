@@ -1,6 +1,5 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, error::Error, fmt::Display, sync::Arc};
 
-use miette::miette;
 use starstream_types::{
     DUMMY_SPAN, FunctionKind, FunctionType, Identifier, IntWidth, NameId, StaticFunction,
     Type::{self, Function},
@@ -26,25 +25,32 @@ pub enum WasmLinkage {
     Core,
 }
 
+#[derive(Debug)]
+pub enum ImportWasmError {
+    DecodeComponent(Box<dyn Error>),
+    DecodeCore(Box<dyn Error>),
+    UntypedCore,
+    TypesOnly,
+    Importize(Box<dyn Error>),
+}
+
 pub fn import_wasm(
     name_id: &mut NameId,
     name: String,
     wasm: &Arc<[u8]>,
-) -> miette::Result<(Namespace, TypedWasmModule)> {
+) -> Result<(Namespace, TypedWasmModule), ImportWasmError> {
     // Accepts both component .wasm files and core .wasm files with a binary WIT custom section.
     let (decoded, linkage) = if wasmparser::Parser::is_component(wasm) {
         (
             wit_parser::decoding::decode(wasm)
-                .map_err(|e| miette!("error decoding .wasm component {name:?}: {e}"))?,
+                .map_err(|error| ImportWasmError::DecodeComponent(error.into()))?,
             WasmLinkage::Component,
         )
     } else {
         let (wasm, bindgen) = wit_component::metadata::decode(wasm)
-            .map_err(|e| miette!("error decoding .wasm module {name:?}: {e}"))?;
+            .map_err(|error| ImportWasmError::DecodeCore(error.into()))?;
         if wasm.is_none() {
-            return Err(miette!(
-                ".wasm module {name:?} does not contain `component-type` custom sections"
-            ));
+            return Err(ImportWasmError::UntypedCore);
         }
         (
             DecodedWasm::Component(bindgen.resolve, bindgen.world),
@@ -56,9 +62,7 @@ pub fn import_wasm(
         DecodedWasm::WitPackage(_, _) => {
             // Reached if the file is a component .wasm with no implementation attached (binary WIT).
             // TODO: route to the `.wit` import path.
-            return Err(miette!(
-                "cannot import `.wasm` file containing binary WIT only"
-            ));
+            return Err(ImportWasmError::TypesOnly);
         }
     };
 
@@ -66,7 +70,7 @@ pub fn import_wasm(
     // "Importize" the world to convert it to WIT that would be imported.
     resolve
         .importize(world_id, None)
-        .map_err(|e| miette!("error importizing WIT world: {e}"))?;
+        .map_err(|error| ImportWasmError::Importize(error.into()))?;
 
     let mut module = TypedWasmModule {
         name,
@@ -150,4 +154,38 @@ fn wit_to_star_type(resolve: &Resolve, ty: wit_parser::Type) -> Type {
 fn from_kebab_case(name: &str) -> String {
     // TODO: probably a better way to do this is to check that to_kebab_case(imported_name) == wit_name.
     name.replace("-", "_")
+}
+
+impl Display for ImportWasmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImportWasmError::DecodeComponent(error) => {
+                write!(f, "error decoding component: {error}")
+            }
+            ImportWasmError::DecodeCore(error) => write!(f, "error decoding core module: {error}"),
+            ImportWasmError::UntypedCore => {
+                write!(f, "core module does not contain `component-type` section")
+            }
+            ImportWasmError::TypesOnly => {
+                write!(f, "cannot import `.wasm` file containing binary WIT only")
+            }
+            ImportWasmError::Importize(error) => write!(f, "error importizing WIT world: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for ImportWasmError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ImportWasmError::DecodeComponent(error) => Some(error.as_ref()),
+            ImportWasmError::DecodeCore(error) => Some(error.as_ref()),
+            ImportWasmError::UntypedCore => None,
+            ImportWasmError::TypesOnly => None,
+            ImportWasmError::Importize(error) => Some(error.as_ref()),
+        }
+    }
+
+    fn cause(&self) -> Option<&dyn Error> {
+        self.source()
+    }
 }

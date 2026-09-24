@@ -486,14 +486,14 @@ impl fmt::Display for TypeErrorKind {
             } => write!(
                 f,
                 "unary `{}` expects type `{}` but found `{}`",
-                display_unary_op(*op),
+                op.as_str(),
                 expected.compact_display(),
                 found.compact_display()
             ),
             TypeErrorKind::BinaryOperandMismatch { op, left, right } => write!(
                 f,
                 "binary `{}` operands must match; found `{}` and `{}`",
-                display_binary_op(*op),
+                op.as_str(),
                 left.compact_display(),
                 right.compact_display()
             ),
@@ -809,31 +809,6 @@ impl fmt::Display for TypeErrorKind {
                 write!(f, "`{name}` is a built-in ABI and cannot be redeclared")
             }
         }
-    }
-}
-
-fn display_binary_op(op: BinaryOp) -> &'static str {
-    match op {
-        BinaryOp::Multiply => "*",
-        BinaryOp::Divide => "/",
-        BinaryOp::Remainder => "%",
-        BinaryOp::Add => "+",
-        BinaryOp::Subtract => "-",
-        BinaryOp::Less => "<",
-        BinaryOp::LessEqual => "<=",
-        BinaryOp::Greater => ">",
-        BinaryOp::GreaterEqual => ">=",
-        BinaryOp::Equal => "==",
-        BinaryOp::NotEqual => "!=",
-        BinaryOp::And => "&&",
-        BinaryOp::Or => "||",
-    }
-}
-
-fn display_unary_op(op: UnaryOp) -> &'static str {
-    match op {
-        UnaryOp::Negate => "-",
-        UnaryOp::Not => "!",
     }
 }
 
