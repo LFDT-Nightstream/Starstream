@@ -109,19 +109,17 @@ impl ModuleGraph {
         entry: &Path,
     ) -> Result<(ModuleGraph, ModuleId), Vec<ModuleGraphError>> {
         let canonical_entry = std::fs::canonicalize(entry).map_err(|error| {
-            vec![ModuleGraphError::EntryIo {
+            vec![ModuleGraphError::Io {
                 path: entry.to_path_buf(),
+                importer: None,
                 error,
             }]
         })?;
 
         let mut builder = Builder::new(fs);
-        let entry_id = builder.parse_module(&canonical_entry).map_err(|error| {
-            vec![ModuleGraphError::EntryIo {
-                path: entry.to_path_buf(),
-                error,
-            }]
-        })?;
+        let entry_id = builder
+            .parse_module(&canonical_entry, None)
+            .map_err(|error| vec![*error])?;
 
         Ok((builder.finish(Some(entry_id))?, entry_id))
     }
@@ -143,17 +141,15 @@ impl ModuleGraph {
         for path in &star_files {
             match std::fs::canonicalize(path) {
                 Err(error) => {
-                    builder.errors.push(ModuleGraphError::EntryIo {
+                    builder.errors.push(ModuleGraphError::Io {
                         path: path.clone(),
+                        importer: None,
                         error,
                     });
                 }
                 Ok(canonical) => {
-                    if let Err(error) = builder.parse_module(&canonical) {
-                        builder.errors.push(ModuleGraphError::EntryIo {
-                            path: path.clone(),
-                            error,
-                        });
+                    if let Err(error) = builder.parse_module(&canonical, None) {
+                        builder.errors.push(*error);
                     }
                 }
             }
@@ -230,16 +226,11 @@ impl std::fmt::Debug for ModuleGraph {
 
 #[derive(Debug)]
 pub enum ModuleGraphError {
-    /// The entry file itself couldn't be read.
-    EntryIo {
+    /// A file couldn't be read.
+    Io {
         path: PathBuf,
-        error: std::io::Error,
-    },
-    /// A path import targets a file we couldn't read.
-    ImportIo {
-        path: PathBuf,
-        importer: ModuleId,
-        span: Span,
+        /// The source file and span of the `import` statement if available.
+        importer: Option<(ModuleId, Span)>,
         error: std::io::Error,
     },
     /// Path import isn't relative (must start with `./` or `../`).
@@ -250,18 +241,8 @@ pub enum ModuleGraphError {
     },
     /// Path import has unknown extension.
     UnknownExtension {
-        path: String,
-        importer: ModuleId,
-        span: Span,
-    },
-    /// An edge in the graph points at a file that also declares `contract;`.
-    /// Cross-contract imports aren't supported yet.
-    CrossContractImport {
-        importer: ModuleId,
-        importer_path: PathBuf,
-        target: ModuleId,
-        target_path: PathBuf,
-        span: Span,
+        path: PathBuf,
+        importer: Option<(ModuleId, Span)>,
     },
     /// Topo sort found a cycle.
     Cycle {
@@ -272,32 +253,31 @@ pub enum ModuleGraphError {
         source: NamedSource<Arc<str>>,
         error: ParseError,
     },
+    /// An edge in the graph points at a file that also declares `contract;`.
+    /// Cross-contract imports aren't supported yet.
+    CrossContractImport {
+        importer: ModuleId,
+        importer_path: PathBuf,
+        target: ModuleId,
+        target_path: PathBuf,
+        span: Span,
+    },
 }
 
 impl std::fmt::Display for ModuleGraphError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModuleGraphError::EntryIo { path, error } => {
-                write!(f, "error: failed to read `{}`: {}", path.display(), error)
-            }
-            ModuleGraphError::ImportIo { path, error, .. } => {
-                write!(
-                    f,
-                    "error: failed to resolve path import `{}`: {}",
-                    path.display(),
-                    error
-                )
+            ModuleGraphError::Io { path, error, .. } => {
+                write!(f, "failed to read `{}`: {}", path.display(), error)
             }
             ModuleGraphError::NonRelativePath { path, .. } => {
-                write!(
-                    f,
-                    "error: path import `{path}` must start with `./` or `../`"
-                )
+                write!(f, "path import `{path}` must start with `./` or `../`")
             }
             ModuleGraphError::UnknownExtension { path, .. } => {
                 write!(
                     f,
-                    "error: path import `{path}` has unknown extension, expecting `.star`"
+                    "path import `{path}` has unknown extension, expecting `.star`",
+                    path = path.display(),
                 )
             }
             ModuleGraphError::CrossContractImport {
@@ -307,13 +287,13 @@ impl std::fmt::Display for ModuleGraphError {
             } => {
                 write!(
                     f,
-                    "error: cross-contract calls not supported yet: `{}` imports `{}`, which also declares `contract;`",
+                    "not yet implemented: cross-contract call from `{}` to `{}`, which also declares `contract;`",
                     importer_path.display(),
                     target_path.display()
                 )
             }
             ModuleGraphError::Cycle { chain } => {
-                write!(f, "error: cyclic path import detected:")?;
+                write!(f, "cyclic path import detected:")?;
                 for (_id, p, _span) in chain {
                     write!(f, "\n  - {}", p.display())?;
                 }
@@ -441,7 +421,11 @@ impl<'a> Builder<'a> {
         })
     }
 
-    fn parse_module(&mut self, abs_path: &Path) -> std::io::Result<ModuleId> {
+    fn parse_module(
+        &mut self,
+        abs_path: &Path,
+        importer: Option<(ModuleId, Span)>,
+    ) -> Result<ModuleId, Box<ModuleGraphError>> {
         if let Some(&id) = self.by_path.get(abs_path) {
             return Ok(id);
         }
@@ -457,10 +441,22 @@ impl<'a> Builder<'a> {
 
         match abs_path.extension().and_then(|x| x.to_str()) {
             Some("star") => {
-                self.parse_star_module(abs_path, idx)?;
+                self.parse_star_module(abs_path, idx).map_err(|error| {
+                    Box::new(ModuleGraphError::Io {
+                        path: abs_path.to_path_buf(),
+                        importer,
+                        error,
+                    })
+                })?;
             }
             Some("wasm") => {
-                self.parse_wasm_module(abs_path, idx)?;
+                self.parse_wasm_module(abs_path, idx).map_err(|error| {
+                    Box::new(ModuleGraphError::Io {
+                        path: abs_path.to_path_buf(),
+                        importer,
+                        error,
+                    })
+                })?;
             }
             _ => {}
         }
@@ -535,16 +531,15 @@ impl<'a> Builder<'a> {
             let abs_path = match std::fs::canonicalize(&candidate) {
                 Ok(c) => c,
                 Err(error) => {
-                    self.errors.push(ModuleGraphError::ImportIo {
+                    self.errors.push(ModuleGraphError::Io {
                         path: candidate.clone(),
-                        importer: id,
-                        span,
+                        importer: Some((id, span)),
                         error,
                     });
                     continue;
                 }
             };
-            match self.parse_module(&abs_path) {
+            match self.parse_module(&abs_path, Some((id, span))) {
                 Ok(target) => {
                     resolved.push(PathImport {
                         def_index,
@@ -553,12 +548,7 @@ impl<'a> Builder<'a> {
                     });
                 }
                 Err(error) => {
-                    self.errors.push(ModuleGraphError::ImportIo {
-                        path: abs_path.to_owned(),
-                        importer: id,
-                        span,
-                        error,
-                    });
+                    self.errors.push(*error);
                 }
             }
         }
