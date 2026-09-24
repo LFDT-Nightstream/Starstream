@@ -75,6 +75,20 @@ jobs:
         - name: Install the pinned Quint CLI
           run: npm ci
           working-directory: starstream-interleaving-spec
+        # Quint fetches its Rust evaluator through the unauthenticated GitHub
+        # API, which hits rate limits on shared runners; pre-install it with an
+        # authenticated `gh` into the directory Quint checks first.
+        - name: Install the Quint Rust evaluator
+          run: |
+            version=$(node -p "require('@informalsystems/quint/dist/src/rust/binaryManager').QUINT_EVALUATOR_VERSION")
+            dir="$HOME/.quint/rust-evaluator-$version"
+            mkdir -p "$dir"
+            gh release download "evaluator/$version" -R informalsystems/quint \
+              -p 'quint_evaluator-x86_64-unknown-linux-gnu.tar.gz' -O - | tar -xzf - -C "$dir"
+            chmod +x "$dir/quint_evaluator"
+          working-directory: starstream-interleaving-spec
+          env:
+            GH_TOKEN: ${{ github.token }}
         - name: Check the execution specification (the invariants)
           run: npm run check
           working-directory: starstream-interleaving-spec
