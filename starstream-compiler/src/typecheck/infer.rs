@@ -48,7 +48,7 @@ pub struct TypecheckOptions {
 }
 
 /// Successful type-checking result holding the typed AST and any inference traces.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct TypecheckSuccess {
     pub program: TypedProgram,
     pub traces: Vec<InferenceTree>,

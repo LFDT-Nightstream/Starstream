@@ -13,3 +13,4 @@ chumsky = { workspace = true }
 inventory = "0.3.22"
 pretty = "0.12.5"
 serde = { workspace = true, features = ["derive"] }
+miette.workspace = true

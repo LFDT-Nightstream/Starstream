@@ -4005,7 +4005,6 @@ dependencies = [
  "pretty",
  "serde",
  "starstream-types",
- "thiserror 2.0.17",
  "wasmparser 0.254.0",
  "wit-component 0.258.0",
  "wit-parser 0.258.0",
@@ -4241,6 +4240,7 @@ version = "0.0.0"
 dependencies = [
  "chumsky",
  "inventory",
+ "miette",
  "pretty",
  "serde",
 ]
