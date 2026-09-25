@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, path::PathBuf};
 
 use miette::{Diagnostic, LabeledSpan};
 use starstream_types::{
@@ -7,9 +7,11 @@ use starstream_types::{
     error_code,
 };
 
+use crate::import_wasm::ImportWasmError;
+
 pub type TypeError = StarError<TypeErrorKind>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum TypeErrorKind {
     UnknownName {
         name: String,
@@ -255,6 +257,10 @@ pub enum TypeErrorKind {
     ReservedAbiName {
         name: String,
     },
+    ImportWasm {
+        path: PathBuf,
+        inner: ImportWasmError,
+    },
 }
 
 impl TypeErrorKind {
@@ -319,6 +325,7 @@ impl TypeErrorKind {
             TypeErrorKind::TokenMissingImpl { .. } => error_code!(E0053),
             TypeErrorKind::TokenDuplicateImpl { .. } => error_code!(E0054),
             TypeErrorKind::ReservedAbiName { .. } => error_code!(E0055),
+            TypeErrorKind::ImportWasm { .. } => error_code!(E0060),
         }
     }
 }
@@ -730,6 +737,9 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::ReservedAbiName { name } => {
                 write!(f, "`{name}` is a built-in ABI and cannot be redeclared")
             }
+            TypeErrorKind::ImportWasm { path, .. } => {
+                write!(f, "error importing {path:?}")
+            }
         }
     }
 }
@@ -765,6 +775,14 @@ impl Diagnostic for TypeErrorKind {
             ));
         }
         Some(Box::new(labels.into_iter()))
+    }
+
+    fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
+        if let TypeErrorKind::ImportWasm { inner, .. } = self {
+            Some(inner)
+        } else {
+            None
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 use std::{collections::HashMap, error::Error, fmt::Display, sync::Arc};
 
+use miette::Diagnostic;
 use starstream_types::{
     DUMMY_SPAN, FunctionKind, FunctionType, Identifier, IntWidth, NameId, StaticFunction,
     Type::{self, Function},
@@ -28,11 +29,11 @@ pub enum WasmLinkage {
 
 #[derive(Debug)]
 pub enum ImportWasmError {
-    DecodeComponent(Box<dyn Error>),
-    DecodeCore(Box<dyn Error>),
+    DecodeComponent(Box<dyn Error + Send + Sync>),
+    DecodeCore(Box<dyn Error + Send + Sync>),
     UntypedCore,
     TypesOnly,
-    Importize(Box<dyn Error>),
+    Importize(Box<dyn Error + Send + Sync>),
 }
 
 pub fn import_wasm(
@@ -179,8 +180,6 @@ impl std::error::Error for ImportWasmError {
             ImportWasmError::Importize(error) => Some(error.as_ref()),
         }
     }
-
-    fn cause(&self) -> Option<&dyn Error> {
-        self.source()
-    }
 }
+
+impl Diagnostic for ImportWasmError {}

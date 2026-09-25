@@ -278,7 +278,17 @@ pub fn typecheck_modules(
                     typed_modules.insert(module_id, TypedModuleContents::Wasm(Box::new(module)));
                 }
                 Err(err) => {
-                    panic!("{err}"); // TODO
+                    all_errors.push((
+                        module_id,
+                        TypeError::new(
+                            TypeErrorKind::ImportWasm {
+                                path: module.abs_path.clone(),
+                                inner: err,
+                            },
+                            DUMMY_SPAN,
+                        ),
+                    ));
+                    module_exports.insert(module_id, Namespace::default());
                 }
             },
         }
@@ -4843,7 +4853,7 @@ impl Inferencer {
                             EnumVariantKind::Tuple(right_payload),
                         ) => {
                             if left_payload.len() != right_payload.len() {
-                                return Err(TypeError::new(error_kind.clone(), left_span)
+                                return Err(TypeError::new(error_kind, left_span)
                                     .with_secondary(right_span, "enum payload mismatch"));
                             }
                             for (left_ty, right_ty) in left_payload.iter().zip(right_payload.iter())
@@ -4871,7 +4881,7 @@ impl Inferencer {
                                     .zip(right_fields.iter())
                                     .any(|(l, r)| l.name.as_str() != r.name.as_str())
                             {
-                                return Err(TypeError::new(error_kind.clone(), left_span)
+                                return Err(TypeError::new(error_kind, left_span)
                                     .with_secondary(right_span, "enum payload mismatch"));
                             }
 
@@ -4892,7 +4902,7 @@ impl Inferencer {
                             }
                         }
                         _ => {
-                            return Err(TypeError::new(error_kind.clone(), left_span)
+                            return Err(TypeError::new(error_kind, left_span)
                                 .with_secondary(right_span, "enum payload mismatch"));
                         }
                     }
@@ -4913,11 +4923,11 @@ impl Inferencer {
                 (Type::Abi(left), Vec::new(), "Unify-Const")
             }
             (Type::Var(id), ty) => {
-                self.bind(id, &ty, left_span, right_span, error_kind.clone())?;
+                self.bind(id, &ty, left_span, right_span, error_kind)?;
                 (ty, Vec::new(), "Unify-Var")
             }
             (ty, Type::Var(id)) => {
-                self.bind(id, &ty, right_span, left_span, error_kind.clone())?;
+                self.bind(id, &ty, right_span, left_span, error_kind)?;
                 (ty, Vec::new(), "Unify-Var")
             }
             (left, right) => {

@@ -49,6 +49,8 @@ struct StarErrorCore {
     url: Option<String>,
     source_code: Option<Arc<dyn SourceCode>>,
     labels: Vec<LabeledSpan>,
+    cause: Option<Arc<dyn Diagnostic + Send + Sync>>,
+    related: Vec<Arc<dyn Diagnostic + Send + Sync>>,
 }
 
 // impl<T> From<T> for StarError<T>
@@ -113,6 +115,16 @@ impl<T> StarError<T> {
         self.core.labels.push(span.secondary(message));
         self
     }
+
+    pub fn with_cause(mut self, cause: impl Diagnostic + Send + Sync + 'static) -> Self {
+        self.core.cause = Some(Arc::new(cause));
+        self
+    }
+
+    pub fn and_related(mut self, related: impl Diagnostic + Send + Sync + 'static) -> Self {
+        self.core.related.push(Arc::new(related));
+        self
+    }
 }
 
 impl<T> std::ops::Deref for StarError<T> {
@@ -131,7 +143,11 @@ impl<T: Display> Display for StarError<T> {
 
 impl<T: std::error::Error> std::error::Error for StarError<T> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.kind.source()
+        self.core
+            .cause
+            .as_deref()
+            .map(|x| x as &dyn std::error::Error)
+            .or_else(|| self.kind.source())
     }
 }
 
@@ -188,23 +204,45 @@ impl<T: Diagnostic> Diagnostic for StarError<T> {
     }
 
     fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>> {
-        self.kind.related()
+        let us = if self.core.related.is_empty() {
+            None
+        } else {
+            Some(
+                self.core
+                    .related
+                    .iter()
+                    .map(|arc| &**arc as &dyn Diagnostic),
+            )
+        };
+        let them = self.kind.related();
+        if us.is_some() || them.is_some() {
+            Some(Box::new(
+                us.into_iter().flatten().chain(them.into_iter().flatten()),
+            ))
+        } else {
+            None
+        }
     }
 
     fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
-        self.kind.diagnostic_source()
+        self.core
+            .cause
+            .as_deref()
+            .map(|x| x as &dyn Diagnostic)
+            .or_else(|| self.kind.diagnostic_source())
     }
 }
 
 impl std::fmt::Debug for StarErrorCore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StarErrorCore")
-            .field("code", &self.code)
             .field("severity", &self.severity)
-            .field("help", &self.help)
+            .field("code", &self.code)
             .field("url", &self.url)
-            //.field("source_code", &self.source_code)
+            .field("cause", &self.cause)
             .field("labels", &self.labels)
+            .field("help", &self.help)
+            .field("related", &self.related)
             .finish()
     }
 }
