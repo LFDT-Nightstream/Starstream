@@ -3981,6 +3981,8 @@ dependencies = [
  "similar",
  "starstream-compiler",
  "starstream-language-server",
+ "starstream-ledger-cli",
+ "starstream-ledger-node",
  "starstream-runtime-next",
  "starstream-to-wasm",
  "starstream-types",
