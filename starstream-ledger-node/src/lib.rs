@@ -200,11 +200,11 @@ fn parse_admin_key(key: &str) -> Result<VerifyingKey, String> {
 
 impl Args {
     pub async fn exec(self) -> anyhow::Result<()> {
-        main(self).await
+        exec(self).await
     }
 }
 
-async fn main(args: Args) -> anyhow::Result<()> {
+async fn exec(args: Args) -> anyhow::Result<()> {
     let Args {
         network,
         admin,
