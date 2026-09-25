@@ -203,8 +203,6 @@ impl TransactionGetError {
 
 #[derive(Debug, Error)]
 pub enum GenesisGetError {
-    #[error("failed to encode genesis: {0}")]
-    Encoding(minicbor::encode::Error<core::convert::Infallible>),
     #[error(transparent)]
     Http(http::Error),
 }
@@ -212,7 +210,7 @@ pub enum GenesisGetError {
 impl GenesisGetError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::Encoding(..) | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -278,18 +276,28 @@ pub enum RpcPostError {
     InstanceNotFound(String),
     #[error("function `{name}` not found in instance `{instance}`")]
     FunctionNotFound { instance: String, name: String },
-    #[error("failed to parse utxo digest: {0}")]
-    UtxoDigestParsing(DigestParseError),
+    #[error("failed to parse transaction digest: {0}")]
+    TransactionDigestParsing(DigestParseError),
+    #[error("UTXO index does not fit in usize")]
+    UtxoIndexOverflow,
     #[error("UTXO not found")]
     UtxoNotFound,
+    #[error("failed to parse contract digest: {0}")]
+    ContractDigestParsing(DigestParseError),
+    #[error("contract not found")]
+    ContractNotFound,
+    #[error("failed to merge UTXO state into contract: {0:#}")]
+    StateMerge(anyhow::Error),
+    #[error("failed to decode UTXO storage: {0}")]
+    StorageDecoding(std::io::Error),
     #[error("UTXO instance `{instance}` not found: {source:#}")]
     UtxoInstanceNotFound {
-        instance: String,
+        instance: Box<str>,
         source: wasmtime::Error,
     },
     #[error("method `{name}` not found in UTXO instance `{instance}`: {source:#}")]
     UtxoMethodNotFound {
-        instance: String,
+        instance: Box<str>,
         name: String,
         source: wasmtime::Error,
     },
@@ -315,16 +323,21 @@ impl RpcPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
             Self::Header(..)
-            | Self::UtxoDigestParsing(..)
+            | Self::TransactionDigestParsing(..)
+            | Self::UtxoIndexOverflow
             | Self::ParameterDecoding(..)
             | Self::UtxoStorageMissing
             | Self::ResourceTable(..) => http::StatusCode::BAD_REQUEST,
             Self::InstanceNotFound(..)
             | Self::FunctionNotFound { .. }
             | Self::UtxoNotFound
+            | Self::ContractNotFound
             | Self::UtxoInstanceNotFound { .. }
             | Self::UtxoMethodNotFound { .. } => http::StatusCode::NOT_FOUND,
-            Self::Runtime(..)
+            Self::ContractDigestParsing(..)
+            | Self::StateMerge(..)
+            | Self::StorageDecoding(..)
+            | Self::Runtime(..)
             | Self::ResultEncoding(..)
             | Self::CallResultEncoding(..)
             | Self::FrameEncoding(..)

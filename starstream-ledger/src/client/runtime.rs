@@ -15,10 +15,11 @@ use tokio_util::codec::Encoder as _;
 use tracing::error;
 use wasmtime::component::{Component, Resource, ResourceTable, Type, Val};
 use wasmtime::error::Context as _;
-use wasmtime::{AsContextMut as _, Engine, StoreContextMut, bail, ensure, format_err};
+use wasmtime::{AsContextMut as _, Engine, Store, StoreContextMut, bail, ensure, format_err};
 use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
 
 use crate::client::CoordinationScriptArg;
+use crate::runtime::{apply_state, parse_state};
 use crate::wrpc::codec::{ValEncoder, read_value};
 use crate::{
     Transaction, TransactionEvent, TransactionInput, TransactionOutput, encode_digest, parse_digest,
@@ -39,7 +40,7 @@ pub fn compile_component(
 
 #[derive(Clone)]
 pub struct Contract {
-    pub contract: starstream_runtime_next::Contract<Ctx>,
+    pub contract: Option<starstream_runtime_next::Contract<Ctx>>,
     pub wasm: Bytes,
 }
 
@@ -70,7 +71,10 @@ pub async fn new_contract(
                 error!(external_id, "unresolved contract import");
                 format!("contract identified by `external-id` `{external_id}` not found")
             })?;
-            Ok(contract.contract.clone())
+            contract.contract.clone().with_context(|| {
+                error!(external_id, "uncompiled contract import");
+                format!("contract identified by `external-id` `{external_id}` was not compiled")
+            })
         }
     }
 
@@ -89,14 +93,20 @@ pub async fn new_contract(
         let digest = parse_digest(external_id).with_context(|| {
             format!("failed to parse `external-id` `{external_id}` as multibase multihash")
         })?;
-        if imports.contains_key(&digest) {
-            continue;
-        }
-        let wasm = client
-            .get_contract_wasm(digest)
-            .await
-            .map_err(wasmtime::Error::from_anyhow)?;
-        let component = compile_component(engine, wizer, &wasm)?;
+        let wasm = match imports.get(&digest) {
+            Some(Contract {
+                contract: Some(..), ..
+            }) => continue,
+            Some(Contract {
+                contract: None,
+                wasm,
+            }) => wasm.clone(),
+            None => client
+                .get_contract_wasm(digest)
+                .await
+                .map_err(wasmtime::Error::from_anyhow)?,
+        };
+        let component = compile_component(engine, wizer, wasm.as_ref())?;
         let contract = Box::pin(new_contract(
             client,
             wizer,
@@ -105,13 +115,20 @@ pub async fn new_contract(
             imports,
         ))
         .await?;
-        imports.insert(digest, Contract { contract, wasm });
+        imports.insert(
+            digest,
+            Contract {
+                contract: Some(contract),
+                wasm,
+            },
+        );
     }
     starstream_runtime_next::Contract::new(component, external_id, ContractLookup(imports))
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn call_coordination_script(
+    store: &mut Store<Ctx>,
     client: &(impl Client + ?Sized),
     wizer: &Wizer,
     contract: &starstream_runtime_next::Contract<Ctx>,
@@ -120,10 +137,10 @@ pub async fn call_coordination_script(
     imports: &mut HashMap<[u8; 32], Contract>,
     args: impl IntoIterator<Item = CoordinationScriptArg>,
     results: &mut [Val],
+    utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
 ) -> wasmtime::Result<Transaction> {
     let engine = contract.component().engine();
-    let mut store = wasmtime::Store::new(engine, Ctx::default());
-    let instance = contract.instantiate(&mut store).await?;
+    let instance = contract.instantiate(&mut *store).await?;
 
     let digest = Sha256::digest(wasm).into();
     let mut inputs = Vec::default();
@@ -143,33 +160,40 @@ pub async fn call_coordination_script(
                 let utxo_contract_digest = parse_digest(&utxo.contract).with_context(|| {
                     format!("failed to parse `{}` as multibase multihash", utxo.contract)
                 })?;
-                let (external_id, contract) = if utxo_contract_digest == digest {
-                    (None, contract.clone())
-                } else if let Some(Contract { contract, .. }) = imports.get(&utxo_contract_digest) {
-                    (Some(Arc::from(utxo.contract)), contract.clone())
+                let (external_id, wasm) = if utxo_contract_digest == digest {
+                    let wasm =
+                        apply_state(wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
+                    (None, Bytes::from(wasm))
+                } else if let Some(Contract { wasm, .. }) = imports.get(&utxo_contract_digest) {
+                    let wasm =
+                        apply_state(wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
+                    (Some(Arc::from(utxo.contract)), Bytes::from(wasm))
                 } else {
                     let wasm = client
                         .get_contract_wasm(utxo_contract_digest)
                         .await
                         .map_err(wasmtime::Error::from_anyhow)?;
-                    let component = compile_component(engine, wizer, &wasm)?;
-                    let contract = new_contract(
-                        client,
-                        wizer,
-                        &component,
-                        Some(&utxo.contract),
-                        &mut *imports,
-                    )
-                    .await?;
+                    let wasm =
+                        apply_state(&wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
+                    let wasm = Bytes::from(wasm);
                     imports.insert(
                         utxo_contract_digest,
                         Contract {
-                            contract: contract.clone(),
-                            wasm,
+                            contract: None,
+                            wasm: wasm.clone(),
                         },
                     );
-                    (Some(Arc::from(utxo.contract)), contract)
+                    (Some(Arc::from(utxo.contract)), wasm)
                 };
+                let component = compile_component(engine, wizer, &wasm)?;
+                let contract = new_contract(
+                    client,
+                    wizer,
+                    &component,
+                    external_id.as_deref(),
+                    &mut *imports,
+                )
+                .await?;
                 let utxo_export = contract.get_utxo(&utxo.instance)?;
                 let storage_export = utxo_export.storage().context("UTXO has no storage")?;
                 let mut storage = Val::Record(Vec::default());
@@ -189,11 +213,11 @@ pub async fn call_coordination_script(
                     dropped: false,
                 }));
                 let cx_res = store.data_mut().table.push(Arc::clone(&cx))?;
-                let cx_res = cx_res.try_into_resource_any(&mut store)?;
-                let contract = contract.instantiate(&mut store).await?;
+                let cx_res = cx_res.try_into_resource_any(&mut *store)?;
+                let contract = contract.instantiate(&mut *store).await?;
                 let utxo = contract
                     .load_utxo(
-                        &mut store,
+                        &mut *store,
                         &utxo_export,
                         storage_export,
                         cx,
@@ -203,7 +227,7 @@ pub async fn call_coordination_script(
                 let Ctx { table, outputs, .. } = store.data_mut();
                 outputs.push(utxo.clone());
                 let utxo = table.push(utxo)?;
-                let utxo = utxo.try_into_resource_any(&mut store)?;
+                let utxo = utxo.try_into_resource_any(&mut *store)?;
                 inputs.push(input);
                 Val::Resource(utxo)
             }
@@ -212,7 +236,7 @@ pub async fn call_coordination_script(
     }
     ensure!(args.next().is_none(), "trailing arguments");
     instance
-        .call_coordination_script(&mut store, export, &params, results)
+        .call_coordination_script(&mut *store, export, &params, results)
         .await?;
     let Ctx {
         outputs, events, ..
@@ -228,7 +252,7 @@ pub async fn call_coordination_script(
             cx.clone()
         };
         let mut instance = WasmtimeWizerComponent {
-            store: &mut store,
+            store: &mut *store,
             instance: utxo.instance(),
         };
         let (contract, wasm) = if let Some(external_id) = cx.external_id.as_deref() {
@@ -244,8 +268,12 @@ pub async fn call_coordination_script(
             let wasm = wizer.snapshot_component(&wizer_cx, &mut instance).await?;
             (encode_digest(&digest).into(), wasm)
         };
+        let state = parse_state(&wasm)
+            .collect::<anyhow::Result<_>>()
+            .map_err(wasmtime::Error::from_anyhow)
+            .context("failed to parse UTXO state")?;
         let storage = if let Some(export) = cx.export.storage() {
-            let storage = utxo.storage(export).call_get(&mut store).await?;
+            let storage = utxo.storage(export).call_get(&mut *store).await?;
             let mut buf = BytesMut::new();
             ValEncoder::new(&Type::Record(export.ty().clone()))
                 .encode(&Val::Record(storage), &mut buf)
@@ -258,13 +286,13 @@ pub async fn call_coordination_script(
         for &(a, b, c, d) in &cx.methods {
             methods.insert((a, b, c, d));
         }
-        // TODO: remove contract code from UTXO snapshot
+        utxos.push(utxo);
         tx_outputs.push(TransactionOutput {
             contract,
             instance: cx.instance.as_ref().into(),
             methods,
             storage,
-            wasm: wasm.into(),
+            state,
         });
     }
     Ok(Transaction {

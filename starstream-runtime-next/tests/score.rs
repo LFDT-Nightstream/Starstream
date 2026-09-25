@@ -202,6 +202,7 @@ async fn get_progress_storage<T>(
     Ok(storage.iter().collect())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn assert_call_method(
     mut store: &mut Store<Ctx>,
     contract: &Contract<Ctx>,
