@@ -25,6 +25,8 @@ starstream-language-server = { workspace = true }
 starstream-runtime-next = { workspace = true }
 starstream-to-wasm = { workspace = true }
 starstream-types = { workspace = true }
+starstream-ledger-cli = { workspace = true }
+starstream-ledger-node = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.47.1", features = ["full"] }
 tracing = { workspace = true }

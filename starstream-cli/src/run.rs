@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use clap::Args;
-use miette::IntoDiagnostic as _;
 use sha2::{Digest as _, Sha256};
 use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use tokio::fs;
@@ -255,11 +254,7 @@ async fn exec(
 }
 
 impl Run {
-    pub fn exec(self) -> miette::Result<()> {
-        let rt = tokio::runtime::Runtime::new().into_diagnostic()?;
-        match rt.block_on(exec(self)) {
-            Ok(()) => Ok(()),
-            Err(err) => Err(miette::miette!("{err:?}")),
-        }
+    pub async fn exec(self) -> miette::Result<()> {
+        exec(self).await.map_err(|err| miette::miette!("{err}"))
     }
 }

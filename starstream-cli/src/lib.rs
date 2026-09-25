@@ -37,6 +37,8 @@ pub enum Command {
     #[clap(hide = true)]
     Lsp(Lsp),
     Run(Run),
+    Ledger(starstream_ledger_cli::Args),
+    Node(starstream_ledger_node::Args),
 }
 
 #[derive(Parser, Debug)]
@@ -49,7 +51,7 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub fn exec(self) -> miette::Result<()> {
+    pub async fn exec(self) -> miette::Result<()> {
         match self.cmd {
             Command::Docs(d) => d.exec(),
             Command::Wasm(w) => w.exec(),
@@ -57,8 +59,10 @@ impl Cli {
             Command::Format(f) => f.exec(),
             Command::Check(c) => c.exec(),
             Command::Explain(e) => e.exec(),
-            Command::Lsp(l) => l.exec(),
-            Command::Run(r) => r.exec(),
+            Command::Lsp(l) => l.exec().await,
+            Command::Run(r) => r.exec().await,
+            Command::Ledger(l) => l.exec().await.map_err(|err| miette::miette!("{err}")),
+            Command::Node(n) => n.exec().await.map_err(|err| miette::miette!("{err}")),
         }
     }
 }

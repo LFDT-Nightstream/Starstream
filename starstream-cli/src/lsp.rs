@@ -1,9 +1,8 @@
 use std::io::IsTerminal;
 
 use clap::Args;
-use miette::{Diagnostic, IntoDiagnostic};
+use miette::Diagnostic;
 use starstream_language_server::Server as StarstreamServer;
-use tokio::runtime::Builder;
 use tower_lsp_server::Server;
 
 /// Start the Starstream language server
@@ -25,7 +24,7 @@ pub struct Lsp {
 struct UnexpectedTerminal;
 
 impl Lsp {
-    pub fn exec(self) -> miette::Result<()> {
+    pub async fn exec(self) -> miette::Result<()> {
         // Log version and debug info.
         eprintln!("starstream-cli-lsp {}", starstream_language_server::VERSION);
 
@@ -46,13 +45,8 @@ impl Lsp {
 
         let stdin = async_std::io::stdin();
         let stdout = async_std::io::stdout();
-
         let (service, messages) = StarstreamServer::new();
-
-        let runtime = Builder::new_multi_thread().build().into_diagnostic()?;
-
-        runtime.block_on(async { Server::new(stdin, stdout, messages).serve(service).await });
-
+        Server::new(stdin, stdout, messages).serve(service).await;
         Ok(())
     }
 }

@@ -4,7 +4,8 @@
 use clap::Parser;
 use starstream_cli::Cli;
 
-fn main() -> miette::Result<()> {
+#[tokio::main]
+async fn main() -> miette::Result<()> {
     miette::set_panic_hook();
 
     tracing_subscriber::fmt()
@@ -16,5 +17,5 @@ fn main() -> miette::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    Cli::parse().exec()
+    Cli::parse().exec().await
 }
