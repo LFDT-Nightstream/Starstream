@@ -5,6 +5,7 @@ use core::pin::pin;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context as _, bail, ensure};
 use bytes::{Bytes, BytesMut};
@@ -16,16 +17,19 @@ use hyper_util::rt::TokioExecutor;
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::http::ClientBuilder;
+use starstream_ledger::client::runtime::UtxoCtx;
 use starstream_ledger::client::runtime::{
-    Client, call_coordination_script, compile_component, new_contract,
+    Client, Ctx, call_coordination_script, compile_component, new_contract,
 };
 use starstream_ledger::client::{decode_transaction, encode_transaction};
 use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest};
+use starstream_runtime_next::Utxo;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
 use tokio_util::codec::Encoder as _;
 use tracing::info;
 use wasm_wave::wasm::WasmFunc as _;
+use wasmtime::Store;
 use wasmtime::component::{Val, types};
 use zeroize::Zeroizing;
 
@@ -68,6 +72,9 @@ enum Command {
         /// Path to the file.
         path: PathBuf,
     },
+
+    /// Print the genesis outputs.
+    Genesis,
 
     /// Manage signing keys.
     #[command(subcommand)]
@@ -193,6 +200,12 @@ enum KeyCommand {
 
 #[derive(Debug, Subcommand)]
 enum TransactionCommand {
+    /// Get a transaction from the ledger.
+    Get {
+        /// Digest of the transaction, either as multibase multihash or `sha256:HEX`.
+        #[arg(value_parser = parse_digest)]
+        digest: [u8; 32],
+    },
     /// Print a transaction written by `contract script call --output-transaction`.
     Show {
         /// Path to the encoded transaction.
@@ -210,7 +223,7 @@ enum UtxoCommand {
         transaction: Option<[u8; 32]>,
 
         /// Index of the UTXO in the transaction outputs.
-        index: usize,
+        index: u32,
 
         /// Method to call.
         method: Box<str>,
@@ -359,6 +372,16 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .context("failed to write digest to stdout")
         }
+        Command::Genesis => {
+            let outputs = client.get_genesis().await?;
+            let outputs = toml::Value::try_from(outputs).context("failed to encode TOML")?;
+            let genesis = toml::Table::from_iter([("outputs".to_string(), outputs)]);
+            let genesis = toml::to_string_pretty(&genesis).context("failed to encode TOML")?;
+            stdout()
+                .write_all(genesis.as_bytes())
+                .await
+                .context("failed to write genesis to stdout")
+        }
         Command::Contract(ContractCommand::Publish {
             signing: SigningArgs { key, nonce },
             wasm,
@@ -432,7 +455,10 @@ async fn main() -> anyhow::Result<()> {
             ensure!(args.next().is_none(), "trailing arguments");
             let mut results = vec![Val::Bool(false); ty.results().len()];
 
+            let mut utxos = Vec::default();
+            let mut store = Store::new(client.engine(), Ctx::default());
             let tx = call_coordination_script(
+                &mut store,
                 &imports,
                 client.wizer(),
                 &contract,
@@ -441,8 +467,29 @@ async fn main() -> anyhow::Result<()> {
                 &mut contracts,
                 params,
                 &mut results,
+                &mut utxos,
             )
             .await?;
+            'outer: for result in &mut results {
+                if let &mut Val::Resource(utxo) = result {
+                    let utxo = utxo
+                        .try_into_resource(&mut store)
+                        .map_err(anyhow::Error::from)
+                        .context("result resource is not a UTXO")?;
+                    let utxo: &Utxo<Arc<std::sync::Mutex<UtxoCtx>>> = store
+                        .data()
+                        .table
+                        .get(&utxo)
+                        .context("result UTXO not found")?;
+                    for (i, out) in zip(0.., &utxos) {
+                        if utxo.resource() == out.resource() {
+                            *result = Val::U32(i);
+                            continue 'outer;
+                        }
+                    }
+                    bail!("failed to identify result resource");
+                }
+            }
             let mut results = wasm_wave::to_string(&Val::Tuple(results))
                 .context("failed to encode result tuple")?;
             if let Some(path) = output_transaction {
@@ -471,6 +518,14 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .context("failed to write signing key to stdout")
         }
+        Command::Transaction(TransactionCommand::Get { digest }) => {
+            let tx = client.get_transaction(digest).await?;
+            let tx = toml::to_string_pretty(&tx).context("failed to encode TOML")?;
+            stdout()
+                .write_all(tx.as_bytes())
+                .await
+                .context("failed to write transaction to stdout")
+        }
         Command::Transaction(TransactionCommand::Show { path }) => {
             let buf = fs::read(&path)
                 .await
@@ -488,17 +543,18 @@ async fn main() -> anyhow::Result<()> {
             method,
             args,
         }) => {
-            let TransactionOutput {
-                instance,
-                methods,
-                storage,
-                wasm,
-                ..
-            } = if let Some(transaction) = transaction {
-                client.get_transaction_utxo(transaction, index).await?
+            let transaction = if let Some(transaction) = transaction {
+                encode_digest(&transaction).into()
             } else {
-                client.get_genesis_utxo(index).await?
+                Box::default()
             };
+            let input = TransactionInput { transaction, index };
+            let TransactionOutput {
+                contract, instance, ..
+            } = client.get_input_utxo(&input).await?;
+            let digest = starstream_ledger::parse_digest(&contract)
+                .with_context(|| format!("failed to parse `{contract}` as multibase multihash"))?;
+            let wasm = client.get_contract_wasm(digest).await?;
             let (resolve, world) = decode_component(&wasm)?;
             let world = &resolve.worlds[world];
             let ty = world
@@ -529,10 +585,7 @@ async fn main() -> anyhow::Result<()> {
             let ty = wasm_wave::value::resolve_wit_func_type(&resolve, &ty)
                 .context("failed to resolve method type")?;
             let args = encode_args(&ty, args)?;
-            let digest = Sha256::digest(&wasm).into();
-            let rx = client
-                .call_utxo_method(&digest, &instance, &method, &methods, &storage, &args)
-                .await?;
+            let rx = client.call_utxo_method(&input, &method, &args).await?;
             write_results(&ty, rx).await
         }
     }

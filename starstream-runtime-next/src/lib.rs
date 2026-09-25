@@ -414,32 +414,41 @@ fn link_typed_utxo_main<T: Host>(
 fn link_typed_utxo_method<T: Host>(
     linker: &mut LinkerInstance<T>,
     ty: types::ComponentFunc,
-    idx: ComponentExportIndex,
     name: &str,
 ) -> wasmtime::Result<()> {
     let Some((_, Type::Borrow(..))) = ty.params().next() else {
         bail!("function does not take borrowed resource type as first parameter");
     };
-    linker.func_new_async(name, move |mut store, _ty, params, results| {
-        Box::new(async move {
-            let Some(Val::Resource(utxo)) = params.first() else {
-                bail!("first parameter is not a resource")
-            };
-            let utxo = utxo.try_into_resource::<Utxo<T::UtxoContext>>(&mut store)?;
-            let &Utxo {
-                instance, resource, ..
-            } = store.data_mut().table().get(&utxo)?;
-            let params = {
-                let mut ps = Vec::with_capacity(params.len());
-                ps.push(Val::Resource(resource));
-                for p in &params[1..] {
-                    ps.push(p.clone());
-                }
-                ps
-            };
-            call_func(&mut store, &instance, idx, &params, results).await?;
-            Ok(())
-        })
+    linker.func_new_async(name, {
+        let name = Arc::<str>::from(name);
+        move |mut store, _ty, params, results| {
+            let name = Arc::clone(&name);
+            Box::new(async move {
+                let Some(Val::Resource(utxo)) = params.first() else {
+                    bail!("first parameter is not a resource")
+                };
+                let utxo = utxo.try_into_resource::<Utxo<T::UtxoContext>>(&mut store)?;
+                let &Utxo {
+                    instance,
+                    instance_idx,
+                    resource,
+                    ..
+                } = store.data_mut().table().get(&utxo)?;
+                let idx = instance
+                    .get_export_index(&mut store, Some(&instance_idx), name.as_ref())
+                    .with_context(|| format!("`{name}` export was not found"))?;
+                let params = {
+                    let mut ps = Vec::with_capacity(params.len());
+                    ps.push(Val::Resource(resource));
+                    for p in &params[1..] {
+                        ps.push(p.clone());
+                    }
+                    ps
+                };
+                call_func(&mut store, &instance, idx, &params, results).await?;
+                Ok(())
+            })
+        }
     })
 }
 
@@ -454,22 +463,24 @@ fn link_typed_utxo_function<T: Host>(
     name: &str,
     external_id: &Option<Arc<str>>,
 ) -> wasmtime::Result<()> {
-    let idx = target
-        .component()
-        .get_export_index(Some(instance_idx), name)
-        .with_context(|| format!("`{name}` export was not found"))?;
     match name.split_once(']') {
-        Some(("[static", ..)) => link_typed_utxo_main(
-            target,
-            linker,
-            ty,
-            *instance_idx,
-            instance_name,
-            idx,
-            name,
-            external_id,
-        ),
-        Some(("[method", ..)) => link_typed_utxo_method(linker, ty, idx, name),
+        Some(("[static", ..)) => {
+            let idx = target
+                .component()
+                .get_export_index(Some(instance_idx), name)
+                .with_context(|| format!("`{name}` export was not found"))?;
+            link_typed_utxo_main(
+                target,
+                linker,
+                ty,
+                *instance_idx,
+                instance_name,
+                idx,
+                name,
+                external_id,
+            )
+        }
+        Some(("[method", ..)) => link_typed_utxo_method(linker, ty, name),
         _ => bail!("unexpected typed UTXO instance function import `{name}`"),
     }
 }

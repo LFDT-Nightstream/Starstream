@@ -83,16 +83,16 @@ async fn cli() {
         .expect("failed to handle HTTP");
     let ledger = tokio::spawn(ledger);
 
-    let wasm = NamedTempFile::new().unwrap();
-    fs::write(&wasm, &*SCORE_WASM)
+    let score_wasm = NamedTempFile::new().unwrap();
+    fs::write(&score_wasm, &*SCORE_WASM)
         .await
-        .with_context(|| format!("failed to write Wasm to `{}`", wasm.path().display()))
+        .with_context(|| format!("failed to write Wasm to `{}`", score_wasm.path().display()))
         .unwrap();
 
-    let digest = run_cli(["digest", &wasm.path().to_string_lossy()])
+    let score_digest = run_cli(["digest", &score_wasm.path().to_string_lossy()])
         .await
         .unwrap();
-    let digest = str::from_utf8(&digest)
+    let score_digest = str::from_utf8(&score_digest)
         .expect("contract digest is not valid UTF-8")
         .trim_end();
 
@@ -109,15 +109,15 @@ async fn cli() {
         "--output-transaction",
         &tx_file.path().to_string_lossy(),
         "--import",
-        &wasm.path().to_string_lossy(),
-        digest,
+        &score_wasm.path().to_string_lossy(),
+        score_digest,
         "example",
     ])
     .await
     .unwrap();
     assert_eq!(stdout, b"()\n");
     let tx = fs::read(&tx_file).await.unwrap();
-    let envelope = assert_score_transaction(&tx, digest);
+    let envelope = assert_score_transaction(&tx, score_digest);
 
     let stdout = run_cli(["transaction", "show", &tx_file.path().to_string_lossy()])
         .await
@@ -170,7 +170,7 @@ async fn cli() {
         NETWORK,
         "--nonce",
         "1",
-        &wasm.path().to_string_lossy(),
+        &score_wasm.path().to_string_lossy(),
     ])
     .await
     .unwrap();
@@ -200,7 +200,39 @@ async fn cli() {
     .unwrap();
     assert_eq!(stdout, b"()\n");
     let tx = fs::read(&tx_file).await.unwrap();
-    assert_score_transaction(&tx, digest);
+    assert_score_transaction(&tx, score_digest);
+
+    let require_hash_preimage_wasm = NamedTempFile::new().unwrap();
+    fs::write(&require_hash_preimage_wasm, &*REQUIRE_HASH_PREIMAGE_WASM)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to write Wasm to `{}`",
+                require_hash_preimage_wasm.path().display()
+            )
+        })
+        .unwrap();
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "contract",
+        "script",
+        "call",
+        "--network",
+        NETWORK,
+        "--simulate",
+        &format!(
+            "sha256:{}",
+            hex::encode(Sha256::digest(&*REQUIRE_HASH_PREIMAGE_WASM))
+        ),
+        "--import",
+        &require_hash_preimage_wasm.path().to_string_lossy(),
+        "create-hash",
+        "42",
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"(0)\n");
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked");

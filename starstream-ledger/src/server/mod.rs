@@ -3,11 +3,10 @@
 use core::sync::atomic::AtomicU64;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use ed25519_dalek::VerifyingKey;
-use sha2::{Digest as _, Sha256};
 use starstream_runtime_next::{
     CoordinationScriptImport, UtxoImport, get_coordination_script_instance_import, utxo_imports,
 };
@@ -59,13 +58,13 @@ struct Contract {
 
 #[derive(Clone, Debug)]
 struct Transaction {
-    outputs: Vec<Option<Arc<Bytes>>>,
+    outputs: Vec<Option<Arc<TransactionOutput>>>,
     envelope: Bytes,
 }
 
 struct Genesis {
-    outputs: RwLock<Box<[Option<Arc<Bytes>>]>>,
-    tx_outputs: Box<[TransactionOutput]>,
+    outputs: RwLock<Box<[Option<Arc<TransactionOutput>>]>>,
+    encoded: Bytes,
 }
 
 /// Starstream ledger
@@ -75,7 +74,6 @@ pub struct Ledger {
     contracts: RwLock<HashMap<[u8; 32], Arc<Contract>>>,
     accounts: RwLock<HashMap<VerifyingKey, Account>>,
     transactions: RwLock<HashMap<[u8; 32], Transaction>>,
-    utxos: RwLock<HashMap<[u8; 32], Weak<Bytes>>>,
     admin: AdminAccount,
     genesis: Genesis,
     network: Arc<str>,
@@ -99,30 +97,21 @@ impl Ledger {
             last_nonce: AtomicU64::default(),
         };
         let genesis = genesis.into();
-        let mut utxos = HashMap::with_capacity(genesis.len());
-        let mut outputs = Vec::with_capacity(genesis.len());
-        for TransactionOutput { wasm, .. } in &genesis {
-            let digest: [u8; 32] = Sha256::digest(wasm).into();
-            let utxo = if let Some(utxo) = utxos.get(&digest).and_then(Weak::upgrade) {
-                utxo
-            } else {
-                let utxo = Arc::new(Bytes::copy_from_slice(wasm));
-                utxos.insert(digest, Arc::downgrade(&utxo));
-                utxo
-            };
-            outputs.push(Some(utxo));
-        }
+        let encoded = minicbor::to_vec(&genesis).expect("failed to encode genesis to CBOR");
+        let outputs = genesis
+            .into_iter()
+            .map(|utxo| Some(Arc::new(utxo)))
+            .collect();
         Self {
             engine,
             blocks: RwLock::default(),
             contracts: RwLock::default(),
             accounts: RwLock::default(),
             transactions: RwLock::default(),
-            utxos: RwLock::new(utxos),
             admin,
             genesis: Genesis {
-                outputs: RwLock::new(outputs.into()),
-                tx_outputs: genesis,
+                outputs: RwLock::new(outputs),
+                encoded: encoded.into(),
             },
             network: network.into(),
             max_requests: max_requests as _,

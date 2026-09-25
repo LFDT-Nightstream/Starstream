@@ -27,7 +27,6 @@ server = [
     "dep:hyper",
     "dep:tokio",
     "dep:wasm-tokio",
-    "dep:wasmparser",
     "dep:wasmtime",
     "hyper-util/server",
     "hyper-util/server-auto",
@@ -66,7 +65,8 @@ tokio = { workspace = true, optional = true, features = [
 tokio-util = { workspace = true, features = ["codec"] }
 tracing = { workspace = true, features = ["attributes"] }
 wasm-tokio = { workspace = true, optional = true }
-wasmparser = { workspace = true, optional = true }
+wasm-encoder = { workspace = true, features = ["wasmparser"] }
+wasmparser = { workspace = true }
 wasmprinter = { workspace = true }
 wasmtime = { workspace = true, optional = true, features = [
     "anyhow",
@@ -85,6 +85,7 @@ wrpc-transport = { workspace = true }
 [dev-dependencies]
 starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
+starstream-types = { workspace = true }
 tokio = { workspace = true, features = [
     "io-util",
     "macros",

@@ -10,11 +10,14 @@ use minicbor::{Decode, Encode};
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::runtime::ModuleState;
+
 #[cfg(feature = "client")]
 pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
 
+pub mod runtime;
 pub mod wrpc;
 
 pub const FUND_CONTEXT: &str = "starstream:fund";
@@ -89,9 +92,8 @@ pub struct TransactionOutput {
     #[cbor(n(3), with = "minicbor::bytes")]
     #[serde(serialize_with = "serialize_bytes")]
     pub storage: Box<[u8]>,
-    #[cbor(n(4), with = "minicbor::bytes")]
-    #[serde(serialize_with = "serialize_wasm")]
-    pub wasm: Box<[u8]>,
+    #[n(4)]
+    pub state: Vec<ModuleState>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
