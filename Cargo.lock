@@ -4208,14 +4208,19 @@ dependencies = [
 name = "starstream-sandbox-web"
 version = "0.0.0"
 dependencies = [
+ "cranelift-codegen",
  "log",
  "miette",
  "serde",
  "serde_cbor",
+ "serde_json",
+ "sha2",
  "starstream-compiler",
+ "starstream-runtime-next",
  "starstream-to-wasm",
  "termcolor",
  "wasmprinter 0.254.0",
+ "wasmtime",
  "wit-component 0.258.0",
 ]
 
