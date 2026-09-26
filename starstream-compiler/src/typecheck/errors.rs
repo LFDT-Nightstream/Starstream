@@ -1,93 +1,17 @@
-use std::fmt;
+use std::{fmt, path::PathBuf};
 
 use miette::{Diagnostic, LabeledSpan};
 use starstream_types::{
-    ErrorCode, FunctionKind, Span, Type,
+    ErrorCode, FunctionKind, Span, SpanExt, StarError, Type,
     ast::{BinaryOp, UnaryOp},
     error_code,
 };
-use thiserror::Error;
 
-use super::diagnostic::{DiagnosticCore, to_source_span};
+use crate::import_wasm::ImportWasmError;
 
-#[derive(Debug, Error)]
-#[error("{kind}")]
-pub struct TypeError {
-    // Boxed to keep TypeError small (clippy::result_large_err).
-    pub kind: Box<TypeErrorKind>,
-    core: Box<DiagnosticCore>,
-}
+pub type TypeError = StarError<TypeErrorKind>;
 
-impl TypeError {
-    pub fn new(kind: TypeErrorKind, span: Span) -> Self {
-        Self {
-            kind: Box::new(kind),
-            core: Box::new(DiagnosticCore::new(span)),
-        }
-    }
-
-    pub fn with_secondary(mut self, span: Span, message: impl Into<String>) -> Self {
-        // TODO: use [Box::map] when stabilized: https://github.com/rust-lang/rust/issues/144419
-        self.core = Box::new(self.core.with_secondary(span, message));
-        self
-    }
-
-    pub fn with_primary_message(mut self, message: impl Into<String>) -> Self {
-        self.core = Box::new(self.core.with_primary_message(message));
-        self
-    }
-
-    pub fn with_help(mut self, help: impl Into<String>) -> Self {
-        self.core = Box::new(self.core.with_help(help));
-        self
-    }
-
-    pub fn primary_span(&self) -> Span {
-        self.core.primary_span()
-    }
-}
-
-impl Diagnostic for TypeError {
-    fn code(&self) -> Option<Box<dyn fmt::Display + '_>> {
-        Some(Box::new(self.kind.error_code()))
-    }
-
-    fn url<'a>(&'a self) -> Option<Box<dyn fmt::Display + 'a>> {
-        Some(Box::new(format!(
-            "https://starstream.nightstream.dev/errors/{}",
-            self.kind.error_code()
-        )))
-    }
-
-    fn help(&self) -> Option<Box<dyn fmt::Display + '_>> {
-        self.core
-            .help()
-            .map(|help| Box::new(help) as Box<dyn fmt::Display>)
-    }
-
-    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
-        let mut labels = self.core.labels();
-
-        if let TypeErrorKind::ArgumentTypeMismatch {
-            expected,
-            param_span: Some(span),
-            ..
-        } = &*self.kind
-        {
-            labels.push(LabeledSpan::new_with_span(
-                Some(format!(
-                    "parameter expects `{}`",
-                    expected.compact_display()
-                )),
-                to_source_span(*span),
-            ));
-        }
-
-        Some(Box::new(labels.into_iter()))
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum TypeErrorKind {
     UnknownName {
         name: String,
@@ -333,6 +257,10 @@ pub enum TypeErrorKind {
     ReservedAbiName {
         name: String,
     },
+    ImportWasm {
+        path: PathBuf,
+        inner: ImportWasmError,
+    },
 }
 
 impl TypeErrorKind {
@@ -397,6 +325,7 @@ impl TypeErrorKind {
             TypeErrorKind::TokenMissingImpl { .. } => error_code!(E0053),
             TypeErrorKind::TokenDuplicateImpl { .. } => error_code!(E0054),
             TypeErrorKind::ReservedAbiName { .. } => error_code!(E0055),
+            TypeErrorKind::ImportWasm { .. } => error_code!(E0060),
         }
     }
 }
@@ -486,14 +415,14 @@ impl fmt::Display for TypeErrorKind {
             } => write!(
                 f,
                 "unary `{}` expects type `{}` but found `{}`",
-                display_unary_op(*op),
+                op.as_str(),
                 expected.compact_display(),
                 found.compact_display()
             ),
             TypeErrorKind::BinaryOperandMismatch { op, left, right } => write!(
                 f,
                 "binary `{}` operands must match; found `{}` and `{}`",
-                display_binary_op(*op),
+                op.as_str(),
                 left.compact_display(),
                 right.compact_display()
             ),
@@ -808,32 +737,52 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::ReservedAbiName { name } => {
                 write!(f, "`{name}` is a built-in ABI and cannot be redeclared")
             }
+            TypeErrorKind::ImportWasm { path, .. } => {
+                write!(f, "error importing {path:?}")
+            }
         }
     }
 }
 
-fn display_binary_op(op: BinaryOp) -> &'static str {
-    match op {
-        BinaryOp::Multiply => "*",
-        BinaryOp::Divide => "/",
-        BinaryOp::Remainder => "%",
-        BinaryOp::Add => "+",
-        BinaryOp::Subtract => "-",
-        BinaryOp::Less => "<",
-        BinaryOp::LessEqual => "<=",
-        BinaryOp::Greater => ">",
-        BinaryOp::GreaterEqual => ">=",
-        BinaryOp::Equal => "==",
-        BinaryOp::NotEqual => "!=",
-        BinaryOp::And => "&&",
-        BinaryOp::Or => "||",
-    }
-}
+impl std::error::Error for TypeErrorKind {}
 
-fn display_unary_op(op: UnaryOp) -> &'static str {
-    match op {
-        UnaryOp::Negate => "-",
-        UnaryOp::Not => "!",
+impl Diagnostic for TypeErrorKind {
+    fn code<'a>(&'a self) -> Option<Box<dyn fmt::Display + 'a>> {
+        Some(Box::new(self.error_code()))
+    }
+
+    fn url<'a>(&'a self) -> Option<Box<dyn fmt::Display + 'a>> {
+        Some(Box::new(format!(
+            "https://starstream.nightstream.dev/errors/{}",
+            self.error_code()
+        )))
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        let mut labels = Vec::new();
+        if let TypeErrorKind::ArgumentTypeMismatch {
+            expected,
+            param_span: Some(span),
+            ..
+        } = self
+        {
+            labels.push(LabeledSpan::new_with_span(
+                Some(format!(
+                    "parameter expects `{}`",
+                    expected.compact_display()
+                )),
+                span.miette(),
+            ));
+        }
+        Some(Box::new(labels.into_iter()))
+    }
+
+    fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
+        if let TypeErrorKind::ImportWasm { inner, .. } = self {
+            Some(inner)
+        } else {
+            None
+        }
     }
 }
 
