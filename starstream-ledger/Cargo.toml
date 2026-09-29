@@ -33,6 +33,7 @@ server = [
     "hyper-util/server-graceful",
     "hyper-util/tokio",
 ]
+proving-instrumentation = ["client", "dep:starstream-proving-runtime"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -55,6 +56,7 @@ multihash = { workspace = true, features = ["std"] }
 serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
 starstream-runtime = { workspace = true }
+starstream-proving-runtime = { path = "../starstream-proving-runtime", optional = true, features = ["interleaving-check"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true, features = [
     "net",

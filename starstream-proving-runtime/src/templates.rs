@@ -6,10 +6,8 @@ use neo_wasm::host_event_bindings::{
 };
 use sha2::{Digest as _, Sha256};
 use starstream_interleaving_spec::events::EventKind;
-use starstream_interleaving_spec::{BLOCK_SIZE, METHOD_WORDS, MethodHash, StarstreamValue, Trace};
+use starstream_interleaving_spec::{BLOCK_SIZE, METHOD_WORDS, MethodHash, StarstreamValue};
 use wasmparser::{CompositeInnerType, Parser, Payload, TypeRef, ValType};
-
-use crate::decoder::{AttributedBlock, BlockCodecError, EventTemplate, TemplateRegistry};
 
 const UTXO_CONTEXT_INTERFACE: &str = "starstream:std/utxo-context";
 const RESUME_METHOD: &str = "[method]utxo-context.resume";
@@ -30,12 +28,11 @@ pub const INLINE_ROOT_WORDS: usize = 4;
 const ROOT_WORDS: usize = 4;
 const _: () = assert!(INLINE_ROOT_WORDS <= ROOT_WORDS);
 
-/// Emitter and decoder templates for one compiled component.
+/// Host-event templates for one compiled component.
 #[derive(Clone, Debug)]
 pub struct ComponentTemplates {
     pub program_tables: neo_wasm::WasmProgramTables,
     pub bindings: HostEventBindings,
-    pub decoder: TemplateRegistry,
     /// Import frefs keyed by `(module, field)`.
     pub import_frefs: BTreeMap<(String, String), u32>,
     /// Export frefs keyed by name.
@@ -78,7 +75,6 @@ struct FunctionExport {
 struct ExportEvents {
     entry: Vec<EventBlock>,
     exit: Vec<EventBlock>,
-    semantic: Vec<EventTemplate>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,7 +117,7 @@ enum ImportKind {
     Advice,
 }
 
-/// Build emitter and decoder templates from a core Wasm module or component.
+/// Build host-event templates from a core Wasm module or component.
 /// Coordination-script exports must be allowlisted.
 pub fn build_component_templates(
     wasm: &[u8],
@@ -138,7 +134,6 @@ pub fn build_component_templates(
         .collect::<BTreeSet<_>>();
     let mut matched_coordination_exports = BTreeSet::new();
     let mut bindings = HostEventBindingsBuilder::new(&artifacts.tables);
-    let mut decoder = TemplateRegistry::new();
     let mut import_frefs = BTreeMap::new();
     let mut export_frefs = BTreeMap::new();
 
@@ -156,9 +151,6 @@ pub fn build_component_templates(
                 name: export.name.clone(),
                 message: error.to_string(),
             })?;
-        for event in export_events.semantic {
-            decoder.register(fref, event)?;
-        }
     }
     if let Some(&name) = coordination_exports
         .difference(&matched_coordination_exports)
@@ -171,7 +163,7 @@ pub fn build_component_templates(
 
     for import in imports {
         import_frefs.insert((import.module.clone(), import.field.clone()), import.fref);
-        let (events, semantic) = build_import_template(&import)?;
+        let events = build_import_template(&import)?;
         bindings.import(import.fref, events).map_err(|error| {
             TemplateBuildError::InvalidImportBindings {
                 module: import.module.clone(),
@@ -179,9 +171,6 @@ pub fn build_component_templates(
                 message: error.to_string(),
             }
         })?;
-        if let Some(template) = semantic {
-            decoder.register(import.fref, template)?;
-        }
     }
 
     let bindings = bindings.finish()?;
@@ -189,20 +178,9 @@ pub fn build_component_templates(
     Ok(ComponentTemplates {
         program_tables: artifacts.tables,
         bindings,
-        decoder,
         import_frefs,
         export_frefs,
     })
-}
-
-/// Decode absorbed event blocks through the matching Starstream semantic
-/// registry.
-pub fn decode_absorbed_blocks(
-    decoder: &TemplateRegistry,
-    blocks: &[neo_wasm::comm_chain::AbsorbedEventBlock],
-) -> Result<Trace, BlockCodecError> {
-    let blocks = blocks.iter().map(AttributedBlock::from).collect::<Vec<_>>();
-    decoder.decode_blocks(&blocks)
 }
 
 /// SHA-256 method identity as eight little-endian `u32` limbs.
@@ -641,10 +619,6 @@ fn build_export_events(
             Ok(ExportEvents {
                 entry,
                 exit: return_exit_events(Root::unit())?,
-                semantic: vec![
-                    EventTemplate::new(EventKind::EnterConstructor),
-                    EventTemplate::new(EventKind::Return),
-                ],
             })
         }
         ExportKind::Method(method) => {
@@ -659,10 +633,6 @@ fn build_export_events(
             Ok(ExportEvents {
                 entry,
                 exit: return_exit_events(export_result_root(export)?)?,
-                semantic: vec![
-                    EventTemplate::with_method(EventKind::EnterMethod, method),
-                    EventTemplate::new(EventKind::Return),
-                ],
             })
         }
         ExportKind::CoordinationScript => {
@@ -676,7 +646,6 @@ fn build_export_events(
             Ok(ExportEvents {
                 entry,
                 exit: return_exit_events(export_result_root(export)?)?,
-                semantic: vec![EventTemplate::new(EventKind::Return)],
             })
         }
         ExportKind::GetStorage => {
@@ -688,7 +657,6 @@ fn build_export_events(
             Ok(ExportEvents {
                 entry,
                 exit: exit.finish()?,
-                semantic: vec![EventTemplate::new(EventKind::GetStorage)],
             })
         }
         ExportKind::SetStorage => {
@@ -705,13 +673,11 @@ fn build_export_events(
             Ok(ExportEvents {
                 entry,
                 exit: Vec::new(),
-                semantic: vec![EventTemplate::new(EventKind::SetStorage)],
             })
         }
         ExportKind::Internal => Ok(ExportEvents {
             entry: Vec::new(),
             exit: Vec::new(),
-            semantic: Vec::new(),
         }),
     }
 }
@@ -743,15 +709,13 @@ fn classify_import(import: &FunctionImport) -> Result<ImportKind, TemplateBuildE
     Ok(ImportKind::Advice)
 }
 
-fn build_import_template(
-    import: &FunctionImport,
-) -> Result<(Vec<EventBlock>, Option<EventTemplate>), TemplateBuildError> {
+fn build_import_template(import: &FunctionImport) -> Result<Vec<EventBlock>, TemplateBuildError> {
     match classify_import(import)? {
         ImportKind::YieldBegin => build_yield_begin_template(import),
         ImportKind::RegisterMethod => build_register_method_template(import),
         ImportKind::NewUtxo => build_new_utxo_template(import),
         ImportKind::CallMethod(method) => build_call_method_template(import, method),
-        ImportKind::Advice => Ok((result_advice_events(import)?, None)),
+        ImportKind::Advice => result_advice_events(import),
     }
 }
 
@@ -816,9 +780,7 @@ fn import_result_root(
     })
 }
 
-fn build_new_utxo_template(
-    import: &FunctionImport,
-) -> Result<(Vec<EventBlock>, Option<EventTemplate>), TemplateBuildError> {
+fn build_new_utxo_template(import: &FunctionImport) -> Result<Vec<EventBlock>, TemplateBuildError> {
     if import.results.as_ref() != [ValType::I32] {
         return Err(TemplateBuildError::InvalidConstructorResult {
             module: import.module.clone(),
@@ -829,26 +791,20 @@ fn build_new_utxo_template(
     let sequence = Sequence::op(EventKind::NewUtxo).root(import_arguments_root(import, 0)?)?;
     // The i32 result's high lane is advice-only.
     let sequence = sequence.result()?;
-    Ok((
-        sequence.finish()?,
-        Some(EventTemplate::new(EventKind::NewUtxo)),
-    ))
+    Ok(sequence.finish()?)
 }
 
 fn build_yield_begin_template(
     import: &FunctionImport,
-) -> Result<(Vec<EventBlock>, Option<EventTemplate>), TemplateBuildError> {
+) -> Result<Vec<EventBlock>, TemplateBuildError> {
     // The receiver is advice-only.
     require_signature(import, &[ValType::I32], &[])?;
-    Ok((
-        Sequence::op(EventKind::YieldBegin).finish()?,
-        Some(EventTemplate::new(EventKind::YieldBegin)),
-    ))
+    Ok(Sequence::op(EventKind::YieldBegin).finish()?)
 }
 
 fn build_register_method_template(
     import: &FunctionImport,
-) -> Result<(Vec<EventBlock>, Option<EventTemplate>), TemplateBuildError> {
+) -> Result<Vec<EventBlock>, TemplateBuildError> {
     require_signature(
         import,
         &[
@@ -864,16 +820,13 @@ fn build_register_method_template(
     for arg in 1..=4 {
         sequence = sequence.arg_i64(arg)?;
     }
-    Ok((
-        sequence.finish()?,
-        Some(EventTemplate::new(EventKind::RegisterMethod)),
-    ))
+    Ok(sequence.finish()?)
 }
 
 fn build_call_method_template(
     import: &FunctionImport,
     method: MethodHash,
-) -> Result<(Vec<EventBlock>, Option<EventTemplate>), TemplateBuildError> {
+) -> Result<Vec<EventBlock>, TemplateBuildError> {
     if !matches!(import.params.first(), Some(ValType::I32)) {
         return Err(TemplateBuildError::InvalidMethodReceiver {
             module: import.module.clone(),
@@ -889,10 +842,7 @@ fn build_call_method_template(
     sequence = sequence.root(result)?;
     let mut events = sequence.finish()?;
     events.extend(high_lane);
-    Ok((
-        events,
-        Some(EventTemplate::with_method(EventKind::CallMethod, method)),
-    ))
+    Ok(events)
 }
 
 fn require_signature(
@@ -1195,9 +1145,6 @@ pub enum TemplateBuildError {
     #[error("storage export `{name}` has an unexpected signature: {message}")]
     InvalidStorageExport { name: String, message: String },
 
-    #[error("invalid semantic decoder template: {0}")]
-    Decoder(#[from] BlockCodecError),
-
     #[error("invalid host-event import bindings for `{module}`.`{field}`: {message}")]
     InvalidImportBindings {
         module: String,
@@ -1226,6 +1173,7 @@ mod tests {
         ExportTemplate, ImportTemplate, absorbed_blocks, expand_export_entry, expand_export_exit,
         expand_import_events,
     };
+    use starstream_interleaving_spec::Trace;
     use starstream_interleaving_spec::{Out, ResourceHandle, Step};
 
     use super::*;
@@ -1269,26 +1217,18 @@ mod tests {
         args: &[(u32, u32)],
         result: Option<(u32, u32)>,
     ) -> Trace {
-        let (fref, template) = import(templates, module, field);
+        let (_, template) = import(templates, module, field);
         let expanded = expand_import_events(template, args, result, &[], &[]).unwrap();
-        let blocks = absorbed_blocks(&template.events, &expanded)
-            .unwrap()
-            .into_iter()
-            .map(|words| AttributedBlock::new(words, fref, 0))
-            .collect::<Vec<_>>();
-        templates.decoder.decode_blocks(&blocks).unwrap()
+        let blocks = absorbed_blocks(&template.events, &expanded).unwrap();
+        crate::decode_tagged_blocks(&blocks, &mut std::iter::empty()).unwrap()
     }
 
     /// Decode the entry transcript of one export turn.
     fn enter(templates: &ComponentTemplates, name: &str, inputs: &[u64]) -> Trace {
-        let (fref, template) = export(templates, name);
+        let (_, template) = export(templates, name);
         let expanded = expand_export_entry(template, inputs).unwrap();
-        let blocks = absorbed_blocks(&template.entry, &expanded)
-            .unwrap()
-            .into_iter()
-            .map(|words| AttributedBlock::new(words, fref, fref))
-            .collect::<Vec<_>>();
-        templates.decoder.decode_blocks(&blocks).unwrap()
+        let blocks = absorbed_blocks(&template.entry, &expanded).unwrap();
+        crate::decode_tagged_blocks(&blocks, &mut [ResourceHandle(0)].into_iter()).unwrap()
     }
 
     /// Decode the exit transcript of one export turn.
@@ -1298,14 +1238,10 @@ mod tests {
         output: Option<(u32, u32)>,
         memory_reads: &[u32],
     ) -> Trace {
-        let (fref, template) = export(templates, name);
+        let (_, template) = export(templates, name);
         let expanded = expand_export_exit(template, output, memory_reads).unwrap();
-        let blocks = absorbed_blocks(&template.exit, &expanded)
-            .unwrap()
-            .into_iter()
-            .map(|words| AttributedBlock::new(words, fref, fref))
-            .collect::<Vec<_>>();
-        templates.decoder.decode_blocks(&blocks).unwrap()
+        let blocks = absorbed_blocks(&template.exit, &expanded).unwrap();
+        crate::decode_tagged_blocks(&blocks, &mut std::iter::empty()).unwrap()
     }
 
     /// Bootstrap writes of an export entry: `(input, local, hi lane)`.
@@ -1553,13 +1489,12 @@ mod tests {
     #[test]
     fn builtin_has_method_is_advice_only() {
         let templates = counter();
-        let (fref, template) = import(
+        let (_, template) = import(
             &templates,
             "starstream:std/builtin",
             "[method]utxo.has-method",
         );
         assert!(template.events.iter().all(|event| !event.absorb));
-        assert!(templates.decoder.get(fref, 6).is_none());
     }
 
     #[test]
@@ -1628,13 +1563,12 @@ mod tests {
     #[test]
     fn coordination_scripts_bootstrap_parameters_and_publish_only_their_return() {
         let templates = counter();
-        let (fref, template) = export(&templates, "example");
+        let (_, template) = export(&templates, "example");
         assert!(template.entry.iter().all(|event| !event.absorb));
         assert_eq!(
             bootstrap_writes(template),
             [(0, 0, false), (1, 1, false), (2, 1, true)]
         );
-        assert!(templates.decoder.get(fref, 7).is_none());
         assert_eq!(
             exit(&templates, "example", None, &[]),
             Trace::new([Step::Return {
