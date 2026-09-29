@@ -567,11 +567,11 @@ pub fn check_wasm_constraints(execution: &TracedExecution) -> wasmtime::Result<(
     Ok(())
 }
 
-/// Relation-only recursive proofs: RAM/ROM and lookups remain host-checked.
+/// Relation-only full-history audits: RAM/ROM and lookups remain host-checked.
 /// TODO: Replace these sanity checks with the Nebula memory/lookup argument.
 pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()> {
-    use neo_fold_clean::frontends::r1cs_f_prime::ivc::{R1csIvc, R1csIvcPreprocessing};
-    use neo_fold_clean::lifecycle::verify_uncompressed;
+    use neo_fold_clean::frontends::r1cs_f_prime::preprocess_sparse_seeded_with_params;
+    use neo_fold_clean::lifecycle::verify_uncompressed_audit;
     use neo_wasm::preprocess::{
         canonical_wasm_f_prime_shape_batched_with_initial_state_digest, semantic_state_digest,
     };
@@ -605,35 +605,24 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
             BATCH_SIZE,
             semantic_state_digest(initial),
         )?;
-        let prep = R1csIvcPreprocessing::new_seeded(
+        let prep = preprocess_sparse_seeded_with_params(
+            &shape.sparse_r1cs,
+            &shape.plan,
             interleaving_params(),
-            shape.sparse_r1cs,
-            shape.plan,
             u64::from_le_bytes(*b"SSWASM01"),
         )?;
         eprintln!("Wasm instance {index} preprocessing: {:?}", start.elapsed());
         let start = std::time::Instant::now();
-        let mut chain = R1csIvc::new(&prep);
-        for batch in 0..batches {
-            chain.extend(neo_wasm::batch::build_batched_witness(
-                &instance.trace,
-                BATCH_SIZE,
-                batch,
-            ))?;
-            if (batch + 1) % 10 == 0 || batch + 1 == batches {
-                eprintln!(
-                    "Wasm instance {index}: proved {}/{batches} batches in {:?}",
-                    batch + 1,
-                    start.elapsed()
-                );
-            }
-        }
-        let proof = chain.finish()?;
+        let assignments = (0..batches).map(|batch| {
+            neo_wasm::batch::build_batched_witness(&instance.trace, BATCH_SIZE, batch)
+        });
+        let proof = starstream_interleaving_prover::audit::prove(&prep, assignments)?;
+        eprintln!("Wasm instance {index} audit: {:?}", start.elapsed());
         let start = std::time::Instant::now();
-        verify_uncompressed(&prep.prep, &proof)?;
+        verify_uncompressed_audit(&prep.prep, &proof)?;
         let final_state = instance.trace.last().expect("nonempty trace").state_after;
         assert_eq!(
-            proof.state.semantic_state_digest,
+            proof.proof.state.semantic_state_digest,
             semantic_state_digest(final_state)
         );
         assert!(final_state.halted && !final_state.trapped);
@@ -644,7 +633,7 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
         let mut changed = final_state;
         changed.comm_chain[0] ^= 1;
         assert_ne!(
-            proof.state.semantic_state_digest,
+            proof.proof.state.semantic_state_digest,
             semantic_state_digest(changed)
         );
         eprintln!("Wasm instance {index} verification: {:?}", start.elapsed());
