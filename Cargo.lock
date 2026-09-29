@@ -4187,6 +4187,7 @@ dependencies = [
  "serde",
  "sha2",
  "starstream-compiler",
+ "starstream-proving-runtime",
  "starstream-runtime-next",
  "starstream-to-wasm",
  "starstream-types",

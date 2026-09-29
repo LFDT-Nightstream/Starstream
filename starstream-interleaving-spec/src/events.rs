@@ -35,6 +35,22 @@ pub enum Word {
 }
 
 impl EventKind {
+    #[must_use]
+    pub const fn from_tag(tag: u64) -> Option<Self> {
+        Some(match tag {
+            1 => Self::NewUtxo,
+            2 => Self::EnterConstructor,
+            3 => Self::YieldBegin,
+            4 => Self::RegisterMethod,
+            5 => Self::Return,
+            6 => Self::CallMethod,
+            7 => Self::EnterMethod,
+            8 => Self::SetStorage,
+            9 => Self::GetStorage,
+            _ => return None,
+        })
+    }
+
     pub fn for_step(step: &Step) -> Option<Self> {
         Some(match step {
             Step::SetStorage { .. } => Self::SetStorage,

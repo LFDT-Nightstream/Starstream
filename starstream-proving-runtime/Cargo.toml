@@ -9,12 +9,14 @@ license.workspace = true
 
 [features]
 default = []
+interleaving-check = ["dep:starstream-interleaving-prover"]
 proof-tests = []
 
 [dependencies]
 neo-wasm = { workspace = true }
 sha2 = { workspace = true }
 starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
+starstream-interleaving-prover = { path = "../starstream-interleaving-prover", optional = true }
 starstream-runtime-next = { workspace = true }
 thiserror = { workspace = true }
 wasmparser = { workspace = true }

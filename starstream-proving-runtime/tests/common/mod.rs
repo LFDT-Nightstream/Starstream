@@ -15,7 +15,7 @@ use starstream_interleaving_prover::{CoroutineId, TraceCommitments};
 use starstream_interleaving_spec::interleaver::{InterleavedTransaction, interleave_transaction};
 use starstream_interleaving_spec::{Trace, events};
 use starstream_proving_runtime::{
-    ComponentTemplates, build_component_templates, decode_absorbed_blocks,
+    ComponentTemplates, build_component_templates, decode_tagged_blocks,
     new_tracing_wasmtime_store, new_wasmtime_config,
 };
 use starstream_runtime_next::{
@@ -440,7 +440,8 @@ pub async fn trace_coordination_script(
         )
         .map_err(|error| wasmtime::format_err!("failed to normalize trace: {error}"))?;
         let absorbed = neo_wasm::comm_chain::absorbed_event_blocks(&trace);
-        let steps = decode_absorbed_blocks(&templates.decoder, &absorbed)
+        let words = absorbed.iter().map(|block| block.words).collect::<Vec<_>>();
+        let steps = decode_tagged_blocks(&words, &mut std::iter::empty())
             .map_err(|error| wasmtime::format_err!("failed to decode blocks: {error}"))?;
         instances.push(TracedInstance {
             entry_fref,
