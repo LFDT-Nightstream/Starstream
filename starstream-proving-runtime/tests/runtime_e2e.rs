@@ -485,14 +485,14 @@ mod proving {
     use crate::common::interleaving_params;
 
     #[tokio::test]
-    #[ignore = "folding proof; run with --release --features proof-tests -- --ignored"]
+    #[ignore = "full-history audit; run with --release --features proof-tests -- --ignored"]
     async fn minimal_method_call_transaction_proves_and_verifies() -> wasmtime::Result<()> {
         let execution = trace_coordination_script(MINIMAL_METHOD_CALL, "example").await?;
         prove_interleaving(&execution)
     }
 
     #[tokio::test]
-    #[ignore = "Wasm and interleaving folding proofs; run in release mode (this is really slow/expensive, can take 10min+)"]
+    #[ignore = "Wasm and interleaving full-history audits; run with --release --features proof-tests -- --ignored"]
     async fn minimal_method_call_wasm_and_interleaving_proofs_verify() -> wasmtime::Result<()> {
         let execution = trace_coordination_script(MINIMAL_METHOD_CALL, "example").await?;
         common::prove_wasm_instances(&execution)?;

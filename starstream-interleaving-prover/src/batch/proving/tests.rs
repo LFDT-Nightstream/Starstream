@@ -144,17 +144,21 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
 fn transaction_proof_round_trip() -> Result<(), ProvingError> {
     let (trace, statement, roots) = transaction_fixture();
     let context = TransactionProofContext::new(3, test_params(), [0x57; 32])?;
-    assert!(context.preprocessing.prep.enforces_terminal_induction());
     let proof = context.prove(&trace, &statement, &roots)?;
-    // Seven instructions in three batches (including trailing padding) exercise
-    // base, bootstrap-recursive, and steady-state recursive proving.
-    assert_eq!(proof.proof.state.chunk_count, 3);
+    // Three batches exercise base and subsequent audit transitions.
+    assert_eq!(proof.proof.proof.state.chunk_count, 3);
     assert!(matches!(
-        &proof.proof.state.proof,
+        &proof.proof.proof.state.proof,
         neo_fold_clean::paper::construction2::ProofState::Active { running, .. }
             if !running.claims.is_empty()
     ));
     context.verify(&proof, &statement, &roots)?;
+    let mut missing_history = proof.clone();
+    missing_history.proof.steps.pop();
+    assert!(matches!(
+        context.verify(&missing_history, &statement, &roots),
+        Err(ProvingError::Verification(_))
+    ));
     let mut changed = statement.clone();
     changed.outputs[0].storage.0[0] += 1;
     assert!(context.verify(&proof, &changed, &roots).is_err());

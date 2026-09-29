@@ -1,4 +1,5 @@
-//! Experimental transaction-bound, relation-only R1CS-F' proofs.
+//! Experimental transaction-bound, relation-only R1CS-F' audits.
+//! Verification replays the full history; this is not recursive NIFS verification.
 //!
 //! TODO: Prove RAM/ROM accesses and bind their initialization. For now memory
 //! consistency is only checked on the host; the proof authenticates the local
@@ -18,12 +19,9 @@ use neo_fold_clean::{
                 build_semantic_state_preimage_fields,
             },
         },
-        r1cs_f_prime::{
-            SparseR1cs,
-            ivc::{R1csIvc, R1csIvcPreprocessing, R1csIvcRelation},
-        },
+        r1cs_f_prime::{self, R1csFPrimePreprocessing, SparseR1cs},
     },
-    lifecycle::verify_uncompressed,
+    lifecycle::verify_uncompressed_audit,
     paper::{
         digest::digest_fields_as_digest32,
         f_prime::{
@@ -33,8 +31,8 @@ use neo_fold_clean::{
     },
 };
 pub use neo_fold_clean::{
-    frontends::r1cs_f_prime::ivc::R1csIvcError,
-    lifecycle::{Error as LifecycleError, Uncompressed},
+    frontends::r1cs_f_prime::Error as R1csError,
+    lifecycle::{Error as LifecycleError, UncompressedAudit},
     paper::params::Params,
 };
 use starstream_interleaving_spec::TransactionStatement;
@@ -44,7 +42,9 @@ pub enum ProvingError {
     #[error(transparent)]
     Circuit(#[from] crate::Error),
     #[error(transparent)]
-    Ivc(#[from] Box<R1csIvcError>),
+    Frontend(#[from] Box<R1csError>),
+    #[error(transparent)]
+    Audit(#[from] crate::audit::AuditError),
     #[error(transparent)]
     Verification(#[from] LifecycleError),
     #[error(transparent)]
@@ -53,17 +53,17 @@ pub enum ProvingError {
     FinalClaim(#[from] FinalClaimError),
 }
 
-impl From<R1csIvcError> for ProvingError {
-    fn from(error: R1csIvcError) -> Self {
-        Self::Ivc(Box::new(error))
+impl From<R1csError> for ProvingError {
+    fn from(error: R1csError) -> Self {
+        Self::Frontend(Box::new(error))
     }
 }
 
-/// Uncompressed relation proof and its authenticated final carried state.
+/// Full-history relation audit and its authenticated final carried state.
 /// This does not prove memory consistency; see the module-level TODO.
 #[derive(Clone, Debug)]
 pub struct TransactionProof {
-    pub proof: Uncompressed,
+    pub proof: UncompressedAudit,
     // TODO(privacy): Publish only the transaction digest/terminal projection,
     // not the whole carried state (which exposes activity counters).
     pub final_state: Vec<F>,
@@ -73,7 +73,7 @@ pub struct TransactionProof {
 /// The verifier must use its own trusted context, not prover-supplied setup.
 pub struct TransactionProofContext {
     batch: Batch,
-    preprocessing: R1csIvcPreprocessing,
+    preprocessing: R1csFPrimePreprocessing,
 }
 
 impl TransactionProofContext {
@@ -88,18 +88,16 @@ impl TransactionProofContext {
         let batch = Batch::new(batch_size)?;
         let relation = sparse_relation(&batch);
         let plan = recursive_plan(&batch, &relation);
-        // The recursive relation (not the application) determines the PP width.
-        // TODO(upstream): Expose preprocessing from a compiled relation so we
-        // don't compile it twice just to install the verifier-owned setup.
-        let shape = relation.clone().into();
-        let compiled = R1csIvcRelation::compile_fixed_point(&params, &shape, &plan)?;
+        let compiled = crate::audit::derive(&relation, plan, &params)?;
         register_setup(
             &params,
-            compiled.structure().m.div_ceil(neo_math::D),
+            compiled.structure().ccs.m.div_ceil(neo_math::D),
             setup_seed,
         )?;
+        let plan = compiled.plan().clone();
+        // TODO(upstream): Reuse the derived structure with the registered setup.
         drop(compiled);
-        let preprocessing = R1csIvcPreprocessing::new(params, relation, plan)?;
+        let preprocessing = r1cs_f_prime::preprocess_sparse(&relation, &plan, params)?;
         Ok(Self {
             batch,
             preprocessing,
@@ -118,18 +116,14 @@ impl TransactionProofContext {
         let packed =
             super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
         let final_state = final_state(&self.batch, &packed);
-        let mut chain = R1csIvc::new(&self.preprocessing);
-        for row in packed.rows {
-            chain.extend(row)?;
-        }
         Ok(TransactionProof {
-            proof: chain.finish()?,
+            proof: crate::audit::prove(&self.preprocessing, packed.rows)?,
             final_state,
         })
     }
 
     /// Authenticates the statement/instance-root digest and terminal state.
-    /// Does not replay the trace or establish the host-only memory checks.
+    /// Replays the audit history, but does not establish the host-only memory checks.
     pub fn verify(
         &self,
         proof: &TransactionProof,
@@ -138,13 +132,13 @@ impl TransactionProofContext {
     ) -> Result<(), ProvingError> {
         let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
         check_final_state(
-            proof.proof.state.semantic_state_digest,
+            proof.proof.proof.state.semantic_state_digest,
             &proof.final_state,
             TerminalClaim::Transaction {
                 commitment: expected,
             },
         )?;
-        verify_uncompressed(&self.preprocessing.prep, &proof.proof)?;
+        verify_uncompressed_audit(&self.preprocessing.prep, &proof.proof)?;
         Ok(())
     }
 }
@@ -250,16 +244,13 @@ fn check_final_state(
 
 fn recursive_plan(batch: &Batch, r1cs: &SparseR1cs) -> RecursiveStepImagePlan {
     let widths = range_checked_variable_widths(batch.relation.columns());
-    // R1csIvc compiles the recursive verifier and solves its own fixed point.
-    // Only the application widths and semantic-state binding are supplied here;
-    // there is no legacy image NIFS payload or accumulator to configure.
+    // Full-history audit verification supplies the fold checks outside the image.
     let mut plan = RecursiveStepImagePlan {
         limbs: widths.iter().sum::<usize>() + 1,
         app_private_var_widths: widths,
         boundary_bits: 4 * POSEIDON2_GOLDILOCKS_BITS,
         kmul_count: 0,
         ring_action_pair_count: 0,
-        projection_batches: vec![],
         ring_action_pair_layout: RingActionTraceLayout::new(
             LowNormEncoding::U64,
             LowNormEncoding::U64,
