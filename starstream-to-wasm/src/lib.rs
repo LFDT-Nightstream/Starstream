@@ -499,7 +499,8 @@ impl Compiler {
             }
             code.instructions()
                 .i32_const(0)
-                .return_call(self.current_resource.as_ref().unwrap().resource_new_fn)
+                .call(self.current_resource.as_ref().unwrap().resource_new_fn)
+                .return_()
                 .end();
             let func = self.add_function(&ty, code.into_raw_body());
             if let Some(func_idx) =
@@ -522,7 +523,8 @@ impl Compiler {
             }
             code.instructions()
                 .i32_const(0)
-                .return_call(self.current_resource.as_ref().unwrap().resource_new_fn)
+                .call(self.current_resource.as_ref().unwrap().resource_new_fn)
+                .return_()
                 .end();
             let func = self.add_function(&ty, code.into_raw_body());
             if let Some(func_idx) =

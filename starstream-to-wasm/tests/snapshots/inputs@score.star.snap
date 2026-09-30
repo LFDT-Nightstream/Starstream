@@ -3144,8 +3144,9 @@ TypedProgram {
       (local.get 4))
     (global.set 5
       (local.get 5))
-    (return_call 12
-      (i32.const 0))
+    (return
+      (call 12
+        (i32.const 0)))
   )
   (func (;31;) (type 7)
     (local i32 i32)
