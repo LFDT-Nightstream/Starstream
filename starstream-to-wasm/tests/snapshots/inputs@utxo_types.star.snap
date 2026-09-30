@@ -192,8 +192,9 @@ TypedProgram {
       (local.get 0))
     (global.set 0
       (local.get 1))
-    (return_call 7
-      (i32.const 0))
+    (return
+      (call 7
+        (i32.const 0)))
   )
   (func (;12;) (type 6) (param i32 i32))
   (func (;13;) (type 6) (param i32 i32)
