@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use miette::{Diagnostic, NamedSource};
 use starstream_types::{
-    DUMMY_SPAN, FileSystem, Span,
+    DUMMY_SPAN, EntryKind, FileSystem, Span,
     ast::{Definition, ImportSource, Program},
 };
 
@@ -30,6 +30,11 @@ use crate::parser::{self, ParseError};
 pub struct ModuleId(u32);
 
 impl ModuleId {
+    /// The entry file of a [`ModuleGraph::from_entry`] graph, which is always
+    /// loaded first. Lets callers attribute errors to it even when building
+    /// the graph fails.
+    pub const ENTRY: ModuleId = ModuleId(0);
+
     pub fn index(self) -> usize {
         self.0 as usize
     }
@@ -103,12 +108,12 @@ impl ModuleGraph {
     /// Build a graph rooted at `entry` for the single-file `wasm -c` flow.
     ///
     /// The entry point is treated as a contract even if it doesn't start with a
-    /// `contract;` item.
+    /// `contract;` item. Its id is always [`ModuleId::ENTRY`].
     pub fn from_entry(
         fs: &mut FileSystem,
         entry: &Path,
     ) -> Result<(ModuleGraph, ModuleId), Vec<ModuleGraphError>> {
-        let canonical_entry = std::fs::canonicalize(entry).map_err(|error| {
+        let canonical_entry = fs.canonicalize(entry).map_err(|error| {
             vec![ModuleGraphError::EntryIo {
                 path: entry.to_path_buf(),
                 error,
@@ -123,6 +128,7 @@ impl ModuleGraph {
             }]
         })?;
 
+        debug_assert_eq!(entry_id, ModuleId::ENTRY);
         Ok((builder.finish(Some(entry_id))?, entry_id))
     }
 
@@ -136,12 +142,11 @@ impl ModuleGraph {
         fs: &mut FileSystem,
         scan_dir: &Path,
     ) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
-        let mut builder = Builder::new(fs);
-
         // Seed the graph with every `.star` file under scan_dir.
-        let star_files = collect_star_files(scan_dir);
+        let star_files = collect_star_files(fs, scan_dir);
+        let mut builder = Builder::new(fs);
         for path in &star_files {
-            match std::fs::canonicalize(path) {
+            match builder.fs.canonicalize(path) {
                 Err(error) => {
                     builder.errors.push(ModuleGraphError::EntryIo {
                         path: path.clone(),
@@ -277,27 +282,36 @@ pub enum ModuleGraphError {
 impl std::fmt::Display for ModuleGraphError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ModuleGraphError::Parse { .. } => write!(f, "{}", self.message()),
+            _ => write!(f, "error: {}", self.message()),
+        }
+    }
+}
+
+/// [`ModuleGraphError::message`].
+struct Message<'a>(&'a ModuleGraphError);
+
+impl std::fmt::Display for Message<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
             ModuleGraphError::EntryIo { path, error } => {
-                write!(f, "error: failed to read `{}`: {}", path.display(), error)
+                write!(f, "failed to read `{}`: {}", path.display(), error)
             }
             ModuleGraphError::ImportIo { path, error, .. } => {
                 write!(
                     f,
-                    "error: failed to resolve path import `{}`: {}",
+                    "failed to resolve path import `{}`: {}",
                     path.display(),
                     error
                 )
             }
             ModuleGraphError::NonRelativePath { path, .. } => {
-                write!(
-                    f,
-                    "error: path import `{path}` must start with `./` or `../`"
-                )
+                write!(f, "path import `{path}` must start with `./` or `../`")
             }
             ModuleGraphError::UnknownExtension { path, .. } => {
                 write!(
                     f,
-                    "error: path import `{path}` has unknown extension, expecting `.star`"
+                    "path import `{path}` has unknown extension, expecting `.star`"
                 )
             }
             ModuleGraphError::CrossContractImport {
@@ -307,19 +321,45 @@ impl std::fmt::Display for ModuleGraphError {
             } => {
                 write!(
                     f,
-                    "error: cross-contract calls not supported yet: `{}` imports `{}`, which also declares `contract;`",
+                    "cross-contract calls not supported yet: `{}` imports `{}`, which also declares `contract;`",
                     importer_path.display(),
                     target_path.display()
                 )
             }
             ModuleGraphError::Cycle { chain } => {
-                write!(f, "error: cyclic path import detected:")?;
+                write!(f, "cyclic path import detected:")?;
                 for (_id, p, _span) in chain {
                     write!(f, "\n  - {}", p.display())?;
                 }
                 Ok(())
             }
             ModuleGraphError::Parse { .. } => write!(f, "parse error"),
+        }
+    }
+}
+
+impl ModuleGraphError {
+    /// The error message without the `error: ` prefix that [`Display`]
+    /// adds for command-line output.
+    ///
+    /// [`Display`]: std::fmt::Display
+    pub fn message(&self) -> impl std::fmt::Display + '_ {
+        Message(self)
+    }
+
+    /// The importing module and the span of the offending import path, for
+    /// errors attributable to a single import statement.
+    pub fn import_site(&self) -> Option<(ModuleId, Span)> {
+        match self {
+            ModuleGraphError::ImportIo { importer, span, .. }
+            | ModuleGraphError::NonRelativePath { importer, span, .. }
+            | ModuleGraphError::UnknownExtension { importer, span, .. }
+            | ModuleGraphError::CrossContractImport { importer, span, .. } => {
+                Some((*importer, *span))
+            }
+            ModuleGraphError::EntryIo { .. }
+            | ModuleGraphError::Cycle { .. }
+            | ModuleGraphError::Parse { .. } => None,
         }
     }
 }
@@ -342,9 +382,9 @@ impl Diagnostic for ModuleGraphError {
     }
 }
 
-fn collect_star_files(dir: &Path) -> Vec<PathBuf> {
+fn collect_star_files(fs: &FileSystem, dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    walk(dir, &mut |path| {
+    walk(fs, dir, &mut |path| {
         if path.extension().is_some_and(|e| e == "star") {
             out.push(path.to_path_buf());
         }
@@ -352,29 +392,28 @@ fn collect_star_files(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-fn walk(dir: &Path, visit: &mut impl FnMut(&Path)) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
+fn walk(fs: &FileSystem, dir: &Path, visit: &mut impl FnMut(&Path)) {
+    let Ok(entries) = fs.read_dir(dir) else {
         return;
     };
-    let mut paths: Vec<_> = entries
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            let name = path.file_name()?;
-            // Skip dot-dirs (.git, .vscode, ...), `target/`, `artifacts/`.
-            match name.to_str()? {
-                "artifacts" | "target" => None,
-                name if name.starts_with('.') => None,
-                _ => Some(path),
-            }
+    let mut entries: Vec<_> = entries
+        .into_iter()
+        .filter(|entry| {
+            let Some(name) = entry.path.file_name().and_then(|n| n.to_str()) else {
+                return false;
+            };
+            // Skip dot-dirs (.git, .vscode, ...), `target/`, `artifacts/`,
+            // `node_modules/`. Keep in sync with `isSkippedName` in
+            // `vscode-starstream/src/extension.ts`.
+            !matches!(name, "artifacts" | "target" | "node_modules") && !name.starts_with('.')
         })
         .collect();
-    paths.sort();
-    for path in paths {
-        if path.is_dir() {
-            walk(&path, visit);
-        } else if path.is_file() {
-            visit(&path);
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    for entry in entries {
+        match entry.kind {
+            EntryKind::Dir => walk(fs, &entry.path, visit),
+            EntryKind::File => visit(&entry.path),
+            EntryKind::Other => {}
         }
     }
 }
@@ -532,7 +571,7 @@ impl<'a> Builder<'a> {
                 continue;
             }
             let candidate = importer_dir.join(&raw_path);
-            let abs_path = match std::fs::canonicalize(&candidate) {
+            let abs_path = match self.fs.canonicalize(&candidate) {
                 Ok(c) => c,
                 Err(error) => {
                     self.errors.push(ModuleGraphError::ImportIo {
@@ -874,5 +913,48 @@ mod tests {
         let reachable = graph.reachable_from(a_id);
         // a + shared = 2; b is unreachable from a.
         assert_eq!(reachable.len(), 2);
+    }
+
+    #[test]
+    fn workspace_in_memory() {
+        let mut memory = starstream_types::MemoryFs::new();
+        memory.insert(
+            "/ws/lib/math.star",
+            &b"fn add(a: i64, b: i64) -> i64 { a + b }\n"[..],
+        );
+        memory.insert(
+            "/ws/main.star",
+            &b"contract;\nimport { add } from \"./lib/../lib/math.star\";\nfn main() { }\n"[..],
+        );
+        memory.insert("/ws/.hidden/skip.star", &b"not starstream"[..]);
+
+        let mut fs = FileSystem::with_vfs(memory);
+        let graph = ModuleGraph::from_workspace(&mut fs, Path::new("/ws")).unwrap();
+        assert_eq!(graph.modules().len(), 2);
+        assert_eq!(graph.contract_entries().len(), 1);
+        let main = graph.find_by_path(Path::new("/ws/main.star")).unwrap();
+        let math = graph.find_by_path(Path::new("/ws/lib/math.star")).unwrap();
+        assert_eq!(graph.edges_of(main)[0].target, math);
+    }
+
+    #[test]
+    fn import_errors_point_at_the_import() {
+        let mut memory = starstream_types::MemoryFs::new();
+        memory.insert(
+            "/ws/main.star",
+            &b"import { f } from \"./missing.star\";\nimport { g } from \"lib.star\";\n"[..],
+        );
+
+        let mut fs = FileSystem::with_vfs(memory);
+        let errors = ModuleGraph::from_entry(&mut fs, Path::new("/ws/main.star")).unwrap_err();
+        let sites: Vec<_> = errors.iter().filter_map(|e| e.import_site()).collect();
+        assert_eq!(sites.len(), 2, "{errors:?}");
+        assert!(sites.iter().all(|(id, _)| *id == ModuleId::ENTRY));
+        assert!(errors.iter().any(|e| {
+            e.message()
+                .to_string()
+                .starts_with("failed to resolve path import")
+        }));
+        assert!(errors[0].to_string().starts_with("error: "));
     }
 }
