@@ -2,7 +2,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -10,8 +9,8 @@ use ropey::Rope;
 use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_types::FunctionKind;
 use tower_lsp_server::lsp_types::{
-    DocumentSymbol, DocumentSymbolResponse, Hover, HoverContents, Location, MarkupContent,
-    MarkupKind, Position, Range, SymbolKind, TextEdit, Uri,
+    DiagnosticSeverity, DocumentSymbol, DocumentSymbolResponse, Hover, HoverContents, Location,
+    MarkupContent, MarkupKind, Position, Range, SymbolKind, TextEdit, Uri,
 };
 
 use starstream_compiler::{
@@ -21,8 +20,8 @@ use starstream_compiler::{
     typecheck::{TypeError, TypeWarning, TypecheckOptions, TypecheckSuccess},
 };
 use starstream_types::{
-    CommentMap, DUMMY_SPAN, FunctionDef, GenericTypeDef, Span, Spanned, TypeVarId, TypedTokenDef,
-    TypedTokenPart, TypedUtxoDef, TypedUtxoPart,
+    CommentMap, DUMMY_SPAN, FileSystem, FunctionDef, GenericTypeDef, OverlayFs, Span, Spanned,
+    TypeVarId, TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart, Vfs,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedAbiDef, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
@@ -91,6 +90,13 @@ pub struct DocumentState {
     generic_types: HashMap<String, GenericTypeDef>,
     /// Comment map for efficient span-based comment lookups.
     comment_map: CommentMap,
+    /// Canonical paths of every module this document's analysis depends on
+    /// (itself plus its transitive imports). Used to decide which open
+    /// documents need re-checking when another file changes.
+    dependencies: HashSet<PathBuf>,
+    /// Import item spans (in this document) -> the imported definition's
+    /// location in another file.
+    import_targets: HashMap<(usize, usize), Location>,
 }
 
 #[allow(unused)]
@@ -103,6 +109,7 @@ impl DocumentState {
         text: &str,
         version: Option<i32>,
         workspace_folders: &[PathBuf],
+        vfs: &OverlayFs,
     ) -> Self {
         let mut state = Self {
             rope: Rope::from_str(text),
@@ -132,9 +139,11 @@ impl DocumentState {
             enum_variant_docs: HashMap::new(),
             generic_types: HashMap::new(),
             comment_map: CommentMap::new(),
+            dependencies: HashSet::new(),
+            import_targets: HashMap::new(),
         };
 
-        state.reanalyse(uri, text, workspace_folders);
+        state.reanalyse(uri, text, workspace_folders, vfs);
 
         state
     }
@@ -146,12 +155,18 @@ impl DocumentState {
         text: &str,
         version: Option<i32>,
         workspace_folders: &[PathBuf],
+        vfs: &OverlayFs,
     ) {
         self.rope = Rope::from_str(text);
 
         self.version = version;
 
-        self.reanalyse(uri, text, workspace_folders);
+        self.reanalyse(uri, text, workspace_folders, vfs);
+    }
+
+    /// Whether this document's last analysis read the module at `path`.
+    pub fn depends_on(&self, path: &Path) -> bool {
+        self.dependencies.contains(path)
     }
 
     /// Most recent diagnostics derived from parsing and typechecking.
@@ -190,8 +205,10 @@ impl DocumentState {
         ))
     }
 
-    fn reanalyse(&mut self, uri: &Uri, text: &str, workspace_folders: &[PathBuf]) {
+    fn reanalyse(&mut self, uri: &Uri, text: &str, workspace_folders: &[PathBuf], vfs: &OverlayFs) {
         self.diagnostics.clear();
+        self.dependencies.clear();
+        self.import_targets.clear();
         self.program = None;
         self.typed = None;
         self.hover_entries.clear();
@@ -235,7 +252,7 @@ impl DocumentState {
             // mode. That avoids surfacing the W0002 ("path import ignored
             // in single-file mode") warning anywhere except the browser
             // playground, where there's no filesystem to scan.
-            if !self.try_typecheck_via_workspace(uri, text, workspace_folders) {
+            if !self.try_typecheck_via_workspace(uri, text, workspace_folders, vfs) {
                 let program = self.program.clone().unwrap();
                 match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
                     Ok(typed) => {
@@ -278,62 +295,142 @@ impl DocumentState {
     ///      the open file. Still goes through `typecheck_modules`, so
     ///      W0002 doesn't fire.
     ///
-    /// Returns `false` only when the URI isn't a filesystem path (browser
-    /// playground, `untitled:`, etc.) — in that case the caller falls back
-    /// to `typecheck_program`, where W0002 *will* fire on path imports.
+    /// Every read goes through `vfs`, so open editor buffers (which the
+    /// server layers over the real filesystem) shadow what's on disk.
+    ///
+    /// Returns `false` when the URI isn't a filesystem path (`untitled:`,
+    /// etc.), the file can't be found through `vfs`, or no graph could be
+    /// built and none of the errors belong to this file. The caller then
+    /// falls back to `typecheck_program`, where W0002 *will* fire on path
+    /// imports.
     fn try_typecheck_via_workspace(
         &mut self,
         uri: &Uri,
         text: &str,
         workspace_folders: &[PathBuf],
+        vfs: &OverlayFs,
     ) -> bool {
         let Some(file_path) = uri_to_file_path(uri) else {
             return false;
         };
-        let Ok(canonical_file) = fs::canonicalize(&file_path) else {
+        let Ok(canonical_file) = vfs.canonicalize(&file_path) else {
             return false;
         };
+        self.dependencies.insert(canonical_file.clone());
 
-        let workspace_root = workspace_root_for(&canonical_file, workspace_folders);
+        let workspace_root = workspace_root_for(vfs, &canonical_file, workspace_folders);
 
         // One workspace graph for the whole project; contracts are codegen
         // entries inside it. The open file is just a node — it might be a
         // contract, an imported helper, or a loose orphan. Either way the
         // graph knows about it.
-        let mut fs = starstream_types::FileSystem::new();
-        let graph = if let Ok(g) =
+        let mut fs = FileSystem::with_vfs(vfs.clone());
+        if let Ok(graph) =
             starstream_compiler::ModuleGraph::from_workspace(&mut fs, &workspace_root)
+            && let Some(module_id) = graph.find_by_path(&canonical_file)
         {
-            g
-        } else {
-            // If the workspace scan blew up (e.g. cross-contract import
-            // somewhere we don't own), still try to give *this* file
-            // diagnostics by rooting a single-file graph at it.
-            let mut local_fs = starstream_types::FileSystem::new();
-            let Ok((local_graph, module_id)) =
-                starstream_compiler::ModuleGraph::from_entry(&mut local_fs, &canonical_file)
-            else {
-                return false;
-            };
-            self.run_graph_typecheck(uri, text, &local_graph, module_id);
-            return true;
-        };
-
-        if let Some(module_id) = graph.find_by_path(&canonical_file) {
             self.run_graph_typecheck(uri, text, &graph, module_id);
             return true;
         }
 
-        // The open file isn't reachable from the workspace scan (e.g. an
-        // ad-hoc file outside the scanned tree). Build a graph rooted at it.
-        let mut local_fs = starstream_types::FileSystem::new();
+        // Either the workspace scan blew up (e.g. a broken file or
+        // cross-contract import somewhere we don't own), or the open file
+        // isn't reachable from it (an ad-hoc file outside the scanned tree).
+        // Still give *this* file diagnostics by rooting a graph at it.
+        let mut local_fs = FileSystem::with_vfs(vfs.clone());
         match starstream_compiler::ModuleGraph::from_entry(&mut local_fs, &canonical_file) {
             Ok((local_graph, module_id)) => {
                 self.run_graph_typecheck(uri, text, &local_graph, module_id);
-                true
             }
-            Err(_) => false,
+            Err(errors) => {
+                // Track what was read so fixing an imported file re-checks
+                // this one.
+                self.dependencies.extend(
+                    local_fs
+                        .dependencies
+                        .iter()
+                        .filter_map(|p| vfs.canonicalize(p).ok()),
+                );
+                // Without a graph we can't type-check against the imports.
+                // If none of the problems are attributable to this file
+                // (e.g. a cycle further down), check it on its own rather
+                // than showing nothing.
+                if !self.report_graph_errors(vfs, &canonical_file, &errors) {
+                    return false;
+                }
+            }
         }
+        true
+    }
+
+    /// Report module-graph errors that belong to this document: problems
+    /// with its own imports, and direct imports of files that don't parse.
+    /// Errors inside other files show up when those files are open. Returns
+    /// whether anything was reported.
+    fn report_graph_errors(
+        &mut self,
+        vfs: &OverlayFs,
+        file: &Path,
+        errors: &[starstream_compiler::ModuleGraphError],
+    ) -> bool {
+        let before = self.diagnostics.len();
+        let mut direct_imports = None;
+        for error in errors {
+            if let Some((importer, span)) = error.import_site() {
+                if importer == starstream_compiler::ModuleId::ENTRY {
+                    self.push_import_error(span, &error.to_string());
+                }
+            } else if let starstream_compiler::ModuleGraphError::Parse { source, .. } = error {
+                let broken = Path::new(source.name());
+                if broken == file {
+                    // Already reported by our own parse.
+                    continue;
+                }
+                let imports =
+                    direct_imports.get_or_insert_with(|| self.direct_path_imports(vfs, file));
+                for (path, raw, span) in imports.iter() {
+                    if path == broken {
+                        let message = format!("imported module `{raw}` has errors");
+                        self.push_import_error(*span, &message);
+                    }
+                }
+            }
+        }
+        self.diagnostics.dedup();
+        self.diagnostics.len() > before
+    }
+
+    /// This document's path imports as (canonical target, raw path, span).
+    fn direct_path_imports(&self, vfs: &OverlayFs, file: &Path) -> Vec<(PathBuf, String, Span)> {
+        let Some(program) = self.program.as_deref() else {
+            return Vec::new();
+        };
+        let dir = file.parent().unwrap_or(Path::new("/"));
+        program
+            .definitions
+            .iter()
+            .filter_map(|def| match &def.node {
+                untyped_ast::Definition::Import(untyped_ast::ImportDef {
+                    from: untyped_ast::ImportSource::Path(path),
+                    ..
+                }) => {
+                    let target = vfs.canonicalize(&dir.join(&path.value)).ok()?;
+                    Some((target, path.value.clone(), path.span))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn push_import_error(&mut self, span: Span, message: &str) {
+        self.diagnostics
+            .push(tower_lsp_server::lsp_types::Diagnostic {
+                range: self.span_to_range(span),
+                severity: Some(DiagnosticSeverity::ERROR),
+                source: Some("starstream".into()),
+                message: message.into(),
+                ..Default::default()
+            });
     }
 
     fn run_graph_typecheck(
@@ -343,6 +440,14 @@ impl DocumentState {
         graph: &starstream_compiler::ModuleGraph,
         module_id: starstream_compiler::ModuleId,
     ) {
+        let reachable = graph.reachable_from(module_id);
+        self.dependencies.extend(
+            reachable
+                .iter()
+                .map(|id| graph.module(*id).abs_path.clone()),
+        );
+        self.collect_import_targets(graph, module_id);
+
         match starstream_compiler::typecheck_modules(graph, TypecheckOptions::default()) {
             Ok(success) => {
                 for (id, warning) in &success.warnings {
@@ -363,6 +468,64 @@ impl DocumentState {
                         self.push_type_error(uri, error);
                     }
                 }
+            }
+        }
+    }
+
+    /// Record where each path-imported item is defined, for cross-file
+    /// go-to-definition.
+    fn collect_import_targets(
+        &mut self,
+        graph: &starstream_compiler::ModuleGraph,
+        module_id: starstream_compiler::ModuleId,
+    ) {
+        let starstream_compiler::module_graph::ModuleContents::Starstream(program) =
+            &graph.module(module_id).contents
+        else {
+            return;
+        };
+        for edge in graph.edges_of(module_id) {
+            let Some(untyped_ast::Definition::Import(import)) =
+                program.definitions.get(edge.def_index).map(|d| &d.node)
+            else {
+                continue;
+            };
+            let untyped_ast::ImportItems::Named(items) = &import.items else {
+                continue;
+            };
+            let target = graph.module(edge.target);
+            let Some(target_uri) = file_path_to_uri(&target.abs_path) else {
+                continue;
+            };
+            let target_rope = Rope::from_str(&target.source);
+            for item in items {
+                let Some(local) = item.local.opt_span() else {
+                    continue;
+                };
+                let range = match &target.contents {
+                    starstream_compiler::module_graph::ModuleContents::Starstream(
+                        target_program,
+                    ) => {
+                        let Some(span) =
+                            top_level_definition_span(target_program, &item.imported.name)
+                        else {
+                            continue;
+                        };
+                        Range {
+                            start: offset_to_position_in(&target_rope, span.start),
+                            end: offset_to_position_in(&target_rope, span.end),
+                        }
+                    }
+                    // No meaningful position inside a binary module.
+                    _ => Range::default(),
+                };
+                self.import_targets.insert(
+                    (local.start, local.end),
+                    Location {
+                        uri: target_uri.clone(),
+                        range,
+                    },
+                );
             }
         }
     }
@@ -461,6 +624,14 @@ impl DocumentState {
             .iter()
             .filter(|entry| entry.contains(offset))
             .min_by_key(|entry| (entry.len(), entry.usage.start))?;
+
+        // Names bound by a path import resolve to the imported file.
+        if let Some(location) = self
+            .import_targets
+            .get(&(entry.target.start, entry.target.end))
+        {
+            return Some(location.clone());
+        }
 
         let range = self.span_to_range(entry.target);
 
@@ -1973,23 +2144,8 @@ impl DocumentState {
         Some(line_start + clamped_column)
     }
 
-    fn offset_to_position(&self, mut offset: usize) -> Position {
-        let total = self.rope.len_chars();
-
-        if offset > total {
-            offset = total;
-        }
-
-        let line = self.rope.char_to_line(offset);
-
-        let line_start = self.rope.line_to_char(line);
-
-        let column = offset.saturating_sub(line_start);
-
-        Position {
-            line: line as u32,
-            character: column as u32,
-        }
+    fn offset_to_position(&self, offset: usize) -> Position {
+        offset_to_position_in(&self.rope, offset)
     }
 
     fn collect_document_symbols(&self, program: &TypedProgram) -> Vec<DocumentSymbol> {
@@ -2515,6 +2671,41 @@ struct StructTypeEntry {
     ty: Type,
 }
 
+fn offset_to_position_in(rope: &Rope, mut offset: usize) -> Position {
+    let total = rope.len_chars();
+
+    if offset > total {
+        offset = total;
+    }
+
+    let line = rope.char_to_line(offset);
+
+    let line_start = rope.line_to_char(line);
+
+    let column = offset.saturating_sub(line_start);
+
+    Position {
+        line: line as u32,
+        character: column as u32,
+    }
+}
+
+/// Span of the name of the top-level definition called `name`, if any.
+fn top_level_definition_span(program: &Program, name: &str) -> Option<Span> {
+    program.definitions.iter().find_map(|def| {
+        let ident = match &def.node {
+            untyped_ast::Definition::Function(f) => &f.name,
+            untyped_ast::Definition::Struct(s) => &s.name,
+            untyped_ast::Definition::Enum(e) => &e.name,
+            untyped_ast::Definition::Utxo(u) => &u.name,
+            untyped_ast::Definition::Token(t) => &t.name,
+            untyped_ast::Definition::Abi(a) => &a.name,
+            _ => return None,
+        };
+        (ident.name == name).then(|| ident.opt_span()).flatten()
+    })
+}
+
 /// Convert an LSP `Uri` (`file:///abs/path/to/foo.star`) to a `PathBuf`.
 /// Returns `None` for non-file URIs (e.g. `untitled:`, `vscode-vfs:`) or if
 /// the URI can't be percent-decoded.
@@ -2525,6 +2716,27 @@ pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
     // After stripping `file://`, both look like `/...` (Unix) or `/C:/...` (Win).
     let decoded = percent_decode(raw);
     Some(PathBuf::from(decoded))
+}
+
+/// Convert an absolute `/`-separated path to a `file://` URI.
+///
+/// Unlike `UriExt::from_file_path`, this never touches the filesystem, and
+/// works on `wasm32-unknown-unknown` where `Path::is_absolute` is always false.
+pub fn file_path_to_uri(path: &Path) -> Option<Uri> {
+    let path = path.to_str()?.replace('\\', "/");
+    let mut out = String::from("file://");
+    if !path.starts_with('/') {
+        // Windows drive paths: `C:/...` -> `file:///C:/...`.
+        out.push('/');
+    }
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"-._~/:".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out.parse().ok()
 }
 
 /// Minimal percent-decoder. The LSP only sends URIs the editor produced, so
@@ -2566,10 +2778,10 @@ fn hex_digit(b: u8) -> Option<u8> {
 ///
 /// If no announced folder contains the file (or the editor announced
 /// none), fall back to the file's parent directory.
-fn workspace_root_for(file_path: &Path, workspace_folders: &[PathBuf]) -> PathBuf {
+fn workspace_root_for(vfs: &dyn Vfs, file_path: &Path, workspace_folders: &[PathBuf]) -> PathBuf {
     let mut best: Option<&Path> = None;
     for folder in workspace_folders {
-        let candidate = fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
+        let candidate = vfs.canonicalize(folder).unwrap_or_else(|_| folder.clone());
         if file_path.starts_with(&candidate) {
             // Prefer the deepest containing folder.
             if best.is_none_or(|cur| {
@@ -2582,7 +2794,9 @@ fn workspace_root_for(file_path: &Path, workspace_folders: &[PathBuf]) -> PathBu
         }
     }
     if let Some(found) = best {
-        return fs::canonicalize(found).unwrap_or_else(|_| found.to_path_buf());
+        return vfs
+            .canonicalize(found)
+            .unwrap_or_else(|_| found.to_path_buf());
     }
 
     file_path
@@ -2611,7 +2825,8 @@ script fn example() -> i64 {
     Foo::new().value()
 }
 "#;
-        let state = DocumentState::from_text(&uri, source, None, &[]);
+        let vfs = OverlayFs::new(Default::default(), Arc::new(starstream_types::NativeFs));
+        let state = DocumentState::from_text(&uri, source, None, &[], &vfs);
         assert!(state.diagnostics.is_empty(), "{:?}", state.diagnostics);
         let Some(DocumentSymbolResponse::Nested(symbols)) = state.document_symbols() else {
             panic!("expected document symbols");
@@ -2637,5 +2852,116 @@ script fn example() -> i64 {
         let definition = state.goto_definition(&uri, usage).unwrap();
         assert_eq!(definition.uri, uri);
         assert_eq!(definition.range, method.selection_range);
+    }
+
+    const LIB: &str = "fn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n";
+    const MAIN: &str =
+        "import { add } from \"./lib.star\";\n\nfn main() -> i64 {\n    add(1, 2)\n}\n";
+
+    fn main_uri() -> Uri {
+        "file:///ws/main.star".parse().unwrap()
+    }
+
+    /// Analyse `/ws/main.star` in a workspace holding `files`. Like the
+    /// server, the document's current text is in the overlay, and the base
+    /// knows nothing, like in the browser.
+    fn analyse_main(files: &[(&str, &str)]) -> DocumentState {
+        let mut upper = starstream_types::MemoryFs::new();
+        for (path, text) in files {
+            upper.insert(path, text.as_bytes());
+        }
+        let main = files
+            .iter()
+            .find(|(path, _)| *path == "/ws/main.star")
+            .map(|(_, text)| *text)
+            .unwrap();
+        let vfs = OverlayFs::new(upper, Arc::new(starstream_types::MemoryFs::new()));
+        DocumentState::from_text(&main_uri(), main, None, &[PathBuf::from("/ws")], &vfs)
+    }
+
+    #[test]
+    fn path_imports_resolve_in_memory() {
+        let state = analyse_main(&[("/ws/lib.star", LIB), ("/ws/main.star", MAIN)]);
+        assert!(state.diagnostics.is_empty(), "{:?}", state.diagnostics);
+        assert!(state.depends_on(Path::new("/ws/lib.star")));
+    }
+
+    #[test]
+    fn goto_definition_crosses_files() {
+        let state = analyse_main(&[("/ws/lib.star", LIB), ("/ws/main.star", MAIN)]);
+        // `add(1, 2)` jumps into lib.star.
+        let location = state
+            .goto_definition(
+                &main_uri(),
+                Position {
+                    line: 3,
+                    character: 5,
+                },
+            )
+            .unwrap();
+        assert_eq!(location.uri.as_str(), "file:///ws/lib.star");
+        assert_eq!(
+            location.range.start,
+            Position {
+                line: 0,
+                character: 3
+            }
+        );
+    }
+
+    #[test]
+    fn missing_import_is_reported_on_the_import() {
+        let state = analyse_main(&[("/ws/main.star", "import { add } from \"./nope.star\";\n")]);
+        assert_eq!(state.diagnostics.len(), 1, "{:?}", state.diagnostics);
+        assert!(state.diagnostics[0].message.starts_with("failed to read"));
+        assert!(state.diagnostics[0].message.contains("nope.star"));
+    }
+
+    #[test]
+    fn broken_import_is_reported_on_the_import() {
+        let state = analyse_main(&[("/ws/lib.star", "fn add("), ("/ws/main.star", MAIN)]);
+        assert_eq!(state.diagnostics.len(), 1, "{:?}", state.diagnostics);
+        assert!(state.diagnostics[0].message.contains("has errors"));
+        assert_eq!(state.diagnostics[0].range.start.line, 0);
+        // Fixing lib.star must re-check main.star.
+        assert!(state.depends_on(Path::new("/ws/lib.star")));
+    }
+
+    #[test]
+    fn unattributable_graph_errors_fall_back_to_single_file() {
+        // The cycle is between a and b, not in main, so there's nothing to
+        // report on main's import; main is checked on its own instead.
+        let state = analyse_main(&[
+            (
+                "/ws/a.star",
+                "import { b } from \"./b.star\";\nfn a() { }\n",
+            ),
+            (
+                "/ws/b.star",
+                "import { a } from \"./a.star\";\nfn b() { }\n",
+            ),
+            (
+                "/ws/main.star",
+                "import { a } from \"./a.star\";\n\nfn main() -> bool {\n    1\n}\n",
+            ),
+        ]);
+        assert!(
+            state
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == Some(DiagnosticSeverity::ERROR)),
+            "expected the type error in main to be reported: {:?}",
+            state.diagnostics
+        );
+    }
+
+    #[test]
+    fn file_path_to_uri_escapes() {
+        assert_eq!(
+            file_path_to_uri(Path::new("/a b/c%.star"))
+                .unwrap()
+                .as_str(),
+            "file:///a%20b/c%25.star"
+        );
     }
 }
