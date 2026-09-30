@@ -522,8 +522,9 @@ TypedProgram {
       (local.get 3))
     (global.set 4
       (local.get 4))
-    (return_call 8
-      (i32.const 0))
+    (return
+      (call 8
+        (i32.const 0)))
   )
   (@custom "component-type"
     (component
