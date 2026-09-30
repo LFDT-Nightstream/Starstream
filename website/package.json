@@ -18,8 +18,14 @@
     "typecheck": "tsc"
   },
   "dependencies": {
+    "@codingame/monaco-vscode-configuration-service-override": "^22.1.9",
     "@codingame/monaco-vscode-editor-api": "^22.1.3",
+    "@codingame/monaco-vscode-explorer-service-override": "^22.1.9",
     "@codingame/monaco-vscode-extension-api": "^22.1.3",
+    "@codingame/monaco-vscode-files-service-override": "^22.1.9",
+    "@codingame/monaco-vscode-markers-service-override": "^22.1.9",
+    "@codingame/monaco-vscode-search-service-override": "^22.1.9",
+    "@codingame/monaco-vscode-workbench-service-override": "^22.1.9",
     "@docusaurus/core": "^3.9.2",
     "@docusaurus/faster": "^3.10.2",
     "@docusaurus/preset-classic": "^3.9.2",

@@ -1,7 +1,6 @@
 import Layout from "@theme/Layout";
 import { AnsiHtml } from "fancy-ansi/react";
 import {
-  ComponentProps,
   CSSProperties,
   Dispatch,
   Fragment,
@@ -26,9 +25,7 @@ import type {
   DescribeInstance,
 } from "../run.worker";
 import { useBlobUrl } from "../hooks";
-import type * as monaco from "monaco-editor";
-
-const MARKER_SEVERITY_ERROR = 8;
+import type { WorkspaceSnapshot } from "../editor";
 
 function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
   request(r: SandboxWorkerRequest): void;
@@ -86,14 +83,15 @@ function useRunWorker(onResponse: (r: RunWorkerResponse) => void): {
   };
 }
 
-// Wrapper to load `../editor.tsx` only in the browser.
-function Editor(props: ComponentProps<typeof import("../editor").Editor>) {
-  const [editorModule, setEditorModule] =
-    useState<typeof import("../editor")>();
+type EditorModule = typeof import("../editor");
+
+// Load `../editor.tsx` only in the browser.
+function useEditorModule(): EditorModule | undefined {
+  const [editorModule, setEditorModule] = useState<EditorModule>();
   useEffect(() => {
     import("../editor").then(setEditorModule);
   }, []);
-  return editorModule ? <editorModule.Editor {...props} /> : null;
+  return editorModule;
 }
 
 function Tabs(props: {
@@ -152,60 +150,6 @@ function Tabs(props: {
           {tab.body}
         </div>
       ))}
-    </div>
-  );
-}
-
-function DiagnosticsList({
-  markers,
-  onDiagnosticClick,
-}: {
-  markers: monaco.editor.IMarker[];
-  onDiagnosticClick: (marker: monaco.editor.IMarker) => void;
-}) {
-  if (markers.length === 0) {
-    return (
-      <div className="padding--md sandbox-diagnostics__empty">
-        <div
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: "50%",
-            background: "currentColor",
-          }}
-        />
-        No problems found.
-      </div>
-    );
-  }
-
-  return (
-    <div className="padding--md sandbox-diagnostics">
-      {markers.map((marker) => {
-        const key = `${marker.startLineNumber}:${marker.startColumn}:${marker.message}`;
-        const isError = marker.severity === MARKER_SEVERITY_ERROR;
-        return (
-          <div
-            key={key}
-            onClick={() => onDiagnosticClick(marker)}
-            className={`sandbox-diagnostics__item ${
-              isError
-                ? "sandbox-diagnostics__item--error"
-                : "sandbox-diagnostics__item--warning"
-            }`}
-          >
-            <div className="sandbox-diagnostics__header">
-              <span style={{ fontWeight: "bold", textTransform: "uppercase" }}>
-                {isError ? "Error" : "Warning"}
-              </span>
-              <span style={{ fontFamily: "monospace" }}>
-                Ln {marker.startLineNumber}, Col {marker.startColumn}
-              </span>
-            </div>
-            <div className="sandbox-diagnostics__message">{marker.message}</div>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -767,14 +711,11 @@ function RunPanel({
 }
 
 export function Sandbox() {
-  const [inputTab, setInputTab] = useState("Editor");
   const [outputTab, setOutputTab] = useState("About");
 
   const [wat, setWat] = useState("");
   const [wit, setWit] = useState("");
-  const [markers, setMarkers] = useState<monaco.editor.IMarker[]>([]);
-  const [editorInstance, setEditorInstance] =
-    useState<monaco.editor.ICodeEditor | null>(null);
+  const editorModule = useEditorModule();
 
   const [coreWasm, setCoreWasm] = useState<Uint8Array>();
   const [componentWasm, setComponentWasm] = useState<Uint8Array>();
@@ -1089,52 +1030,21 @@ export function Sandbox() {
     componentDigest !== undefined &&
     componentDigest === lastDeployedDigest;
 
-  const onTextChanged = useCallback((code: string) => {
-    worker.request({ request_id: ++request_id.current, code });
-  }, []);
-
-  const onMarkersChange = useCallback((newMarkers: monaco.editor.IMarker[]) => {
-    setMarkers(newMarkers);
-  }, []);
-
-  const onEditorMount = useCallback((editor: monaco.editor.ICodeEditor) => {
-    setEditorInstance(editor);
-  }, []);
-
-  const onDiagnosticClick = useCallback(
-    (marker: monaco.editor.IMarker) => {
-      if (editorInstance) {
-        editorInstance.revealLineInCenter(marker.startLineNumber);
-        editorInstance.setPosition({
-          lineNumber: marker.startLineNumber,
-          column: marker.startColumn,
-        });
-        editorInstance.focus();
-      }
+  const onWorkspaceChanged = useCallback(
+    ({ files, entry }: WorkspaceSnapshot) => {
+      worker.request({ request_id: ++request_id.current, files, entry });
     },
-    [editorInstance],
+    [],
   );
 
   return (
     <div className="flex--grow sandbox-container">
       <div className="sandbox-panel">
-        <Tabs
-          current={inputTab}
-          setCurrent={setInputTab}
-          tabs={[
-            {
-              key: "Editor",
-              body: (
-                <Editor
-                  onTextChanged={onTextChanged}
-                  onMarkersChange={onMarkersChange}
-                  onMount={onEditorMount}
-                />
-              ),
-            },
-          ]}
-          style={{ height: "100%" }}
-        />
+        {editorModule && (
+          <editorModule.Editor
+            onWorkspaceChanged={onWorkspaceChanged}
+          />
+        )}
       </div>
       <div className="sandbox-panel">
         <Tabs
@@ -1149,9 +1059,6 @@ export function Sandbox() {
                   <h1>Starstream Sandbox</h1>
                   <p>Tabs:</p>
                   <ul>
-                    <li>
-                      Diagnostics: Compiler errors and warnings from the editor.
-                    </li>
                     <li>
                       Wasm/WAT: The output of the Starstream compiler targeting
                       WebAssembly. Updates live.
@@ -1168,20 +1075,20 @@ export function Sandbox() {
                       constructor, and invoke methods on them.
                     </li>
                   </ul>
+                  <p>
+                    The editor is a VS Code workbench over an in-memory
+                    workspace: create files in the Explorer and import them
+                    with <code>import {"{ … }"} from "./file.star";</code>. The
+                    file in the active editor is compiled (or{" "}
+                    <code>main.star</code> if the active editor isn't a{" "}
+                    <code>.star</code> file).
+                  </p>
                   <p>Keyboard shortcuts:</p>
                   <ul>
-                    <li>Ctrl+S to format</li>
+                    <li>Ctrl+S to save and format</li>
+                    <li>Ctrl+P to open a file</li>
                   </ul>
                 </div>
-              ),
-            },
-            {
-              key: "Diagnostics",
-              body: (
-                <DiagnosticsList
-                  markers={markers}
-                  onDiagnosticClick={onDiagnosticClick}
-                />
               ),
             },
             {

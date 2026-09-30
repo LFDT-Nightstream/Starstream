@@ -14,3 +14,10 @@ starstream-compiler = { workspace = true }
 tower-lsp-server = { workspace = true }
 miette = { workspace = true }
 starstream-types = { workspace = true }
+base64 = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true, features = ["executor", "std"] }
+tower-service = "0.3.3"
