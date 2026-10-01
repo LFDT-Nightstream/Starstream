@@ -59,10 +59,7 @@ pub fn parse_program(source: &str) -> ParseOutput {
         .parse_with_state(source, &mut state)
         .into_output_errors();
 
-    let errors = errors
-        .into_iter()
-        .map(error::ParseError::from_rich)
-        .collect();
+    let errors = errors.into_iter().map(error::ParseError::from).collect();
 
     ParseOutput {
         program,

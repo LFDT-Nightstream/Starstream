@@ -1,10 +1,8 @@
 use chumsky::error::{Rich, RichReason};
-use miette::{Diagnostic, LabeledSpan, SourceSpan};
-use starstream_types::Span;
-use thiserror::Error;
+use miette::{Diagnostic, LabeledSpan};
+use starstream_types::{Span, SpanExt};
 
-#[derive(Debug, Clone, Error)]
-#[error("{message}")]
+#[derive(Debug, Clone)]
 pub struct ParseError {
     message: String,
     label: Option<String>,
@@ -12,8 +10,8 @@ pub struct ParseError {
     help: Option<String>,
 }
 
-impl ParseError {
-    pub fn from_rich(error: Rich<'_, char>) -> Self {
+impl From<Rich<'_, char>> for ParseError {
+    fn from(error: Rich<'_, char>) -> Self {
         let message = error.to_string();
         let span = *error.span();
 
@@ -33,11 +31,15 @@ impl ParseError {
             help: None,
         }
     }
+}
 
-    pub fn span(&self) -> Span {
-        self.span
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
     }
 }
+
+impl std::error::Error for ParseError {}
 
 impl Diagnostic for ParseError {
     fn help(&self) -> Option<Box<dyn std::fmt::Display + '_>> {
@@ -47,7 +49,7 @@ impl Diagnostic for ParseError {
     }
 
     fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
-        let span = to_source_span(self.span);
+        let span = self.span.miette();
         let label = match &self.label {
             Some(text) => LabeledSpan::new_primary_with_span(Some(text.clone()), span),
             None => LabeledSpan::new_primary_with_span(None, span),
@@ -55,9 +57,4 @@ impl Diagnostic for ParseError {
 
         Some(Box::new(std::iter::once(label)))
     }
-}
-
-fn to_source_span(span: Span) -> SourceSpan {
-    let len = span.end.saturating_sub(span.start);
-    SourceSpan::new(span.start.into(), len)
 }

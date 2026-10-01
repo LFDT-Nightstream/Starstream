@@ -3,4 +3,4 @@ source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/multifile/cross_contract
 ---
 ==== Workspace ====
-error: cross-contract calls not supported yet: `$PWD/tests/multifile/cross_contract/main.star` imports `$PWD/tests/multifile/cross_contract/other.star`, which also declares `contract;`
+not yet implemented: cross-contract call from `$PWD/tests/multifile/cross_contract/main.star` to `$PWD/tests/multifile/cross_contract/other.star`, which also declares `contract;`

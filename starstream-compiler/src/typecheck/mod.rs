@@ -1,5 +1,4 @@
 mod builtins;
-mod diagnostic;
 pub mod env;
 mod errors;
 mod exhaustiveness;
