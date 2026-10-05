@@ -188,6 +188,8 @@ pub enum TransactionGetError {
     #[error("transaction not found")]
     TransactionNotFound,
     #[error(transparent)]
+    AcceptHeader(AcceptHeaderError),
+    #[error(transparent)]
     Http(http::Error),
 }
 
@@ -196,6 +198,7 @@ impl TransactionGetError {
         match self {
             Self::DigestParsing(..) => http::StatusCode::BAD_REQUEST,
             Self::TransactionNotFound => http::StatusCode::NOT_FOUND,
+            Self::AcceptHeader(err) => err.http_status_code(),
             Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -204,12 +207,15 @@ impl TransactionGetError {
 #[derive(Debug, Error)]
 pub enum GenesisGetError {
     #[error(transparent)]
+    AcceptHeader(AcceptHeaderError),
+    #[error(transparent)]
     Http(http::Error),
 }
 
 impl GenesisGetError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
+            Self::AcceptHeader(err) => err.http_status_code(),
             Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }

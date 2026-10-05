@@ -60,6 +60,7 @@ struct Contract {
 struct Transaction {
     outputs: Vec<Option<Arc<TransactionOutput>>>,
     envelope: Bytes,
+    payload: Bytes,
 }
 
 struct Genesis {

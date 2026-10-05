@@ -135,14 +135,17 @@ pub fn build_contract_get_request(
 pub fn build_transaction_get_request(
     base: &Uri,
     digest: &[u8; 32],
+    accept: Option<MediaType>,
 ) -> anyhow::Result<http::Request<Full<Bytes>>> {
     let digest = encode_digest(digest);
     let uri = endpoint_uri(base, format!("transactions/{digest}"))?;
-    Request::builder()
-        .method(Method::GET)
-        .uri(uri)
-        .body(Full::default())
-        .context("failed to build request")
+    let req = Request::builder().method(Method::GET).uri(uri);
+    let req = if let Some(accept) = accept {
+        req.header(ACCEPT, accept.to_string())
+    } else {
+        req
+    };
+    req.body(Full::default()).context("failed to build request")
 }
 
 /// Build a genesis get request.
@@ -468,7 +471,7 @@ where
     /// Get the transaction identified by `digest`.
     #[instrument(skip_all)]
     pub async fn get_transaction(&self, digest: [u8; 32]) -> anyhow::Result<Transaction> {
-        let req = build_transaction_get_request(&self.api_base, &digest)?;
+        let req = build_transaction_get_request(&self.api_base, &digest, Some(APPLICATION_COSE))?;
         let (http::response::Parts { status, .. }, body) = self.request(req).await?;
         ensure!(status.is_success(), "{}", String::from_utf8_lossy(&body));
         let sign = CoseSign::from_tagged_slice(&body)

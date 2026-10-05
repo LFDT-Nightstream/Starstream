@@ -477,28 +477,100 @@ impl Ledger {
 
     fn handle_genesis_get(
         &self,
+        headers: http::HeaderMap,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, GenesisGetError> {
+        const AVAILABLE_TYPES: &[MediaType] = &[APPLICATION_CBOR];
+
+        if let Some(Err(err)) = negotiate_accept(&headers, AVAILABLE_TYPES) {
+            return Err(GenesisGetError::AcceptHeader(err));
+        }
         http::Response::builder()
+            .header(VARY, ACCEPT.as_str())
             .header(CONTENT_TYPE, APPLICATION_CBOR.to_string())
             .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
             .body(http_body_util::Full::new(self.genesis.encoded.clone()))
             .map_err(GenesisGetError::Http)
     }
 
+    fn handle_genesis_head(
+        &self,
+        headers: http::HeaderMap,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, GenesisGetError> {
+        const AVAILABLE_TYPES: &[MediaType] = &[APPLICATION_CBOR];
+
+        if let Some(Err(err)) = negotiate_accept(&headers, AVAILABLE_TYPES) {
+            return Err(GenesisGetError::AcceptHeader(err));
+        }
+        http::Response::builder()
+            .header(VARY, ACCEPT.as_str())
+            .header(CONTENT_TYPE, APPLICATION_CBOR.to_string())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .header(CONTENT_LENGTH, self.genesis.encoded.len())
+            .body(http_body_util::Full::default())
+            .map_err(GenesisGetError::Http)
+    }
+
     async fn handle_transaction_get(
         &self,
+        headers: http::HeaderMap,
         digest: &str,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, TransactionGetError> {
+        const AVAILABLE_TYPES: &[MediaType] = &[APPLICATION_COSE, APPLICATION_CBOR];
+
         let digest = parse_digest(digest).map_err(TransactionGetError::DigestParsing)?;
+
+        let accept = negotiate_accept(&headers, AVAILABLE_TYPES)
+            .transpose()
+            .map_err(TransactionGetError::AcceptHeader)?;
+
         let txs = self.transactions.read().await;
-        let Transaction { envelope, .. } = txs
+        let tx = txs
             .get(&digest)
             .ok_or(TransactionGetError::TransactionNotFound)?;
-        http::Response::builder()
-            .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
-            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
-            .body(http_body_util::Full::new(envelope.clone()))
-            .map_err(TransactionGetError::Http)
+
+        let res = http::Response::builder()
+            .header(VARY, ACCEPT.as_str())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff");
+        if accept == Some(&APPLICATION_CBOR) {
+            res.header(CONTENT_TYPE, APPLICATION_CBOR.to_string())
+                .body(http_body_util::Full::new(tx.payload.clone()))
+        } else {
+            res.header(CONTENT_TYPE, APPLICATION_COSE.to_string())
+                .body(http_body_util::Full::new(tx.envelope.clone()))
+        }
+        .map_err(TransactionGetError::Http)
+    }
+
+    async fn handle_transaction_head(
+        &self,
+        headers: http::HeaderMap,
+        digest: &str,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, TransactionGetError> {
+        const AVAILABLE_TYPES: &[MediaType] = &[APPLICATION_COSE, APPLICATION_CBOR];
+
+        let digest = parse_digest(digest).map_err(TransactionGetError::DigestParsing)?;
+
+        let accept = negotiate_accept(&headers, AVAILABLE_TYPES)
+            .transpose()
+            .map_err(TransactionGetError::AcceptHeader)?;
+
+        let txs = self.transactions.read().await;
+        let tx = txs
+            .get(&digest)
+            .ok_or(TransactionGetError::TransactionNotFound)?;
+
+        let res = http::Response::builder()
+            .header(VARY, ACCEPT.as_str())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff");
+        if accept == Some(&APPLICATION_CBOR) {
+            res.header(CONTENT_TYPE, APPLICATION_CBOR.to_string())
+                .header(CONTENT_LENGTH, tx.payload.len())
+        } else {
+            res.header(CONTENT_TYPE, APPLICATION_COSE.to_string())
+                .header(CONTENT_LENGTH, tx.envelope.len())
+        }
+        .body(http_body_util::Full::default())
+        .map_err(TransactionGetError::Http)
     }
 
     async fn handle_transaction_put(
@@ -598,6 +670,7 @@ impl Ledger {
         let tx = Transaction {
             outputs,
             envelope: envelope.clone(),
+            payload: Bytes::copy_from_slice(payload),
         };
         txs.insert(digest, tx);
 
@@ -887,7 +960,14 @@ impl Ledger {
                     }
 
                     ("GET", Some("transactions"), Some(digest), None, ..) => match ledger
-                        .handle_transaction_get(digest)
+                        .handle_transaction_get(headers, digest)
+                        .await
+                    {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    },
+                    ("HEAD", Some("transactions"), Some(digest), None, ..) => match ledger
+                        .handle_transaction_head(headers, digest)
                         .await
                     {
                         Ok(res) => Ok(res),
@@ -901,15 +981,27 @@ impl Ledger {
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
                     (_, Some("transactions"), Some(..), None, ..) => {
-                        build_method_not_allowed("GET, PUT", &method, pq.path())
+                        build_method_not_allowed("GET, HEAD, PUT", &method, pq.path())
                     }
 
-                    ("GET", Some("genesis"), None, ..) => match ledger.handle_genesis_get() {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
+                    ("GET", Some("genesis"), None, ..) => {
+                        match ledger.handle_genesis_get(headers) {
+                            Ok(res) => Ok(res),
+                            Err(err) => {
+                                build_text_response(err.http_status_code(), err.to_string())
+                            }
+                        }
+                    }
+                    ("HEAD", Some("genesis"), None, ..) => {
+                        match ledger.handle_genesis_head(headers) {
+                            Ok(res) => Ok(res),
+                            Err(err) => {
+                                build_text_response(err.http_status_code(), err.to_string())
+                            }
+                        }
+                    }
                     (_, Some("genesis"), None, ..) => {
-                        build_method_not_allowed("GET", &method, pq.path())
+                        build_method_not_allowed("GET, HEAD", &method, pq.path())
                     }
 
                     ("POST", Some("rpc"), None, ..) => match ledger.handle_rpc_post(body).await {
