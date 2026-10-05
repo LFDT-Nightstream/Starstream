@@ -53,10 +53,6 @@ jobs:
           -p starstream-runtime-web
       - run: cargo clippy -p starstream-cli --target wasm32-wasip1
       - run: cargo fmt --check
-      # Mock ledger
-      - name: Mock Ledger - Check formatting
-        run: cargo fmt --check
-        working-directory: mock-ledger/backend
   website:
     name: Website
     runs-on: ubuntu-24.04
