@@ -384,8 +384,11 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let wasm = fs::read(&wasm)
                 .await
                 .with_context(|| format!("failed to read `{}`", wasm.display()))?;
-            client.publish_contract(key, nonce, wasm).await?;
-            Ok(())
+            let digest = client.publish_contract(key, nonce, wasm).await?;
+            stdout()
+                .write_all(format!("{}\n", encode_digest(&digest)).as_bytes())
+                .await
+                .context("failed to write digest to stdout")
         }
         Command::Contract(ContractCommand::Script(ScriptCommand::Call {
             key,
@@ -494,7 +497,8 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                     .with_context(|| format!("failed to write `{}`", path.display()))?;
             }
             if let Some(key) = key {
-                client.transact(key, tx).await?;
+                let digest = client.transact(key, tx).await?;
+                info!(digest = %encode_digest(&digest), "submitted transaction");
             }
             results.push('\n');
             stdout()

@@ -171,7 +171,7 @@ async fn cli() {
     ])
     .await
     .unwrap();
-    assert_eq!(stdout, b"");
+    assert_eq!(stdout, format!("{score_digest}\n").as_bytes());
 
     let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"])
         .await
