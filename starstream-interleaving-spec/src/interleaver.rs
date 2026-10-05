@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::{MethodHash, OutputUtxo, ResourceHandle, Step, Trace, TransactionStatement};
+use crate::{InputUtxo, MethodHash, OutputUtxo, ResourceHandle, Step, Trace, TransactionStatement};
 
 /// Index in the supplied trace list, not a guest-visible handle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -15,7 +15,7 @@ pub struct InterleavedTransaction {
     pub execution: Trace,
     /// The full transaction: execution, then the finalization scan.
     pub trace: Trace,
-    /// Synthesized outputs; inputs are not supported yet.
+    /// Loaded inputs and synthesized outputs.
     pub statement: TransactionStatement,
 }
 
@@ -26,7 +26,7 @@ pub struct InterleavedTransaction {
 /// Handles are bound on constructor return. All steps must be consumed when
 /// the coordinator returns; use [`interleave_transaction`] for storage reads.
 pub fn interleave_execution_only(traces: &[Trace]) -> Result<Trace, InterleavingError> {
-    let scheduled = schedule_execution(traces)?;
+    let scheduled = schedule_execution(traces, &[])?;
     for (process, (cursor, trace)) in scheduled.cursors.iter().zip(traces).enumerate() {
         if *cursor != trace.0.len() {
             return Err(InterleavingError::UnconsumedSteps {
@@ -45,12 +45,22 @@ pub fn interleave_execution_only(traces: &[Trace]) -> Result<Trace, Interleaving
 pub fn interleave_transaction(
     traces: &[Trace],
 ) -> Result<InterleavedTransaction, InterleavingError> {
+    interleave_transaction_with_inputs(traces, &[])
+}
+
+/// Input traces follow the coordinator, in loading order, then constructor traces.
+/// Each input starts with `SetStorage`; its stored ABI is host-supplied metadata.
+pub fn interleave_transaction_with_inputs(
+    traces: &[Trace],
+    input_methods: &[Vec<MethodHash>],
+) -> Result<InterleavedTransaction, InterleavingError> {
     let Scheduled {
         mut merged,
         cursors,
         allocation_order,
         registrations,
-    } = schedule_execution(traces)?;
+        inputs,
+    } = schedule_execution(traces, input_methods)?;
     if cursors[0] != traces[0].0.len() {
         return Err(InterleavingError::UnconsumedSteps {
             process: ProcessIndex(0),
@@ -97,14 +107,12 @@ pub fn interleave_transaction(
     Ok(InterleavedTransaction {
         execution,
         trace: Trace(merged),
-        statement: TransactionStatement {
-            inputs: Vec::new(),
-            outputs,
-        },
+        statement: TransactionStatement { inputs, outputs },
     })
 }
 
 struct Scheduled {
+    inputs: Vec<InputUtxo>,
     merged: Vec<Step>,
     cursors: Vec<usize>,
     /// Process index of each allocated UTXO, by UTXO id.
@@ -113,7 +121,10 @@ struct Scheduled {
     registrations: Vec<Vec<MethodHash>>,
 }
 
-fn schedule_execution(traces: &[Trace]) -> Result<Scheduled, InterleavingError> {
+fn schedule_execution(
+    traces: &[Trace],
+    input_methods: &[Vec<MethodHash>],
+) -> Result<Scheduled, InterleavingError> {
     if traces.is_empty() {
         return Err(InterleavingError::MissingEntrypoint);
     }
@@ -131,6 +142,33 @@ fn schedule_execution(traces: &[Trace]) -> Result<Scheduled, InterleavingError> 
     let mut call_stack = Vec::new();
     let mut pending_constructors = HashMap::<usize, (usize, ResourceHandle)>::new();
     let mut resource_targets = HashMap::<(usize, ResourceHandle), usize>::new();
+    let mut inputs = Vec::with_capacity(input_methods.len());
+    for methods in input_methods {
+        let process = next_process;
+        let Some(Step::SetStorage {
+            storage,
+            coordinator_handle,
+        }) = traces.get(process).and_then(|trace| trace.0.first())
+        else {
+            return Err(InterleavingError::MissingStorageLoad {
+                process: ProcessIndex(process),
+            });
+        };
+        merged.push(traces[process].0[0].clone());
+        // PreloadMethod is not witnessed by the utxo
+        merged.extend(methods.iter().map(|&method| Step::PreloadMethod { method }));
+        inputs.push(InputUtxo {
+            storage: storage.clone(),
+            methods: methods.clone(),
+        });
+        registrations[process] = methods.clone();
+        cursors[process] = 1;
+        allocation_order.push(process);
+        resource_targets.insert((0, *coordinator_handle), process);
+        // SetStorage takes the role of NewUtxo for inputs
+        // so new coroutines get ids after the inputs
+        next_process += 1;
+    }
 
     loop {
         let step_index = cursors[current];
@@ -227,6 +265,7 @@ fn schedule_execution(traces: &[Trace]) -> Result<Scheduled, InterleavingError> 
     }
 
     Ok(Scheduled {
+        inputs,
         merged,
         cursors,
         allocation_order,
@@ -237,6 +276,8 @@ fn schedule_execution(traces: &[Trace]) -> Result<Scheduled, InterleavingError> 
 /// Scheduling failure. Quint or the circuit must still validate the merged trace.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InterleavingError {
+    #[error("input process {process:?} must start with SetStorage")]
+    MissingStorageLoad { process: ProcessIndex },
     #[error("no entrypoint coordination-script trace was supplied")]
     MissingEntrypoint,
 
@@ -388,6 +429,67 @@ mod tests {
         let consumed_utxo = Trace::new([enter_constructor([2]), ret()]);
 
         vec![coordinator, live_utxo, consumed_utxo]
+    }
+
+    fn loaded_input_transaction() -> InterleavedTransaction {
+        let handle = ResourceHandle(7);
+        interleave_transaction_with_inputs(
+            &[
+                Trace::new([call_method(handle, method(9), [13]), ret()]),
+                Trace::new([
+                    Step::SetStorage {
+                        storage: value([42]),
+                        coordinator_handle: handle,
+                    },
+                    enter_method(method(9), [13]),
+                    ret(),
+                    get_storage([55]),
+                ]),
+            ],
+            &[vec![method(9)]],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn loaded_input_is_bound_and_its_abi_is_preloaded() {
+        let transaction = loaded_input_transaction();
+        assert!(matches!(
+            transaction.trace.0[0],
+            Step::SetStorage {
+                coordinator_handle: ResourceHandle(7),
+                ..
+            }
+        ));
+        assert_eq!(
+            transaction.trace.0[1],
+            Step::PreloadMethod { method: method(9) }
+        );
+        assert_eq!(
+            transaction.statement.inputs,
+            [InputUtxo {
+                storage: value([42]),
+                methods: vec![method(9)]
+            }]
+        );
+        assert_eq!(
+            transaction.statement.outputs,
+            [OutputUtxo {
+                utxo: 0,
+                storage: value([55]),
+                methods: vec![method(9)]
+            }]
+        );
+    }
+
+    #[test]
+    #[ignore = "requires Quint; run through npm test"]
+    fn quint_accepts_loaded_input_transaction() {
+        let transaction = loaded_input_transaction();
+        crate::QuintVerifier::new()
+            .unwrap()
+            .verify_transaction(&transaction.trace, &transaction.statement)
+            .unwrap();
     }
 
     #[test]

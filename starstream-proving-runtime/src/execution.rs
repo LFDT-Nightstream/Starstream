@@ -1,6 +1,8 @@
 use neo_wasm::comm_chain::{CommChainState, absorbed_event_blocks};
-use starstream_interleaving_spec::interleaver::{InterleavedTransaction, interleave_transaction};
-use starstream_interleaving_spec::{ResourceHandle, Trace};
+use starstream_interleaving_spec::interleaver::{
+    InterleavedTransaction, interleave_transaction_with_inputs,
+};
+use starstream_interleaving_spec::{MethodHash, ResourceHandle, Trace};
 
 use crate::decode_tagged_blocks;
 
@@ -18,6 +20,15 @@ pub struct CapturedExecution {
 pub fn decode_captured_execution(
     registry: &neo_wasm::WasmtimeTraceRegistry,
     coordinator_handles: impl IntoIterator<Item = ResourceHandle>,
+) -> wasmtime::Result<CapturedExecution> {
+    decode_captured_transaction(registry, coordinator_handles, &[])
+}
+
+/// Decode loaded inputs followed by constructed UTXOs, using the ledger's ABI lists.
+pub fn decode_captured_transaction(
+    registry: &neo_wasm::WasmtimeTraceRegistry,
+    coordinator_handles: impl IntoIterator<Item = ResourceHandle>,
+    input_methods: &[Vec<MethodHash>],
 ) -> wasmtime::Result<CapturedExecution> {
     let mut coordinator_handles = coordinator_handles.into_iter();
     let mut traces = Vec::new();
@@ -40,7 +51,7 @@ pub fn decode_captured_execution(
         })?;
         traces.push(trace);
     }
-    let transaction = interleave_transaction(&traces)
+    let transaction = interleave_transaction_with_inputs(&traces, input_methods)
         .map_err(|error| wasmtime::format_err!("failed to interleave traces: {error}"))?;
     Ok(CapturedExecution {
         traces,
@@ -52,12 +63,20 @@ pub fn decode_captured_execution(
 ///
 /// TODO: This is host-side validation only. Transaction I/O and recursive proof
 /// binding are intentionally outside this initial integration.
-#[cfg(feature = "interleaving-check")]
 pub fn check_captured_execution(
     registry: &neo_wasm::WasmtimeTraceRegistry,
     coordinator_handles: impl IntoIterator<Item = ResourceHandle>,
 ) -> wasmtime::Result<CapturedExecution> {
-    let execution = decode_captured_execution(registry, coordinator_handles)?;
+    check_captured_transaction(registry, coordinator_handles, &[])
+}
+
+/// Check loading and execution; transaction I/O binding remains deferred.
+pub fn check_captured_transaction(
+    registry: &neo_wasm::WasmtimeTraceRegistry,
+    coordinator_handles: impl IntoIterator<Item = ResourceHandle>,
+    input_methods: &[Vec<MethodHash>],
+) -> wasmtime::Result<CapturedExecution> {
+    let execution = decode_captured_transaction(registry, coordinator_handles, input_methods)?;
     starstream_interleaving_prover::verify_sat(&execution.transaction.execution).map_err(
         |error| wasmtime::format_err!("interleaving relation rejected execution: {error}"),
     )?;

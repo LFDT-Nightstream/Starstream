@@ -9,7 +9,6 @@ license.workspace = true
 
 [features]
 default = []
-interleaving-check = ["dep:starstream-interleaving-prover"]
 proof-tests = []
 
 [dependencies]
@@ -17,7 +16,7 @@ neo-wasm = { workspace = true }
 sha2 = { workspace = true }
 starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 starstream-runtime = { workspace = true }
-starstream-interleaving-prover = { path = "../starstream-interleaving-prover", optional = true }
+starstream-interleaving-prover = { path = "../starstream-interleaving-prover" }
 thiserror = { workspace = true }
 wasmparser = { workspace = true }
 wasmtime = { workspace = true, features = [
@@ -35,7 +34,6 @@ neo-fold-clean = { workspace = true }
 neo-math = { workspace = true }
 neo-params = { workspace = true }
 starstream-compiler = { workspace = true }
-starstream-interleaving-prover = { path = "../starstream-interleaving-prover" }
 starstream-to-wasm = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 wat = "1"

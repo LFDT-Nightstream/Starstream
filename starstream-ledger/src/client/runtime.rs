@@ -9,7 +9,7 @@ use sha2::{Digest as _, Sha256};
 #[cfg(feature = "proving-instrumentation")]
 use starstream_proving_runtime::{
     CapturedExecution, WasmTraceSink, WasmtimeTraceRegistry, build_component_templates,
-    check_captured_execution, new_tracing_wasmtime_store, register_tracing_component,
+    check_captured_transaction, new_tracing_wasmtime_store, register_tracing_component,
 };
 use starstream_runtime::bindings::starstream;
 use starstream_runtime::{
@@ -68,6 +68,8 @@ struct ResolvedUtxoInput {
     output: TransactionOutput,
     contract: starstream_runtime::Contract<Ctx>,
     external_id: Option<Arc<str>>,
+    #[cfg(feature = "proving-instrumentation")]
+    wasm: Vec<u8>,
 }
 
 #[cfg(feature = "proving-instrumentation")]
@@ -80,13 +82,13 @@ struct TracingComponent {
 fn tracing_components(
     wizer: &Wizer,
     root_wasm: &[u8],
-    script: &str,
+    scripts: &[&str],
     imports: &HashMap<[u8; 32], Contract>,
 ) -> wasmtime::Result<Vec<TracingComponent>> {
     let root_digest: [u8; 32] = Sha256::digest(root_wasm).into();
     let mut components = Vec::with_capacity(imports.len() + 1);
     let (_, root_instrumented) = wizer.instrument_component(root_wasm)?;
-    let templates = build_component_templates(&root_instrumented, &[script])
+    let templates = build_component_templates(&root_instrumented, scripts)
         .map_err(|error| wasmtime::format_err!("failed to build root trace templates: {error}"))?;
     components.push(TracingComponent {
         instrumented: root_instrumented,
@@ -97,10 +99,9 @@ fn tracing_components(
         if *digest == root_digest {
             continue;
         }
+        let Some(contract) = contract else { continue };
         let (_, instrumented) = wizer.instrument_component(wasm)?;
         let scripts = contract
-            .as_ref()
-            .context("tracing an uncompiled contract is unsupported")?
             .coordination_scripts()
             .map(|(name, export)| export.map(|_| name))
             .collect::<wasmtime::Result<Vec<_>>>()?;
@@ -174,6 +175,8 @@ async fn resolve_coordination_script_args(
                     output,
                     contract: input_contract,
                     external_id,
+                    #[cfg(feature = "proving-instrumentation")]
+                    wasm: input_wasm,
                 })
             }
         };
@@ -295,7 +298,80 @@ pub async fn call_coordination_script_with_interleaving_check(
     let args =
         resolve_coordination_script_args(client, wizer, contract, wasm, export, imports, args)
             .await?;
-    let components = tracing_components(wizer, wasm, script, imports)?;
+    let scripts = contract
+        .coordination_scripts()
+        .map(|(name, export)| export.map(|_| name))
+        .collect::<wasmtime::Result<Vec<_>>>()?;
+    let mut components = tracing_components(wizer, wasm, &scripts, imports)?;
+    let mut input_methods = Vec::new();
+    // the indexes of the coord inputs that are utxos
+    //
+    // we use this to recover the coord-local resource mappings
+    //
+    // in the circuit, set-storage binds the coord-local resource identifier to
+    // the transaction local utxo identity (index in the tx)
+    //
+    // the issue is that we can't know that at the time set-storage is called
+    // (unless we purposefuly mimic wasmtime id assignment), so we recover it
+    // from the trace
+    //
+    // for SetStorage it is just advice anyway
+    let mut input_locals = Vec::new();
+    for (index, arg) in args.iter().enumerate() {
+        if let ResolvedCoordinationScriptArg::Utxo(input) = arg {
+            input_locals.push(index);
+            input_methods.push(
+                input
+                    .output
+                    .methods
+                    .iter()
+                    .map(|&(a, b, c, d)| {
+                        starstream_proving_runtime::MethodHash::from_u64_words([a, b, c, d])
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            let (_, instrumented) = wizer.instrument_component(&input.wasm)?;
+            let scripts = input
+                .contract
+                .coordination_scripts()
+                .map(|(name, export)| export.map(|_| name))
+                .collect::<wasmtime::Result<Vec<_>>>()?;
+            let templates =
+                build_component_templates(&instrumented, &scripts).map_err(|error| {
+                    wasmtime::format_err!("failed to build input trace templates: {error}")
+                })?;
+            components.push(TracingComponent {
+                instrumented,
+                templates,
+            });
+        }
+    }
+    if !input_locals.is_empty() {
+        // Direct scalar/resource parameters each lower to _one_ core local.
+        // TODO: Support composite and indirectly lowered coordinator arguments.
+        // (the indexes of utxo inputs will be invalid as computed right now otherwise)
+        ensure!(
+            export.ty().params().len() <= 16
+                && export.ty().params().all(|(_, ty)| matches!(
+                    ty,
+                    Type::Bool
+                        | Type::S8
+                        | Type::U8
+                        | Type::S16
+                        | Type::U16
+                        | Type::S32
+                        | Type::U32
+                        | Type::S64
+                        | Type::U64
+                        | Type::Float32
+                        | Type::Float64
+                        | Type::Char
+                        | Type::Own(_)
+                        | Type::Borrow(_)
+                )),
+            "traced input loading requires direct scalar/resource arguments"
+        );
+    }
     let [root, rest @ ..] = components.as_slice() else {
         unreachable!("root component is always registered");
     };
@@ -325,7 +401,35 @@ pub async fn call_coordination_script_with_interleaving_check(
         &mut Vec::new(),
     )
     .await?;
-    let execution = check_captured_execution(&store.data().traces, [])?;
+    let registry = &store.data().traces;
+    let mut handles = Vec::new();
+    if !input_locals.is_empty() {
+        // The root coordinator is instantiated before input UTXOs;
+        // the registry iterates in instance-index order.
+        let (_, coordinator) = registry
+            .instances()
+            .map_err(|error| wasmtime::format_err!("trace capture failed: {error}"))?
+            .next()
+            .context("missing coordinator trace")?;
+        let fref = root
+            .templates
+            .export_fref(script)
+            .context("missing coordinator export")?;
+        let entry = coordinator
+            .steps()
+            .iter()
+            .find(|step| step.current_function_ref == Some(fref))
+            .context("missing coordinator entry arguments")?;
+        for local in input_locals {
+            let &(handle, _) = entry
+                .locals_words
+                .get(local)
+                .context("missing input handle local")?;
+            handles.push(starstream_proving_runtime::ResourceHandle(handle));
+        }
+    }
+    // TODO: Authenticate these input handles against the coordinator argument root.
+    let execution = check_captured_transaction(registry, handles, &input_methods)?;
     Ok((transaction, execution))
 }
 

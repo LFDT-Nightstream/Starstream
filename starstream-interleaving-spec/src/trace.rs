@@ -50,6 +50,13 @@ impl<T> From<T> for Out<T> {
 }
 
 impl MethodHash {
+    /// Split the four WIT words into low/high `u32` limb pairs.
+    pub fn from_u64_words(words: [u64; 4]) -> Self {
+        Self(std::array::from_fn(|i| {
+            (words[i / 2] >> (32 * (i % 2))) as u32
+        }))
+    }
+
     /// Stable textual form used by the Quint model. Preserve the original
     /// four-u64 formatting: high half then low half within each pair.
     #[must_use]
@@ -58,6 +65,30 @@ impl MethodHash {
             .chunks_exact(2)
             .map(|pair| format!("{:08x}{:08x}", pair[1], pair[0]))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MethodHash;
+
+    #[test]
+    fn method_hash_splits_words_low_half_first() {
+        assert_eq!(
+            MethodHash::from_u64_words(
+                [0x0123_4567_89ab_cdef, 0xfedc_ba98_7654_3210, 0, u64::MAX,]
+            ),
+            MethodHash([
+                0x89ab_cdef,
+                0x0123_4567,
+                0x7654_3210,
+                0xfedc_ba98,
+                0,
+                0,
+                u32::MAX,
+                u32::MAX,
+            ])
+        );
     }
 }
 
@@ -136,7 +167,7 @@ pub struct Trace(pub Vec<Step>);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputUtxo {
     pub storage: StarstreamValue,
-    /// Ordered initial preload sequence, including duplicates.
+    /// Sorted, deduplicated ABI methods, preloaded in this order.
     pub methods: Vec<MethodHash>,
 }
 
