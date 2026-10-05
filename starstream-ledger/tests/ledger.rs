@@ -15,12 +15,12 @@ use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use sha2::{Digest as _, Sha256};
+use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::client::http::{
     ClientBuilder, build_contract_get_request, build_contract_publish_request, build_fund_request,
     build_transaction_get_request,
 };
 use starstream_ledger::client::runtime::{compile_component, new_contract};
-use starstream_ledger::client::{build_publish_envelope, encode_transaction};
 use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
@@ -200,11 +200,8 @@ async fn http() {
         .to_tagged_vec()
         .unwrap();
     let req = http::Request::builder()
-        .method(http::Method::PUT)
-        .uri(format!(
-            "http://{addr}/contracts/{}",
-            encode_digest(&SCORE_WASM_DIGEST)
-        ))
+        .method(Method::POST)
+        .uri(format!("http://{addr}/rpc"))
         .header(CONTENT_TYPE, "application/cose")
         .body(Full::new(Bytes::from(crit_envelope)))
         .unwrap();
@@ -283,10 +280,11 @@ async fn http() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert!(body.starts_with("invalid Wasm: "), "{body}");
 
-    client
+    let digest = client
         .publish_contract(ADMIN.clone(), 2, SCORE_WASM.clone())
         .await
         .unwrap();
+    assert_eq!(digest, *SCORE_WASM_DIGEST);
 
     let wasm = client.get_contract_wasm(*SCORE_WASM_DIGEST).await.unwrap();
     assert_eq!(wasm, SCORE_WASM.as_ref());
@@ -426,15 +424,15 @@ async fn http() {
         events,
         proof,
     };
-    let tx_digest: [u8; 32] =
-        Sha256::digest(encode_transaction(NETWORK, tx.clone()).unwrap()).into();
-    client.transact(ADMIN.clone(), tx.clone()).await.unwrap();
+    let tx_cbor = minicbor::to_vec(&tx).unwrap();
+    let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
+    let digest = client.transact(ADMIN.clone(), tx.clone()).await.unwrap();
+    assert_eq!(digest, tx_digest);
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 4);
     let got = client.get_transaction(tx_digest).await.unwrap();
     assert_eq!(got, tx);
 
-    let tx_cbor = encode_transaction(NETWORK, tx.clone()).unwrap();
     let req = build_transaction_get_request(&api_base, &tx_digest, Some(APPLICATION_CBOR)).unwrap();
     let (
         http::response::Parts {
@@ -471,7 +469,13 @@ async fn http() {
         Some(tx_cbor.len().to_string().as_bytes())
     );
     let err = client
-        .transact(ADMIN.clone(), tx)
+        .transact(
+            ADMIN.clone(),
+            Transaction {
+                outputs: Vec::default(),
+                ..tx
+            },
+        )
         .await
         .expect_err("spent inputs must be rejected");
     assert_eq!(err.to_string(), "input not found");

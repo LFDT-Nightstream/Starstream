@@ -33,6 +33,7 @@ hyper-util = { workspace = true, features = [
     "http2",
     "tokio",
 ] }
+minicbor = { workspace = true, features = ["std"] }
 rand_core = { workspace = true, features = ["getrandom", "std"] }
 sha2 = { workspace = true }
 starstream-ledger = { workspace = true, features = ["client"] }
@@ -65,7 +66,6 @@ wrpc-wave = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
-minicbor = { workspace = true, features = ["std"] }
 starstream-compiler = { workspace = true }
 starstream-ledger = { workspace = true, features = ["server"] }
 starstream-to-wasm = { workspace = true }

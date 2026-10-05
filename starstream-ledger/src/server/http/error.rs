@@ -4,10 +4,8 @@ use ed25519_dalek::VerifyingKey;
 use mediatype::MediaType;
 use thiserror::Error;
 
-use crate::{
-    APPLICATION_COSE, DigestParseError, EnvelopeContext, FUND_CONTEXT, PUBLISH_CONTEXT,
-    TRANSACTION_CONTEXT, encode_digest,
-};
+use crate::cose::EnvelopeReadError;
+use crate::{APPLICATION_COSE, APPLICATION_WRPC, DigestParseError, encode_digest};
 
 #[derive(Debug, Error)]
 pub enum ContractGetError {
@@ -32,84 +30,36 @@ impl ContractGetError {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum EnvelopeReadError {
-    #[error(transparent)]
-    ContentTypeToStr(http::header::ToStrError),
-    #[error(transparent)]
-    ContentTypeParsing(mediatype::MediaTypeError),
-    #[error("expected `{APPLICATION_COSE}` content-type, got `{0}`")]
-    UnsupportedContentType(Box<str>),
-    #[error("missing content-type, expected `{APPLICATION_COSE}`")]
-    ContentTypeMissing,
-    #[error("body exceeds {0}-byte limit")]
-    BodyTooLarge(u64),
-    #[error(transparent)]
-    Body(Box<dyn std::error::Error + Send + Sync>),
-    #[error("body is not a valid COSE_Sign1: {0}")]
-    CoseSign1Parsing(coset::CoseError),
-    #[error("body is not a valid COSE_Sign: {0}")]
-    CoseSignParsing(coset::CoseError),
-    #[error("envelope must contain at least one signature")]
-    SignatureMissing,
-    #[error("failed to reencode envelope: {0}")]
-    Reencode(coset::CoseError),
-    #[error("envelope must not contain unprotected headers")]
-    UnprotectedHeader,
-    #[error("envelope must not contain critical headers")]
-    CriticalHeader,
-    #[error("protected `alg` header must be EdDSA")]
-    Algorithm,
-    #[error("protected `kid` header must be a raw 32-byte Ed25519 public key")]
-    KeyIdFormat,
-    #[error("`kid` is not a valid Ed25519 public key: {0}")]
-    Key(ed25519_dalek::SignatureError),
-    #[error("signature verification failed: {0}")]
-    SignatureVerification(ed25519_dalek::SignatureError),
-}
-
 impl EnvelopeReadError {
     fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::ContentTypeToStr(..)
-            | Self::ContentTypeParsing(..)
-            | Self::Body(..)
+            Self::TagDecoding(..)
+            | Self::UnsupportedTag(..)
             | Self::CoseSign1Parsing(..)
             | Self::CoseSignParsing(..)
+            | Self::NonCanonical
+            | Self::PayloadMissing
+            | Self::Decoding(..)
             | Self::SignatureMissing
             | Self::UnprotectedHeader
             | Self::CriticalHeader
             | Self::Algorithm
             | Self::KeyIdFormat
             | Self::Key(..) => http::StatusCode::BAD_REQUEST,
-            Self::BodyTooLarge(..) => http::StatusCode::PAYLOAD_TOO_LARGE,
-            Self::UnsupportedContentType(..) | Self::ContentTypeMissing => {
-                http::StatusCode::UNSUPPORTED_MEDIA_TYPE
-            }
             Self::SignatureVerification(..) => http::StatusCode::UNAUTHORIZED,
-            Self::Reencode(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Reencoding(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
 
 #[derive(Debug, Error)]
-pub enum ContractPutError {
-    #[error(transparent)]
-    DigestParsing(DigestParseError),
-    #[error(transparent)]
-    Envelope(EnvelopeReadError),
-    #[error("COSE_Sign1 payload missing")]
-    PayloadMissing,
-    #[error("COSE_Sign1 payload is not valid CBOR: {0}")]
-    PayloadParsing(minicbor::decode::Error),
-    #[error("unexpected context `{0}`, expected `{PUBLISH_CONTEXT}`")]
-    Context(EnvelopeContext),
-    #[error("unexpected network `{got}`, expected `{expected}`")]
-    Network { got: Box<str>, expected: Arc<str> },
-    #[error("digest mismatch, got: `{}`", encode_digest(.0))]
-    DigestMismatch([u8; 32]),
+pub enum PublishPostError {
+    #[error("expected exactly one signer, got {0}")]
+    SignerCount(usize),
     #[error("invalid Wasm: {0}")]
     Wasm(wasmparser::BinaryReaderError),
+    #[error("contract `{}` already exists", encode_digest(.0))]
+    AlreadyExists([u8; 32]),
     #[error("account ID `{}` not found", hex::encode(.0))]
     AccountNotFound(VerifyingKey),
     #[error("nonce must be higher than {last_nonce}, got {nonce}")]
@@ -120,18 +70,11 @@ pub enum ContractPutError {
     Http(http::Error),
 }
 
-impl ContractPutError {
+impl PublishPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::DigestParsing(..)
-            | Self::PayloadMissing
-            | Self::PayloadParsing(..)
-            | Self::Context(..)
-            | Self::Network { .. }
-            | Self::DigestMismatch(..)
-            | Self::Wasm(..) => http::StatusCode::BAD_REQUEST,
-            Self::Envelope(err) => err.http_status_code(),
-            Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
+            Self::SignerCount(..) | Self::Wasm(..) => http::StatusCode::BAD_REQUEST,
+            Self::AlreadyExists(..) | Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::AccountNotFound(..) | Self::InsufficientBalance { .. } => {
                 http::StatusCode::PAYMENT_REQUIRED
             }
@@ -141,17 +84,9 @@ impl ContractPutError {
 }
 
 #[derive(Debug, Error)]
-pub enum AccountFundError {
-    #[error(transparent)]
-    Envelope(EnvelopeReadError),
-    #[error("COSE_Sign1 payload missing")]
-    PayloadMissing,
-    #[error("COSE_Sign1 payload is not valid CBOR: {0}")]
-    PayloadParsing(minicbor::decode::Error),
-    #[error("unexpected context `{0}`, expected `{FUND_CONTEXT}`")]
-    Context(EnvelopeContext),
-    #[error("unexpected network `{got}`, expected `{expected}`")]
-    Network { got: Box<str>, expected: Arc<str> },
+pub enum FundPostError {
+    #[error("expected exactly one signer, got {0}")]
+    SignerCount(usize),
     #[error("fund transaction account is not a valid Ed25519 public key: {0}")]
     Key(ed25519_dalek::SignatureError),
     #[error("fund transaction account is a weak Ed25519 public key")]
@@ -164,16 +99,10 @@ pub enum AccountFundError {
     Http(http::Error),
 }
 
-impl AccountFundError {
+impl FundPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::PayloadMissing
-            | Self::PayloadParsing(..)
-            | Self::Context(..)
-            | Self::Network { .. }
-            | Self::Key(..)
-            | Self::WeakKey => http::StatusCode::BAD_REQUEST,
-            Self::Envelope(err) => err.http_status_code(),
+            Self::SignerCount(..) | Self::Key(..) | Self::WeakKey => http::StatusCode::BAD_REQUEST,
             Self::NotAdmin(..) => http::StatusCode::FORBIDDEN,
             Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -222,21 +151,11 @@ impl GenesisGetError {
 }
 
 #[derive(Debug, Error)]
-pub enum TransactionPutError {
-    #[error(transparent)]
-    DigestParsing(DigestParseError),
-    #[error(transparent)]
-    Envelope(EnvelopeReadError),
-    #[error("COSE_Sign payload missing")]
-    PayloadMissing,
-    #[error("digest mismatch, got: `{}`", encode_digest(.0))]
-    DigestMismatch([u8; 32]),
-    #[error("COSE_Sign payload is not valid CBOR: {0}")]
-    PayloadParsing(minicbor::decode::Error),
-    #[error("unexpected context `{0}`, expected `{TRANSACTION_CONTEXT}`")]
-    Context(EnvelopeContext),
-    #[error("unexpected network `{got}`, expected `{expected}`")]
-    Network { got: Box<str>, expected: Arc<str> },
+pub enum TransactionPostError {
+    #[error("failed to encode transaction: {0}")]
+    Encoding(minicbor::encode::Error<core::convert::Infallible>),
+    #[error("transaction `{}` already exists", encode_digest(.0))]
+    AlreadyExists([u8; 32]),
     #[error("transaction must have at least one input")]
     InputsEmpty,
     #[error("duplicate input")]
@@ -253,29 +172,64 @@ pub enum TransactionPutError {
     Http(http::Error),
 }
 
-impl TransactionPutError {
+impl TransactionPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::DigestParsing(..)
-            | Self::PayloadMissing
-            | Self::DigestMismatch(..)
-            | Self::PayloadParsing(..)
-            | Self::Context(..)
-            | Self::Network { .. }
-            | Self::InputsEmpty
+            Self::InputsEmpty
             | Self::InputDuplicate
             | Self::InputTransactionDigestParsing(..)
             | Self::InputIndexOverflow => http::StatusCode::BAD_REQUEST,
-            Self::Envelope(err) => err.http_status_code(),
+            Self::AlreadyExists(..) => http::StatusCode::CONFLICT,
             Self::InputNotFound => http::StatusCode::NOT_FOUND,
             Self::InputUnauthorized => http::StatusCode::FORBIDDEN,
-            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Encoding(..) | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum EnvelopePostError {
+    #[error("body exceeds {0}-byte limit")]
+    BodyTooLarge(usize),
+    #[error(transparent)]
+    Body(Box<dyn std::error::Error + Send + Sync>),
+    #[error("unexpected network `{got}`, expected `{expected}`")]
+    Network { got: Box<str>, expected: Arc<str> },
+    #[error(transparent)]
+    Envelope(EnvelopeReadError),
+    #[error(transparent)]
+    Fund(FundPostError),
+    #[error(transparent)]
+    Publish(PublishPostError),
+    #[error(transparent)]
+    Transaction(TransactionPostError),
+}
+
+impl EnvelopePostError {
+    pub fn http_status_code(&self) -> http::StatusCode {
+        match self {
+            Self::Body(..) | Self::Network { .. } => http::StatusCode::BAD_REQUEST,
+            Self::BodyTooLarge(..) => http::StatusCode::PAYLOAD_TOO_LARGE,
+            Self::Envelope(err) => err.http_status_code(),
+            Self::Fund(err) => err.http_status_code(),
+            Self::Publish(err) => err.http_status_code(),
+            Self::Transaction(err) => err.http_status_code(),
         }
     }
 }
 
 #[derive(Debug, Error)]
 pub enum RpcPostError {
+    #[error(transparent)]
+    ContentTypeToStr(http::header::ToStrError),
+    #[error(transparent)]
+    ContentTypeParsing(mediatype::MediaTypeError),
+    #[error("expected `{APPLICATION_COSE}` or `{APPLICATION_WRPC}` content-type, got `{0}`")]
+    UnsupportedContentType(Box<str>),
+    #[error("missing content-type, expected `{APPLICATION_COSE}` or `{APPLICATION_WRPC}`")]
+    ContentTypeMissing,
+    #[error(transparent)]
+    Envelope(EnvelopePostError),
     #[error("failed to read wRPC invocation header: {0}")]
     Header(wrpc_transport::frame::HeaderReadError),
     #[error("instance `{0}` not found")]
@@ -328,7 +282,13 @@ pub enum RpcPostError {
 impl RpcPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::Header(..)
+            Self::Envelope(err) => err.http_status_code(),
+            Self::UnsupportedContentType(..) | Self::ContentTypeMissing => {
+                http::StatusCode::UNSUPPORTED_MEDIA_TYPE
+            }
+            Self::ContentTypeToStr(..)
+            | Self::ContentTypeParsing(..)
+            | Self::Header(..)
             | Self::TransactionDigestParsing(..)
             | Self::UtxoIndexOverflow
             | Self::ParameterDecoding(..)

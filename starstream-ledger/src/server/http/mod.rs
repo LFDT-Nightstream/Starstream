@@ -11,15 +11,13 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use bytes::{Buf, Bytes, BytesMut};
-use coset::{
-    CborSerializable as _, CoseSign, CoseSign1, CoseSignature, TaggedCborSerializable as _, iana,
-};
-use ed25519_dalek::{Signature, VerifyingKey};
+use ed25519_dalek::VerifyingKey;
 use futures::{StreamExt as _, TryStreamExt as _};
 use headers_accept::Accept;
 use headers_core::Header as _;
-use http::HeaderValue;
-use http::header::{ACCEPT, ALLOW, CONTENT_LENGTH, CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
+use http::header::{
+    ACCEPT, ALLOW, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, VARY, X_CONTENT_TYPE_OPTIONS,
+};
 use http_body::Body as _;
 use http_body_util::BodyExt as _;
 use hyper::service::service_fn;
@@ -40,26 +38,20 @@ use wasmparser::WasmFeatures;
 use wasmtime::component::{ResourceTable, Type, Val};
 use wrpc_transport::FrameDecoder;
 
+use crate::cose::read_envelope;
 use crate::runtime::apply_state;
 use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx};
 use crate::wrpc::LEDGER_PACKAGE;
 use crate::wrpc::codec::{ValEncoder, read_value};
 use crate::{
-    APPLICATION_CBOR, APPLICATION_COSE, APPLICATION_WASM, Action, Block, Envelope, EnvelopeContext,
-    Fund, Publish, TransactionInput, parse_digest,
+    APPLICATION_CBOR, APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Action, Block, Fund,
+    Message, Publish, TransactionInput, encode_digest, parse_digest,
 };
 
 mod error;
 use error::*;
 
-const APPLICATION_OCTET_STREAM: MediaType = MediaType::new(
-    mediatype::names::APPLICATION,
-    mediatype::names::OCTET_STREAM,
-);
-
-const MAX_CONTRACT_PUT_BODY_SIZE: u64 = 1 << 20;
-const MAX_FUND_POST_BODY_SIZE: u64 = 1 << 10;
-const MAX_TRANSACTION_PUT_BODY_SIZE: u64 = 1 << 24;
+const MAX_ENVELOPE_SIZE: usize = 1 << 24;
 
 fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     debug!("binding TCP socket");
@@ -82,128 +74,11 @@ fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     Ok(sock)
 }
 
-async fn read_cose_body<const MAX: u64>(
-    headers: &http::HeaderMap,
-    body: hyper::body::Incoming,
-) -> Result<Bytes, EnvelopeReadError> {
-    debug_assert!(usize::try_from(MAX).is_ok());
-
-    match headers.get(CONTENT_TYPE).map(HeaderValue::to_str) {
-        None => return Err(EnvelopeReadError::ContentTypeMissing),
-        Some(Ok(ct)) => match MediaType::parse(ct) {
-            Ok(ct) if ct.essence() == APPLICATION_COSE => {}
-            Ok(ct) => {
-                return Err(EnvelopeReadError::UnsupportedContentType(
-                    ct.to_string().into(),
-                ));
-            }
-            Err(err) => return Err(EnvelopeReadError::ContentTypeParsing(err)),
-        },
-        Some(Err(err)) => return Err(EnvelopeReadError::ContentTypeToStr(err)),
-    }
-
-    if body.size_hint().lower() > MAX {
-        return Err(EnvelopeReadError::BodyTooLarge(MAX));
-    }
-    let envelope = http_body_util::Limited::new(body, MAX as _)
-        .collect()
-        .await
-        .map_err(|err| {
-            if err.is::<http_body_util::LengthLimitError>() {
-                EnvelopeReadError::BodyTooLarge(MAX)
-            } else {
-                EnvelopeReadError::Body(err)
-            }
-        })?
-        .to_bytes();
-    Ok(envelope)
-}
-
-fn verify_cose_headers(
-    protected: &coset::ProtectedHeader,
-    unprotected: &coset::Header,
-) -> Result<VerifyingKey, EnvelopeReadError> {
-    if !unprotected.is_empty() {
-        return Err(EnvelopeReadError::UnprotectedHeader);
-    }
-    if !protected.header.crit.is_empty() {
-        return Err(EnvelopeReadError::CriticalHeader);
-    }
-    if protected.header.alg != Some(coset::Algorithm::Assigned(iana::Algorithm::EdDSA)) {
-        return Err(EnvelopeReadError::Algorithm);
-    }
-    let key = <[u8; 32]>::try_from(protected.header.key_id.as_slice())
-        .map_err(|_| EnvelopeReadError::KeyIdFormat)?;
-    VerifyingKey::from_bytes(&key).map_err(EnvelopeReadError::Key)
-}
-
-async fn read_sign1_envelope<const MAX: u64>(
-    headers: &http::HeaderMap,
-    body: hyper::body::Incoming,
-) -> Result<(Vec<u8>, VerifyingKey, Option<Vec<u8>>), EnvelopeReadError> {
-    let envelope = read_cose_body::<MAX>(headers, body).await?;
-    let sign1 = CoseSign1::from_tagged_slice(&envelope)
-        .or_else(|_| CoseSign1::from_slice(&envelope))
-        .map_err(EnvelopeReadError::CoseSign1Parsing)?;
-    let key = verify_cose_headers(&sign1.protected, &sign1.unprotected)?;
-    sign1
-        .verify_signature(b"", |sig, data| {
-            Signature::from_slice(sig).and_then(|sig| key.verify_strict(data, &sig))
-        })
-        .map_err(EnvelopeReadError::SignatureVerification)?;
-    let payload = sign1.payload.clone();
-
-    // Reencode the envelope in a canonical form
-    let envelope = sign1.to_tagged_vec().map_err(EnvelopeReadError::Reencode)?;
-    Ok((envelope, key, payload))
-}
-
-async fn read_sign_envelope<const MAX: u64>(
-    headers: &http::HeaderMap,
-    body: hyper::body::Incoming,
-) -> Result<(Vec<u8>, Vec<VerifyingKey>, Option<Vec<u8>>), EnvelopeReadError> {
-    let envelope = read_cose_body::<MAX>(headers, body).await?;
-    let sign = CoseSign::from_tagged_slice(&envelope)
-        .or_else(|_| CoseSign::from_slice(&envelope))
-        .map_err(EnvelopeReadError::CoseSignParsing)?;
-    if !sign.unprotected.is_empty() {
-        return Err(EnvelopeReadError::UnprotectedHeader);
-    }
-    if !sign.protected.header.crit.is_empty() {
-        return Err(EnvelopeReadError::CriticalHeader);
-    }
-    if sign.signatures.is_empty() {
-        return Err(EnvelopeReadError::SignatureMissing);
-    }
-    let mut keys = Vec::with_capacity(sign.signatures.len());
-    for (
-        i,
-        CoseSignature {
-            protected,
-            unprotected,
-            ..
-        },
-    ) in sign.signatures.iter().enumerate()
-    {
-        let key = verify_cose_headers(protected, unprotected)?;
-        sign.verify_signature(i, b"", |sig, data| {
-            Signature::from_slice(sig).and_then(|sig| key.verify_strict(data, &sig))
-        })
-        .map_err(EnvelopeReadError::SignatureVerification)?;
-        keys.push(key);
-    }
-    let payload = sign.payload.clone();
-
-    // Reencode the envelope in a canonical form
-    let envelope = sign.to_tagged_vec().map_err(EnvelopeReadError::Reencode)?;
-    Ok((envelope, keys, payload))
-}
-
 fn negotiate_accept(
     headers: &http::HeaderMap,
     available: &'static [MediaType<'static>],
 ) -> Option<Result<&'static MediaType<'static>, AcceptHeaderError>> {
-    headers.contains_key(http::header::ACCEPT).then(|| {
+    headers.contains_key(ACCEPT).then(|| {
         let accept = Accept::decode(&mut headers.get_all(ACCEPT).iter())
             .map_err(AcceptHeaderError::Decoding)?;
         accept
@@ -329,50 +204,33 @@ impl Ledger {
         .map_err(ContractGetError::Http)
     }
 
-    async fn handle_contract_put(
+    async fn handle_publish_post(
         &self,
-        headers: http::HeaderMap,
-        digest: &str,
-        body: hyper::body::Incoming,
-    ) -> Result<http::Response<http_body_util::Full<Bytes>>, ContractPutError> {
-        let digest = parse_digest(digest).map_err(ContractPutError::DigestParsing)?;
-
-        let (envelope, account, payload) =
-            read_sign1_envelope::<MAX_CONTRACT_PUT_BODY_SIZE>(&headers, body)
-                .await
-                .map_err(ContractPutError::Envelope)?;
-        let payload = payload.as_deref().ok_or(ContractPutError::PayloadMissing)?;
-        let Envelope {
-            context,
-            network,
-            payload: Publish { nonce, wasm },
-        } = minicbor::decode(payload).map_err(ContractPutError::PayloadParsing)?;
-        if context != EnvelopeContext::Publish {
-            return Err(ContractPutError::Context(context));
-        }
-        if *network != *self.network {
-            return Err(ContractPutError::Network {
-                got: network,
-                expected: Arc::clone(&self.network),
-            });
-        }
-        let wasm_digest: [u8; 32] = Sha256::digest(&wasm).into();
-        if wasm_digest != digest {
-            return Err(ContractPutError::DigestMismatch(wasm_digest));
-        }
+        envelope: Bytes,
+        signers: Vec<VerifyingKey>,
+        Publish { nonce, wasm }: Publish,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, PublishPostError> {
+        let [account] = signers[..] else {
+            return Err(PublishPostError::SignerCount(signers.len()));
+        };
         wasmparser::Validator::new_with_features(
             WasmFeatures::default() | WasmFeatures::CM_IMPLEMENTS,
         )
         .validate_all(&wasm)
-        .map_err(ContractPutError::Wasm)?;
+        .map_err(PublishPostError::Wasm)?;
 
+        let digest: [u8; 32] = Sha256::digest(&wasm).into();
+        let mut contracts = self.contracts.write().await;
+        let hash_map::Entry::Vacant(entry) = contracts.entry(digest) else {
+            return Err(PublishPostError::AlreadyExists(digest));
+        };
         {
             let accounts = self.accounts.read().await;
             let Some(account) = accounts.get(&account) else {
-                return Err(ContractPutError::AccountNotFound(account));
+                return Err(PublishPostError::AccountNotFound(account));
             };
             if let Err(last_nonce) = try_update_nonce(&account.last_nonce, nonce) {
-                return Err(ContractPutError::NonceTooLow { last_nonce, nonce });
+                return Err(PublishPostError::NonceTooLow { last_nonce, nonce });
             }
             let required = envelope.len() as _;
             if let Err(available) =
@@ -382,80 +240,56 @@ impl Ledger {
                         balance.checked_sub(required)
                     })
             {
-                return Err(ContractPutError::InsufficientBalance {
+                return Err(PublishPostError::InsufficientBalance {
                     required,
                     available,
                 });
             }
         }
-        {
-            let contracts = self.contracts.read().await;
-            if contracts.contains_key(&digest) {
-                return build_text_response(http::StatusCode::OK, "")
-                    .map_err(ContractPutError::Http);
-            }
-        }
-        let envelope = Bytes::from(envelope);
-        {
-            let mut contracts = self.contracts.write().await;
-            let hash_map::Entry::Vacant(entry) = contracts.entry(digest) else {
-                return build_text_response(http::StatusCode::OK, "")
-                    .map_err(ContractPutError::Http);
-            };
-            // TODO: Split component
-            entry.insert(Arc::new(Contract {
-                wasm: wasm.into(),
-                envelope: envelope.clone(),
-            }));
-        }
+        // TODO: Split component
+        entry.insert(Arc::new(Contract {
+            wasm: wasm.into(),
+            envelope: envelope.clone(),
+        }));
         {
             let mut blocks = self.blocks.write().await;
             blocks.push(Block {
                 actions: Box::from([Action::UploadContract(envelope)]),
             });
         }
-        build_text_response(http::StatusCode::OK, "").map_err(ContractPutError::Http)
+        let digest = encode_digest(&digest);
+        http::Response::builder()
+            .status(http::StatusCode::CREATED)
+            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .header(LOCATION, format!("/contracts/{digest}"))
+            .body(http_body_util::Full::new(digest.into()))
+            .map_err(PublishPostError::Http)
     }
 
     async fn handle_fund_post(
         &self,
-        headers: http::HeaderMap,
-        body: hyper::body::Incoming,
-    ) -> Result<http::Response<http_body_util::Full<Bytes>>, AccountFundError> {
-        let (envelope, key, payload) =
-            read_sign1_envelope::<MAX_FUND_POST_BODY_SIZE>(&headers, body)
-                .await
-                .map_err(AccountFundError::Envelope)?;
-        let payload = payload.as_deref().ok_or(AccountFundError::PayloadMissing)?;
-        let Envelope {
-            context,
-            network,
-            payload:
-                Fund {
-                    nonce,
-                    account,
-                    amount,
-                },
-        } = minicbor::decode(payload).map_err(AccountFundError::PayloadParsing)?;
-        if context != EnvelopeContext::Fund {
-            return Err(AccountFundError::Context(context));
-        }
-        if *network != *self.network {
-            return Err(AccountFundError::Network {
-                got: network,
-                expected: Arc::clone(&self.network),
-            });
-        }
-        let account = VerifyingKey::from_bytes(&account).map_err(AccountFundError::Key)?;
+        envelope: Bytes,
+        signers: Vec<VerifyingKey>,
+        Fund {
+            nonce,
+            account,
+            amount,
+        }: Fund,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, FundPostError> {
+        let [key] = signers[..] else {
+            return Err(FundPostError::SignerCount(signers.len()));
+        };
+        let account = VerifyingKey::from_bytes(&account).map_err(FundPostError::Key)?;
         if account.is_weak() {
-            return Err(AccountFundError::WeakKey);
+            return Err(FundPostError::WeakKey);
         }
 
         if key != self.admin.key {
-            return Err(AccountFundError::NotAdmin(key));
+            return Err(FundPostError::NotAdmin(key));
         }
         if let Err(last_nonce) = try_update_nonce(&self.admin.last_nonce, nonce) {
-            return Err(AccountFundError::NonceTooLow { last_nonce, nonce });
+            return Err(FundPostError::NonceTooLow { last_nonce, nonce });
         }
         {
             let mut accounts = self.accounts.write().await;
@@ -469,10 +303,10 @@ impl Ledger {
         {
             let mut blocks = self.blocks.write().await;
             blocks.push(Block {
-                actions: Box::from([Action::FundAccount(envelope.into())]),
+                actions: Box::from([Action::FundAccount(envelope)]),
             });
         }
-        build_text_response(http::StatusCode::OK, "").map_err(AccountFundError::Http)
+        build_text_response(http::StatusCode::OK, "").map_err(FundPostError::Http)
     }
 
     fn handle_genesis_get(
@@ -573,79 +407,56 @@ impl Ledger {
         .map_err(TransactionGetError::Http)
     }
 
-    async fn handle_transaction_put(
+    async fn handle_transaction_post(
         &self,
-        headers: http::HeaderMap,
-        digest: &str,
-        body: hyper::body::Incoming,
-    ) -> Result<http::Response<http_body_util::Full<Bytes>>, TransactionPutError> {
-        let digest = parse_digest(digest).map_err(TransactionPutError::DigestParsing)?;
-
-        let (envelope, signers, payload) =
-            read_sign_envelope::<MAX_TRANSACTION_PUT_BODY_SIZE>(&headers, body)
-                .await
-                .map_err(TransactionPutError::Envelope)?;
-        let payload = payload
-            .as_deref()
-            .ok_or(TransactionPutError::PayloadMissing)?;
-        let payload_digest: [u8; 32] = Sha256::digest(payload).into();
-        if payload_digest != digest {
-            return Err(TransactionPutError::DigestMismatch(payload_digest));
-        }
-        let Envelope {
-            context,
-            network,
-            payload: crate::Transaction {
-                inputs, outputs, ..
-            },
-        } = minicbor::decode(payload).map_err(TransactionPutError::PayloadParsing)?;
-        if context != EnvelopeContext::Transaction {
-            return Err(TransactionPutError::Context(context));
-        }
-        if *network != *self.network {
-            return Err(TransactionPutError::Network {
-                got: network,
-                expected: Arc::clone(&self.network),
-            });
-        }
+        envelope: Bytes,
+        signers: Vec<VerifyingKey>,
+        transaction: crate::Transaction,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, TransactionPostError> {
+        let payload = minicbor::to_vec(&transaction).map_err(TransactionPostError::Encoding)?;
+        let digest: [u8; 32] = Sha256::digest(&payload).into();
+        let crate::Transaction {
+            inputs, outputs, ..
+        } = transaction;
         if inputs.is_empty() {
-            return Err(TransactionPutError::InputsEmpty);
+            return Err(TransactionPostError::InputsEmpty);
         }
         let mut resolved_inputs = HashSet::with_capacity(inputs.len());
         for TransactionInput { transaction, index } in inputs {
             let index =
-                usize::try_from(index).map_err(|_| TransactionPutError::InputIndexOverflow)?;
+                usize::try_from(index).map_err(|_| TransactionPostError::InputIndexOverflow)?;
             let transaction = if transaction.is_empty() {
                 None
             } else {
                 let transaction = parse_digest(&transaction).map_err(|err| {
-                    TransactionPutError::InputTransactionDigestParsing(transaction, err)
+                    TransactionPostError::InputTransactionDigestParsing(transaction, err)
                 })?;
                 Some(transaction)
             };
             if !resolved_inputs.insert((transaction, index)) {
-                return Err(TransactionPutError::InputDuplicate);
+                return Err(TransactionPostError::InputDuplicate);
             }
         }
 
-        let envelope = Bytes::from(envelope);
-
-        let mut genesis = self.genesis.outputs.write().await;
         let mut txs = self.transactions.write().await;
+        if txs.contains_key(&digest) {
+            return Err(TransactionPostError::AlreadyExists(digest));
+        }
+        let mut genesis = self.genesis.outputs.write().await;
         for (tx, i) in &resolved_inputs {
             // TODO: Verify transaction signatures
             if let Some(tx) = tx {
                 let Transaction { outputs, .. } =
-                    txs.get(tx).ok_or(TransactionPutError::InputNotFound)?;
-                let utxo = outputs.get(*i).ok_or(TransactionPutError::InputNotFound)?;
-                let _utxo = utxo.as_ref().ok_or(TransactionPutError::InputNotFound)?;
+                    txs.get(tx).ok_or(TransactionPostError::InputNotFound)?;
+                let utxo = outputs.get(*i).ok_or(TransactionPostError::InputNotFound)?;
+                let _utxo = utxo.as_ref().ok_or(TransactionPostError::InputNotFound)?;
             } else {
                 genesis
                     .get(*i)
                     .and_then(Option::as_ref)
-                    .ok_or(TransactionPutError::InputNotFound)?;
+                    .ok_or(TransactionPostError::InputNotFound)?;
                 if !signers.contains(&self.admin.key) {
-                    return Err(TransactionPutError::InputUnauthorized);
+                    return Err(TransactionPostError::InputUnauthorized);
                 }
             }
         }
@@ -670,21 +481,92 @@ impl Ledger {
         let tx = Transaction {
             outputs,
             envelope: envelope.clone(),
-            payload: Bytes::copy_from_slice(payload),
+            payload: payload.into(),
         };
         txs.insert(digest, tx);
 
-        let mut blocks = self.blocks.write().await;
-        blocks.push(Block {
-            actions: Box::from([Action::Transaction(envelope)]),
-        });
-        build_text_response(http::StatusCode::OK, "").map_err(TransactionPutError::Http)
+        {
+            let mut blocks = self.blocks.write().await;
+            blocks.push(Block {
+                actions: Box::from([Action::Transaction(envelope)]),
+            });
+        }
+        let digest = encode_digest(&digest);
+        http::Response::builder()
+            .status(http::StatusCode::CREATED)
+            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .header(LOCATION, format!("/transactions/{digest}"))
+            .body(http_body_util::Full::new(digest.into()))
+            .map_err(TransactionPostError::Http)
+    }
+
+    async fn handle_envelope_post(
+        &self,
+        body: hyper::body::Incoming,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, EnvelopePostError> {
+        if body.size_hint().lower() > MAX_ENVELOPE_SIZE as u64 {
+            return Err(EnvelopePostError::BodyTooLarge(MAX_ENVELOPE_SIZE));
+        }
+        let body = http_body_util::Limited::new(body, MAX_ENVELOPE_SIZE)
+            .collect()
+            .await
+            .map_err(|err| {
+                if err.is::<http_body_util::LengthLimitError>() {
+                    EnvelopePostError::BodyTooLarge(MAX_ENVELOPE_SIZE)
+                } else {
+                    EnvelopePostError::Body(err)
+                }
+            })?;
+        let body = body.to_bytes();
+        let (signers, envelope) = read_envelope(&body).map_err(EnvelopePostError::Envelope)?;
+        if *envelope.network != *self.network {
+            return Err(EnvelopePostError::Network {
+                got: envelope.network,
+                expected: Arc::clone(&self.network),
+            });
+        }
+        match envelope.message {
+            Message::Fund(fund) => self
+                .handle_fund_post(body, signers, fund)
+                .await
+                .map_err(EnvelopePostError::Fund),
+            Message::Publish(publish) => self
+                .handle_publish_post(body, signers, publish)
+                .await
+                .map_err(EnvelopePostError::Publish),
+            Message::Transaction(tx) => self
+                .handle_transaction_post(body, signers, tx)
+                .await
+                .map_err(EnvelopePostError::Transaction),
+        }
     }
 
     async fn handle_rpc_post(
         &self,
+        headers: http::HeaderMap,
         body: hyper::body::Incoming,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcPostError> {
+        let content_type = headers
+            .get(CONTENT_TYPE)
+            .ok_or(RpcPostError::ContentTypeMissing)?;
+        let content_type = content_type
+            .to_str()
+            .map_err(RpcPostError::ContentTypeToStr)?;
+        let content_type =
+            MediaType::parse(content_type).map_err(RpcPostError::ContentTypeParsing)?;
+        let content_type = content_type.essence();
+        if content_type == APPLICATION_COSE {
+            return self
+                .handle_envelope_post(body)
+                .await
+                .map_err(RpcPostError::Envelope);
+        }
+        if content_type != APPLICATION_WRPC {
+            return Err(RpcPostError::UnsupportedContentType(
+                content_type.to_string().into(),
+            ));
+        }
         let mut body = wrpc_http::data_reader_from_incoming(body);
         let wrpc_transport::frame::Header { instance, name } =
             wrpc_transport::frame::Header::read(&mut body)
@@ -849,7 +731,7 @@ impl Ledger {
             )
             .map_err(RpcPostError::FrameEncoding)?;
         http::Response::builder()
-            .header(CONTENT_TYPE, APPLICATION_OCTET_STREAM.to_string())
+            .header(CONTENT_TYPE, APPLICATION_WRPC.to_string())
             .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
             .body(http_body_util::Full::new(buf.freeze()))
             .map_err(RpcPostError::Http)
@@ -937,26 +819,8 @@ impl Ledger {
                         Ok(res) => Ok(res),
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
-                    ("PUT", Some("contracts"), Some(digest), None, ..) => match ledger
-                        .handle_contract_put(headers, digest, body)
-                        .await
-                    {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
                     (_, Some("contracts"), Some(..), None, ..) => {
-                        build_method_not_allowed("GET, HEAD, PUT", &method, pq.path())
-                    }
-
-                    ("POST", Some("fund"), None, ..) => match ledger
-                        .handle_fund_post(headers, body)
-                        .await
-                    {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
-                    (_, Some("fund"), None, ..) => {
-                        build_method_not_allowed("POST", &method, pq.path())
+                        build_method_not_allowed("GET, HEAD", &method, pq.path())
                     }
 
                     ("GET", Some("transactions"), Some(digest), None, ..) => match ledger
@@ -973,15 +837,8 @@ impl Ledger {
                         Ok(res) => Ok(res),
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
-                    ("PUT", Some("transactions"), Some(digest), None, ..) => match ledger
-                        .handle_transaction_put(headers, digest, body)
-                        .await
-                    {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
                     (_, Some("transactions"), Some(..), None, ..) => {
-                        build_method_not_allowed("GET, HEAD, PUT", &method, pq.path())
+                        build_method_not_allowed("GET, HEAD", &method, pq.path())
                     }
 
                     ("GET", Some("genesis"), None, ..) => {
@@ -1004,10 +861,14 @@ impl Ledger {
                         build_method_not_allowed("GET, HEAD", &method, pq.path())
                     }
 
-                    ("POST", Some("rpc"), None, ..) => match ledger.handle_rpc_post(body).await {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
+                    ("POST", Some("rpc"), None, ..) => {
+                        match ledger.handle_rpc_post(headers, body).await {
+                            Ok(res) => Ok(res),
+                            Err(err) => {
+                                build_text_response(err.http_status_code(), err.to_string())
+                            }
+                        }
+                    }
                     (_, Some("rpc"), None, ..) => {
                         build_method_not_allowed("POST", &method, pq.path())
                     }
