@@ -3,7 +3,7 @@
 //! compile worker ([`run`]) and a run worker ([`deploy`] + [`construct`],
 //! [`call`], …).
 //!
-//! The contract runtime is `starstream-runtime-next`, driven through its
+//! The contract runtime is `starstream-runtime`, driven through its
 //! `*_async` APIs on JSPI-backed fibers (see [`fiber`]); values cross the JS
 //! boundary as JSON, lowered to/from [`wasmtime::component::Val`] against each
 //! function's declared type.
@@ -22,7 +22,7 @@ use log::error;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use starstream_compiler::{ModuleGraph, typecheck_modules};
-use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
+use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use starstream_types::{FileSystem, MemoryFs};
 use wasmtime::component::{Component, Resource, ResourceTable, Type, Val, types};
 use wasmtime::error::Context as _;

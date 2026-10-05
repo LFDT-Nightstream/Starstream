@@ -2,8 +2,8 @@ use core::pin::Pin;
 
 use std::sync::Arc;
 
-use starstream_runtime_next::bindings::starstream;
-use starstream_runtime_next::{Token, Utxo, UtxoExport};
+use starstream_runtime::bindings::starstream;
+use starstream_runtime::{Token, Utxo, UtxoExport};
 use wasmtime::component::{Resource, ResourceTable, Val};
 use wasmtime::{StoreContextMut, bail};
 
@@ -19,7 +19,7 @@ impl starstream::std::cardano::Host for Ctx {
     }
 }
 
-impl starstream_runtime_next::Host for Ctx {
+impl starstream_runtime::Host for Ctx {
     type UtxoContext = Arc<UtxoCtx>;
 
     fn table(&mut self) -> &mut ResourceTable {

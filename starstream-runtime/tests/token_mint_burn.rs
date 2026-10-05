@@ -2,7 +2,7 @@ pub mod common;
 
 use std::sync::LazyLock;
 
-use starstream_runtime_next::{
+use starstream_runtime::{
     Contract, CoordinationScriptExport, Host, StorageExport, Token, TokenBurnExport,
     TokenMintExport, get_coordination_script_instance_import, utxo_imports,
 };

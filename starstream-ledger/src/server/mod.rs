@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use ed25519_dalek::VerifyingKey;
-use starstream_runtime_next::{
+use starstream_runtime::{
     CoordinationScriptImport, UtxoImport, get_coordination_script_instance_import, utxo_imports,
 };
 use tokio::sync::{RwLock, Semaphore};
@@ -121,18 +121,16 @@ impl Ledger {
 
     async fn compile(
         &self,
-        imports: &mut HashMap<Box<str>, starstream_runtime_next::Contract<Ctx>>,
+        imports: &mut HashMap<Box<str>, starstream_runtime::Contract<Ctx>>,
         external_id: Option<&str>,
         wasm: &[u8],
-    ) -> wasmtime::Result<starstream_runtime_next::Contract<Ctx>> {
-        struct ContractLookup<'a>(
-            &'a mut HashMap<Box<str>, starstream_runtime_next::Contract<Ctx>>,
-        );
-        impl starstream_runtime_next::ContractLookup<Ctx> for ContractLookup<'_> {
+    ) -> wasmtime::Result<starstream_runtime::Contract<Ctx>> {
+        struct ContractLookup<'a>(&'a mut HashMap<Box<str>, starstream_runtime::Contract<Ctx>>);
+        impl starstream_runtime::ContractLookup<Ctx> for ContractLookup<'_> {
             fn get_contract(
                 &self,
                 external_id: &str,
-            ) -> wasmtime::Result<starstream_runtime_next::Contract<Ctx>> {
+            ) -> wasmtime::Result<starstream_runtime::Contract<Ctx>> {
                 let contract = self.0.get(external_id).with_context(|| {
                     error!(external_id, "unresolved contract import");
                     format!("contract identified by `external-id` `{external_id}` not found")
@@ -173,6 +171,6 @@ impl Ledger {
             let contract = Box::pin(self.compile(imports, Some(external_id), &wasm)).await?;
             imports.insert(external_id.into(), contract);
         }
-        starstream_runtime_next::Contract::new(&component, external_id, ContractLookup(imports))
+        starstream_runtime::Contract::new(&component, external_id, ContractLookup(imports))
     }
 }

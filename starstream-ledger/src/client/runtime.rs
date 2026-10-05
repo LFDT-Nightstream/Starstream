@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use sha2::{Digest as _, Sha256};
-use starstream_runtime_next::bindings::starstream;
-use starstream_runtime_next::{
+use starstream_runtime::bindings::starstream;
+use starstream_runtime::{
     CoordinationScriptExport, CoordinationScriptImport, Token, Utxo, UtxoExport, UtxoImport,
     get_coordination_script_instance_import, utxo_imports,
 };
@@ -40,7 +40,7 @@ pub fn compile_component(
 
 #[derive(Clone)]
 pub struct Contract {
-    pub contract: Option<starstream_runtime_next::Contract<Ctx>>,
+    pub contract: Option<starstream_runtime::Contract<Ctx>>,
     pub wasm: Bytes,
 }
 
@@ -59,13 +59,13 @@ pub async fn new_contract(
     component: &Component,
     external_id: Option<&str>,
     imports: &mut HashMap<[u8; 32], Contract>,
-) -> wasmtime::Result<starstream_runtime_next::Contract<Ctx>> {
+) -> wasmtime::Result<starstream_runtime::Contract<Ctx>> {
     struct ContractLookup<'a>(pub &'a HashMap<[u8; 32], Contract>);
-    impl starstream_runtime_next::ContractLookup<Ctx> for ContractLookup<'_> {
+    impl starstream_runtime::ContractLookup<Ctx> for ContractLookup<'_> {
         fn get_contract(
             &self,
             external_id: &str,
-        ) -> wasmtime::Result<starstream_runtime_next::Contract<Ctx>> {
+        ) -> wasmtime::Result<starstream_runtime::Contract<Ctx>> {
             let digest = parse_digest(external_id)?;
             let contract = self.0.get(&digest).with_context(|| {
                 error!(external_id, "unresolved contract import");
@@ -123,7 +123,7 @@ pub async fn new_contract(
             },
         );
     }
-    starstream_runtime_next::Contract::new(component, external_id, ContractLookup(imports))
+    starstream_runtime::Contract::new(component, external_id, ContractLookup(imports))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -131,7 +131,7 @@ pub async fn call_coordination_script(
     store: &mut Store<Ctx>,
     client: &(impl Client + ?Sized),
     wizer: &Wizer,
-    contract: &starstream_runtime_next::Contract<Ctx>,
+    contract: &starstream_runtime::Contract<Ctx>,
     wasm: &[u8],
     export: &CoordinationScriptExport,
     imports: &mut HashMap<[u8; 32], Contract>,
@@ -307,8 +307,7 @@ pub async fn call_coordination_script(
 pub struct Ctx {
     pub table: ResourceTable,
     pub events: Vec<TransactionEvent>,
-    pub outputs:
-        Vec<starstream_runtime_next::Utxo<<Self as starstream_runtime_next::Host>::UtxoContext>>,
+    pub outputs: Vec<starstream_runtime::Utxo<<Self as starstream_runtime::Host>::UtxoContext>>,
 }
 
 #[derive(Clone, Debug)]
@@ -334,7 +333,7 @@ impl starstream::std::cardano::Host for Ctx {
     }
 }
 
-impl starstream_runtime_next::Host for Ctx {
+impl starstream_runtime::Host for Ctx {
     type UtxoContext = Arc<std::sync::Mutex<UtxoCtx>>;
 
     fn table(&mut self) -> &mut ResourceTable {

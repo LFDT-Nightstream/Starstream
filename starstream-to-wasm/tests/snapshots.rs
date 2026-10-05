@@ -6,12 +6,12 @@ use std::process::Command;
 use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, Report, SourceCode};
 use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
-use starstream_runtime_next::Contract;
+use starstream_runtime::Contract;
 use starstream_types::FileSystem;
 use wasmprinter::Print;
 use wasmtime::component::Component;
 
-#[path = "../../starstream-runtime-next/tests/common/mod.rs"]
+#[path = "../../starstream-runtime/tests/common/mod.rs"]
 pub mod common;
 
 use self::common::Ctx;
