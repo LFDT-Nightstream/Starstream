@@ -91,6 +91,7 @@ wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd
 wit-component = "0.258.0"
 wit-parser = { version = "0.258.0", default-features = false }
 wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
+wrpc-pack = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
 wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
 wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }

@@ -1,9 +1,85 @@
 package starstream:ledger;
 
+interface types {
+    variant global-value {
+        i32(s32),
+        i64(s64),
+        %f32(u32),
+        %f64(u64),
+        v128(tuple<u64, u64>),
+    }
+
+    record data-state {
+        memory-index: u32,
+        offset: u32,
+        data: list<u8>,
+    }
+
+    record module-state {
+        memories: list<u64>,
+        globals: list<global-value>,
+        data: list<data-state>,
+    }
+
+    record transaction-event {
+        abi-name: string,
+        name: string,
+        params: list<u8>,
+    }
+
+    record transaction-input {
+        transaction: string,
+        index: u32,
+    }
+
+    record transaction-output {
+        contract: string,
+        instance: string,
+        methods: list<tuple<u64, u64, u64, u64>>,
+        storage: list<u8>,
+        state: list<module-state>,
+    }
+
+    variant get-error {
+        invalid-digest(string),
+        not-found,
+    }
+
+    record transaction {
+        inputs: list<transaction-input>,
+        outputs: list<transaction-output>,
+        events: list<transaction-event>,
+        proof: list<u8>,
+    }
+}
+
 interface block {
     get-height: func() -> u64;
 }
 
+interface contract {
+    use types.{get-error};
+
+    get-envelope: func(digest: string) -> result<list<u8>, get-error>;
+    get-wasm: func(digest: string) -> result<list<u8>, get-error>;
+}
+
+interface transaction {
+    use types.{get-error, transaction};
+
+    get-envelope: func(digest: string) -> result<list<u8>, get-error>;
+    get-transaction: func(digest: string) -> result<transaction, get-error>;
+}
+
+interface genesis {
+    use types.{transaction-output};
+
+    get-outputs: func() -> list<transaction-output>;
+}
+
 world client {
     import block;
+    import contract;
+    import transaction;
+    import genesis;
 }

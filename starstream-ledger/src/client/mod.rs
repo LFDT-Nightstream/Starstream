@@ -12,11 +12,6 @@ use crate::{Envelope, Fund, Message, Publish, Transaction, TransactionInput};
 pub mod http;
 pub mod runtime;
 
-/// Ledger wRPC bindings.
-pub mod bindings {
-    wit_bindgen_wrpc::generate!();
-}
-
 /// Build a signed `COSE_Sign` envelope.
 fn build_sign_envelope(key: SigningKey, payload: impl Into<Vec<u8>>) -> anyhow::Result<Vec<u8>> {
     let protected = coset::HeaderBuilder::new()

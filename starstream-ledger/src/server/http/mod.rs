@@ -25,6 +25,7 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
+use tokio::io::AsyncRead;
 use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
@@ -32,7 +33,7 @@ use tokio::time::sleep;
 use tokio_util::codec::{Encoder as _, FramedRead};
 use tokio_util::io::StreamReader;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
-use wasm_tokio::cm::{AsyncReadValue as _, U64Codec};
+use wasm_tokio::cm::AsyncReadValue as _;
 use wasm_tokio::{AsyncReadCore as _, AsyncReadLeb128 as _};
 use wasmparser::WasmFeatures;
 use wasmtime::component::{ResourceTable, Type, Val};
@@ -42,10 +43,11 @@ use crate::cose::read_envelope;
 use crate::runtime::apply_state;
 use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx};
 use crate::wrpc::LEDGER_PACKAGE;
+use crate::wrpc::bindings;
 use crate::wrpc::codec::{ValEncoder, read_value};
 use crate::{
     APPLICATION_CBOR, APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Action, Block, Fund,
-    Message, Publish, TransactionInput, encode_digest, parse_digest,
+    Message, Publish, TransactionInput, TransactionOutput, encode_digest, parse_digest,
 };
 
 mod error;
@@ -129,6 +131,15 @@ fn try_update_nonce(last_nonce: &AtomicU64, nonce: u64) -> Result<u64, u64> {
             None
         }
     })
+}
+
+fn flatten_wrpc_body(body: impl AsyncRead + Unpin) -> impl AsyncRead + Unpin {
+    let body = FramedRead::new(body, FrameDecoder::default()).map(|frame| {
+        let wrpc_transport::Frame { path, data } = frame?;
+        anyhow::ensure!(path.is_empty(), "async values not supported");
+        Ok(data)
+    });
+    StreamReader::new(body.map_err(std::io::Error::other))
 }
 
 fn is_connection_error(err: &std::io::Error) -> bool {
@@ -579,19 +590,105 @@ impl Ledger {
                     let height = self.blocks.read().await.len();
                     let height = u64::try_from(height)
                         .map_err(|err| RpcPostError::ResultEncoding(std::io::Error::other(err)))?;
-                    U64Codec
-                        .encode(height, &mut data)
-                        .map_err(RpcPostError::ResultEncoding)?;
+                    wrpc_pack::pack(height, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                }
+                _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
+            },
+            Some((LEDGER_PACKAGE, "contract")) => match name.as_str() {
+                "get-envelope" => {
+                    let mut body = flatten_wrpc_body(body);
+                    let mut digest = String::default();
+                    body.read_core_name(&mut digest)
+                        .await
+                        .map_err(RpcPostError::ParameterDecoding)?;
+                    let digest = parse_digest(&digest);
+
+                    let contracts = self.contracts.read().await;
+                    let contract = match digest {
+                        Ok(digest) => contracts
+                            .get(&digest)
+                            .ok_or(bindings::starstream::ledger::types::GetError::NotFound),
+                        Err(err) => Err(
+                            bindings::starstream::ledger::types::GetError::InvalidDigest(
+                                err.to_string(),
+                            ),
+                        ),
+                    };
+                    let envelope = contract.map(|contract| &contract.envelope);
+                    wrpc_pack::pack(envelope, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                }
+                "get-wasm" => {
+                    let mut body = flatten_wrpc_body(body);
+                    let mut digest = String::default();
+                    body.read_core_name(&mut digest)
+                        .await
+                        .map_err(RpcPostError::ParameterDecoding)?;
+                    let digest = parse_digest(&digest);
+
+                    let contracts = self.contracts.read().await;
+                    let contract = digest.map(|digest| contracts.get(&digest));
+                    let res = match contract {
+                        Ok(Some(contract)) => Ok(&contract.wasm),
+                        Ok(None) => Err(bindings::starstream::ledger::types::GetError::NotFound),
+                        Err(err) => Err(
+                            bindings::starstream::ledger::types::GetError::InvalidDigest(
+                                err.to_string(),
+                            ),
+                        ),
+                    };
+                    wrpc_pack::pack(res, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                }
+                _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
+            },
+            Some((LEDGER_PACKAGE, "transaction")) => {
+                let mut body = flatten_wrpc_body(body);
+                let mut digest = String::default();
+                body.read_core_name(&mut digest)
+                    .await
+                    .map_err(RpcPostError::ParameterDecoding)?;
+                let txs = self.transactions.read().await;
+                let tx = match parse_digest(&digest) {
+                    Ok(digest) => txs
+                        .get(&digest)
+                        .ok_or(bindings::starstream::ledger::types::GetError::NotFound),
+                    Err(err) => Err(
+                        bindings::starstream::ledger::types::GetError::InvalidDigest(
+                            err.to_string(),
+                        ),
+                    ),
+                };
+                match name.as_str() {
+                    "get-envelope" => {
+                        let envelope = tx.map(|tx| &tx.envelope);
+                        wrpc_pack::pack(envelope, &mut data)
+                            .map_err(RpcPostError::ResultEncoding)?;
+                    }
+                    "get-transaction" => {
+                        let tx = match tx {
+                            Ok(tx) => {
+                                let tx: crate::Transaction = minicbor::decode(&tx.payload)
+                                    .map_err(RpcPostError::TransactionDecoding)?;
+                                Ok(bindings::starstream::ledger::types::Transaction::from(tx))
+                            }
+                            Err(err) => Err(err),
+                        };
+                        wrpc_pack::pack(tx, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                    }
+                    _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
+                }
+            }
+            Some((LEDGER_PACKAGE, "genesis")) => match name.as_str() {
+                "get-outputs" => {
+                    let outputs: Vec<TransactionOutput> = minicbor::decode(&self.genesis.encoded)
+                        .map_err(RpcPostError::GenesisDecoding)?;
+                    let outputs: Vec<bindings::starstream::ledger::types::TransactionOutput> =
+                        outputs.into_iter().map(Into::into).collect();
+                    wrpc_pack::pack(outputs, &mut data).map_err(RpcPostError::ResultEncoding)?;
                 }
                 _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
             },
             Some((LEDGER_PACKAGE, "utxo")) => {
-                let body = FramedRead::new(body, FrameDecoder::default()).map(|frame| {
-                    let wrpc_transport::Frame { path, data } = frame?;
-                    anyhow::ensure!(path.is_empty(), "async values not supported");
-                    Ok(data)
-                });
-                let mut body = StreamReader::new(body.map_err(std::io::Error::other));
+                let mut body = flatten_wrpc_body(body);
 
                 let tx = if body
                     .read_option_status()

@@ -23,10 +23,11 @@ use starstream_ledger::client::http::{
 };
 use starstream_ledger::client::runtime::compile_contract;
 use starstream_ledger::server::Ledger;
+use starstream_ledger::wrpc::bindings;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
-    APPLICATION_CBOR, Envelope, Message, Transaction, TransactionInput, TransactionOutput,
-    encode_digest,
+    APPLICATION_CBOR, APPLICATION_WRPC, Envelope, Message, Transaction, TransactionInput,
+    TransactionOutput, encode_digest,
 };
 use tokio::io::AsyncReadExt as _;
 use tokio_util::codec::Encoder as _;
@@ -83,6 +84,16 @@ async fn post_envelope(
         .unwrap();
     let (parts, body) = http_request(client, req).await.unwrap();
     (parts.status, String::from_utf8_lossy(&body).into_owned())
+}
+
+fn wrpc_context(addr: SocketAddr) -> http::request::Parts {
+    let req = http::Request::builder()
+        .uri(format!("http://{addr}/rpc"))
+        .header(CONTENT_TYPE, APPLICATION_WRPC.to_string())
+        .body(())
+        .unwrap();
+    let (cx, ()) = req.into_parts();
+    cx
 }
 
 #[tokio::test]
@@ -162,6 +173,7 @@ async fn http() {
     let client = ClientBuilder::new(http.clone(), HttpConnector::new(), api_base.clone())
         .network(NETWORK)
         .build();
+    let wrpc = wrpc_http::Client::new(http.build(HttpConnector::new()));
     let http = http.build_http();
 
     let height = client.block_height().await.unwrap();
@@ -189,6 +201,12 @@ async fn http() {
         headers.get(CONTENT_LENGTH).map(|v| v.as_bytes()),
         Some(genesis_cbor.len().to_string().as_bytes())
     );
+
+    let got = bindings::starstream::ledger::genesis::get_outputs(&wrpc, wrpc_context(addr))
+        .await
+        .unwrap();
+    let got: Vec<TransactionOutput> = got.into_iter().map(Into::into).collect();
+    assert_eq!(got, genesis);
 
     let score_publish_envelope = build_publish_envelope(
         ADMIN.clone(),
@@ -344,6 +362,22 @@ async fn http() {
         Some(b"nosniff".as_slice())
     );
 
+    let got = bindings::starstream::ledger::contract::get_envelope(
+        &wrpc,
+        wrpc_context(addr),
+        &score_digest,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(got, score_publish_envelope);
+    let got =
+        bindings::starstream::ledger::contract::get_wasm(&wrpc, wrpc_context(addr), &score_digest)
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(got, SCORE_WASM.as_ref());
+
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 3);
 
@@ -489,6 +523,28 @@ async fn http() {
         headers.get(CONTENT_LENGTH).map(|v| v.as_bytes()),
         Some(tx_cbor.len().to_string().as_bytes())
     );
+
+    let tx_envelope = bindings::starstream::ledger::transaction::get_envelope(
+        &wrpc,
+        wrpc_context(addr),
+        &encode_digest(&tx_digest),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let req = build_transaction_get_request(&api_base, &tx_digest, None).unwrap();
+    let (_, body) = http_request(&http, req).await.unwrap();
+    assert_eq!(tx_envelope, body);
+    let got = bindings::starstream::ledger::transaction::get_transaction(
+        &wrpc,
+        wrpc_context(addr),
+        &encode_digest(&tx_digest),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(Transaction::from(got), tx);
+
     let err = client
         .transact(
             ADMIN.clone(),

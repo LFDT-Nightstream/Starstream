@@ -14,7 +14,6 @@ client = [
     "dep:wasm-tokio",
     "dep:wasmtime",
     "dep:wasmtime-wizer",
-    "dep:wit-bindgen-wrpc",
     "hyper-util/client",
     "hyper-util/client-legacy",
     "wrpc-http/client-legacy",
@@ -28,6 +27,7 @@ server = [
     "dep:tokio",
     "dep:wasm-tokio",
     "dep:wasmtime",
+    "dep:wrpc-pack",
     "hyper-util/server",
     "hyper-util/server-auto",
     "hyper-util/server-graceful",
@@ -79,8 +79,9 @@ wasmtime-wizer = { workspace = true, optional = true, features = [
     "component-model",
     "wasmtime",
 ] }
-wit-bindgen-wrpc = { workspace = true, optional = true }
+wit-bindgen-wrpc = { workspace = true }
 wrpc-http = { workspace = true }
+wrpc-pack = { workspace = true, optional = true }
 wrpc-transport = { workspace = true }
 
 [dev-dependencies]

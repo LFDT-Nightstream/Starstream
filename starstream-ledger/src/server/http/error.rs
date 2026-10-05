@@ -238,6 +238,10 @@ pub enum RpcPostError {
     FunctionNotFound { instance: String, name: String },
     #[error("failed to parse transaction digest: {0}")]
     TransactionDigestParsing(DigestParseError),
+    #[error("failed to decode transaction: {0}")]
+    TransactionDecoding(minicbor::decode::Error),
+    #[error("failed to decode genesis: {0}")]
+    GenesisDecoding(minicbor::decode::Error),
     #[error("UTXO index does not fit in usize")]
     UtxoIndexOverflow,
     #[error("UTXO not found")]
@@ -302,6 +306,8 @@ impl RpcPostError {
             | Self::UtxoMethodNotFound { .. } => http::StatusCode::NOT_FOUND,
             Self::ContractDigestParsing(..)
             | Self::StateMerge(..)
+            | Self::TransactionDecoding(..)
+            | Self::GenesisDecoding(..)
             | Self::StorageDecoding(..)
             | Self::Runtime(..)
             | Self::ResultEncoding(..)

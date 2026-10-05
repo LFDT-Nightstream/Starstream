@@ -3539,6 +3539,7 @@ dependencies = [
  "wit-bindgen-wrpc",
  "wit-component 0.258.0",
  "wrpc-http",
+ "wrpc-pack",
  "wrpc-transport",
 ]
 
@@ -5295,6 +5296,18 @@ version = "0.7.0"
 source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
 dependencies = [
  "wit-parser 0.253.0",
+]
+
+[[package]]
+name = "wrpc-pack"
+version = "0.4.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "tokio",
+ "tokio-util",
+ "wrpc-transport",
 ]
 
 [[package]]

@@ -22,11 +22,10 @@ use wrpc_transport::Invoke as _;
 
 use crate::client::runtime::{CompiledContract, Contract, Ctx, UtxoCtx, call_coordination_script};
 use crate::client::{
-    CoordinationScriptArg, bindings, build_fund_envelope, build_publish_envelope,
-    build_transaction_envelope,
+    CoordinationScriptArg, build_fund_envelope, build_publish_envelope, build_transaction_envelope,
 };
 use crate::cose::read_envelope;
-use crate::wrpc::LEDGER_PACKAGE;
+use crate::wrpc::{LEDGER_PACKAGE, bindings};
 use crate::{
     APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Fund, Message, Publish, Transaction,
     TransactionInput, TransactionOutput, encode_digest, parse_digest,
