@@ -575,7 +575,7 @@ impl Ledger {
         let mut data = BytesMut::new();
         match instance.split_once('/') {
             Some((LEDGER_PACKAGE, "block")) => match name.as_str() {
-                "height" => {
+                "get-height" => {
                     let height = self.blocks.read().await.len();
                     let height = u64::try_from(height)
                         .map_err(|err| RpcPostError::ResultEncoding(std::io::Error::other(err)))?;

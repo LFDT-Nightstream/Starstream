@@ -284,7 +284,7 @@ where
     #[instrument(skip_all)]
     pub async fn block_height(&self) -> anyhow::Result<u64> {
         let cx = wrpc_context(&self.api_base)?;
-        bindings::starstream::ledger::block::height(&self.wrpc, cx).await
+        bindings::starstream::ledger::block::get_height(&self.wrpc, cx).await
     }
 
     /// Get the transaction UTXO referenced by `digest` and `idx`.

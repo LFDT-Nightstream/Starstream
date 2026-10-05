@@ -1,7 +1,7 @@
 package starstream:ledger;
 
 interface block {
-    height: func() -> u64;
+    get-height: func() -> u64;
 }
 
 world client {
