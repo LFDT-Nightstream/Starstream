@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use clap::Args;
 use sha2::{Digest as _, Sha256};
-use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
+use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use tokio::fs;
 use tracing::{debug, info, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val};

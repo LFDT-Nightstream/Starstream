@@ -13,7 +13,7 @@ use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::Connect;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
-use starstream_runtime_next::{CoordinationScriptExport, Utxo};
+use starstream_runtime::{CoordinationScriptExport, Utxo};
 use tokio_util::codec::Encoder as _;
 use tracing::{instrument, warn};
 use wasm_tokio::cm::OptionEncoder;
@@ -322,7 +322,7 @@ where
     pub async fn call_coordination_script(
         &self,
         store: &mut Store<Ctx>,
-        contract: &starstream_runtime_next::Contract<Ctx>,
+        contract: &starstream_runtime::Contract<Ctx>,
         wasm: &[u8],
         export: &CoordinationScriptExport,
         imports: &mut HashMap<[u8; 32], Contract>,

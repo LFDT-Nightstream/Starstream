@@ -59,7 +59,7 @@ async fn http() {
     let score = Component::from_binary(&engine, &score)
         .map_err(anyhow::Error::from)
         .unwrap();
-    let score = starstream_runtime_next::Contract::new(&score, None, NoopContractLookup).unwrap();
+    let score = starstream_runtime::Contract::new(&score, None, NoopContractLookup).unwrap();
     let score_digest = encode_digest(&SCORE_WASM_DIGEST);
 
     let score_example_export = score.get_coordination_script("example").unwrap();

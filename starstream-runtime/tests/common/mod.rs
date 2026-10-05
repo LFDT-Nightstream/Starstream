@@ -4,7 +4,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use sha2::{Digest as _, Sha256};
 use starstream_compiler::typecheck::TypecheckSuccess;
 use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
-use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
+use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use tracing::instrument;
 use wasmtime::component::{Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;

@@ -23,7 +23,7 @@ use starstream_ledger::client::runtime::{
 };
 use starstream_ledger::client::{decode_transaction, encode_transaction};
 use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest};
-use starstream_runtime_next::Utxo;
+use starstream_runtime::Utxo;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
 use tokio_util::codec::Encoder as _;

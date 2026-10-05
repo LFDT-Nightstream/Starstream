@@ -11,7 +11,7 @@ use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
 use starstream_types::FileSystem;
 use tokio::net::TcpListener;
 
-#[path = "../../../starstream-runtime-next/tests/common/mod.rs"]
+#[path = "../../../starstream-runtime/tests/common/mod.rs"]
 pub mod runtime;
 pub use runtime::*;
 

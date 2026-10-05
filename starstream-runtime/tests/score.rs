@@ -3,7 +3,7 @@ pub mod common;
 use std::collections::BTreeMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
-use starstream_runtime_next::{
+use starstream_runtime::{
     Contract, CoordinationScriptExport, Host, MethodExport, StorageExport, Utxo, UtxoExport,
     UtxoMainExport, get_coordination_script_instance_import, utxo_imports,
 };

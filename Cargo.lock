@@ -4005,7 +4005,7 @@ dependencies = [
  "starstream-language-server",
  "starstream-ledger-cli",
  "starstream-ledger-node",
- "starstream-runtime-next",
+ "starstream-runtime",
  "starstream-to-wasm",
  "starstream-types",
  "thiserror 2.0.17",
@@ -4142,7 +4142,7 @@ dependencies = [
  "serde",
  "sha2",
  "starstream-compiler",
- "starstream-runtime-next",
+ "starstream-runtime",
  "starstream-to-wasm",
  "starstream-types",
  "thiserror 2.0.17",
@@ -4178,7 +4178,7 @@ dependencies = [
  "sha2",
  "starstream-compiler",
  "starstream-ledger",
- "starstream-runtime-next",
+ "starstream-runtime",
  "starstream-to-wasm",
  "starstream-types",
  "tempfile",
@@ -4217,7 +4217,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "starstream-runtime-next"
+name = "starstream-runtime"
 version = "0.0.0"
 dependencies = [
  "sha2",
@@ -4243,7 +4243,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "starstream-compiler",
- "starstream-runtime-next",
+ "starstream-runtime",
  "starstream-to-wasm",
  "starstream-types",
  "termcolor",
@@ -4260,7 +4260,7 @@ dependencies = [
  "miette",
  "sha2",
  "starstream-compiler",
- "starstream-runtime-next",
+ "starstream-runtime",
  "starstream-types",
  "thiserror 2.0.17",
  "tokio",
