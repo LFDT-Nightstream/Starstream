@@ -13,6 +13,7 @@ mod platform;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::panic;
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -20,7 +21,9 @@ use fiber::block_on;
 use log::error;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
+use starstream_compiler::{ModuleGraph, typecheck_modules};
 use starstream_runtime_next::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
+use starstream_types::{FileSystem, MemoryFs};
 use wasmtime::component::{Component, Resource, ResourceTable, Type, Val, types};
 use wasmtime::error::Context as _;
 use wasmtime::{StoreContextMut, bail, format_err};
@@ -219,9 +222,13 @@ thread_local! {
     static CONTRACTS: RefCell<BTreeMap<u32, Deployment>> = const { RefCell::new(BTreeMap::new()) };
 }
 
+/// Compile request: a snapshot of the editor's workspace.
 #[derive(serde::Deserialize)]
-struct Input<'a> {
-    code: &'a str,
+struct Input {
+    /// Absolute path -> contents, for every `.star`/`.wasm` file.
+    files: BTreeMap<String, serde_bytes::ByteBuf>,
+    /// The file to compile as the contract entry point.
+    entry: String,
 }
 
 /// Set up output and panic context. Idempotent: the one-time global setup
@@ -269,40 +276,49 @@ pub unsafe extern "C" fn run(input_len: usize) {
     let mut input = vec![0; input_len];
     unsafe { read_input(input.as_mut_ptr(), input.len()) };
     let input: Input = serde_cbor::from_slice(&input).unwrap();
-    let code = input.code;
 
-    // Parse to AST.
-    let (program, errors) = starstream_compiler::parse_program(code).into_output_errors();
-    for error in errors {
-        write_report(&error.into());
+    let mut memory = MemoryFs::new();
+    for (path, contents) in input.files {
+        memory.insert(path, contents.into_vec());
     }
-    let Some(program) = program else {
-        return;
-    };
+    let mut fs = FileSystem::with_vfs(memory);
 
-    // Typecheck.
-    let typed = match starstream_compiler::typecheck_program(&program, Default::default()) {
-        Ok(mut program) => {
-            for warning in program.warnings.drain(..) {
-                write_report(&warning.into());
-            }
-            program
-        }
-        Err(failure) => {
-            for warning in failure.warnings {
-                write_report(&warning.into());
-            }
-            for error in failure.errors {
+    // Load the entry and everything it imports.
+    let (graph, entry_id) = match ModuleGraph::from_entry(&mut fs, Path::new(&input.entry)) {
+        Ok(graph) => graph,
+        Err(errors) => {
+            for error in errors {
                 write_report(&error.into());
             }
             return;
         }
     };
 
+    // Typecheck.
+    let typed = match typecheck_modules(&graph, Default::default()) {
+        Ok(success) => {
+            for (id, warning) in &success.warnings {
+                write_report(
+                    &miette::Report::new(warning.clone()).with_source_code(graph.source(*id)),
+                );
+            }
+            success
+        }
+        Err(failure) => {
+            for (id, warning) in failure.warnings {
+                write_report(&miette::Report::new(warning).with_source_code(graph.source(id)));
+            }
+            for (id, error) in failure.errors {
+                write_report(&miette::Report::new(error).with_source_code(graph.source(id)));
+            }
+            return;
+        }
+    };
+
     // Compile to Wasm.
-    let compile_result = starstream_to_wasm::compile(&typed.program);
+    let compile_result = starstream_to_wasm::compile_contract(&typed, entry_id);
     for error in &compile_result.errors {
-        write_report(&error.clone().into());
+        write_report(&miette::Report::new(error.clone()).with_source_code(graph.source(entry_id)));
     }
     let Some(wasm) = &compile_result.wasm else {
         return;

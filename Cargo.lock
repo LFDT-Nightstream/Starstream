@@ -1667,6 +1667,7 @@ checksum = "65bc07b1a8bc7c85c5f2e110c476c7389b4554ba72af57d8445ea63a576b0876"
 dependencies = [
  "futures-channel",
  "futures-core",
+ "futures-executor",
  "futures-io",
  "futures-sink",
  "futures-task",
@@ -1688,6 +1689,17 @@ name = "futures-core"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f29059c0c2090612e8d742178b0580d2dc940c837851ad723096f87af6663e"
+
+[[package]]
+name = "futures-executor"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e28d1d997f585e54aebc3f97d39e72338912123a67330d723fdbb564d646c9f"
+dependencies = [
+ "futures-core",
+ "futures-task",
+ "futures-util",
+]
 
 [[package]]
 name = "futures-io"
@@ -3694,6 +3706,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_cbor"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4067,12 +4089,17 @@ dependencies = [
 name = "starstream-language-server"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "dashmap",
+ "futures",
  "miette",
  "ropey",
+ "serde",
+ "serde_json",
  "starstream-compiler",
  "starstream-types",
  "tower-lsp-server",
+ "tower-service",
 ]
 
 [[package]]
@@ -4211,12 +4238,14 @@ dependencies = [
  "log",
  "miette",
  "serde",
+ "serde_bytes",
  "serde_cbor",
  "serde_json",
  "sha2",
  "starstream-compiler",
  "starstream-runtime-next",
  "starstream-to-wasm",
+ "starstream-types",
  "termcolor",
  "wasmprinter 0.254.0",
  "wasmtime",

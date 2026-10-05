@@ -3,7 +3,10 @@ import { encode } from "cbor2";
 
 export interface SandboxWorkerRequest {
   request_id: number;
-  code: string;
+  /** Absolute path -> contents of every `.star`/`.wasm` file. */
+  files: Record<string, Uint8Array>;
+  /** The file to compile. */
+  entry: string;
 }
 
 export type SandboxWorkerResponse = {
@@ -37,9 +40,10 @@ export type SandboxWorkerResponse = {
 );
 
 // ----------------------------------------------------------------------------
-// These interfaces should match `starsteam_sandbox/src/main.rs`.
+// These interfaces should match `starstream-sandbox-web/src/lib.rs`.
 interface SandboxInput {
-  code: string;
+  files: Record<string, Uint8Array>;
+  entry: string;
 }
 
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
@@ -107,7 +111,8 @@ function send(r: SandboxWorkerResponse, opts?: WindowPostMessageOptions) {
 self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
   const request_id = data.request_id;
   const input = encode({
-    code: data.code,
+    files: data.files,
+    entry: data.entry,
   } satisfies SandboxInput);
   const wasm = await getWasmInstance({
     read_input(ptr, len) {

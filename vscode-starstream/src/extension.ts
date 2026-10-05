@@ -44,6 +44,9 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
     worker,
     {
       documentSelector: [{ language: "starstream" }],
+      // We push workspace files ourselves (see `syncWorkspaceFiles`), so the
+      // server shouldn't also register its own file watcher.
+      initializationOptions: { syncFiles: true },
     },
   );
   context.subscriptions.push(lc);
@@ -84,6 +87,120 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
   worker.postMessage(languageServerWasmBytes, [languageServerWasmBytes.buffer]);
   await wasmInitPromise;
   await lc.start();
+
+  await syncWorkspaceFiles(context, lc);
+}
+
+// ----------------------------------------------------------------------------
+// Workspace file sync
+//
+// The language server runs as Wasm in a worker and can't read the filesystem,
+// so push it the workspace's source files (for resolving path imports) and
+// keep them updated. Open documents are sent separately by the LSP client.
+
+const SOURCE_GLOB = "**/*.{star,wasm}";
+
+/** Must match the directories `walk` skips in `starstream-compiler/src/module_graph.rs`. */
+function isSkippedName(name: string): boolean {
+  return (
+    name.startsWith(".") ||
+    name === "target" ||
+    name === "artifacts" ||
+    name === "node_modules"
+  );
+}
+
+/** Mirrors `SyncedFile` in `starstream-language-server/src/lib.rs`. */
+interface SyncedFile {
+  uri: string;
+  text?: string;
+  base64?: string;
+}
+
+async function syncWorkspaceFiles(
+  context: vscode.ExtensionContext,
+  lc: LanguageClient,
+) {
+  const send = (params: {
+    replace?: boolean;
+    files?: SyncedFile[];
+    removed?: string[];
+  }) => lc.sendNotification("starstream/syncFiles", params);
+
+  // A failed sync shouldn't break the extension; log it and carry on.
+  const logged =
+    <A extends unknown[]>(f: (...args: A) => Promise<void>) =>
+    (...args: A) =>
+      f(...args).catch((e) =>
+        lc.outputChannel.appendLine(`starstream/syncFiles failed: ${e}`),
+      );
+
+  const watcher = vscode.workspace.createFileSystemWatcher(SOURCE_GLOB);
+  context.subscriptions.push(watcher);
+  const update = logged(async (uri: vscode.Uri) => {
+    if (uri.path.split("/").some(isSkippedName)) return;
+    const file = await readSourceFile(uri);
+    if (file) await send({ files: [file] });
+  });
+  watcher.onDidCreate(update);
+  watcher.onDidChange(update);
+  watcher.onDidDelete(
+    logged((uri: vscode.Uri) => send({ removed: [uri.toString()] })),
+  );
+
+  const fullSync = logged(async () => {
+    const uris: vscode.Uri[] = [];
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      await collectSourceFiles(folder.uri, uris);
+    }
+    const files = await Promise.all(uris.map(readSourceFile));
+    await send({
+      replace: true,
+      files: files.filter((f): f is SyncedFile => f !== undefined),
+    });
+  });
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(fullSync),
+  );
+  await fullSync();
+}
+
+/** Recursively collect `.star`/`.wasm` files under `dir`. */
+async function collectSourceFiles(dir: vscode.Uri, out: vscode.Uri[]) {
+  let entries: [string, vscode.FileType][];
+  try {
+    entries = await vscode.workspace.fs.readDirectory(dir);
+  } catch {
+    return;
+  }
+  for (const [name, type] of entries) {
+    if (isSkippedName(name)) continue;
+    const uri = vscode.Uri.joinPath(dir, name);
+    if (type & vscode.FileType.Directory) {
+      await collectSourceFiles(uri, out);
+    } else if (/\.(star|wasm)$/.test(name)) {
+      out.push(uri);
+    }
+  }
+}
+
+async function readSourceFile(
+  uri: vscode.Uri,
+): Promise<SyncedFile | undefined> {
+  let bytes: Uint8Array;
+  try {
+    bytes = await vscode.workspace.fs.readFile(uri);
+  } catch {
+    return undefined;
+  }
+  if (uri.path.endsWith(".wasm")) {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    return { uri: uri.toString(), base64: btoa(binary) };
+  }
+  return { uri: uri.toString(), text: new TextDecoder().decode(bytes) };
 }
 
 // ----------------------------------------------------------------------------
