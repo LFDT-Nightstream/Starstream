@@ -7,6 +7,11 @@ import {
 import { updateUserConfiguration } from "@codingame/monaco-vscode-configuration-service-override";
 import getMarkersServiceOverride from "@codingame/monaco-vscode-markers-service-override";
 import getSearchServiceOverride from "@codingame/monaco-vscode-search-service-override";
+import { getService, IStorageService } from "@codingame/monaco-vscode-api";
+import {
+  StorageScope,
+  StorageTarget,
+} from "@codingame/monaco-vscode-api/vscode/vs/platform/storage/common/storage";
 import * as monaco from "monaco-editor";
 import {
   MonacoVscodeApiWrapper,
@@ -196,9 +201,25 @@ function startWorkbench(): Promise<void> {
     registerFileSystemOverlay(1, fileSystem);
     await seedWorkspace();
     await new MonacoVscodeApiWrapper(config).start();
+    await hideAccounts();
     startWatchingTheme();
   })();
   return workbenchReady;
+}
+
+/**
+ * Hide the title bar's Accounts button: there's nothing to sign in to. This is
+ * a stored preference (what unchecking "Accounts" in the bar's context menu
+ * does), not a setting.
+ */
+async function hideAccounts() {
+  const storage = await getService(IStorageService);
+  storage.store(
+    "workbench.activity.showAccounts",
+    false,
+    StorageScope.PROFILE,
+    StorageTarget.USER,
+  );
 }
 
 // ----------------------------------------------------------------------------

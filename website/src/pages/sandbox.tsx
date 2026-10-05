@@ -1039,7 +1039,7 @@ export function Sandbox() {
 
   return (
     <div className="flex--grow sandbox-container">
-      <div className="sandbox-panel">
+      <div className="sandbox-panel sandbox-panel--editor">
         {editorModule && (
           <editorModule.Editor
             onWorkspaceChanged={onWorkspaceChanged}

@@ -333,6 +333,22 @@
   height: 100%;
 }
 
+/* VS Code is styled for the browser's default `content-box`, not Infima's
+   global `* { box-sizing: border-box }` (which shrinks e.g. icon button
+   highlights to the icon). Infima's rule is in a cascade layer, so this
+   unlayered rule beats it, while its zero specificity loses to all of VS
+   Code's own rules. */
+:where(.sandbox-workbench *) {
+  box-sizing: content-box;
+}
+
+/* VS Code positions menus within the window, not the workbench, so a menu
+   opened near the editor's right edge (e.g. the gear) must be able to
+   overlap the output panel rather than be clipped. */
+.sandbox-panel--editor {
+  overflow: visible;
+}
+
 /* VS Code has no setting to hide the sidebar's view title ("EXPLORER", "SEARCH");
    the activity bar icons above it already say which view is open. */
 .sandbox-workbench .part.sidebar > .title > .title-label {
