@@ -25,7 +25,7 @@ use crate::client::{
     CoordinationScriptArg, build_fund_envelope, build_publish_envelope, build_transaction_envelope,
 };
 use crate::cose::read_envelope;
-use crate::wrpc::{LEDGER_PACKAGE, bindings};
+use crate::wrpc::{LEDGER_UTXO_INSTANCE, bindings};
 use crate::{
     APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Fund, Message, Publish, Transaction,
     TransactionInput, TransactionOutput, encode_digest, parse_digest,
@@ -362,13 +362,7 @@ where
         params.extend_from_slice(args);
         let (tx, rx) = self
             .wrpc
-            .invoke(
-                cx,
-                &format!("{LEDGER_PACKAGE}/utxo"),
-                name,
-                params.freeze(),
-                [[]],
-            )
+            .invoke(cx, LEDGER_UTXO_INSTANCE, name, params.freeze(), [[]])
             .await?;
         drop(tx);
         Ok(rx)

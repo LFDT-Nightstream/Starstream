@@ -42,9 +42,12 @@ use wrpc_transport::FrameDecoder;
 use crate::cose::read_envelope;
 use crate::runtime::apply_state;
 use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx};
-use crate::wrpc::LEDGER_PACKAGE;
 use crate::wrpc::bindings;
 use crate::wrpc::codec::{ValEncoder, read_value};
+use crate::wrpc::{
+    LEDGER_BLOCK_INSTANCE, LEDGER_CONTRACT_INSTANCE, LEDGER_GENESIS_INSTANCE,
+    LEDGER_TRANSACTION_INSTANCE, LEDGER_UTXO_INSTANCE,
+};
 use crate::{
     APPLICATION_CBOR, APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Action, Block, Fund,
     Message, Publish, TransactionInput, TransactionOutput, encode_digest, parse_digest,
@@ -584,8 +587,8 @@ impl Ledger {
                 .await
                 .map_err(RpcPostError::Header)?;
         let mut data = BytesMut::new();
-        match instance.split_once('/') {
-            Some((LEDGER_PACKAGE, "block")) => match name.as_str() {
+        match instance.as_str() {
+            LEDGER_BLOCK_INSTANCE => match name.as_str() {
                 "get-height" => {
                     let height = self.blocks.read().await.len();
                     let height = u64::try_from(height)
@@ -594,7 +597,7 @@ impl Ledger {
                 }
                 _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
             },
-            Some((LEDGER_PACKAGE, "contract")) => match name.as_str() {
+            LEDGER_CONTRACT_INSTANCE => match name.as_str() {
                 "get-envelope" => {
                     let mut body = flatten_wrpc_body(body);
                     let mut digest = String::default();
@@ -640,7 +643,7 @@ impl Ledger {
                 }
                 _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
             },
-            Some((LEDGER_PACKAGE, "transaction")) => {
+            LEDGER_TRANSACTION_INSTANCE => {
                 let mut body = flatten_wrpc_body(body);
                 let mut digest = String::default();
                 body.read_core_name(&mut digest)
@@ -677,7 +680,7 @@ impl Ledger {
                     _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
                 }
             }
-            Some((LEDGER_PACKAGE, "genesis")) => match name.as_str() {
+            LEDGER_GENESIS_INSTANCE => match name.as_str() {
                 "get-outputs" => {
                     let outputs: Vec<TransactionOutput> = minicbor::decode(&self.genesis.encoded)
                         .map_err(RpcPostError::GenesisDecoding)?;
@@ -687,7 +690,7 @@ impl Ledger {
                 }
                 _ => return Err(RpcPostError::FunctionNotFound { instance, name }),
             },
-            Some((LEDGER_PACKAGE, "utxo")) => {
+            LEDGER_UTXO_INSTANCE => {
                 let mut body = flatten_wrpc_body(body);
 
                 let tx = if body
