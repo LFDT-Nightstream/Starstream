@@ -9,20 +9,23 @@ use anyhow::Context as _;
 use bytes::{Bytes, BytesMut};
 use coset::{CoseSign1Builder, HeaderBuilder, TaggedCborSerializable as _, iana};
 use ed25519_dalek::Signer as _;
-use http::header::{CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
-use http::{StatusCode, Uri};
+use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
+use http::{Method, StatusCode, Uri};
 use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use sha2::{Digest as _, Sha256};
+use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::client::http::{
     ClientBuilder, build_contract_get_request, build_contract_publish_request, build_fund_request,
+    build_transaction_get_request,
 };
 use starstream_ledger::client::runtime::{compile_component, new_contract};
-use starstream_ledger::client::{build_publish_envelope, encode_transaction};
 use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::codec::ValEncoder;
-use starstream_ledger::{Transaction, TransactionInput, TransactionOutput, encode_digest};
+use starstream_ledger::{
+    APPLICATION_CBOR, Transaction, TransactionInput, TransactionOutput, encode_digest,
+};
 use tokio::io::AsyncReadExt as _;
 use tokio_util::codec::Encoder as _;
 use wasmtime::Store;
@@ -133,6 +136,26 @@ async fn http() {
     let outputs = client.get_genesis().await.unwrap();
     assert_eq!(outputs, genesis);
 
+    let req = http::Request::builder()
+        .method(Method::HEAD)
+        .uri(format!("http://{addr}/genesis"))
+        .header(ACCEPT, APPLICATION_CBOR.to_string())
+        .body(Full::default())
+        .unwrap();
+    let (
+        http::response::Parts {
+            status, headers, ..
+        },
+        body,
+    ) = http_request(&http, req).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert!(body.is_empty());
+    let genesis_cbor = minicbor::to_vec(&genesis).unwrap();
+    assert_eq!(
+        headers.get(CONTENT_LENGTH).map(|v| v.as_bytes()),
+        Some(genesis_cbor.len().to_string().as_bytes())
+    );
+
     let score_publish_envelope = build_publish_envelope(
         ADMIN.clone(),
         NETWORK,
@@ -177,11 +200,8 @@ async fn http() {
         .to_tagged_vec()
         .unwrap();
     let req = http::Request::builder()
-        .method(http::Method::PUT)
-        .uri(format!(
-            "http://{addr}/contracts/{}",
-            encode_digest(&SCORE_WASM_DIGEST)
-        ))
+        .method(Method::POST)
+        .uri(format!("http://{addr}/rpc"))
         .header(CONTENT_TYPE, "application/cose")
         .body(Full::new(Bytes::from(crit_envelope)))
         .unwrap();
@@ -260,10 +280,11 @@ async fn http() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert!(body.starts_with("invalid Wasm: "), "{body}");
 
-    client
+    let digest = client
         .publish_contract(ADMIN.clone(), 2, SCORE_WASM.clone())
         .await
         .unwrap();
+    assert_eq!(digest, *SCORE_WASM_DIGEST);
 
     let wasm = client.get_contract_wasm(*SCORE_WASM_DIGEST).await.unwrap();
     assert_eq!(wasm, SCORE_WASM.as_ref());
@@ -403,15 +424,58 @@ async fn http() {
         events,
         proof,
     };
-    let tx_digest: [u8; 32] =
-        Sha256::digest(encode_transaction(NETWORK, tx.clone()).unwrap()).into();
-    client.transact(ADMIN.clone(), tx.clone()).await.unwrap();
+    let tx_cbor = minicbor::to_vec(&tx).unwrap();
+    let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
+    let digest = client.transact(ADMIN.clone(), tx.clone()).await.unwrap();
+    assert_eq!(digest, tx_digest);
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 4);
     let got = client.get_transaction(tx_digest).await.unwrap();
     assert_eq!(got, tx);
+
+    let req = build_transaction_get_request(&api_base, &tx_digest, Some(APPLICATION_CBOR)).unwrap();
+    let (
+        http::response::Parts {
+            status, headers, ..
+        },
+        body,
+    ) = http_request(&http, req).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(body, tx_cbor);
+    assert_eq!(
+        headers.get(CONTENT_TYPE).map(|v| v.as_bytes()),
+        Some(APPLICATION_CBOR.to_string().as_bytes())
+    );
+
+    let req = http::Request::builder()
+        .method(Method::HEAD)
+        .uri(format!(
+            "http://{addr}/transactions/{}",
+            encode_digest(&tx_digest)
+        ))
+        .header(ACCEPT, APPLICATION_CBOR.to_string())
+        .body(Full::default())
+        .unwrap();
+    let (
+        http::response::Parts {
+            status, headers, ..
+        },
+        body,
+    ) = http_request(&http, req).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert!(body.is_empty());
+    assert_eq!(
+        headers.get(CONTENT_LENGTH).map(|v| v.as_bytes()),
+        Some(tx_cbor.len().to_string().as_bytes())
+    );
     let err = client
-        .transact(ADMIN.clone(), tx)
+        .transact(
+            ADMIN.clone(),
+            Transaction {
+                outputs: Vec::default(),
+                ..tx
+            },
+        )
         .await
         .expect_err("spent inputs must be rejected");
     assert_eq!(err.to_string(), "input not found");

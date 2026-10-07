@@ -1,12 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{Context as _, ensure};
+use anyhow::{Context as _, bail, ensure};
 use bytes::{Bytes, BytesMut};
-use coset::{
-    CborSerializable as _, CoseSign, CoseSign1, CoseSignature, TaggedCborSerializable as _, iana,
-};
-use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Method, Request, Uri};
 use http_body_util::{BodyExt as _, Full};
@@ -26,11 +23,12 @@ use wrpc_transport::Invoke as _;
 use crate::client::runtime::{Contract, Ctx, UtxoCtx, call_coordination_script};
 use crate::client::{
     CoordinationScriptArg, bindings, build_fund_envelope, build_publish_envelope,
-    build_sign_envelope, encode_transaction,
+    build_transaction_envelope,
 };
+use crate::cose::read_envelope;
 use crate::wrpc::LEDGER_PACKAGE;
 use crate::{
-    APPLICATION_COSE, APPLICATION_WASM, Envelope, EnvelopeContext, Fund, Publish, Transaction,
+    APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Fund, Message, Publish, Transaction,
     TransactionInput, TransactionOutput, encode_digest, parse_digest,
 };
 
@@ -52,10 +50,24 @@ fn wrpc_context(base: &Uri) -> anyhow::Result<http::request::Parts> {
     let uri = endpoint_uri(base, "rpc")?;
     let req = Request::builder()
         .uri(uri)
+        .header(CONTENT_TYPE, APPLICATION_WRPC.to_string())
         .body(())
         .context("failed to build request")?;
     let (cx, ()) = req.into_parts();
     Ok(cx)
+}
+
+fn build_envelope_request(
+    base: &Uri,
+    envelope: Vec<u8>,
+) -> anyhow::Result<http::Request<Full<Bytes>>> {
+    let uri = endpoint_uri(base, "rpc")?;
+    Request::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
+        .body(Full::new(Bytes::from(envelope)))
+        .context("failed to build request")
 }
 
 /// Build a signed fund request.
@@ -66,13 +78,7 @@ pub fn build_fund_request(
     payload: Fund,
 ) -> anyhow::Result<http::Request<Full<Bytes>>> {
     let envelope = build_fund_envelope(key, network, payload)?;
-    let uri = endpoint_uri(base, "fund")?;
-    Request::builder()
-        .method(Method::POST)
-        .uri(uri)
-        .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
-        .body(Full::new(Bytes::from(envelope)))
-        .context("failed to build request")
+    build_envelope_request(base, envelope)
 }
 
 /// Build a signed contract publish request.
@@ -82,36 +88,19 @@ pub fn build_contract_publish_request(
     network: impl Into<Box<str>>,
     payload: Publish,
 ) -> anyhow::Result<http::Request<Full<Bytes>>> {
-    let digest = Sha256::digest(&payload.wasm);
-    let digest = encode_digest(&digest.into());
     let envelope = build_publish_envelope(key, network, payload)?;
-    let uri = endpoint_uri(base, format!("contracts/{digest}"))?;
-    Request::builder()
-        .method(Method::PUT)
-        .uri(uri)
-        .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
-        .body(Full::new(Bytes::from(envelope)))
-        .context("failed to build request")
+    build_envelope_request(base, envelope)
 }
 
-/// Build a signed transaction put request.
-pub fn build_transaction_put_request(
+/// Build a signed transaction request.
+pub fn build_transaction_request(
     base: &Uri,
     key: SigningKey,
     network: impl Into<Box<str>>,
     tx: Transaction,
 ) -> anyhow::Result<http::Request<Full<Bytes>>> {
-    let payload = encode_transaction(network, tx)?;
-    let digest = Sha256::digest(&payload);
-    let digest = encode_digest(&digest.into());
-    let envelope = build_sign_envelope(key, payload)?;
-    let uri = endpoint_uri(base, format!("transactions/{digest}"))?;
-    Request::builder()
-        .method(Method::PUT)
-        .uri(uri)
-        .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
-        .body(Full::new(Bytes::from(envelope)))
-        .context("failed to build request")
+    let envelope = build_transaction_envelope(key, network, tx)?;
+    build_envelope_request(base, envelope)
 }
 
 /// Build a contract get request.
@@ -135,14 +124,17 @@ pub fn build_contract_get_request(
 pub fn build_transaction_get_request(
     base: &Uri,
     digest: &[u8; 32],
+    accept: Option<MediaType>,
 ) -> anyhow::Result<http::Request<Full<Bytes>>> {
     let digest = encode_digest(digest);
     let uri = endpoint_uri(base, format!("transactions/{digest}"))?;
-    Request::builder()
-        .method(Method::GET)
-        .uri(uri)
-        .body(Full::default())
-        .context("failed to build request")
+    let req = Request::builder().method(Method::GET).uri(uri);
+    let req = if let Some(accept) = accept {
+        req.header(ACCEPT, accept.to_string())
+    } else {
+        req
+    };
+    req.body(Full::default()).context("failed to build request")
 }
 
 /// Build a genesis get request.
@@ -428,13 +420,14 @@ where
         Ok(())
     }
 
+    /// Publish the contract `wasm` and return its digest.
     #[instrument(skip_all)]
     pub async fn publish_contract(
         &self,
         key: SigningKey,
         nonce: u64,
         wasm: impl Into<Box<[u8]>>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<[u8; 32]> {
         let req = build_contract_publish_request(
             &self.api_base,
             key,
@@ -447,70 +440,43 @@ where
         let (http::response::Parts { status, .. }, body) = self.request(req).await?;
         let body = String::from_utf8_lossy(&body);
         ensure!(status.is_success(), "{body}");
-        if !body.is_empty() {
-            warn!("received unexpected body: {body}")
-        }
-        Ok(())
+        parse_digest(&body).context("failed to parse contract digest")
     }
 
+    /// Submit the transaction `tx` and return its digest.
     #[instrument(skip_all)]
-    pub async fn transact(&self, key: SigningKey, tx: Transaction) -> anyhow::Result<()> {
-        let req = build_transaction_put_request(&self.api_base, key, self.network.as_ref(), tx)?;
+    pub async fn transact(&self, key: SigningKey, tx: Transaction) -> anyhow::Result<[u8; 32]> {
+        let req = build_transaction_request(&self.api_base, key, self.network.as_ref(), tx)?;
         let (http::response::Parts { status, .. }, body) = self.request(req).await?;
         let body = String::from_utf8_lossy(&body);
         ensure!(status.is_success(), "{body}");
-        if !body.is_empty() {
-            warn!("received unexpected body: {body}")
-        }
-        Ok(())
+        parse_digest(&body).context("failed to parse transaction digest")
     }
 
     /// Get the transaction identified by `digest`.
     #[instrument(skip_all)]
     pub async fn get_transaction(&self, digest: [u8; 32]) -> anyhow::Result<Transaction> {
-        let req = build_transaction_get_request(&self.api_base, &digest)?;
+        let req = build_transaction_get_request(&self.api_base, &digest, Some(APPLICATION_COSE))?;
         let (http::response::Parts { status, .. }, body) = self.request(req).await?;
         ensure!(status.is_success(), "{}", String::from_utf8_lossy(&body));
-        let sign = CoseSign::from_tagged_slice(&body)
-            .or_else(|_| CoseSign::from_slice(&body))
-            .context("invalid COSE_Sign")?;
-        ensure!(!sign.signatures.is_empty(), "signature missing");
-        for (i, CoseSignature { protected, .. }) in sign.signatures.iter().enumerate() {
-            ensure!(
-                protected.header.alg == Some(coset::Algorithm::Assigned(iana::Algorithm::EdDSA)),
-                "unsupported signature algorithm"
-            );
-            let key = <[u8; 32]>::try_from(protected.header.key_id.as_slice())
-                .context("invalid `kid` header")?;
-            let key = VerifyingKey::from_bytes(&key).context("invalid Ed25519 key")?;
-            sign.verify_signature(i, b"", |signature, data| {
-                Signature::from_slice(signature)
-                    .and_then(|signature| key.verify_strict(data, &signature))
-            })
-            .context("signature verification failed")?;
-        }
-        let payload = sign.payload.as_deref().context("payload missing")?;
-        let payload_digest: [u8; 32] = Sha256::digest(payload).into();
+        let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
         ensure!(
-            payload_digest == digest,
-            "transaction digest mismatch, got `{}`",
-            encode_digest(&payload_digest)
-        );
-        let Envelope {
-            context,
-            network,
-            payload,
-        } = minicbor::decode(payload).context("invalid payload")?;
-        ensure!(
-            context == EnvelopeContext::Transaction,
-            "unexpected context `{context}`"
-        );
-        ensure!(
-            network == self.network,
-            "unexpected network `{network}`, expected `{}`",
+            envelope.network == self.network,
+            "unexpected network `{}`, expected `{}`",
+            envelope.network,
             self.network
         );
-        Ok(payload)
+        let Message::Transaction(tx) = envelope.message else {
+            bail!("unexpected context `{}`", envelope.message.context());
+        };
+        let tx_cbor = minicbor::to_vec(&tx).context("failed to encode transaction")?;
+        let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
+        ensure!(
+            tx_digest == digest,
+            "transaction digest mismatch, got `{}`",
+            encode_digest(&tx_digest)
+        );
+        Ok(tx)
     }
 
     /// Get the genesis outputs.
@@ -541,33 +507,17 @@ where
         let req = build_contract_get_request(&self.api_base, digest, Some(APPLICATION_COSE))?;
         let (http::response::Parts { status, .. }, body) = self.request(req).await?;
         ensure!(status.is_success(), "{}", String::from_utf8_lossy(&body));
-        let sign1 = CoseSign1::from_tagged_slice(&body)
-            .or_else(|_| CoseSign1::from_slice(&body))
-            .context("invalid COSE_Sign1")?;
+        let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
         ensure!(
-            sign1.protected.header.alg == Some(coset::Algorithm::Assigned(iana::Algorithm::EdDSA)),
-            "unsupported signature algorithm"
+            envelope.network == self.network,
+            "unexpected network `{}`, expected `{}`",
+            envelope.network,
+            self.network
         );
-        let key = <[u8; 32]>::try_from(sign1.protected.header.key_id.as_slice())
-            .context("invalid `kid` header")?;
-        let key = VerifyingKey::from_bytes(&key).context("invalid Ed25519 key")?;
-        sign1
-            .verify_signature(b"", |signature, data| {
-                Signature::from_slice(signature)
-                    .and_then(|signature| key.verify_strict(data, &signature))
-            })
-            .context("signature verification failed")?;
-        let payload = sign1.payload.as_deref().context("payload missing")?;
-        let Envelope {
-            context,
-            payload: Publish { wasm, .. },
-            ..
-        } = minicbor::decode(payload).context("invalid payload")?;
-        ensure!(
-            context == EnvelopeContext::Publish,
-            "unexpected context `{context}`"
-        );
-        let wasm_digest: [u8; 32] = Sha256::digest(&wasm).into();
+        let Message::Publish(publish) = envelope.message else {
+            bail!("unexpected context `{}`", envelope.message.context());
+        };
+        let wasm_digest: [u8; 32] = Sha256::digest(&publish.wasm).into();
         ensure!(
             wasm_digest == *digest,
             "contract digest mismatch, got `{}`",

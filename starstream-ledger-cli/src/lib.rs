@@ -21,8 +21,7 @@ use starstream_ledger::client::runtime::UtxoCtx;
 use starstream_ledger::client::runtime::{
     Client, Ctx, call_coordination_script, compile_component, new_contract,
 };
-use starstream_ledger::client::{decode_transaction, encode_transaction};
-use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest};
+use starstream_ledger::{Transaction, TransactionInput, TransactionOutput, encode_digest};
 use starstream_runtime::Utxo;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
@@ -385,7 +384,11 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let wasm = fs::read(&wasm)
                 .await
                 .with_context(|| format!("failed to read `{}`", wasm.display()))?;
-            client.publish_contract(key, nonce, wasm).await
+            let digest = client.publish_contract(key, nonce, wasm).await?;
+            stdout()
+                .write_all(format!("{}\n", encode_digest(&digest)).as_bytes())
+                .await
+                .context("failed to write digest to stdout")
         }
         Command::Contract(ContractCommand::Script(ScriptCommand::Call {
             key,
@@ -488,13 +491,14 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let mut results = wasm_wave::to_string(&Val::Tuple(results))
                 .context("failed to encode result tuple")?;
             if let Some(path) = output_transaction {
-                let tx = encode_transaction(network, tx.clone())?;
+                let tx = minicbor::to_vec(&tx).context("failed to encode transaction")?;
                 fs::write(&path, &tx)
                     .await
                     .with_context(|| format!("failed to write `{}`", path.display()))?;
             }
             if let Some(key) = key {
-                client.transact(key, tx).await?;
+                let digest = client.transact(key, tx).await?;
+                info!(digest = %encode_digest(&digest), "submitted transaction");
             }
             results.push('\n');
             stdout()
@@ -525,7 +529,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let buf = fs::read(&path)
                 .await
                 .with_context(|| format!("failed to read `{}`", path.display()))?;
-            let tx = decode_transaction(&buf)?;
+            let tx: Transaction = minicbor::decode(&buf).context("failed to decode transaction")?;
             let tx = toml::to_string_pretty(&tx).context("failed to encode TOML")?;
             stdout()
                 .write_all(tx.as_bytes())

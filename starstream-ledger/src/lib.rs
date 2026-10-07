@@ -1,7 +1,5 @@
 //! Starstream ledger
 
-use core::fmt;
-
 use std::collections::BTreeSet;
 
 use bytes::Bytes;
@@ -17,12 +15,13 @@ pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
 
+pub mod cose;
 pub mod runtime;
 pub mod wrpc;
 
-pub const FUND_CONTEXT: &str = "starstream:fund";
-pub const PUBLISH_CONTEXT: &str = "starstream:publish";
-pub const TRANSACTION_CONTEXT: &str = "starstream:transaction";
+pub const FUND_CONTEXT: u8 = 0;
+pub const PUBLISH_CONTEXT: u8 = 1;
+pub const TRANSACTION_CONTEXT: u8 = 2;
 
 /// COSE media type
 pub const APPLICATION_COSE: MediaType =
@@ -35,6 +34,12 @@ pub const APPLICATION_WASM: MediaType =
 /// CBOR media type
 pub const APPLICATION_CBOR: MediaType =
     MediaType::new(mediatype::names::APPLICATION, mediatype::names::CBOR);
+
+/// wRPC media type
+pub const APPLICATION_WRPC: MediaType = MediaType::new(
+    mediatype::names::APPLICATION,
+    mediatype::Name::new_unchecked("x.wrpc"),
+);
 
 /// The [multihash] code of sha2-256.
 ///
@@ -109,32 +114,6 @@ pub struct Transaction {
     pub proof: Box<[u8]>,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
-pub enum EnvelopeContext {
-    #[serde(rename = "starstream:fund")]
-    Fund,
-    #[serde(rename = "starstream:publish")]
-    Publish,
-    #[serde(rename = "starstream:transaction")]
-    Transaction,
-}
-
-impl EnvelopeContext {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Fund => FUND_CONTEXT,
-            Self::Publish => PUBLISH_CONTEXT,
-            Self::Transaction => TRANSACTION_CONTEXT,
-        }
-    }
-}
-
-impl fmt::Display for EnvelopeContext {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
 fn serialize_bytes<S: serde::Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
     if serializer.is_human_readable() {
         serializer.serialize_str(&hex::encode(bytes))
@@ -168,37 +147,78 @@ fn serialize_wasm<S: serde::Serializer>(wasm: &[u8], serializer: S) -> Result<S:
     serializer.serialize_str(&wat)
 }
 
-impl<C> Encode<C> for EnvelopeContext {
-    fn encode<W: minicbor::encode::Write>(
-        &self,
-        e: &mut minicbor::Encoder<W>,
-        _: &mut C,
-    ) -> Result<(), minicbor::encode::Error<W::Error>> {
-        e.str(self.as_str())?;
-        Ok(())
-    }
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Message {
+    Fund(Fund),
+    Publish(Publish),
+    Transaction(Transaction),
 }
 
-impl<'b, C> Decode<'b, C> for EnvelopeContext {
-    fn decode(d: &mut minicbor::Decoder<'b>, _: &mut C) -> Result<Self, minicbor::decode::Error> {
-        let p = d.position();
-        match d.str()? {
-            FUND_CONTEXT => Ok(Self::Fund),
-            PUBLISH_CONTEXT => Ok(Self::Publish),
-            TRANSACTION_CONTEXT => Ok(Self::Transaction),
-            _ => Err(minicbor::decode::Error::message("unknown envelope context").at(p)),
+impl Message {
+    pub const fn context(&self) -> u8 {
+        match self {
+            Self::Fund(..) => FUND_CONTEXT,
+            Self::Publish(..) => PUBLISH_CONTEXT,
+            Self::Transaction(..) => TRANSACTION_CONTEXT,
         }
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
-pub struct Envelope<T> {
-    #[n(0)]
-    pub context: EnvelopeContext,
-    #[n(1)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Envelope {
     pub network: Box<str>,
-    #[n(2)]
-    pub payload: T,
+    pub message: Message,
+}
+
+impl<C> Encode<C> for Envelope {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.array(3)?;
+        e.str(&self.network)?;
+        e.u8(self.message.context())?;
+        match &self.message {
+            Message::Fund(pld) => pld.encode(e, ctx),
+            Message::Publish(pld) => pld.encode(e, ctx),
+            Message::Transaction(pld) => pld.encode(e, ctx),
+        }
+    }
+}
+
+impl<'b, C> Decode<'b, C> for Envelope {
+    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        let pos = d.position();
+        let n = d.array()?;
+        if n != Some(3) {
+            return Err(
+                minicbor::decode::Error::message("envelope must be a 3-element array").at(pos),
+            );
+        }
+        let network = d.str()?;
+        let pos = d.position();
+        let context = d.u8()?;
+        let message = match context {
+            FUND_CONTEXT => {
+                let pld = d.decode_with(ctx)?;
+                Message::Fund(pld)
+            }
+            PUBLISH_CONTEXT => {
+                let pld = d.decode_with(ctx)?;
+                Message::Publish(pld)
+            }
+            TRANSACTION_CONTEXT => {
+                let pld = d.decode_with(ctx)?;
+                Message::Transaction(pld)
+            }
+            _ => return Err(minicbor::decode::Error::message("unknown envelope context").at(pos)),
+        };
+        Ok(Self {
+            network: network.into(),
+            message,
+        })
+    }
 }
 
 pub enum Action {

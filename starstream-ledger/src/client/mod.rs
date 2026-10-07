@@ -1,13 +1,13 @@
 //! Starstream ledger client.
 
-use anyhow::{Context as _, ensure};
+use anyhow::Context as _;
 use coset::{
     CoseSign1Builder, CoseSignBuilder, CoseSignatureBuilder, TaggedCborSerializable as _, iana,
 };
 use ed25519_dalek::{Signer as _, SigningKey};
 use wasmtime::component::Val;
 
-use crate::{Envelope, EnvelopeContext, Fund, Publish, Transaction, TransactionInput};
+use crate::{Envelope, Fund, Message, Publish, Transaction, TransactionInput};
 
 pub mod http;
 pub mod runtime;
@@ -75,9 +75,8 @@ pub fn build_fund_envelope(
     payload: Fund,
 ) -> anyhow::Result<Vec<u8>> {
     let payload = minicbor::to_vec(Envelope {
-        context: EnvelopeContext::Fund,
         network: network.into(),
-        payload,
+        message: Message::Fund(payload),
     })
     .context("failed to encode CBOR")?;
     build_sign1_envelope(key, payload)
@@ -90,37 +89,11 @@ pub fn build_publish_envelope(
     payload: Publish,
 ) -> anyhow::Result<Vec<u8>> {
     let payload = minicbor::to_vec(Envelope {
-        context: EnvelopeContext::Publish,
         network: network.into(),
-        payload,
+        message: Message::Publish(payload),
     })
     .context("failed to encode CBOR")?;
     build_sign1_envelope(key, payload)
-}
-
-/// Encode a [TRANSACTION_CONTEXT] transaction payload.
-pub fn encode_transaction(
-    network: impl Into<Box<str>>,
-    tx: Transaction,
-) -> anyhow::Result<Vec<u8>> {
-    minicbor::to_vec(Envelope {
-        context: EnvelopeContext::Transaction,
-        network: network.into(),
-        payload: tx,
-    })
-    .context("failed to encode CBOR")
-}
-
-/// Decode a [TRANSACTION_CONTEXT] transaction payload.
-pub fn decode_transaction(buf: &[u8]) -> anyhow::Result<Envelope<Transaction>> {
-    let envelope: Envelope<Transaction> = minicbor::decode(buf).context("failed to decode CBOR")?;
-    ensure!(
-        envelope.context == EnvelopeContext::Transaction,
-        "unexpected envelope context `{}`, expected `{}`",
-        envelope.context,
-        EnvelopeContext::Transaction,
-    );
-    Ok(envelope)
 }
 
 /// Build and sign [TRANSACTION_CONTEXT] envelope.
@@ -129,6 +102,10 @@ pub fn build_transaction_envelope(
     network: impl Into<Box<str>>,
     tx: Transaction,
 ) -> anyhow::Result<Vec<u8>> {
-    let payload = encode_transaction(network, tx)?;
+    let payload = minicbor::to_vec(Envelope {
+        network: network.into(),
+        message: Message::Transaction(tx),
+    })
+    .context("failed to encode CBOR")?;
     build_sign_envelope(key, payload)
 }

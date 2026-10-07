@@ -17,8 +17,8 @@ use wasmtime::error::Context as _;
 
 use crate::{Block, TransactionOutput, parse_digest};
 
-mod host;
 mod http;
+mod runtime;
 
 /// The ledger-side state of a publishing account, identified by its Ed25519
 /// public key.
@@ -60,6 +60,7 @@ struct Contract {
 struct Transaction {
     outputs: Vec<Option<Arc<TransactionOutput>>>,
     envelope: Bytes,
+    payload: Bytes,
 }
 
 struct Genesis {

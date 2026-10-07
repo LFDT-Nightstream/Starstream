@@ -7,7 +7,7 @@ use ed25519_dalek::SigningKey;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::server::Ledger;
-use starstream_ledger::{Envelope, EnvelopeContext, Publish, Transaction};
+use starstream_ledger::{Publish, Transaction};
 use tempfile::NamedTempFile;
 use tokio::fs;
 use tokio::process::Command;
@@ -36,18 +36,15 @@ async fn run_cli(args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> anyhow::R
     Ok(stdout)
 }
 
-fn assert_score_transaction(tx: &[u8], digest: &str) -> Envelope<Transaction> {
-    let envelope: Envelope<Transaction> =
-        minicbor::decode(tx).expect("failed to decode transaction envelope");
-    assert_eq!(envelope.context, EnvelopeContext::Transaction);
-    assert_eq!(envelope.network.as_ref(), NETWORK);
-    assert_eq!(envelope.payload.inputs, []);
-    let [utxo] = envelope.payload.outputs.as_slice() else {
-        panic!("invalid outputs: {:?}", envelope.payload.outputs)
+fn assert_score_transaction(tx: &[u8], digest: &str) -> Transaction {
+    let tx: Transaction = minicbor::decode(tx).expect("failed to decode transaction");
+    assert_eq!(tx.inputs, []);
+    let [utxo] = tx.outputs.as_slice() else {
+        panic!("invalid outputs: {:?}", tx.outputs)
     };
     assert_eq!(utxo.contract.as_ref(), digest);
     assert_eq!(utxo.instance.as_ref(), "score-progress");
-    envelope
+    tx
 }
 
 #[tokio::test]
@@ -117,13 +114,13 @@ async fn cli() {
     .unwrap();
     assert_eq!(stdout, b"()\n");
     let tx = fs::read(&tx_file).await.unwrap();
-    let envelope = assert_score_transaction(&tx, score_digest);
+    let tx = assert_score_transaction(&tx, score_digest);
 
     let stdout = run_cli(["transaction", "show", &tx_file.path().to_string_lossy()])
         .await
         .unwrap();
     let shown: toml::Value = toml::from_slice(&stdout).expect("failed to decode transaction TOML");
-    assert_eq!(shown, toml::Value::try_from(&envelope).unwrap());
+    assert_eq!(shown, toml::Value::try_from(&tx).unwrap());
 
     let publish_envelope = build_publish_envelope(
         account.clone(),
@@ -174,7 +171,7 @@ async fn cli() {
     ])
     .await
     .unwrap();
-    assert_eq!(stdout, b"");
+    assert_eq!(stdout, format!("{score_digest}\n").as_bytes());
 
     let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"])
         .await
