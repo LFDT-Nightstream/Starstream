@@ -1701,6 +1701,18 @@ impl<T: Host> Contract<T> {
         self.get_coordination_script_typed(name, ty)
     }
 
+    /// Iterate over names of exported coordination scripts
+    #[instrument(level = "trace", skip_all)]
+    pub fn coordination_script_names(&self) -> impl Iterator<Item = &str> {
+        let engine = self.pre.engine();
+        self.ty
+            .exports(engine)
+            .filter_map(|(name, types::ComponentExtern { ty, .. })| match ty {
+                types::ComponentItem::ComponentFunc(..) => Some(name),
+                _ => None,
+            })
+    }
+
     /// Iterate over exported coordination scripts along with their names
     #[instrument(level = "trace", skip_all)]
     pub fn coordination_scripts(
