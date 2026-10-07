@@ -94,18 +94,33 @@ Tooling:
 
 Executor and VM:
 
-Starstream-specific executor and VM work lives under `interleaving/`. The
-underlying folding/IVC scheme, CCS, memory, and VM trace building blocks are
-implemented in [Nightstream](https://github.com/LFDT-Nightstream/Nightstream)
-and consumed here through pinned workspace dependencies such as `neo-fold`,
-`neo-ccs`, `neo-memory`, and `neo-vm-trace`.
+The guest execution is based on wasmtime, and the proving side is implemented
+in [Nightstream](https://github.com/LFDT-Nightstream/Nightstream) under the
+`neo-wasm` crate, alongside the underlying folding/IVC scheme. This includes
+both core wasm instrumentation/tracing generation and the CCS/relation that
+gets folded.
 
-- `interleaving/starstream-interleaving-spec/` - Transaction and interleaving
-semantics, public instance types (tied to a demo ledger implementation), and
-witness types. Plus a Wasm spec for the requirements on the UTXO zkVM.
-- `interleaving/starstream-interleaving-proof/` - Starstream interleaving proof
-circuit (CCS) and Nightstream folding-session integration with MCC middleware
-for Twist and Shout (implemented in Nightstream).
+The host/embedder side of the WASM execution is split between
+
+- `starstream-runtime/` - Component ABI bindings, contract linking, and UTXO
+instance management
+- `starstream-ledger/` - Ledger-backed execution: resolves transaction inputs,
+    loads UTXO state, runs coordination scripts, and collects transaction
+    outputs.
+
+With the Starstream specific proving side in:
+
+- `starstream-interleaving-prover/` - Defines the circuit/relation that
+constrains all the Starstream host interactions the guest can/must do. The
+folding scheme and related apis are in
+[Nightstream](https://github.com/LFDT-Nightstream/Nightstream).
+- `starstream-proving-runtime/` - Defines host event (starstream effects)
+bindings for wasm proofs, which encode which functions and which arguments have
+to be included in the transcript of host call operations, computed out of custom
+tags and the component ABI convention.
+- `starstream-interleaving-spec/` - Has a
+[Quint](https://github.com/quint-co/quint) model of the semantics of the
+interleaving circuit.
 
 Interfaces:
 

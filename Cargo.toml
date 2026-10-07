@@ -13,10 +13,6 @@ members = [
   "starstream-sandbox-web",
   "starstream-to-wasm",
   "starstream-types",
-  "interleaving/starstream-interleaving-proof-legacy",
-  "interleaving/starstream-interleaving-spec-legacy",
-  "ark-poseidon2",
-  "ark-goldilocks",
   "starstream-interleaving-spec",
   "starstream-interleaving-prover",
   "starstream-proving-runtime",
@@ -109,10 +105,3 @@ neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = 
 
 [profile.dev.package]
 insta.opt-level = 3
-
-[patch.crates-io]
-ark-relations = {  git = "https://github.com/arkworks-rs/snark/" }
-ark-snark = {  git = "https://github.com/arkworks-rs/snark/" }
-ark-r1cs-std = {  git = "https://github.com/arkworks-rs/r1cs-std" }
-ark-serialize = { git = "https://github.com/arkworks-rs/algebra"}
-ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives"}
