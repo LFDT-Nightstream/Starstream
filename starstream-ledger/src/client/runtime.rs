@@ -85,7 +85,7 @@ fn tracing_components(
     let mut components = Vec::with_capacity(imports.len() + 1);
     let (_, root_instrumented) = wizer.instrument_component(root_wasm)?;
     let templates = build_component_templates(&root_instrumented, scripts)
-        .map_err(|error| wasmtime::format_err!("failed to build root trace templates: {error}"))?;
+        .context("failed to build root trace templates")?;
 
     components.push(TracingComponent {
         instrumented: root_instrumented,
@@ -102,9 +102,10 @@ fn tracing_components(
             .coordination_scripts()
             .map(|(name, export)| export.map(|_| name))
             .collect::<wasmtime::Result<Vec<_>>>()?;
-        let templates = build_component_templates(&instrumented, &scripts).map_err(|error| {
-            wasmtime::format_err!("failed to build imported trace templates: {error}")
-        })?;
+
+        let templates = build_component_templates(&instrumented, &scripts)
+            .context("failed to build imported trace templates")?;
+
         components.push(TracingComponent {
             instrumented,
             templates,
@@ -145,14 +146,24 @@ async fn resolve_coordination_script_args(
                     )
                 })?;
                 let (external_id, input_wasm) = if input_digest == digest {
-                    (None, Bytes::copy_from_slice(wasm))
+                    let input_wasm =
+                        apply_state(wasm, &output.state).map_err(wasmtime::Error::from_anyhow)?;
+                    (None, Bytes::from(input_wasm))
                 } else if let Some(Contract { wasm, .. }) = imports.get(&input_digest) {
-                    (Some(Arc::from(output.contract.as_ref())), wasm.clone())
+                    let input_wasm =
+                        apply_state(wasm, &output.state).map_err(wasmtime::Error::from_anyhow)?;
+                    (
+                        Some(Arc::from(output.contract.as_ref())),
+                        Bytes::from(input_wasm),
+                    )
                 } else {
                     let input_wasm = client
                         .get_contract_wasm(input_digest)
                         .await
                         .map_err(wasmtime::Error::from_anyhow)?;
+                    let input_wasm = apply_state(&input_wasm, &output.state)
+                        .map_err(wasmtime::Error::from_anyhow)?;
+                    let input_wasm = Bytes::from(input_wasm);
                     imports.insert(
                         input_digest,
                         Contract {
@@ -162,8 +173,6 @@ async fn resolve_coordination_script_args(
                     );
                     (Some(Arc::from(output.contract.as_ref())), input_wasm)
                 };
-                let input_wasm = apply_state(&input_wasm, &output.state)
-                    .map_err(wasmtime::Error::from_anyhow)?;
                 let component = compile_component(engine, wizer, &input_wasm)?;
                 let input_contract =
                     new_contract(client, wizer, &component, external_id.as_deref(), imports)
@@ -173,7 +182,7 @@ async fn resolve_coordination_script_args(
                     output,
                     contract: input_contract,
                     external_id,
-                    wasm: input_wasm,
+                    wasm: input_wasm.to_vec(),
                 })
             }
         };
@@ -322,7 +331,7 @@ fn postprocess_trace(
         // the registry iterates in instance-index order.
         let (_, coordinator) = registry
             .instances()
-            .map_err(|error| wasmtime::format_err!("trace capture failed: {error}"))?
+            .context("trace capture failed: {error}")?
             .next()
             .context("missing coordinator trace")?;
         let fref = root
@@ -379,10 +388,8 @@ fn prepare_tracing(
                 .coordination_scripts()
                 .map(|(name, export)| export.map(|_| name))
                 .collect::<wasmtime::Result<Vec<_>>>()?;
-            let templates =
-                build_component_templates(&instrumented, &scripts).map_err(|error| {
-                    wasmtime::format_err!("failed to build input trace templates: {error}")
-                })?;
+            let templates = build_component_templates(&instrumented, &scripts)
+                .context("failed to build input trace templates")?;
             components.push(TracingComponent {
                 instrumented,
                 templates,
@@ -438,7 +445,7 @@ async fn run_resolved_coordination_script(
     imports: &mut HashMap<[u8; 32], Contract>,
     args: Vec<ResolvedCoordinationScriptArg>,
     results: &mut [Val],
-    store: &mut wasmtime::Store<Ctx>,
+    store: &mut Store<Ctx>,
     utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
 ) -> wasmtime::Result<Transaction> {
     let digest: [u8; 32] = Sha256::digest(wasm).into();
