@@ -330,7 +330,7 @@ where
         results: &mut [Val],
         utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
     ) -> anyhow::Result<Transaction> {
-        let tx = call_coordination_script(
+        let (tx, _) = call_coordination_script(
             store,
             self,
             &self.wizer,

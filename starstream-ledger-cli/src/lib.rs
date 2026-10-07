@@ -452,7 +452,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
 
             let mut utxos = Vec::default();
             let mut store = Store::new(client.engine(), Ctx::default());
-            let tx = call_coordination_script(
+            let (tx, _) = call_coordination_script(
                 &mut store,
                 &imports,
                 client.wizer(),

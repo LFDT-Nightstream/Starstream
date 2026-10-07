@@ -1,11 +1,9 @@
-#![cfg(feature = "proving-instrumentation")]
-
 use std::collections::HashMap;
 
 use anyhow::{bail, ensure};
 use bytes::Bytes;
 use starstream_ledger::client::runtime::{
-    Client, Ctx, call_coordination_script_with_interleaving_check, compile_component, new_contract,
+    Client, Ctx, call_coordination_script, compile_component, new_contract,
 };
 use starstream_ledger::{TransactionInput, TransactionOutput};
 use wasmtime::Store;
@@ -36,19 +34,21 @@ async fn coordination_script_execution_is_checked() -> wasmtime::Result<()> {
     let contract = new_contract(&NoopClient, &wizer, &component, None, &mut imports).await?;
     let export = contract.get_coordination_script("example")?;
 
-    let (transaction, execution) = call_coordination_script_with_interleaving_check(
+    let (transaction, execution) = call_coordination_script(
         &mut Store::new(&engine, Ctx::default()),
         &NoopClient,
         &wizer,
         &contract,
         &common::SCORE_WASM,
-        "example",
         &export,
         &mut imports,
         [],
         &mut [],
+        &mut vec![],
     )
     .await?;
+
+    let execution = execution.unwrap();
 
     assert!(transaction.inputs.is_empty());
     assert_eq!(transaction.outputs.len(), 1);
@@ -85,7 +85,7 @@ async fn coordination_script_loads_existing_utxo() -> wasmtime::Result<()> {
     let mut imports = HashMap::new();
     let contract = new_contract(&NoopClient, &wizer, &component, None, &mut imports).await?;
     let create = contract.get_coordination_script("example")?;
-    let initial = starstream_ledger::client::runtime::call_coordination_script(
+    let (initial, _) = call_coordination_script(
         &mut wasmtime::Store::new(&engine, Default::default()),
         &NoopClient,
         &wizer,
@@ -104,21 +104,24 @@ async fn coordination_script_loads_existing_utxo() -> wasmtime::Result<()> {
         transaction: "fixture".into(),
         index: 0,
     };
-    let (transaction, execution) = call_coordination_script_with_interleaving_check(
+    let (transaction, execution) = call_coordination_script(
         &mut Store::new(&engine, Ctx::default()),
         &client,
         &wizer,
         &contract,
         &wasm,
-        "update",
         &update,
         &mut imports,
         [starstream_ledger::client::CoordinationScriptArg::Utxo(
             input.clone(),
         )],
         &mut [],
+        &mut Vec::new(),
     )
     .await?;
+
+    let execution = execution.unwrap();
+
     assert_eq!(transaction.inputs, [input]);
     assert_eq!(transaction.outputs.len(), 1);
     assert_ne!(transaction.outputs[0].storage, client.0.storage);
@@ -168,19 +171,22 @@ async fn coordination_script_calls_utxo_from_another_contract() -> wasmtime::Res
     let contract = new_contract(&ScoreClient, &wizer, &component, None, &mut imports).await?;
     assert!(imports.contains_key(&*common::SCORE_WASM_DIGEST));
     let export = contract.get_coordination_script("example")?;
-    let (transaction, execution) = call_coordination_script_with_interleaving_check(
+    let (transaction, execution) = call_coordination_script(
         &mut Store::new(&engine, Ctx::default()),
         &ScoreClient,
         &wizer,
         &contract,
         &wasm,
-        "example",
         &export,
         &mut imports,
         [],
         &mut [],
+        &mut vec![],
     )
     .await?;
+
+    let execution = execution.unwrap();
+
     assert!(transaction.inputs.is_empty());
     assert_eq!(transaction.outputs.len(), 1);
     assert_eq!(transaction.outputs[0].contract.as_ref(), digest);

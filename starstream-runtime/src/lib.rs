@@ -1678,7 +1678,11 @@ impl<T: Host> Contract<T> {
             .component()
             .get_export_index(None, name)
             .context("export not found")?;
-        Ok(CoordinationScriptExport { ty, idx })
+        Ok(CoordinationScriptExport {
+            ty,
+            idx,
+            name: name.to_string(),
+        })
     }
 
     /// Get an exported coordination script by name
@@ -1968,12 +1972,22 @@ impl MethodExport {
 pub struct CoordinationScriptExport {
     ty: types::ComponentFunc,
     idx: ComponentExportIndex,
+    // tracked for the proving instrumentation
+    //
+    // we use this as a key into the core-wasm function namespace, since
+    // wasmtime doesn't expose enough information to get the core module id for
+    // the export otherwise
+    name: String,
 }
 
 impl CoordinationScriptExport {
     #[must_use]
     pub fn ty(&self) -> &types::ComponentFunc {
         &self.ty
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
     }
 }
 

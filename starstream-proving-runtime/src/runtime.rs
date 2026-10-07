@@ -29,6 +29,11 @@ pub fn register_tracing_component<T: neo_wasm::WasmTraceSink>(
 pub fn enable_tracing<T: neo_wasm::WasmTraceSink + Send + 'static>(
     store: &mut Store<T>,
 ) -> wasmtime::Result<()> {
+    // NOTE: we need this guard because set_debug_handler panics otherwise
+    wasmtime::ensure!(
+        store.engine().get_guest_debug(),
+        "tracing requires guest_debug to be enabled"
+    );
     store.set_debug_handler(neo_wasm::WasmtimeTraceHandler::<T>::new());
     store
         .edit_breakpoints()

@@ -167,7 +167,7 @@ async fn build_genesis(
         }
         ensure!(args.next().is_none(), "trailing arguments");
         let mut results = vec![Val::Bool(false); ty.results().len()];
-        let tx = call_coordination_script(
+        let (tx, _) = call_coordination_script(
             &mut Store::new(engine, Ctx::default()),
             &GenesisClient(&imported),
             &wizer,

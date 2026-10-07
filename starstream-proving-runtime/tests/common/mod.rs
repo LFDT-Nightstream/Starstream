@@ -16,7 +16,7 @@ use starstream_interleaving_spec::interleaver::{InterleavedTransaction, interlea
 use starstream_interleaving_spec::{Trace, events};
 use starstream_proving_runtime::{
     ComponentTemplates, build_component_templates, decode_tagged_blocks, enable_tracing,
-    new_wasmtime_config,
+    new_wasmtime_config, register_tracing_component,
 };
 use starstream_runtime::{
     Contract, ContractLookup, Host, StorageExport, Token, Utxo, UtxoExport, bindings,
@@ -399,8 +399,9 @@ pub async fn trace_coordination_script(
         created: Vec::new(),
     };
 
-    let store = Store::new(&engine, ctx);
-    let mut store = enable_tracing(&mut store)?;
+    let mut store = Store::new(&engine, ctx);
+    register_tracing_component(store.data_mut(), &wasm, &templates.bindings)?;
+    enable_tracing(&mut store)?;
 
     let instance = contract.instantiate(&mut store).await?;
     instance
