@@ -8,8 +8,7 @@ use starstream_ledger::client::runtime::{
 use starstream_ledger::{TransactionInput, TransactionOutput};
 use wasmtime::Store;
 
-#[allow(dead_code)]
-mod common;
+pub mod common;
 
 struct NoopClient;
 
