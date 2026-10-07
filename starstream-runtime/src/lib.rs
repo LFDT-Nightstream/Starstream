@@ -1681,7 +1681,7 @@ impl<T: Host> Contract<T> {
         Ok(CoordinationScriptExport {
             ty,
             idx,
-            name: Arc::new(name.to_string()),
+            name: name.into(),
         })
     }
 
@@ -1972,7 +1972,7 @@ impl MethodExport {
 pub struct CoordinationScriptExport {
     ty: types::ComponentFunc,
     idx: ComponentExportIndex,
-    name: Arc<String>,
+    name: Arc<str>,
 }
 
 impl CoordinationScriptExport {
@@ -1981,8 +1981,9 @@ impl CoordinationScriptExport {
         &self.ty
     }
 
-    pub fn name(&self) -> &str {
-        self.name.as_str()
+    #[must_use]
+    pub fn name(&self) -> &Arc<str> {
+        &self.name
     }
 }
 
