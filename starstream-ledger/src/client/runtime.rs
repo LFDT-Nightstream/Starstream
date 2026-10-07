@@ -6,6 +6,10 @@ use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use sha2::{Digest as _, Sha256};
+use starstream_proving_runtime::{
+    CapturedExecution, MethodHash, WasmTraceSink, WasmtimeTraceRegistry, build_component_templates,
+    check_captured_transaction, enable_tracing, register_tracing_component,
+};
 use starstream_runtime::bindings::starstream;
 use starstream_runtime::{
     CoordinationScriptExport, CoordinationScriptImport, Token, Utxo, UtxoExport, UtxoImport,
@@ -51,6 +55,147 @@ pub trait Client {
         &self,
         input: &TransactionInput,
     ) -> impl Future<Output = anyhow::Result<TransactionOutput>>;
+}
+
+enum ResolvedCoordinationScriptArg {
+    Val(Val),
+    Utxo(ResolvedUtxoInput),
+}
+
+struct ResolvedUtxoInput {
+    input: TransactionInput,
+    output: TransactionOutput,
+    contract: starstream_runtime::Contract<Ctx>,
+    external_id: Option<Arc<str>>,
+    wasm: Vec<u8>,
+}
+
+struct TracingComponent {
+    instrumented: Vec<u8>,
+    templates: starstream_proving_runtime::ComponentTemplates,
+}
+
+struct TracingSetup {
+    components: Vec<TracingComponent>,
+    input_locals: Vec<usize>,
+    input_methods: Vec<Vec<MethodHash>>,
+}
+
+fn tracing_components(
+    wizer: &Wizer,
+    root_wasm: &[u8],
+    scripts: &[&str],
+    imports: &HashMap<[u8; 32], Contract>,
+) -> wasmtime::Result<Vec<TracingComponent>> {
+    let root_digest: [u8; 32] = Sha256::digest(root_wasm).into();
+    let mut components = Vec::with_capacity(imports.len() + 1);
+    let (_, root_instrumented) = wizer.instrument_component(root_wasm)?;
+    let templates = build_component_templates(&root_instrumented, scripts)
+        .context("failed to build root trace templates")?;
+
+    components.push(TracingComponent {
+        instrumented: root_instrumented,
+        templates,
+    });
+
+    for (digest, Contract { wasm, contract }) in imports {
+        if *digest == root_digest {
+            continue;
+        }
+        let Some(contract) = contract else { continue };
+        let (_, instrumented) = wizer.instrument_component(wasm)?;
+        let scripts = contract
+            .coordination_scripts()
+            .map(|(name, export)| export.map(|_| name))
+            .collect::<wasmtime::Result<Vec<_>>>()?;
+
+        let templates = build_component_templates(&instrumented, &scripts)
+            .context("failed to build imported trace templates")?;
+
+        components.push(TracingComponent {
+            instrumented,
+            templates,
+        });
+    }
+
+    Ok(components)
+}
+
+async fn resolve_coordination_script_args(
+    client: &(impl Client + ?Sized),
+    wizer: &Wizer,
+    contract: &starstream_runtime::Contract<Ctx>,
+    wasm: &[u8],
+    export: &CoordinationScriptExport,
+    imports: &mut HashMap<[u8; 32], Contract>,
+    args: impl IntoIterator<Item = CoordinationScriptArg>,
+) -> wasmtime::Result<Vec<ResolvedCoordinationScriptArg>> {
+    let engine = contract.component().engine();
+    let digest: [u8; 32] = Sha256::digest(wasm).into();
+    let mut args = args.into_iter();
+    let mut resolved = Vec::with_capacity(export.ty().params().len());
+    for (name, _ty) in export.ty().params() {
+        let arg = args
+            .next()
+            .with_context(|| format!("missing argument for parameter `{name}`"))?;
+        let arg = match arg {
+            CoordinationScriptArg::Val(value) => ResolvedCoordinationScriptArg::Val(value),
+            CoordinationScriptArg::Utxo(input) => {
+                let output = client
+                    .get_input_utxo(&input)
+                    .await
+                    .map_err(wasmtime::Error::from_anyhow)?;
+                let input_digest = parse_digest(&output.contract).with_context(|| {
+                    format!(
+                        "failed to parse `{}` as multibase multihash",
+                        output.contract
+                    )
+                })?;
+                let (external_id, input_wasm) = if input_digest == digest {
+                    let input_wasm =
+                        apply_state(wasm, &output.state).map_err(wasmtime::Error::from_anyhow)?;
+                    (None, Bytes::from(input_wasm))
+                } else if let Some(Contract { wasm, .. }) = imports.get(&input_digest) {
+                    let input_wasm =
+                        apply_state(wasm, &output.state).map_err(wasmtime::Error::from_anyhow)?;
+                    (
+                        Some(Arc::from(output.contract.as_ref())),
+                        Bytes::from(input_wasm),
+                    )
+                } else {
+                    let input_wasm = client
+                        .get_contract_wasm(input_digest)
+                        .await
+                        .map_err(wasmtime::Error::from_anyhow)?;
+                    let input_wasm = apply_state(&input_wasm, &output.state)
+                        .map_err(wasmtime::Error::from_anyhow)?;
+                    let input_wasm = Bytes::from(input_wasm);
+                    imports.insert(
+                        input_digest,
+                        Contract {
+                            contract: None,
+                            wasm: input_wasm.clone(),
+                        },
+                    );
+                    (Some(Arc::from(output.contract.as_ref())), input_wasm)
+                };
+                let component = compile_component(engine, wizer, &input_wasm)?;
+                let input_contract =
+                    new_contract(client, wizer, &component, external_id.as_deref(), imports)
+                        .await?;
+                ResolvedCoordinationScriptArg::Utxo(ResolvedUtxoInput {
+                    input,
+                    output,
+                    contract: input_contract,
+                    external_id,
+                    wasm: input_wasm.to_vec(),
+                })
+            }
+        };
+        resolved.push(arg);
+    }
+    ensure!(args.next().is_none(), "trailing arguments");
+    Ok(resolved)
 }
 
 pub async fn new_contract(
@@ -138,68 +283,195 @@ pub async fn call_coordination_script(
     args: impl IntoIterator<Item = CoordinationScriptArg>,
     results: &mut [Val],
     utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
+) -> wasmtime::Result<(Transaction, wasmtime::Result<CapturedExecution>)> {
+    let args =
+        resolve_coordination_script_args(client, wizer, contract, wasm, export, imports, args)
+            .await?;
+
+    let tracing_setup = prepare_tracing(store, wizer, contract, wasm, export, imports, &args);
+
+    let transaction = run_resolved_coordination_script(
+        wizer, contract, wasm, export, imports, args, results, store, utxos,
+    )
+    .await?;
+
+    let registry = &store.data().traces;
+    let mut handles = Vec::new();
+
+    // tracing checks are non-blocking/best-effort for now
+    //
+    // mainly to not block execution on configurations not supported by the
+    // current instrumentation
+    //
+    // it is up to the caller to report the error (if any)
+    let execution = tracing_setup.and_then(|prepared| {
+        postprocess_trace(
+            export,
+            prepared.components,
+            prepared.input_locals,
+            registry,
+            &mut handles,
+        )?;
+        // TODO: Authenticate these input handles against the coordinator argument root.
+        check_captured_transaction(registry, handles, &prepared.input_methods)
+    });
+
+    Ok((transaction, execution))
+}
+
+// recovers coord-local numeric source ids for the SetStorage advice field
+fn postprocess_trace(
+    export: &CoordinationScriptExport,
+    instrumented_components: Vec<TracingComponent>,
+    input_locals: Vec<usize>,
+    registry: &WasmtimeTraceRegistry,
+    handles: &mut Vec<starstream_proving_runtime::ResourceHandle>,
+) -> Result<(), wasmtime::Error> {
+    let Some(root) = instrumented_components.first() else {
+        unreachable!("prepare_tracing pushes the received root wasm module unconditionally")
+    };
+
+    if !input_locals.is_empty() {
+        // The root coordinator is instantiated before input UTXOs;
+        // the registry iterates in instance-index order.
+        let (_, coordinator) = registry
+            .instances()
+            .context("trace capture failed: {error}")?
+            .next()
+            .context("missing coordinator trace")?;
+        let fref = root
+            .templates
+            .export_fref(export.name())
+            .context("missing coordinator export")?;
+        let entry = coordinator
+            .steps()
+            .iter()
+            .find(|step| step.current_function_ref == Some(fref))
+            .context("missing coordinator entry arguments")?;
+        for local in input_locals {
+            let &(handle, _) = entry
+                .locals_words
+                .get(local)
+                .context("missing input handle local")?;
+            handles.push(starstream_proving_runtime::ResourceHandle(handle));
+        }
+    }
+
+    Ok(())
+}
+
+fn prepare_tracing(
+    store: &mut Store<Ctx>,
+    wizer: &Wizer,
+    contract: &starstream_runtime::Contract<Ctx>,
+    wasm: &[u8],
+    export: &CoordinationScriptExport,
+    imports: &mut HashMap<[u8; 32], Contract>,
+    args: &[ResolvedCoordinationScriptArg],
+) -> wasmtime::Result<TracingSetup> {
+    let scripts = contract
+        .coordination_scripts()
+        .map(|(name, export)| export.map(|_| name))
+        .collect::<wasmtime::Result<Vec<_>>>()?;
+    let mut components = tracing_components(wizer, wasm, &scripts, imports)?;
+    let mut input_methods = Vec::new();
+    let mut input_locals = Vec::new();
+    for (index, arg) in args.iter().enumerate() {
+        if let ResolvedCoordinationScriptArg::Utxo(input) = arg {
+            input_locals.push(index);
+            input_methods.push(
+                input
+                    .output
+                    .methods
+                    .iter()
+                    .map(|&(a, b, c, d)| MethodHash::from_u64_words([a, b, c, d]))
+                    .collect::<Vec<_>>(),
+            );
+            let (_, instrumented) = wizer.instrument_component(&input.wasm)?;
+            let scripts = input
+                .contract
+                .coordination_scripts()
+                .map(|(name, export)| export.map(|_| name))
+                .collect::<wasmtime::Result<Vec<_>>>()?;
+            let templates = build_component_templates(&instrumented, &scripts)
+                .context("failed to build input trace templates")?;
+            components.push(TracingComponent {
+                instrumented,
+                templates,
+            });
+        }
+    }
+    if !input_locals.is_empty() {
+        // Direct scalar/resource parameters each lower to _one_ core local.
+        // TODO: Support composite and indirectly lowered coordinator arguments.
+        // (the indexes of utxo inputs will be invalid as computed right now otherwise)
+        ensure!(
+            export.ty().params().len() <= 16
+                && export.ty().params().all(|(_, ty)| matches!(
+                    ty,
+                    Type::Bool
+                        | Type::S8
+                        | Type::U8
+                        | Type::S16
+                        | Type::U16
+                        | Type::S32
+                        | Type::U32
+                        | Type::S64
+                        | Type::U64
+                        | Type::Float32
+                        | Type::Float64
+                        | Type::Char
+                        | Type::Own(_)
+                        | Type::Borrow(_)
+                )),
+            "traced input loading requires direct scalar/resource arguments"
+        );
+    }
+
+    enable_tracing(store)?;
+
+    for component in components.as_slice() {
+        register_tracing_component(
+            store.data_mut(),
+            &component.instrumented,
+            &component.templates.bindings,
+        )?;
+    }
+
+    Ok(TracingSetup {
+        components,
+        input_locals,
+        input_methods,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_resolved_coordination_script(
+    wizer: &Wizer,
+    contract: &starstream_runtime::Contract<Ctx>,
+    wasm: &[u8],
+    export: &CoordinationScriptExport,
+    imports: &mut HashMap<[u8; 32], Contract>,
+    args: Vec<ResolvedCoordinationScriptArg>,
+    results: &mut [Val],
+    store: &mut Store<Ctx>,
+    utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
 ) -> wasmtime::Result<Transaction> {
-    let engine = contract.component().engine();
+    let digest: [u8; 32] = Sha256::digest(wasm).into();
     let instance = contract.instantiate(&mut *store).await?;
 
-    let digest = Sha256::digest(wasm).into();
     let mut inputs = Vec::default();
     let mut params = Vec::with_capacity(export.ty().params().len());
-    let mut args = args.into_iter();
-    for (name, _ty) in export.ty().params() {
-        let arg = args
-            .next()
-            .with_context(|| format!("missing argument for parameter `{name}`"))?;
+    for arg in args {
         let v = match arg {
-            CoordinationScriptArg::Val(v) => v,
-            CoordinationScriptArg::Utxo(input) => {
-                let utxo = client
-                    .get_input_utxo(&input)
-                    .await
-                    .map_err(wasmtime::Error::from_anyhow)?;
-                let utxo_contract_digest = parse_digest(&utxo.contract).with_context(|| {
-                    format!("failed to parse `{}` as multibase multihash", utxo.contract)
-                })?;
-                let (external_id, wasm) = if utxo_contract_digest == digest {
-                    let wasm =
-                        apply_state(wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    (None, Bytes::from(wasm))
-                } else if let Some(Contract { wasm, .. }) = imports.get(&utxo_contract_digest) {
-                    let wasm =
-                        apply_state(wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    (Some(Arc::from(utxo.contract)), Bytes::from(wasm))
-                } else {
-                    let wasm = client
-                        .get_contract_wasm(utxo_contract_digest)
-                        .await
-                        .map_err(wasmtime::Error::from_anyhow)?;
-                    let wasm =
-                        apply_state(&wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    let wasm = Bytes::from(wasm);
-                    imports.insert(
-                        utxo_contract_digest,
-                        Contract {
-                            contract: None,
-                            wasm: wasm.clone(),
-                        },
-                    );
-                    (Some(Arc::from(utxo.contract)), wasm)
-                };
-                let component = compile_component(engine, wizer, &wasm)?;
-                let contract = new_contract(
-                    client,
-                    wizer,
-                    &component,
-                    external_id.as_deref(),
-                    &mut *imports,
-                )
-                .await?;
-                let utxo_export = contract.get_utxo(&utxo.instance)?;
+            ResolvedCoordinationScriptArg::Val(value) => value,
+            ResolvedCoordinationScriptArg::Utxo(input) => {
+                let utxo_export = input.contract.get_utxo(&input.output.instance)?;
                 let storage_export = utxo_export.storage().context("UTXO has no storage")?;
                 let mut storage = Val::Record(Vec::default());
                 // TODO: Use sync decoder
                 read_value(
-                    &mut utxo.storage.as_ref(),
+                    &mut input.output.storage.as_ref(),
                     &mut storage,
                     &Type::Record(storage_export.ty().clone()),
                 )
@@ -207,14 +479,14 @@ pub async fn call_coordination_script(
                 .context("failed to decode UTXO storage")?;
                 let cx = Arc::new(std::sync::Mutex::new(UtxoCtx {
                     export: utxo_export.clone(),
-                    instance: utxo.instance.into(),
-                    external_id,
-                    methods: utxo.methods.into_iter().collect(),
+                    instance: input.output.instance.into(),
+                    external_id: input.external_id,
+                    methods: input.output.methods.into_iter().collect(),
                     dropped: false,
                 }));
                 let cx_res = store.data_mut().table.push(Arc::clone(&cx))?;
                 let cx_res = cx_res.try_into_resource_any(&mut *store)?;
-                let contract = contract.instantiate(&mut *store).await?;
+                let contract = input.contract.instantiate(&mut *store).await?;
                 let utxo = contract
                     .load_utxo(
                         &mut *store,
@@ -228,13 +500,12 @@ pub async fn call_coordination_script(
                 outputs.push(utxo.clone());
                 let utxo = table.push(utxo)?;
                 let utxo = utxo.try_into_resource_any(&mut *store)?;
-                inputs.push(input);
+                inputs.push(input.input);
                 Val::Resource(utxo)
             }
         };
         params.push(v);
     }
-    ensure!(args.next().is_none(), "trailing arguments");
     instance
         .call_coordination_script(&mut *store, export, &params, results)
         .await?;
@@ -252,7 +523,7 @@ pub async fn call_coordination_script(
             cx.clone()
         };
         let mut instance = WasmtimeWizerComponent {
-            store: &mut *store,
+            store,
             instance: utxo.instance(),
         };
         let (contract, wasm) = if let Some(external_id) = cx.external_id.as_deref() {
@@ -308,6 +579,7 @@ pub struct Ctx {
     pub table: ResourceTable,
     pub events: Vec<TransactionEvent>,
     pub outputs: Vec<starstream_runtime::Utxo<<Self as starstream_runtime::Host>::UtxoContext>>,
+    pub traces: WasmtimeTraceRegistry,
 }
 
 #[derive(Clone, Debug)]
@@ -321,6 +593,16 @@ pub struct UtxoCtx {
 
 pub fn lock<T>(mu: &std::sync::Mutex<T>) -> wasmtime::Result<std::sync::MutexGuard<'_, T>> {
     mu.lock().map_err(|err| format_err!("{err}"))
+}
+
+impl WasmTraceSink for Ctx {
+    fn wasm_trace_registry(&self) -> &WasmtimeTraceRegistry {
+        &self.traces
+    }
+
+    fn wasm_trace_registry_mut(&mut self) -> &mut WasmtimeTraceRegistry {
+        &mut self.traces
+    }
 }
 
 impl starstream::std::cardano::Host for Ctx {

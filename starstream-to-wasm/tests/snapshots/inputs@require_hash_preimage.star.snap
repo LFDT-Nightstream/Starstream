@@ -3668,8 +3668,9 @@ TypedProgram {
       (local.get 4))
     (global.set 5
       (local.get 5))
-    (return_call 9
-      (i32.const 0))
+    (return
+      (call 9
+        (i32.const 0)))
   )
   (func (;20;) (type 6) (param i64) (result i32)
     (call 11
@@ -3932,8 +3933,8 @@ Caused by:
     0: failed to call function
     1: error while executing at wasm backtrace:
     0:    0x75f - <unknown>!<wasm function 16>
-    1:    0x7e8 - <unknown>!<wasm function 21>
-    2:    0x81f - <unknown>!<wasm function 24>
+    1:    0x7e9 - <unknown>!<wasm function 21>
+    2:    0x820 - <unknown>!<wasm function 24>
     2: wasm trap: wasm `unreachable` instruction executed
 
 ==== Test: Alive UTXO ====

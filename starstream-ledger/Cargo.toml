@@ -54,6 +54,7 @@ multibase = { workspace = true, features = ["std"] }
 multihash = { workspace = true, features = ["std"] }
 serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
+starstream-proving-runtime = { workspace = true }
 starstream-runtime = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true, features = [
