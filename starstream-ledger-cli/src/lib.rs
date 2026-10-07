@@ -419,7 +419,8 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             };
             let mut contracts = HashMap::default();
             let wasm = imports.get_contract_wasm(digest).await?;
-            let component = compile_component(client.engine(), client.wizer(), &wasm)?;
+            let (component, instrumented) =
+                compile_component(client.engine(), client.wizer(), &wasm)?;
             let contract =
                 new_contract(&imports, client.wizer(), &component, None, &mut contracts).await?;
 
@@ -455,12 +456,13 @@ async fn exec(args: Args) -> anyhow::Result<()> {
 
             let mut utxos = Vec::default();
             let mut store = Store::new(client.engine(), Ctx::default());
-            let (tx, _) = call_coordination_script(
+            let (tx, ..) = call_coordination_script(
                 &mut store,
                 &imports,
                 client.wizer(),
                 &contract,
                 &wasm,
+                &instrumented,
                 &script,
                 &mut contracts,
                 params,

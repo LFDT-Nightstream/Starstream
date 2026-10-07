@@ -33,7 +33,7 @@ async fn coordination_script_execution_is_checked() -> anyhow::Result<()> {
     config.wasm_component_model_implements(true);
     let engine = Engine::new(&config)?;
     let wizer = Wizer::new();
-    let component = compile_component(&engine, &wizer, &SCORE_WASM)?;
+    let (component, instrumented) = compile_component(&engine, &wizer, &SCORE_WASM)?;
     let mut imports = HashMap::new();
     let contract = new_contract(&TestClient(None), &wizer, &component, None, &mut imports).await?;
 
@@ -44,6 +44,7 @@ async fn coordination_script_execution_is_checked() -> anyhow::Result<()> {
         &wizer,
         &contract,
         &SCORE_WASM,
+        &instrumented,
         &example,
         &mut imports,
         [],
@@ -68,7 +69,7 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
     config.wasm_component_model_implements(true);
     let engine = Engine::new(&config)?;
     let wizer = Wizer::new();
-    let component = compile_component(&engine, &wizer, &wasm)?;
+    let (component, instrumented) = compile_component(&engine, &wizer, &wasm)?;
     let mut imports = HashMap::new();
     let contract = new_contract(&TestClient(None), &wizer, &component, None, &mut imports).await?;
 
@@ -79,6 +80,7 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         &wizer,
         &contract,
         &wasm,
+        &instrumented,
         &example,
         &mut imports,
         [],
@@ -103,6 +105,7 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         &wizer,
         &contract,
         &wasm,
+        &instrumented,
         &update,
         &mut imports,
         [CoordinationScriptArg::Utxo(input.clone())],
@@ -142,7 +145,7 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
     config.wasm_component_model_implements(true);
     let engine = Engine::new(&config)?;
     let wizer = Wizer::new();
-    let component = compile_component(&engine, &wizer, &wasm)?;
+    let (component, instrumented) = compile_component(&engine, &wizer, &wasm)?;
     let mut imports = HashMap::new();
     let contract = new_contract(&TestClient(None), &wizer, &component, None, &mut imports).await?;
     assert!(imports.contains_key(&*SCORE_WASM_DIGEST));
@@ -154,6 +157,7 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
         &wizer,
         &contract,
         &wasm,
+        &instrumented,
         &example,
         &mut imports,
         [],

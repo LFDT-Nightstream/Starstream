@@ -326,7 +326,8 @@ async fn http() {
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 3);
 
-    let score_component = compile_component(client.engine(), client.wizer(), &SCORE_WASM).unwrap();
+    let (score_component, score_instrumented) =
+        compile_component(client.engine(), client.wizer(), &SCORE_WASM).unwrap();
     let score_contract = new_contract(
         &client,
         client.wizer(),
@@ -351,6 +352,7 @@ async fn http() {
             ),
             &score_contract,
             &SCORE_WASM,
+            &score_instrumented,
             &score_example_export,
             &mut HashMap::default(),
             [],

@@ -136,7 +136,7 @@ async fn build_genesis(
             contract.clone()
         } else {
             let wasm = get_contract_wasm(&imported, &digest)?;
-            let component = compile_component(engine, &wizer, wasm)?;
+            let (component, instrumented) = compile_component(engine, &wizer, wasm)?;
             let contract = new_contract(
                 &GenesisClient(&imported),
                 &wizer,
@@ -146,13 +146,13 @@ async fn build_genesis(
             )
             .await?;
             let contract = Contract {
-                contract: Some(contract),
+                contract: Some((contract, instrumented.into())),
                 wasm: wasm.clone(),
             };
             contracts.insert(digest, contract.clone());
             contract
         };
-        let contract = contract.context("contract was not compiled")?;
+        let (contract, instrumented) = contract.context("contract was not compiled")?;
         let script = contract.get_coordination_script(&script)?;
         let ty = script.ty();
         let mut params = Vec::with_capacity(ty.params().len());
@@ -167,12 +167,13 @@ async fn build_genesis(
         }
         ensure!(args.next().is_none(), "trailing arguments");
         let mut results = vec![Val::Bool(false); ty.results().len()];
-        let (tx, _) = call_coordination_script(
+        let (tx, ..) = call_coordination_script(
             &mut Store::new(engine, Ctx::default()),
             &GenesisClient(&imported),
             &wizer,
             &contract,
             &wasm,
+            &instrumented,
             &script,
             &mut contracts,
             params,
