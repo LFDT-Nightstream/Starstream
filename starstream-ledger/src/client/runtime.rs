@@ -75,6 +75,12 @@ struct TracingComponent {
     templates: starstream_proving_runtime::ComponentTemplates,
 }
 
+struct TracingSetup {
+    components: Vec<TracingComponent>,
+    input_locals: Vec<usize>,
+    input_methods: Vec<Vec<MethodHash>>,
+}
+
 fn tracing_components(
     wizer: &Wizer,
     root_wasm: &[u8],
@@ -298,18 +304,17 @@ pub async fn call_coordination_script(
     // current instrumentation
     //
     // it is up to the caller to report the error (if any)
-    let execution =
-        tracing_setup.and_then(|(instrumented_components, input_locals, input_methods)| {
-            postprocess_trace(
-                export,
-                instrumented_components,
-                input_locals,
-                registry,
-                &mut handles,
-            )?;
-            // TODO: Authenticate these input handles against the coordinator argument root.
-            check_captured_transaction(registry, handles, &input_methods)
-        });
+    let execution = tracing_setup.and_then(|prepared| {
+        postprocess_trace(
+            export,
+            prepared.components,
+            prepared.input_locals,
+            registry,
+            &mut handles,
+        )?;
+        // TODO: Authenticate these input handles against the coordinator argument root.
+        check_captured_transaction(registry, handles, &prepared.input_methods)
+    });
 
     Ok((transaction, execution))
 }
@@ -322,7 +327,7 @@ fn postprocess_trace(
     registry: &WasmtimeTraceRegistry,
     handles: &mut Vec<starstream_proving_runtime::ResourceHandle>,
 ) -> Result<(), wasmtime::Error> {
-    let Some(root) = instrumented_components.get(0) else {
+    let Some(root) = instrumented_components.first() else {
         unreachable!("prepare_tracing pushes the received root wasm module unconditionally")
     };
 
@@ -362,8 +367,8 @@ fn prepare_tracing(
     wasm: &[u8],
     export: &CoordinationScriptExport,
     imports: &mut HashMap<[u8; 32], Contract>,
-    args: &Vec<ResolvedCoordinationScriptArg>,
-) -> Result<(Vec<TracingComponent>, Vec<usize>, Vec<Vec<MethodHash>>), wasmtime::Error> {
+    args: &[ResolvedCoordinationScriptArg],
+) -> wasmtime::Result<TracingSetup> {
     let scripts = contract
         .coordination_scripts()
         .map(|(name, export)| export.map(|_| name))
@@ -433,7 +438,11 @@ fn prepare_tracing(
         )?;
     }
 
-    Ok((components, input_locals, input_methods))
+    Ok(TracingSetup {
+        components,
+        input_locals,
+        input_methods,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
