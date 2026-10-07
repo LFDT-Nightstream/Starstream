@@ -1681,7 +1681,7 @@ impl<T: Host> Contract<T> {
         Ok(CoordinationScriptExport {
             ty,
             idx,
-            name: name.to_string(),
+            name: Arc::new(name.to_string()),
         })
     }
 
@@ -1972,12 +1972,7 @@ impl MethodExport {
 pub struct CoordinationScriptExport {
     ty: types::ComponentFunc,
     idx: ComponentExportIndex,
-    // tracked for the proving instrumentation
-    //
-    // we use this as a key into the core-wasm function namespace, since
-    // wasmtime doesn't expose enough information to get the core module id for
-    // the export otherwise
-    name: String,
+    name: Arc<String>,
 }
 
 impl CoordinationScriptExport {
