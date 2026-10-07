@@ -1,103 +1,97 @@
 use std::collections::HashMap;
 
-use anyhow::{bail, ensure};
+use anyhow::{Context as _, ensure};
 use bytes::Bytes;
+use starstream_ledger::client::CoordinationScriptArg;
 use starstream_ledger::client::runtime::{
     Client, Ctx, call_coordination_script, compile_component, new_contract,
 };
-use starstream_ledger::{TransactionInput, TransactionOutput};
-use wasmtime::Store;
+use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest};
+use wasmtime::{Engine, Store};
+use wasmtime_wizer::Wizer;
 
 pub mod common;
+use common::*;
 
-struct NoopClient;
+struct TestClient(Option<TransactionOutput>);
 
-impl Client for NoopClient {
-    async fn get_contract_wasm(&self, _digest: [u8; 32]) -> anyhow::Result<Bytes> {
-        bail!("the same-contract fixture resolves no imports")
-    }
-
-    async fn get_input_utxo(&self, _input: &TransactionInput) -> anyhow::Result<TransactionOutput> {
-        bail!("the same-contract fixture has no inputs")
-    }
-}
-
-#[tokio::test]
-async fn coordination_script_execution_is_checked() -> wasmtime::Result<()> {
-    let mut config = starstream_proving_runtime::new_wasmtime_config();
-    config.wasm_component_model_implements(true);
-    let engine = wasmtime::Engine::new(&config)?;
-    let wizer = wasmtime_wizer::Wizer::new();
-    let component = compile_component(&engine, &wizer, &common::SCORE_WASM)?;
-    let mut imports = HashMap::new();
-    let contract = new_contract(&NoopClient, &wizer, &component, None, &mut imports).await?;
-    let export = contract.get_coordination_script("example")?;
-
-    let (transaction, execution) = call_coordination_script(
-        &mut Store::new(&engine, Ctx::default()),
-        &NoopClient,
-        &wizer,
-        &contract,
-        &common::SCORE_WASM,
-        &export,
-        &mut imports,
-        [],
-        &mut [],
-        &mut vec![],
-    )
-    .await?;
-
-    let execution = execution.unwrap();
-
-    assert!(transaction.inputs.is_empty());
-    assert_eq!(transaction.outputs.len(), 1);
-    assert_eq!(execution.traces.len(), 2);
-    Ok(())
-}
-
-struct ScoreClient;
-
-struct InputClient(TransactionOutput);
-
-impl Client for InputClient {
-    async fn get_contract_wasm(&self, _: [u8; 32]) -> anyhow::Result<Bytes> {
-        bail!("the input belongs to the root contract")
+impl Client for TestClient {
+    async fn get_contract_wasm(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
+        ensure!(digest == *SCORE_WASM_DIGEST, "unexpected contract");
+        Ok(Bytes::copy_from_slice(&SCORE_WASM))
     }
 
     async fn get_input_utxo(&self, input: &TransactionInput) -> anyhow::Result<TransactionOutput> {
         ensure!(input.index == 0, "unexpected input");
-        Ok(self.0.clone())
+        self.0.clone().context("unexpected input")
     }
 }
 
 #[tokio::test]
-async fn coordination_script_loads_existing_utxo() -> wasmtime::Result<()> {
-    let wasm = common::compile_contract(&format!(
-        "{}\nscript fn update(prog: ScoreProgress) {{ prog.plus_chips(5); }}",
-        include_str!("../../examples/score.star")
-    ))?;
+async fn coordination_script_execution_is_checked() -> anyhow::Result<()> {
     let mut config = starstream_proving_runtime::new_wasmtime_config();
     config.wasm_component_model_implements(true);
-    let engine = wasmtime::Engine::new(&config)?;
-    let wizer = wasmtime_wizer::Wizer::new();
-    let component = compile_component(&engine, &wizer, &wasm)?;
+    let engine = Engine::new(&config)?;
+    let wizer = Wizer::new();
+    let component = compile_component(&engine, &wizer, &SCORE_WASM)?;
     let mut imports = HashMap::new();
-    let contract = new_contract(&NoopClient, &wizer, &component, None, &mut imports).await?;
-    let create = contract.get_coordination_script("example")?;
-    let (initial, _) = call_coordination_script(
-        &mut wasmtime::Store::new(&engine, Default::default()),
-        &NoopClient,
+    let contract = new_contract(&TestClient(None), &wizer, &component, None, &mut imports).await?;
+
+    let example = contract.get_coordination_script("example")?;
+    let (transaction, execution) = call_coordination_script(
+        &mut Store::new(&engine, Ctx::default()),
+        &TestClient(None),
         &wizer,
         &contract,
-        &wasm,
-        &create,
+        &SCORE_WASM,
+        &example,
         &mut imports,
         [],
         &mut [],
         &mut Vec::new(),
     )
     .await?;
-    let client = InputClient(initial.outputs[0].clone());
+    let execution = execution?;
+    assert!(transaction.inputs.is_empty());
+    assert_eq!(transaction.outputs.len(), 1);
+    assert_eq!(execution.traces.len(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
+    let wasm = compile_contract(&format!(
+        "{}\nscript fn update(prog: ScoreProgress) {{ prog.plus_chips(5); }}",
+        include_str!("../../examples/score.star")
+    ))?;
+    let mut config = starstream_proving_runtime::new_wasmtime_config();
+    config.wasm_component_model_implements(true);
+    let engine = Engine::new(&config)?;
+    let wizer = Wizer::new();
+    let component = compile_component(&engine, &wizer, &wasm)?;
+    let mut imports = HashMap::new();
+    let contract = new_contract(&TestClient(None), &wizer, &component, None, &mut imports).await?;
+
+    let example = contract.get_coordination_script("example")?;
+    let (transaction, execution) = call_coordination_script(
+        &mut Store::new(&engine, Ctx::default()),
+        &TestClient(None),
+        &wizer,
+        &contract,
+        &wasm,
+        &example,
+        &mut imports,
+        [],
+        &mut [],
+        &mut Vec::new(),
+    )
+    .await?;
+    let execution = execution?;
+    assert!(transaction.inputs.is_empty());
+    assert_eq!(transaction.outputs.len(), 1);
+    assert_eq!(execution.traces.len(), 2);
+
+    let client = TestClient(Some(transaction.outputs[0].clone()));
     let update = contract.get_coordination_script("update")?;
     let input = TransactionInput {
         transaction: "fixture".into(),
@@ -111,44 +105,27 @@ async fn coordination_script_loads_existing_utxo() -> wasmtime::Result<()> {
         &wasm,
         &update,
         &mut imports,
-        [starstream_ledger::client::CoordinationScriptArg::Utxo(
-            input.clone(),
-        )],
+        [CoordinationScriptArg::Utxo(input.clone())],
         &mut [],
         &mut Vec::new(),
     )
     .await?;
-
-    let execution = execution.unwrap();
-
+    let execution = execution?;
+    let utxo = client.0.unwrap();
     assert_eq!(transaction.inputs, [input]);
     assert_eq!(transaction.outputs.len(), 1);
-    assert_ne!(transaction.outputs[0].storage, client.0.storage);
-    assert_eq!(transaction.outputs[0].methods, client.0.methods);
+    assert_ne!(transaction.outputs[0].storage, utxo.storage);
+    assert_eq!(transaction.outputs[0].methods, utxo.methods);
     assert_eq!(execution.transaction.statement.inputs.len(), 1);
     assert_eq!(execution.transaction.statement.outputs.len(), 1);
     assert_eq!(execution.traces.len(), 2);
     Ok(())
 }
 
-impl Client for ScoreClient {
-    async fn get_contract_wasm(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
-        ensure!(digest == *common::SCORE_WASM_DIGEST, "unexpected contract");
-        Ok(Bytes::copy_from_slice(&common::SCORE_WASM))
-    }
-
-    async fn get_input_utxo(&self, _input: &TransactionInput) -> anyhow::Result<TransactionOutput> {
-        bail!("the fixture constructs its UTXO")
-    }
-}
-
 #[tokio::test]
-async fn coordination_script_calls_utxo_from_another_contract() -> wasmtime::Result<()> {
-    let digest = starstream_ledger::encode_digest(&common::SCORE_WASM_DIGEST);
-    // Redirect the compiler's self interface to the published score contract.
-    // Both the component import and the core import names must agree.
-    let root = wasmprinter::print_bytes(&*common::SCORE_WASM)
-        .unwrap()
+async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Result<()> {
+    let digest = encode_digest(&SCORE_WASM_DIGEST);
+    let wat = wasmprinter::print_bytes(&*SCORE_WASM)?
         .replace(
             "starstream:self/score-progress",
             "starstream:utxo/score-progress",
@@ -160,32 +137,31 @@ async fn coordination_script_calls_utxo_from_another_contract() -> wasmtime::Res
             ),
             1,
         );
-    let wasm = wat::parse_str(root).unwrap();
+    let wasm = wat::parse_str(wat)?;
     let mut config = starstream_proving_runtime::new_wasmtime_config();
     config.wasm_component_model_implements(true);
-    let engine = wasmtime::Engine::new(&config)?;
-    let wizer = wasmtime_wizer::Wizer::new();
+    let engine = Engine::new(&config)?;
+    let wizer = Wizer::new();
     let component = compile_component(&engine, &wizer, &wasm)?;
     let mut imports = HashMap::new();
-    let contract = new_contract(&ScoreClient, &wizer, &component, None, &mut imports).await?;
-    assert!(imports.contains_key(&*common::SCORE_WASM_DIGEST));
-    let export = contract.get_coordination_script("example")?;
+    let contract = new_contract(&TestClient(None), &wizer, &component, None, &mut imports).await?;
+    assert!(imports.contains_key(&*SCORE_WASM_DIGEST));
+
+    let example = contract.get_coordination_script("example")?;
     let (transaction, execution) = call_coordination_script(
         &mut Store::new(&engine, Ctx::default()),
-        &ScoreClient,
+        &TestClient(None),
         &wizer,
         &contract,
         &wasm,
-        &export,
+        &example,
         &mut imports,
         [],
         &mut [],
-        &mut vec![],
+        &mut Vec::new(),
     )
     .await?;
-
-    let execution = execution.unwrap();
-
+    let execution = execution?;
     assert!(transaction.inputs.is_empty());
     assert_eq!(transaction.outputs.len(), 1);
     assert_eq!(transaction.outputs[0].contract.as_ref(), digest);
