@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use anyhow::{bail, ensure};
 use bytes::Bytes;
 use starstream_ledger::client::runtime::{
-    Client, call_coordination_script_with_interleaving_check, compile_component, new_contract,
+    Client, Ctx, call_coordination_script_with_interleaving_check, compile_component, new_contract,
 };
 use starstream_ledger::{TransactionInput, TransactionOutput};
+use wasmtime::Store;
 
 #[allow(dead_code)]
 mod common;
@@ -36,6 +37,7 @@ async fn coordination_script_execution_is_checked() -> wasmtime::Result<()> {
     let export = contract.get_coordination_script("example")?;
 
     let (transaction, execution) = call_coordination_script_with_interleaving_check(
+        &mut Store::new(&engine, Ctx::default()),
         &NoopClient,
         &wizer,
         &contract,
@@ -103,6 +105,7 @@ async fn coordination_script_loads_existing_utxo() -> wasmtime::Result<()> {
         index: 0,
     };
     let (transaction, execution) = call_coordination_script_with_interleaving_check(
+        &mut Store::new(&engine, Ctx::default()),
         &client,
         &wizer,
         &contract,
@@ -166,6 +169,7 @@ async fn coordination_script_calls_utxo_from_another_contract() -> wasmtime::Res
     assert!(imports.contains_key(&*common::SCORE_WASM_DIGEST));
     let export = contract.get_coordination_script("example")?;
     let (transaction, execution) = call_coordination_script_with_interleaving_check(
+        &mut Store::new(&engine, Ctx::default()),
         &ScoreClient,
         &wizer,
         &contract,

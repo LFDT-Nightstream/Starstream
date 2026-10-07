@@ -1,6 +1,6 @@
 use neo_wasm::host_event_bindings::HostEventBindings;
+use wasmtime::Store;
 use wasmtime::error::Context as _;
-use wasmtime::{Engine, Store};
 
 #[must_use]
 pub fn new_wasmtime_config() -> wasmtime::Config {
@@ -26,15 +26,9 @@ pub fn register_tracing_component<T: neo_wasm::WasmTraceSink>(
 
 /// Register the contract's core module and create a single-step tracing store.
 /// Neo-Wasm discovers each instance and captures its entry inputs automatically.
-pub fn new_tracing_wasmtime_store<T: neo_wasm::WasmTraceSink + Send + 'static>(
-    engine: &Engine,
-    mut data: T,
-    wasm: &[u8],
-    bindings: &HostEventBindings,
-) -> wasmtime::Result<Store<T>> {
-    register_tracing_component(&mut data, wasm, bindings)?;
-
-    let mut store = Store::new(engine, data);
+pub fn enable_tracing<T: neo_wasm::WasmTraceSink + Send + 'static>(
+    store: &mut Store<T>,
+) -> wasmtime::Result<()> {
     store.set_debug_handler(neo_wasm::WasmtimeTraceHandler::<T>::new());
     store
         .edit_breakpoints()
@@ -42,5 +36,5 @@ pub fn new_tracing_wasmtime_store<T: neo_wasm::WasmTraceSink + Send + 'static>(
         .single_step(true)
         .context("failed to enable single-step debugging")?;
 
-    Ok(store)
+    Ok(())
 }

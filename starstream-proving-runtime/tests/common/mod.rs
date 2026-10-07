@@ -15,15 +15,15 @@ use starstream_interleaving_prover::{CoroutineId, TraceCommitments};
 use starstream_interleaving_spec::interleaver::{InterleavedTransaction, interleave_transaction};
 use starstream_interleaving_spec::{Trace, events};
 use starstream_proving_runtime::{
-    ComponentTemplates, build_component_templates, decode_tagged_blocks,
-    new_tracing_wasmtime_store, new_wasmtime_config,
+    ComponentTemplates, build_component_templates, decode_tagged_blocks, enable_tracing,
+    new_wasmtime_config,
 };
 use starstream_runtime::{
     Contract, ContractLookup, Host, StorageExport, Token, Utxo, UtxoExport, bindings,
 };
 use starstream_to_wasm::compile;
 use wasmtime::component::{Component, Resource, ResourceTable, Val};
-use wasmtime::{AsContextMut, Engine, StoreContextMut, bail};
+use wasmtime::{AsContextMut, Engine, Store, StoreContextMut, bail};
 
 pub const MINIMAL_METHOD_CALL: &str = r#"
     abi MethodCall {
@@ -392,16 +392,15 @@ pub async fn trace_coordination_script(
         })?,
     );
     let export = contract.get_coordination_script(script)?;
-    let mut store = new_tracing_wasmtime_store(
-        &engine,
-        Ctx {
-            table: ResourceTable::default(),
-            traces: neo_wasm::WasmtimeTraceRegistry::default(),
-            created: Vec::new(),
-        },
-        &wasm,
-        &templates.bindings,
-    )?;
+
+    let ctx = Ctx {
+        table: ResourceTable::default(),
+        traces: neo_wasm::WasmtimeTraceRegistry::default(),
+        created: Vec::new(),
+    };
+
+    let store = Store::new(&engine, ctx);
+    let mut store = enable_tracing(&mut store)?;
 
     let instance = contract.instantiate(&mut store).await?;
     instance

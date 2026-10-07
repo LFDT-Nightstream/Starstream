@@ -9,7 +9,7 @@ use sha2::{Digest as _, Sha256};
 #[cfg(feature = "proving-instrumentation")]
 use starstream_proving_runtime::{
     CapturedExecution, WasmTraceSink, WasmtimeTraceRegistry, build_component_templates,
-    check_captured_transaction, new_tracing_wasmtime_store, register_tracing_component,
+    check_captured_transaction, enable_tracing, register_tracing_component,
 };
 use starstream_runtime::bindings::starstream;
 use starstream_runtime::{
@@ -90,6 +90,7 @@ fn tracing_components(
     let (_, root_instrumented) = wizer.instrument_component(root_wasm)?;
     let templates = build_component_templates(&root_instrumented, scripts)
         .map_err(|error| wasmtime::format_err!("failed to build root trace templates: {error}"))?;
+
     components.push(TracingComponent {
         instrumented: root_instrumented,
         templates,
@@ -113,6 +114,7 @@ fn tracing_components(
             templates,
         });
     }
+
     Ok(components)
 }
 
@@ -285,6 +287,7 @@ pub async fn call_coordination_script(
 #[cfg(feature = "proving-instrumentation")]
 #[allow(clippy::too_many_arguments)]
 pub async fn call_coordination_script_with_interleaving_check(
+    store: &mut Store<Ctx>,
     client: &(impl Client + ?Sized),
     wizer: &Wizer,
     contract: &starstream_runtime::Contract<Ctx>,
@@ -372,17 +375,8 @@ pub async fn call_coordination_script_with_interleaving_check(
             "traced input loading requires direct scalar/resource arguments"
         );
     }
-    let [root, rest @ ..] = components.as_slice() else {
-        unreachable!("root component is always registered");
-    };
-    let engine = contract.component().engine();
-    let mut store = new_tracing_wasmtime_store(
-        engine,
-        Ctx::default(),
-        &root.instrumented,
-        &root.templates.bindings,
-    )?;
-    for component in rest {
+    enable_tracing(store)?;
+    for component in components.as_slice() {
         register_tracing_component(
             store.data_mut(),
             &component.instrumented,
@@ -397,12 +391,17 @@ pub async fn call_coordination_script_with_interleaving_check(
         imports,
         args,
         results,
-        &mut store,
+        store,
         &mut Vec::new(),
     )
     .await?;
     let registry = &store.data().traces;
     let mut handles = Vec::new();
+
+    let Some(root) = components.get(0) else {
+        bail!("components is empty")
+    };
+
     if !input_locals.is_empty() {
         // The root coordinator is instantiated before input UTXOs;
         // the registry iterates in instance-index order.
