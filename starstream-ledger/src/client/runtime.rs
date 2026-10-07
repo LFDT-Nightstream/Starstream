@@ -270,9 +270,6 @@ pub async fn call_coordination_script(
                         .get_contract_wasm(utxo_contract_digest)
                         .await
                         .map_err(wasmtime::Error::from_anyhow)?;
-                    let wasm =
-                        apply_state(&wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    let wasm = Bytes::from(wasm);
                     imports.insert(
                         utxo_contract_digest,
                         Contract {
@@ -280,7 +277,9 @@ pub async fn call_coordination_script(
                             wasm: wasm.clone(),
                         },
                     );
-                    (Some(Arc::from(utxo.contract)), wasm)
+                    let wasm =
+                        apply_state(&wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
+                    (Some(Arc::from(utxo.contract)), Bytes::from(wasm))
                 };
                 let component = compile_component(engine, wizer, &wasm)?;
                 let contract = new_contract(
