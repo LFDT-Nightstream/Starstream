@@ -79,7 +79,7 @@ tracing = { version = "0.1.44", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false }
 wasm-bindgen = "0.2.128"
 wasm-encoder = "0.254.0"
-wasm-tokio = { version = "0.6", default-features = false }
+wasm-tokio = { version = "0.7", default-features = false }
 wasm-wave = { version = "0.258.0", default-features = false }
 wasmprinter = "0.254.0"
 wat = "1.258.0"
@@ -87,12 +87,12 @@ wasmparser = "0.254.0"
 wasmtime = { version = "49", default-features = false }
 wasmtime-wizer = { version = "49", default-features = false }
 wit-bindgen = "0.51.0"
-wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
+wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
 wit-component = "0.258.0"
 wit-parser = { version = "0.258.0", default-features = false }
-wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
-wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
-wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "68d2a8e0c306cfa960dc840fd8207bf8a1ec7270", default-features = false }
+wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
+wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
+wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
 
 neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "1620399579261c54985d7ec845e997f3978126ce" }
