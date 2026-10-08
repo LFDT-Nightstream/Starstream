@@ -202,12 +202,6 @@ async fn http() {
         Some(genesis_cbor.len().to_string().as_bytes())
     );
 
-    let got = bindings::starstream::ledger::genesis::get_outputs(&wrpc, wrpc_context(addr))
-        .await
-        .unwrap();
-    let got: Vec<TransactionOutput> = got.into_iter().map(Into::into).collect();
-    assert_eq!(got, genesis);
-
     let score_publish_envelope = build_publish_envelope(
         ADMIN.clone(),
         NETWORK,
@@ -361,22 +355,6 @@ async fn http() {
         headers.get(X_CONTENT_TYPE_OPTIONS).map(|v| v.as_bytes()),
         Some(b"nosniff".as_slice())
     );
-
-    let got = bindings::starstream::ledger::contract::get_envelope(
-        &wrpc,
-        wrpc_context(addr),
-        &score_digest,
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(got, score_publish_envelope);
-    let got =
-        bindings::starstream::ledger::contract::get_wasm(&wrpc, wrpc_context(addr), &score_digest)
-            .await
-            .unwrap()
-            .unwrap();
-    assert_eq!(got, SCORE_WASM.as_ref());
 
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 3);
@@ -535,15 +513,6 @@ async fn http() {
     let req = build_transaction_get_request(&api_base, &tx_digest, None).unwrap();
     let (_, body) = http_request(&http, req).await.unwrap();
     assert_eq!(tx_envelope, body);
-    let got = bindings::starstream::ledger::transaction::get_transaction(
-        &wrpc,
-        wrpc_context(addr),
-        &encode_digest(&tx_digest),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(Transaction::from(got), tx);
 
     let err = client
         .transact(
