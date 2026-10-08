@@ -16,7 +16,7 @@ use common::{SCORE_WASM, SCORE_WASM_DIGEST};
 struct TestClient(Option<TransactionOutput>);
 
 impl Client for TestClient {
-    async fn get_contract_wasm(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
+    async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
         ensure!(digest == *SCORE_WASM_DIGEST, "unexpected contract");
         Ok(Bytes::copy_from_slice(&SCORE_WASM))
     }

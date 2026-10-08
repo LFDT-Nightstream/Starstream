@@ -81,7 +81,7 @@ struct Genesis {
 
 struct GenesisClient<'a>(&'a HashMap<[u8; 32], Bytes>);
 
-fn get_contract_wasm<'a>(
+fn get_contract<'a>(
     contracts: &'a HashMap<[u8; 32], Bytes>,
     digest: &[u8; 32],
 ) -> anyhow::Result<&'a Bytes> {
@@ -94,8 +94,8 @@ fn get_contract_wasm<'a>(
 }
 
 impl Client for GenesisClient<'_> {
-    async fn get_contract_wasm(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
-        get_contract_wasm(self.0, &digest).cloned()
+    async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
+        get_contract(self.0, &digest).cloned()
     }
 
     async fn get_input_utxo(&self, _input: &TransactionInput) -> anyhow::Result<TransactionOutput> {
@@ -135,7 +135,7 @@ async fn build_genesis(
         let Contract { contract, wasm } = if let Some(contract) = contracts.get(&digest) {
             contract.clone()
         } else {
-            let wasm = get_contract_wasm(&imported, &digest)?;
+            let wasm = get_contract(&imported, &digest)?;
             let contract = compile_contract(
                 &GenesisClient(&imported),
                 engine,

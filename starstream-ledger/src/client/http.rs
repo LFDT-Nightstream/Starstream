@@ -23,6 +23,7 @@ use wrpc_transport::Invoke as _;
 use crate::client::runtime::{CompiledContract, Contract, Ctx, UtxoCtx, call_coordination_script};
 use crate::client::{
     CoordinationScriptArg, build_fund_envelope, build_publish_envelope, build_transaction_envelope,
+    runtime,
 };
 use crate::cose::read_envelope;
 use crate::wrpc::{LEDGER_UTXO_INSTANCE, bindings};
@@ -224,12 +225,12 @@ where
     }
 }
 
-impl<C> crate::client::runtime::Client for Client<C>
+impl<C> runtime::Client for Client<C>
 where
     C: Connect + Clone + Send + Sync + 'static,
 {
-    async fn get_contract_wasm(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
-        self.get_contract_wasm(digest).await
+    async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
+        Client::get_contract(self, digest).await
     }
 
     /// Get the UTXO referenced by the input.
@@ -466,8 +467,9 @@ where
         Ok(outputs.into_iter().map(Into::into).collect())
     }
 
+    /// Get the Wasm bytes of the contract identified by `digest`.
     #[instrument(skip_all)]
-    pub async fn get_contract_wasm(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
+    pub async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
         let cx = wrpc_context(&self.api_base)?;
         let wasm = bindings::starstream::ledger::contract::get_wasm(
             &self.wrpc,

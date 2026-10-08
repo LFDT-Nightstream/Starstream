@@ -299,7 +299,7 @@ async fn http() {
         .unwrap();
     assert_eq!(digest, *SCORE_WASM_DIGEST);
 
-    let wasm = client.get_contract_wasm(*SCORE_WASM_DIGEST).await.unwrap();
+    let wasm = client.get_contract(*SCORE_WASM_DIGEST).await.unwrap();
     assert_eq!(wasm, SCORE_WASM.as_ref());
 
     let score_publish_envelope = build_publish_envelope(
