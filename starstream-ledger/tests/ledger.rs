@@ -20,7 +20,7 @@ use starstream_ledger::client::http::{
     ClientBuilder, build_contract_get_request, build_contract_publish_request, build_fund_request,
     build_transaction_get_request,
 };
-use starstream_ledger::client::runtime::{compile_component, new_contract};
+use starstream_ledger::client::runtime::compile_contract;
 use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
@@ -326,11 +326,11 @@ async fn http() {
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 3);
 
-    let score_component = compile_component(client.engine(), client.wizer(), &SCORE_WASM).unwrap();
-    let score_contract = new_contract(
+    let score_contract = compile_contract(
         &client,
+        client.engine(),
         client.wizer(),
-        &score_component,
+        &SCORE_WASM,
         None,
         &mut HashMap::default(),
     )
@@ -353,7 +353,7 @@ async fn http() {
             &SCORE_WASM,
             &score_example_export,
             &mut HashMap::default(),
-            [],
+            Vec::default(),
             &mut [],
             &mut utxos,
         )

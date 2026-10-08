@@ -15,7 +15,7 @@ use ed25519_dalek::VerifyingKey;
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::runtime::{
-    Client, Contract, Ctx, call_coordination_script, compile_component, new_contract,
+    Client, Contract, Ctx, call_coordination_script, compile_contract,
 };
 use starstream_ledger::server::Ledger;
 use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest, parse_digest};
@@ -136,11 +136,11 @@ async fn build_genesis(
             contract.clone()
         } else {
             let wasm = get_contract_wasm(&imported, &digest)?;
-            let component = compile_component(engine, &wizer, wasm)?;
-            let contract = new_contract(
+            let contract = compile_contract(
                 &GenesisClient(&imported),
+                engine,
                 &wizer,
-                &component,
+                wasm,
                 None,
                 &mut contracts,
             )
@@ -167,7 +167,7 @@ async fn build_genesis(
         }
         ensure!(args.next().is_none(), "trailing arguments");
         let mut results = vec![Val::Bool(false); ty.results().len()];
-        let (tx, _) = call_coordination_script(
+        let (tx, ..) = call_coordination_script(
             &mut Store::new(engine, Ctx::default()),
             &GenesisClient(&imported),
             &wizer,

@@ -1681,7 +1681,7 @@ impl<T: Host> Contract<T> {
         Ok(CoordinationScriptExport {
             ty,
             idx,
-            name: Arc::new(name.to_string()),
+            name: name.into(),
         })
     }
 
@@ -1699,6 +1699,18 @@ impl<T: Host> Contract<T> {
             bail!("export is not a function")
         };
         self.get_coordination_script_typed(name, ty)
+    }
+
+    /// Iterate over names of exported coordination scripts
+    #[instrument(level = "trace", skip_all)]
+    pub fn coordination_script_names(&self) -> impl Iterator<Item = &str> {
+        let engine = self.pre.engine();
+        self.ty
+            .exports(engine)
+            .filter_map(|(name, types::ComponentExtern { ty, .. })| match ty {
+                types::ComponentItem::ComponentFunc(..) => Some(name),
+                _ => None,
+            })
     }
 
     /// Iterate over exported coordination scripts along with their names
@@ -1972,7 +1984,7 @@ impl MethodExport {
 pub struct CoordinationScriptExport {
     ty: types::ComponentFunc,
     idx: ComponentExportIndex,
-    name: Arc<String>,
+    name: Arc<str>,
 }
 
 impl CoordinationScriptExport {
@@ -1981,8 +1993,9 @@ impl CoordinationScriptExport {
         &self.ty
     }
 
-    pub fn name(&self) -> &str {
-        self.name.as_str()
+    #[must_use]
+    pub fn name(&self) -> &Arc<str> {
+        &self.name
     }
 }
 
