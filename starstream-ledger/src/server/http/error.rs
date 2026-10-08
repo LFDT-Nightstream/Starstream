@@ -232,8 +232,6 @@ pub enum RpcPostError {
     Envelope(EnvelopePostError),
     #[error("failed to read wRPC invocation header: {0}")]
     Header(wrpc_transport::frame::HeaderReadError),
-    #[error("instance `{0}` not found")]
-    InstanceNotFound(String),
     #[error("function `{name}` not found in instance `{instance}`")]
     FunctionNotFound { instance: String, name: String },
     #[error("failed to parse transaction digest: {0}")]
@@ -298,8 +296,7 @@ impl RpcPostError {
             | Self::ParameterDecoding(..)
             | Self::UtxoStorageMissing
             | Self::ResourceTable(..) => http::StatusCode::BAD_REQUEST,
-            Self::InstanceNotFound(..)
-            | Self::FunctionNotFound { .. }
+            Self::FunctionNotFound { .. }
             | Self::UtxoNotFound
             | Self::ContractNotFound
             | Self::UtxoInstanceNotFound { .. }

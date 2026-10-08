@@ -3,11 +3,17 @@
 use bytes::Bytes;
 
 use crate::runtime::{DataState, GlobalValue, ModuleState};
-use crate::{Transaction, TransactionEvent, TransactionInput, TransactionOutput};
+use crate::{DigestParseError, Transaction, TransactionEvent, TransactionInput, TransactionOutput};
 
 wit_bindgen_wrpc::generate!();
 
 use starstream::ledger::types;
+
+impl From<DigestParseError> for types::GetError {
+    fn from(err: DigestParseError) -> Self {
+        Self::InvalidDigest(err.to_string())
+    }
+}
 
 impl From<types::GlobalValue> for GlobalValue {
     fn from(v: types::GlobalValue) -> Self {
