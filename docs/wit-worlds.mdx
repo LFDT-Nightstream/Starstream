@@ -140,16 +140,41 @@ world root {
 
 ### Importing effects
 
-To raise effects, import and call `starstream:effects/<abi-name>#<event-name>`.
+To raise effects, import and call `starstream:effects/<abi-name>#<effect-name>`.
+The effect function may have parameters and a result.
 For example:
 
 ```wit
 interface starstream:effects/my-abi {
-    my-effect: func(number: s32);
+    my-effect: func(number: s32) -> s32;
 }
 
 world root {
     import starstream:effects/my-abi;
+}
+```
+
+### Exporting effect handlers
+
+To catch effects, export `starstream:effect-handler/<abi-name>#<effect-name>`.
+When the effect is raised, the module stack will be searched for matching handlers.
+The effect handler function must return one of two types:
+
+* If the effect has no result type, the handler returns a `u8` status code.
+* If the effect has a result type `T`, the handler returns a `tuple<u8, T>`.
+
+The status code must be one of:
+
+* `0` - the effect was not handled and the search for a handler should continue.
+* `1` - the effect was handled and ended in a `resume`, so execution should continue.
+
+```wit
+interface starstream:effect-handler/my-abi {
+    my-effect: func(number: s32) -> tuple<u8, s32>;
+}
+
+world root {
+    export starstream:effect-handler/my-abi;
 }
 ```
 
