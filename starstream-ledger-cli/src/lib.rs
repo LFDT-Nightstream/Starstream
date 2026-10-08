@@ -523,6 +523,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         }
         Command::Transaction(TransactionCommand::Get { digest }) => {
             let tx = client.get_transaction(digest).await?;
+            let tx = tx.context("transaction not found")?;
             let tx = toml::to_string_pretty(&tx).context("failed to encode TOML")?;
             stdout()
                 .write_all(tx.as_bytes())
@@ -558,6 +559,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let digest = starstream_ledger::parse_digest(&contract)
                 .with_context(|| format!("failed to parse `{contract}` as multibase multihash"))?;
             let wasm = client.get_contract(digest).await?;
+            let wasm = wasm.context("contract not found")?;
             let (resolve, world) = decode_component(&wasm)?;
             let world = &resolve.worlds[world];
             let ty = world

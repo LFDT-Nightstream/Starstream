@@ -230,7 +230,8 @@ where
     C: Connect + Clone + Send + Sync + 'static,
 {
     async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
-        Client::get_contract(self, digest).await
+        let wasm = Client::get_contract(self, digest).await?;
+        wasm.context("contract not found")
     }
 
     /// Get the UTXO referenced by the input.
@@ -284,7 +285,8 @@ where
         digest: [u8; 32],
         idx: usize,
     ) -> anyhow::Result<TransactionOutput> {
-        let Transaction { outputs, .. } = self.get_transaction(digest).await?;
+        let tx = self.get_transaction(digest).await?;
+        let Transaction { outputs, .. } = tx.context("transaction not found")?;
         outputs.into_iter().nth(idx).context("output not found")
     }
 
@@ -439,7 +441,7 @@ where
 
     /// Get the transaction identified by `digest`.
     #[instrument(skip_all)]
-    pub async fn get_transaction(&self, digest: [u8; 32]) -> anyhow::Result<Transaction> {
+    pub async fn get_transaction(&self, digest: [u8; 32]) -> anyhow::Result<Option<Transaction>> {
         let cx = wrpc_context(&self.api_base)?;
         let tx = bindings::starstream::ledger::transaction::get_transaction(
             &self.wrpc,
@@ -447,7 +449,11 @@ where
             &encode_digest(&digest),
         )
         .await?;
-        let tx = tx.context("failed to get transaction")?;
+        let tx = match tx {
+            Ok(tx) => tx,
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
+            Err(err) => return Err(err).context("failed to get transaction"),
+        };
         let tx = Transaction::from(tx);
         let tx_cbor = minicbor::to_vec(&tx).context("failed to encode transaction")?;
         let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
@@ -456,7 +462,7 @@ where
             "transaction digest mismatch, got `{}`",
             encode_digest(&tx_digest)
         );
-        Ok(tx)
+        Ok(Some(tx))
     }
 
     /// Get the genesis outputs.
@@ -469,7 +475,7 @@ where
 
     /// Get the Wasm bytes of the contract identified by `digest`.
     #[instrument(skip_all)]
-    pub async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
+    pub async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Option<Bytes>> {
         let cx = wrpc_context(&self.api_base)?;
         let wasm = bindings::starstream::ledger::contract::get_wasm(
             &self.wrpc,
@@ -477,18 +483,22 @@ where
             &encode_digest(&digest),
         )
         .await?;
-        let wasm = wasm.context("failed to get contract Wasm")?;
+        let wasm = match wasm {
+            Ok(wasm) => wasm,
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
+            Err(err) => return Err(err).context("failed to get contract Wasm"),
+        };
         let wasm_digest: [u8; 32] = Sha256::digest(&wasm).into();
         ensure!(
             wasm_digest == digest,
             "contract digest mismatch, got `{}`",
             encode_digest(&wasm_digest)
         );
-        Ok(wasm)
+        Ok(Some(wasm))
     }
 
     #[instrument(skip_all)]
-    pub async fn get_contract_envelope(&self, digest: &[u8; 32]) -> anyhow::Result<Bytes> {
+    pub async fn get_contract_envelope(&self, digest: &[u8; 32]) -> anyhow::Result<Option<Bytes>> {
         let cx = wrpc_context(&self.api_base)?;
         let body = bindings::starstream::ledger::contract::get_envelope(
             &self.wrpc,
@@ -496,7 +506,11 @@ where
             &encode_digest(digest),
         )
         .await?;
-        let body = body.context("failed to get contract envelope")?;
+        let body = match body {
+            Ok(body) => body,
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
+            Err(err) => return Err(err).context("failed to get contract envelope"),
+        };
         let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
         ensure!(
             envelope.network == self.network,
@@ -513,6 +527,6 @@ where
             "contract digest mismatch, got `{}`",
             encode_digest(&wasm_digest)
         );
-        Ok(body)
+        Ok(Some(body))
     }
 }

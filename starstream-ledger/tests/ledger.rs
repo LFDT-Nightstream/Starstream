@@ -300,6 +300,7 @@ async fn http() {
     assert_eq!(digest, *SCORE_WASM_DIGEST);
 
     let wasm = client.get_contract(*SCORE_WASM_DIGEST).await.unwrap();
+    let wasm = wasm.unwrap();
     assert_eq!(wasm, SCORE_WASM.as_ref());
 
     let score_publish_envelope = build_publish_envelope(
@@ -316,7 +317,7 @@ async fn http() {
         .get_contract_envelope(&SCORE_WASM_DIGEST)
         .await
         .unwrap();
-    assert_eq!(envelope, score_publish_envelope);
+    assert_eq!(envelope.unwrap(), score_publish_envelope);
 
     let req = build_contract_get_request(&api_base, &SCORE_WASM_DIGEST, None).unwrap();
     let (
@@ -444,7 +445,7 @@ async fn http() {
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 4);
     let got = client.get_transaction(tx_digest).await.unwrap();
-    assert_eq!(got, tx);
+    assert_eq!(got.unwrap(), tx);
 
     let tx_envelope = bindings::starstream::ledger::transaction::get_envelope(
         &wrpc,
@@ -520,7 +521,7 @@ async fn http() {
     let (status, body) = post_envelope(&http, addr, tx_envelope).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let got = client.get_transaction(tx_digest).await.unwrap();
-    assert_eq!(got, tx);
+    assert_eq!(got.unwrap(), tx);
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked")
