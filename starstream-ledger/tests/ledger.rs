@@ -10,7 +10,7 @@ use anyhow::Context as _;
 use bytes::{Bytes, BytesMut};
 use coset::{CoseSign1Builder, HeaderBuilder, TaggedCborSerializable as _, iana};
 use ed25519_dalek::Signer as _;
-use http::header::{CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
+use http::header::{CONTENT_LENGTH, CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
 use http::{Method, StatusCode, Uri};
 use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -23,10 +23,9 @@ use starstream_ledger::client::http::{
 };
 use starstream_ledger::client::runtime::compile_contract;
 use starstream_ledger::server::Ledger;
-use starstream_ledger::wrpc::bindings;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
-    APPLICATION_WRPC, Envelope, Message, Transaction, TransactionInput, TransactionOutput,
+    APPLICATION_COSE, Envelope, Message, Transaction, TransactionInput, TransactionOutput,
     encode_digest,
 };
 use tokio::io::AsyncReadExt as _;
@@ -84,16 +83,6 @@ async fn post_envelope(
         .unwrap();
     let (parts, body) = http_request(client, req).await.unwrap();
     (parts.status, String::from_utf8_lossy(&body).into_owned())
-}
-
-fn wrpc_context(addr: SocketAddr) -> http::request::Parts {
-    let req = http::Request::builder()
-        .uri(format!("http://{addr}/rpc"))
-        .header(CONTENT_TYPE, APPLICATION_WRPC.to_string())
-        .body(())
-        .unwrap();
-    let (cx, ()) = req.into_parts();
-    cx
 }
 
 #[tokio::test]
@@ -173,7 +162,6 @@ async fn http() {
     let client = ClientBuilder::new(http.clone(), HttpConnector::new(), api_base.clone())
         .network(NETWORK)
         .build();
-    let wrpc = wrpc_http::Client::new(http.build(HttpConnector::new()));
     let http = http.build_http();
 
     let height = client.block_height().await.unwrap();
@@ -447,17 +435,42 @@ async fn http() {
     let got = client.get_transaction(tx_digest).await.unwrap();
     assert_eq!(got.unwrap(), tx);
 
-    let tx_envelope = bindings::starstream::ledger::transaction::get_envelope(
-        &wrpc,
-        wrpc_context(addr),
-        &encode_digest(&tx_digest),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    let envelope = client.get_transaction_envelope(&tx_digest).await.unwrap();
+    let envelope = envelope.unwrap();
     let req = build_transaction_get_request(&api_base, &tx_digest, None).unwrap();
-    let (_, body) = http_request(&http, req).await.unwrap();
-    assert_eq!(tx_envelope, body);
+    let (
+        http::response::Parts {
+            status, headers, ..
+        },
+        body,
+    ) = http_request(&http, req).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(body, envelope);
+    assert_eq!(
+        headers.get(CONTENT_TYPE).map(|v| v.as_bytes()),
+        Some(APPLICATION_COSE.to_string().as_bytes())
+    );
+
+    let req = http::Request::builder()
+        .method(Method::HEAD)
+        .uri(format!(
+            "http://{addr}/transactions/{}",
+            encode_digest(&tx_digest)
+        ))
+        .body(Full::default())
+        .unwrap();
+    let (
+        http::response::Parts {
+            status, headers, ..
+        },
+        body,
+    ) = http_request(&http, req).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert!(body.is_empty());
+    assert_eq!(
+        headers.get(CONTENT_LENGTH).map(|v| v.as_bytes()),
+        Some(envelope.len().to_string().as_bytes())
+    );
 
     let err = client
         .transact(

@@ -465,6 +465,44 @@ where
         Ok(Some(tx))
     }
 
+    /// Get the envelope of the transaction identified by `digest`.
+    #[instrument(skip_all)]
+    pub async fn get_transaction_envelope(
+        &self,
+        digest: &[u8; 32],
+    ) -> anyhow::Result<Option<Bytes>> {
+        let cx = wrpc_context(&self.api_base)?;
+        let body = bindings::starstream::ledger::transaction::get_envelope(
+            &self.wrpc,
+            cx,
+            &encode_digest(digest),
+        )
+        .await?;
+        let body = match body {
+            Ok(body) => body,
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
+            Err(err) => return Err(err).context("failed to get transaction envelope"),
+        };
+        let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
+        ensure!(
+            envelope.network == self.network,
+            "unexpected network `{}`, expected `{}`",
+            envelope.network,
+            self.network
+        );
+        let Message::Transaction(tx) = envelope.message else {
+            bail!("unexpected context `{}`", envelope.message.context());
+        };
+        let tx_cbor = minicbor::to_vec(&tx).context("failed to encode transaction")?;
+        let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
+        ensure!(
+            tx_digest == *digest,
+            "transaction digest mismatch, got `{}`",
+            encode_digest(&tx_digest)
+        );
+        Ok(Some(body))
+    }
+
     /// Get the genesis outputs.
     #[instrument(skip_all)]
     pub async fn get_genesis(&self) -> anyhow::Result<Vec<TransactionOutput>> {
