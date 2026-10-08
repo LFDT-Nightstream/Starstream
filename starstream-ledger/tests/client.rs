@@ -1,3 +1,5 @@
+#![cfg(feature = "client")]
+
 use std::collections::HashMap;
 
 use anyhow::{Context as _, ensure};
