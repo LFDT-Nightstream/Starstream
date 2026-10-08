@@ -10,14 +10,13 @@ use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_compiler::{TypedWasmModule, WasmLinkage};
-use starstream_types::DUMMY_SPAN;
 use starstream_types::{
-    AbiType, BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionKind, ImportSource,
-    IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
-    TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
-    TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm,
-    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTestDef, TypedTokenDef,
-    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    AbiType, BinaryOp, DUMMY_SPAN, EnumType, EnumVariantKind, FunctionExport, FunctionKind,
+    ImportSource, IntWidth, Literal, NameId, ScopedName, Span, Spanned, StaticFunction, Type,
+    TypedAbiDef, TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
+    TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef,
+    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTestDef,
+    TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
 use thiserror::Error;
 use wasm_encoder::{
@@ -238,6 +237,7 @@ struct Compiler {
     method_callables: HashMap<(Type, NameId), u32>,
     intrinsics: intrinsics::Intrinsics,
     builtins: world_spec::Builtins,
+    effect_handlers: BTreeMap<String, Vec<EffectHandler>>,
     /// Function bodies.
     code_bytes: Vec<Vec<u8>>,
 
@@ -251,6 +251,9 @@ struct Compiler {
     context_global: Option<u32>,
     context_local: Option<u32>,
     current_resource: Option<ResourceContext>,
+
+    handler_global: Option<u32>,
+    handler_id: i32,
 }
 
 struct ResourceContext {
@@ -260,6 +263,10 @@ struct ResourceContext {
     resource_new_fn: u32,
     // resource_drop_fn: u32,
     resource_local: u32,
+}
+
+struct EffectHandler {
+    id: i32,
 }
 
 impl Compiler {
@@ -1464,6 +1471,15 @@ impl Compiler {
         );
     }
 
+    fn visit_effect_handler(
+        &mut self,
+        name: &ScopedName,
+        params: &[TypedPattern],
+        block: &TypedBlock,
+    ) {
+        // ...
+    }
+
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
         self.export_component_ty(struct_.ty.name.as_str(), &Type::Record(struct_.ty.clone()));
     }
@@ -2333,8 +2349,33 @@ impl Compiler {
                     break;
                 }
                 TypedStatement::TryWith { subject, effects } => {
+                    // Create current-effect-handler global if needed
+                    let handler_global;
+                    if let Some(h) = self.handler_global {
+                        handler_global = h;
+                    } else {
+                        handler_global = self.add_globals([ValType::I32], "handler");
+                        self.handler_global = Some(handler_global);
+                    };
+
+                    // Surround try{} block with setting and restoring the handler global
+                    self.handler_id += 1;
+                    let handler_id = self.handler_id;
+                    let previous_handler_local = func.add_locals([ValType::I32]);
+                    func.instructions(bb)
+                        .global_get(handler_global)
+                        .local_set(previous_handler_local)
+                        .i32_const(handler_id)
+                        .global_set(handler_global);
                     self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
-                    // TODO: actually emit effect handler blocks
+                    func.instructions(bb)
+                        .local_get(previous_handler_local)
+                        .global_set(handler_global);
+
+                    // Emit handler segments
+                    for (scoped_name, params, block) in effects {
+                        self.visit_effect_handler(scoped_name, params, block);
+                    }
                 }
             }
         }
