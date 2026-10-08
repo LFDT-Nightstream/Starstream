@@ -1,5 +1,6 @@
 #![cfg(all(feature = "client", feature = "server"))]
 
+use core::net::SocketAddr;
 use core::str::FromStr as _;
 
 use std::collections::HashMap;
@@ -24,7 +25,8 @@ use starstream_ledger::client::runtime::compile_contract;
 use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
-    APPLICATION_CBOR, Transaction, TransactionInput, TransactionOutput, encode_digest,
+    APPLICATION_CBOR, Envelope, Message, Transaction, TransactionInput, TransactionOutput,
+    encode_digest,
 };
 use tokio::io::AsyncReadExt as _;
 use tokio_util::codec::Encoder as _;
@@ -49,6 +51,38 @@ pub async fn http_request(
         .await
         .context("failed to receive response body")?;
     Ok((parts, body.to_bytes()))
+}
+
+fn admin_protected_header() -> coset::Header {
+    HeaderBuilder::new()
+        .algorithm(iana::Algorithm::EdDSA)
+        .key_id(ADMIN.verifying_key().to_bytes().into())
+        .build()
+}
+
+fn build_sign1_envelope(protected: coset::Header, payload: Vec<u8>) -> Vec<u8> {
+    CoseSign1Builder::new()
+        .protected(protected)
+        .payload(payload)
+        .create_signature(b"", |data| ADMIN.sign(data).to_bytes().into())
+        .build()
+        .to_tagged_vec()
+        .unwrap()
+}
+
+async fn post_envelope(
+    client: &hyper_util::client::legacy::Client<HttpConnector, Full<Bytes>>,
+    addr: SocketAddr,
+    envelope: Vec<u8>,
+) -> (StatusCode, String) {
+    let req = http::Request::builder()
+        .method(Method::POST)
+        .uri(format!("http://{addr}/rpc"))
+        .header(CONTENT_TYPE, "application/cose")
+        .body(Full::new(Bytes::from(envelope)))
+        .unwrap();
+    let (parts, body) = http_request(client, req).await.unwrap();
+    (parts.status, String::from_utf8_lossy(&body).into_owned())
 }
 
 #[tokio::test]
@@ -192,21 +226,8 @@ async fn http() {
         .key_id(ADMIN.verifying_key().to_bytes().into())
         .add_critical(iana::HeaderParameter::Alg)
         .build();
-    let crit_envelope = CoseSign1Builder::new()
-        .protected(protected)
-        .payload(Vec::default())
-        .create_signature(b"", |data| ADMIN.sign(data).to_bytes().into())
-        .build()
-        .to_tagged_vec()
-        .unwrap();
-    let req = http::Request::builder()
-        .method(Method::POST)
-        .uri(format!("http://{addr}/rpc"))
-        .header(CONTENT_TYPE, "application/cose")
-        .body(Full::new(Bytes::from(crit_envelope)))
-        .unwrap();
-    let (http::response::Parts { status, .. }, body) = http_request(&http, req).await.unwrap();
-    let body = String::from_utf8_lossy(&body);
+    let crit_envelope = build_sign1_envelope(protected, Vec::default());
+    let (status, body) = post_envelope(&http, addr, crit_envelope).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(body, "envelope must not contain critical headers");
 
@@ -509,6 +530,28 @@ async fn http() {
     let mut buf = Vec::default();
     rx.read_to_end(&mut buf).await.unwrap();
     assert_eq!(buf, [42]);
+
+    let tx = Transaction {
+        inputs: vec![TransactionInput {
+            transaction: Box::default(),
+            index: 1,
+        }],
+        outputs: outputs.clone(),
+        events: Vec::default(),
+        proof: Box::default(),
+    };
+    let tx_digest: [u8; 32] = Sha256::digest(minicbor::to_vec(&tx).unwrap()).into();
+    let tx_payload = minicbor::to_vec(Envelope {
+        network: NETWORK.into(),
+        message: Message::Transaction(tx.clone()),
+    })
+    .unwrap();
+    let protected = admin_protected_header();
+    let tx_envelope = build_sign1_envelope(protected, tx_payload);
+    let (status, body) = post_envelope(&http, addr, tx_envelope).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let got = client.get_transaction(tx_digest).await.unwrap();
+    assert_eq!(got, tx);
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked")
