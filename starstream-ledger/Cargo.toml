@@ -10,24 +10,17 @@ license.workspace = true
 [features]
 default = ["client", "server"]
 client = [
-    "dep:tokio",
-    "dep:wasm-tokio",
-    "dep:wasmtime",
     "dep:wasmtime-wizer",
-    "dep:wit-bindgen-wrpc",
     "hyper-util/client",
     "hyper-util/client-legacy",
     "wrpc-http/client-legacy",
 ]
 server = [
-    "dep:futures",
     "dep:headers-accept",
     "dep:headers-core",
     "dep:http-body",
     "dep:hyper",
-    "dep:tokio",
-    "dep:wasm-tokio",
-    "dep:wasmtime",
+    "dep:wrpc-pack",
     "hyper-util/server",
     "hyper-util/server-auto",
     "hyper-util/server-graceful",
@@ -39,7 +32,7 @@ anyhow = { workspace = true }
 bytes = { workspace = true }
 coset = { workspace = true, features = ["std"] }
 ed25519-dalek = { workspace = true, features = ["fast", "std", "zeroize"] }
-futures = { workspace = true, optional = true }
+futures = { workspace = true }
 headers-accept = { workspace = true, optional = true }
 headers-core = { workspace = true, optional = true }
 hex = { workspace = true, features = ["std"] }
@@ -57,19 +50,14 @@ sha2 = { workspace = true }
 starstream-proving-runtime = { workspace = true }
 starstream-runtime = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, optional = true, features = [
-    "net",
-    "rt",
-    "sync",
-    "time",
-] }
+tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["codec"] }
 tracing = { workspace = true, features = ["attributes"] }
-wasm-tokio = { workspace = true, optional = true }
+wasm-tokio = { workspace = true }
 wasm-encoder = { workspace = true, features = ["wasmparser"] }
 wasmparser = { workspace = true }
 wasmprinter = { workspace = true }
-wasmtime = { workspace = true, optional = true, features = [
+wasmtime = { workspace = true, features = [
     "anyhow",
     "async",
     "component-model",
@@ -79,8 +67,9 @@ wasmtime-wizer = { workspace = true, optional = true, features = [
     "component-model",
     "wasmtime",
 ] }
-wit-bindgen-wrpc = { workspace = true, optional = true }
+wit-bindgen-wrpc = { workspace = true }
 wrpc-http = { workspace = true }
+wrpc-pack = { workspace = true, optional = true }
 wrpc-transport = { workspace = true }
 
 [dev-dependencies]

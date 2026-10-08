@@ -5,7 +5,7 @@ use core::sync::atomic::AtomicU64;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
 use starstream_runtime::{
     CoordinationScriptImport, UtxoImport, get_coordination_script_instance_import, utxo_imports,
@@ -15,6 +15,7 @@ use tracing::error;
 use wasmtime::component::{Component, ResourceTable};
 use wasmtime::error::Context as _;
 
+use crate::wrpc::bindings;
 use crate::{Block, TransactionOutput, parse_digest};
 
 mod http;
@@ -60,7 +61,7 @@ struct Contract {
 struct Transaction {
     outputs: Vec<Option<Arc<TransactionOutput>>>,
     envelope: Bytes,
-    payload: Bytes,
+    encoded: Bytes,
 }
 
 struct Genesis {
@@ -97,11 +98,13 @@ impl Ledger {
             key: admin,
             last_nonce: AtomicU64::default(),
         };
-        let genesis = genesis.into();
-        let encoded = minicbor::to_vec(&genesis).expect("failed to encode genesis to CBOR");
+        let genesis: Vec<bindings::starstream::ledger::types::TransactionOutput> =
+            genesis.into().into_iter().map(Into::into).collect();
+        let mut encoded = BytesMut::new();
+        wrpc_pack::pack(&genesis, &mut encoded).expect("failed to encode genesis");
         let outputs = genesis
             .into_iter()
-            .map(|utxo| Some(Arc::new(utxo)))
+            .map(|utxo| Some(Arc::new(utxo.into())))
             .collect();
         Self {
             engine,
@@ -112,7 +115,7 @@ impl Ledger {
             admin,
             genesis: Genesis {
                 outputs: RwLock::new(outputs),
-                encoded: encoded.into(),
+                encoded: encoded.freeze(),
             },
             network: network.into(),
             max_requests: max_requests as _,
