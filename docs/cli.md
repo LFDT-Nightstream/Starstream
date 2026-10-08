@@ -93,6 +93,26 @@ document URI isn't a filesystem path — i.e. the browser playground, or
 where the [W0002 path-import-ignored warning](./warnings/W0002.md) can
 fire.
 
+## Ledger: `starstream node`, `starstream ledger`
+
+```
+starstream node [OPTIONS]
+starstream ledger [--url URL] [--pool-idle-timeout SECONDS] <COMMAND>
+```
+
+- **`starstream node`** runs a development ledger node serving the ledger
+  HTTP API, optionally with a genesis UTXO set built from coordination
+  scripts. Also available as the standalone `starstream-ledger-node`
+  binary.
+- **`starstream ledger`** is the client: it manages keys and accounts,
+  publishes contracts, runs coordination scripts locally and submits the
+  resulting transactions, calls methods of unspent outputs, and queries
+  accounts, blocks and the network. Also available as the standalone
+  `starstream-ledger-cli` binary.
+
+See [Ledger](./ledger.md) for a walkthrough, every flag and command, and
+the HTTP API.
+
 ## Other commands
 
 - **`starstream format` (alias `fmt`)** — auto-format `.star` files in
