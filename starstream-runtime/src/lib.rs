@@ -321,13 +321,15 @@ fn link_effect_function<T: Host>(
     linker.func_new(
         &Arc::clone(&name),
         move |mut store, _ty, params, _results| {
+            debug!(abi = ?abi_name, effect = ?name, ?params, "raise_effect");
             let vec: Vec<_> = store.debug_exit_frames().collect();
+            debug!(frames = ?vec.len());
             for each in vec {
-                dbg!(each.is_valid(&mut store));
-                _ = dbg!(each.wasm_function_index_and_pc(&mut store));
+                debug!(valid = ?each.is_valid(&mut store));
+                debug!(pc = ?each.wasm_function_index_and_pc(&mut store));
                 if let Ok(instance) = each.instance(&mut store) {
                     if let Some(handler) = instance.get_export(&mut store, "handle-effect") {
-                        dbg!(handler);
+                        debug!(handler = ?handler);
                     }
                 }
             }

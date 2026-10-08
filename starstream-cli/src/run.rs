@@ -181,6 +181,7 @@ async fn exec(
 ) -> wasmtime::Result<()> {
     let mut config = wasmtime::Config::new();
     config.wasm_component_model_implements(true);
+    config.guest_debug(true);
     let engine = wasmtime::Engine::new(&config)?;
 
     let mut lookup = Imports::default();
