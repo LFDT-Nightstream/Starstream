@@ -20,7 +20,7 @@ use wasmtime::component::Val;
 use wasmtime_wizer::Wizer;
 use wrpc_transport::Invoke as _;
 
-use crate::client::runtime::{Contract, Ctx, UtxoCtx, call_coordination_script};
+use crate::client::runtime::{CompiledContract, Contract, Ctx, UtxoCtx, call_coordination_script};
 use crate::client::{
     CoordinationScriptArg, bindings, build_fund_envelope, build_publish_envelope,
     build_transaction_envelope,
@@ -308,16 +308,14 @@ where
     /// Call the coordination script `export` exported by the contract `contract` with `args`,
     /// loading UTXO arguments from the ledger.
     /// Contracts in `imports` are used to resolve imports instead of the ledger.
-    /// `wasm` must be equal to original component bytes and `instrumented`
-    /// to the instrumented bytes `contract` was compiled from.
+    /// `wasm` must be the original component bytes `contract` was compiled from.
     #[instrument(skip_all)]
     #[allow(clippy::too_many_arguments)]
     pub async fn call_coordination_script(
         &self,
         store: &mut Store<Ctx>,
-        contract: &starstream_runtime::Contract<Ctx>,
+        contract: &CompiledContract,
         wasm: &[u8],
-        instrumented: &[u8],
         export: &CoordinationScriptExport,
         imports: &mut HashMap<[u8; 32], Contract>,
         args: impl IntoIterator<Item = CoordinationScriptArg>,
@@ -330,7 +328,6 @@ where
             &self.wizer,
             contract,
             wasm,
-            instrumented,
             export,
             imports,
             args,

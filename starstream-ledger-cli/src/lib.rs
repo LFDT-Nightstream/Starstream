@@ -18,9 +18,7 @@ use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::http::ClientBuilder;
 use starstream_ledger::client::runtime::UtxoCtx;
-use starstream_ledger::client::runtime::{
-    Client, Ctx, call_coordination_script, compile_component, new_contract,
-};
+use starstream_ledger::client::runtime::{Client, Ctx, call_coordination_script, compile_contract};
 use starstream_ledger::{Transaction, TransactionInput, TransactionOutput, encode_digest};
 use starstream_runtime::Utxo;
 use tokio::fs;
@@ -419,10 +417,15 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             };
             let mut contracts = HashMap::default();
             let wasm = imports.get_contract_wasm(digest).await?;
-            let (component, instrumented) =
-                compile_component(client.engine(), client.wizer(), &wasm)?;
-            let contract =
-                new_contract(&imports, client.wizer(), &component, None, &mut contracts).await?;
+            let contract = compile_contract(
+                &imports,
+                client.engine(),
+                client.wizer(),
+                &wasm,
+                None,
+                &mut contracts,
+            )
+            .await?;
 
             let script = contract.get_coordination_script(&script)?;
 
@@ -462,7 +465,6 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 client.wizer(),
                 &contract,
                 &wasm,
-                &instrumented,
                 &script,
                 &mut contracts,
                 params,

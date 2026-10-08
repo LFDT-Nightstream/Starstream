@@ -1,4 +1,5 @@
 use core::mem;
+use core::ops::Deref;
 use core::pin::Pin;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -30,22 +31,24 @@ use crate::{
     Transaction, TransactionEvent, TransactionInput, TransactionOutput, encode_digest, parse_digest,
 };
 
-/// Instrument `wasm` and compile it, returning the component along with the instrumented bytes
-pub fn compile_component(
-    engine: &Engine,
-    wizer: &Wizer,
-    wasm: &[u8],
-) -> wasmtime::Result<(Component, Vec<u8>)> {
-    let (.., wasm) = wizer
-        .instrument_component(wasm)
-        .context("failed to instrument component")?;
-    let component = Component::from_binary(engine, &wasm).context("failed to compile component")?;
-    Ok((component, wasm))
+/// Contract compiled from the instrumented component bytes
+#[derive(Clone)]
+pub struct CompiledContract {
+    pub contract: starstream_runtime::Contract<Ctx>,
+    pub instrumented: Bytes,
+}
+
+impl Deref for CompiledContract {
+    type Target = starstream_runtime::Contract<Ctx>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.contract
+    }
 }
 
 #[derive(Clone)]
 pub struct Contract {
-    pub contract: Option<(starstream_runtime::Contract<Ctx>, Bytes)>,
+    pub contract: Option<CompiledContract>,
     pub wasm: Bytes,
 }
 
@@ -58,13 +61,15 @@ pub trait Client {
     ) -> impl Future<Output = anyhow::Result<TransactionOutput>>;
 }
 
-pub async fn new_contract(
+/// Instrument and compile `wasm`, compiling the imports missing from `imports` via `client`
+pub async fn compile_contract(
     client: &(impl Client + ?Sized),
+    engine: &Engine,
     wizer: &Wizer,
-    component: &Component,
+    wasm: &[u8],
     external_id: Option<&str>,
     imports: &mut HashMap<[u8; 32], Contract>,
-) -> wasmtime::Result<starstream_runtime::Contract<Ctx>> {
+) -> wasmtime::Result<CompiledContract> {
     struct ContractLookup<'a>(pub &'a HashMap<[u8; 32], Contract>);
     impl starstream_runtime::ContractLookup<Ctx> for ContractLookup<'_> {
         fn get_contract(
@@ -76,15 +81,19 @@ pub async fn new_contract(
                 error!(external_id, "unresolved contract import");
                 format!("contract identified by `external-id` `{external_id}` not found")
             })?;
-            let (contract, ..) = contract.contract.as_ref().with_context(|| {
+            let contract = contract.contract.as_ref().with_context(|| {
                 error!(external_id, "uncompiled contract import");
                 format!("contract identified by `external-id` `{external_id}` was not compiled")
             })?;
-            Ok(contract.clone())
+            Ok(contract.contract.clone())
         }
     }
 
-    let engine = component.engine();
+    let (.., instrumented) = wizer
+        .instrument_component(wasm)
+        .context("failed to instrument component")?;
+    let component =
+        Component::from_binary(engine, &instrumented).context("failed to compile component")?;
     let ty = component.component_type();
     let script_instance = get_coordination_script_instance_import(engine, &ty);
     let script_external_ids = script_instance.as_ref().map(|instance| {
@@ -112,11 +121,11 @@ pub async fn new_contract(
                 .await
                 .map_err(wasmtime::Error::from_anyhow)?,
         };
-        let (component, instrumented) = compile_component(engine, wizer, &wasm)?;
-        let contract = Box::pin(new_contract(
+        let contract = Box::pin(compile_contract(
             client,
+            engine,
             wizer,
-            &component,
+            &wasm,
             Some(external_id),
             imports,
         ))
@@ -124,29 +133,31 @@ pub async fn new_contract(
         imports.insert(
             digest,
             Contract {
-                contract: Some((contract, instrumented.into())),
+                contract: Some(contract),
                 wasm,
             },
         );
     }
-    starstream_runtime::Contract::new(component, external_id, ContractLookup(imports))
+    let contract =
+        starstream_runtime::Contract::new(&component, external_id, ContractLookup(imports))?;
+    Ok(CompiledContract {
+        contract,
+        instrumented: instrumented.into(),
+    })
 }
 
-fn build_templates(
-    contract: &starstream_runtime::Contract<Ctx>,
-    wasm: &[u8],
-) -> wasmtime::Result<ComponentTemplates> {
-    let scripts = contract.coordination_script_names().collect::<Vec<_>>();
-    build_component_templates(wasm, &scripts).context("failed to build trace templates")
+fn build_templates(contract: &CompiledContract) -> wasmtime::Result<ComponentTemplates> {
+    let scripts = contract
+        .contract
+        .coordination_script_names()
+        .collect::<Vec<_>>();
+    build_component_templates(&contract.instrumented, &scripts)
+        .context("failed to build trace templates")
 }
 
-fn register_tracing(
-    cx: &mut Ctx,
-    contract: &starstream_runtime::Contract<Ctx>,
-    wasm: &[u8],
-) -> wasmtime::Result<()> {
-    let templates = build_templates(contract, wasm)?;
-    register_tracing_component(cx, wasm, &templates.bindings)
+fn register_tracing(cx: &mut Ctx, contract: &CompiledContract) -> wasmtime::Result<()> {
+    let templates = build_templates(contract)?;
+    register_tracing_component(cx, &contract.instrumented, &templates.bindings)
 }
 
 /// Register compiled imports that have not been registered yet
@@ -156,11 +167,11 @@ fn register_imports(
     registered: &mut HashSet<[u8; 32]>,
 ) -> wasmtime::Result<()> {
     for (digest, Contract { contract, .. }) in imports {
-        let Some((contract, wasm)) = contract else {
+        let Some(contract) = contract else {
             continue;
         };
         if registered.insert(*digest) {
-            register_tracing(cx, contract, wasm)?;
+            register_tracing(cx, contract)?;
         }
     }
     Ok(())
@@ -169,8 +180,7 @@ fn register_imports(
 /// Call the coordination script `export` exported by `contract` with `args`,
 /// loading UTXO arguments through `client`.
 ///
-/// `wasm` must be the original component bytes and `instrumented` the
-/// instrumented bytes `contract` was compiled from.
+/// `wasm` must be the original component bytes `contract` was compiled from.
 ///
 /// The execution check is best-effort for now, mainly to not block execution
 /// on configurations not supported by the current instrumentation, so its
@@ -181,9 +191,8 @@ pub async fn call_coordination_script(
     store: &mut Store<Ctx>,
     client: &(impl Client + ?Sized),
     wizer: &Wizer,
-    contract: &starstream_runtime::Contract<Ctx>,
+    contract: &CompiledContract,
     wasm: &[u8],
-    instrumented: &[u8],
     export: &CoordinationScriptExport,
     imports: &mut HashMap<[u8; 32], Contract>,
     args: impl IntoIterator<Item = CoordinationScriptArg>,
@@ -223,10 +232,10 @@ pub async fn call_coordination_script(
                 "traced input loading requires direct scalar/resource arguments"
             );
         }
-        let templates = build_templates(contract, instrumented)?;
+        let templates = build_templates(contract)?;
         enable_tracing(store)?;
         let cx = store.data_mut();
-        register_tracing_component(cx, instrumented, &templates.bindings)?;
+        register_tracing_component(cx, &contract.instrumented, &templates.bindings)?;
         register_imports(cx, imports, &mut registered)?;
         Ok(templates)
     })();
@@ -275,18 +284,18 @@ pub async fn call_coordination_script(
                         apply_state(&wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
                     (Some(Arc::from(utxo.contract)), Bytes::from(wasm))
                 };
-                let (component, instrumented) = compile_component(engine, wizer, &wasm)?;
-                let contract = new_contract(
+                let contract = compile_contract(
                     client,
+                    engine,
                     wizer,
-                    &component,
+                    &wasm,
                     external_id.as_deref(),
                     &mut *imports,
                 )
                 .await?;
                 tracing = tracing.and_then(|templates| {
                     let cx = store.data_mut();
-                    register_tracing(cx, &contract, &instrumented)?;
+                    register_tracing(cx, &contract)?;
                     register_imports(cx, imports, &mut registered)?;
                     Ok(templates)
                 });
