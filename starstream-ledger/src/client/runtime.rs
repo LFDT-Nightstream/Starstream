@@ -195,13 +195,19 @@ pub async fn call_coordination_script(
     wasm: &[u8],
     export: &CoordinationScriptExport,
     imports: &mut HashMap<[u8; 32], Contract>,
-    args: impl IntoIterator<Item = CoordinationScriptArg>,
+    args: Vec<CoordinationScriptArg>,
     results: &mut [Val],
     utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
 ) -> wasmtime::Result<(Transaction, wasmtime::Result<CapturedExecution>)> {
+    let args_len = args.len();
+    let param_len = export.ty().params().len();
+    ensure!(
+        args_len == param_len,
+        "argument length mismatch, expected: {args_len}, got: {param_len}"
+    );
+
     let engine = contract.component().engine();
     let digest: [u8; 32] = Sha256::digest(wasm).into();
-    let args = args.into_iter().collect::<Vec<_>>();
     let mut registered = HashSet::from([digest]);
     let mut tracing = (|| {
         if args
@@ -244,12 +250,8 @@ pub async fn call_coordination_script(
     let mut inputs = Vec::default();
     let mut input_locals = Vec::default();
     let mut input_methods = Vec::default();
-    let mut params = Vec::with_capacity(export.ty().params().len());
-    let mut args = args.into_iter();
-    for (name, _ty) in export.ty().params() {
-        let arg = args
-            .next()
-            .with_context(|| format!("missing argument for parameter `{name}`"))?;
+    let mut params = Vec::with_capacity(param_len);
+    for arg in args {
         let v = match arg {
             CoordinationScriptArg::Val(v) => v,
             CoordinationScriptArg::Utxo(input) => {
@@ -348,7 +350,6 @@ pub async fn call_coordination_script(
         };
         params.push(v);
     }
-    ensure!(args.next().is_none(), "trailing arguments");
     instance
         .call_coordination_script(&mut *store, export, &params, results)
         .await?;
@@ -437,7 +438,6 @@ pub async fn call_coordination_script(
                 handles.push(starstream_proving_runtime::ResourceHandle(handle));
             }
         }
-        // TODO: Authenticate these input handles against the coordinator argument root.
         check_captured_transaction(&store.data().traces, handles, &input_methods)
     });
     Ok((

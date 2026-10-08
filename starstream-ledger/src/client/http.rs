@@ -318,7 +318,7 @@ where
         wasm: &[u8],
         export: &CoordinationScriptExport,
         imports: &mut HashMap<[u8; 32], Contract>,
-        args: impl IntoIterator<Item = CoordinationScriptArg>,
+        args: Vec<CoordinationScriptArg>,
         results: &mut [Val],
         utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
     ) -> anyhow::Result<Transaction> {

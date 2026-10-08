@@ -353,7 +353,7 @@ async fn http() {
             &SCORE_WASM,
             &score_example_export,
             &mut HashMap::default(),
-            [],
+            Vec::default(),
             &mut [],
             &mut utxos,
         )

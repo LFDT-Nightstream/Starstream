@@ -53,9 +53,9 @@ async fn coordination_script_execution_is_checked() -> anyhow::Result<()> {
         &SCORE_WASM,
         &example,
         &mut imports,
-        [],
+        Vec::default(),
         &mut [],
-        &mut Vec::new(),
+        &mut Vec::default(),
     )
     .await?;
     let execution = execution?;
@@ -95,9 +95,9 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         &wasm,
         &example,
         &mut imports,
-        [],
+        Vec::default(),
         &mut [],
-        &mut Vec::new(),
+        &mut Vec::default(),
     )
     .await?;
     let execution = execution?;
@@ -119,9 +119,9 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         &wasm,
         &update,
         &mut imports,
-        [CoordinationScriptArg::Utxo(input.clone())],
+        vec![CoordinationScriptArg::Utxo(input.clone())],
         &mut [],
-        &mut Vec::new(),
+        &mut Vec::default(),
     )
     .await?;
     let execution = execution?;
@@ -177,9 +177,9 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
         &wasm,
         &example,
         &mut imports,
-        [],
+        Vec::default(),
         &mut [],
-        &mut Vec::new(),
+        &mut Vec::default(),
     )
     .await?;
     let execution = execution?;
