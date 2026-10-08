@@ -134,26 +134,11 @@ impl TransactionGetError {
 }
 
 #[derive(Debug, Error)]
-pub enum GenesisGetError {
-    #[error(transparent)]
-    AcceptHeader(AcceptHeaderError),
-    #[error(transparent)]
-    Http(http::Error),
-}
-
-impl GenesisGetError {
-    pub fn http_status_code(&self) -> http::StatusCode {
-        match self {
-            Self::AcceptHeader(err) => err.http_status_code(),
-            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
-}
-
-#[derive(Debug, Error)]
 pub enum TransactionPostError {
-    #[error("failed to encode transaction: {0}")]
-    Encoding(minicbor::encode::Error<core::convert::Infallible>),
+    #[error("failed to encode transaction as CBOR: {0}")]
+    CborEncoding(minicbor::encode::Error<core::convert::Infallible>),
+    #[error("failed to encode transaction as wRPC: {0}")]
+    WrpcEncoding(std::io::Error),
     #[error("transaction `{}` already exists", encode_digest(.0))]
     AlreadyExists([u8; 32]),
     #[error("transaction must have at least one input")]
@@ -182,7 +167,9 @@ impl TransactionPostError {
             Self::AlreadyExists(..) => http::StatusCode::CONFLICT,
             Self::InputNotFound => http::StatusCode::NOT_FOUND,
             Self::InputUnauthorized => http::StatusCode::FORBIDDEN,
-            Self::Encoding(..) | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::CborEncoding(..) | Self::WrpcEncoding(..) | Self::Http(..) => {
+                http::StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
@@ -236,10 +223,6 @@ pub enum RpcPostError {
     FunctionNotFound { instance: String, name: String },
     #[error("failed to parse transaction digest: {0}")]
     TransactionDigestParsing(DigestParseError),
-    #[error("failed to decode transaction: {0}")]
-    TransactionDecoding(minicbor::decode::Error),
-    #[error("failed to decode genesis: {0}")]
-    GenesisDecoding(minicbor::decode::Error),
     #[error("UTXO index does not fit in usize")]
     UtxoIndexOverflow,
     #[error("UTXO not found")]
@@ -303,8 +286,6 @@ impl RpcPostError {
             | Self::UtxoMethodNotFound { .. } => http::StatusCode::NOT_FOUND,
             Self::ContractDigestParsing(..)
             | Self::StateMerge(..)
-            | Self::TransactionDecoding(..)
-            | Self::GenesisDecoding(..)
             | Self::StorageDecoding(..)
             | Self::Runtime(..)
             | Self::ResultEncoding(..)

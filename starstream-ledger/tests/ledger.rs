@@ -10,7 +10,7 @@ use anyhow::Context as _;
 use bytes::{Bytes, BytesMut};
 use coset::{CoseSign1Builder, HeaderBuilder, TaggedCborSerializable as _, iana};
 use ed25519_dalek::Signer as _;
-use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
+use http::header::{CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
 use http::{Method, StatusCode, Uri};
 use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -26,8 +26,8 @@ use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::bindings;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
-    APPLICATION_CBOR, APPLICATION_WRPC, Envelope, Message, Transaction, TransactionInput,
-    TransactionOutput, encode_digest,
+    APPLICATION_WRPC, Envelope, Message, Transaction, TransactionInput, TransactionOutput,
+    encode_digest,
 };
 use tokio::io::AsyncReadExt as _;
 use tokio_util::codec::Encoder as _;
@@ -181,26 +181,6 @@ async fn http() {
 
     let outputs = client.get_genesis().await.unwrap();
     assert_eq!(outputs, genesis);
-
-    let req = http::Request::builder()
-        .method(Method::HEAD)
-        .uri(format!("http://{addr}/genesis"))
-        .header(ACCEPT, APPLICATION_CBOR.to_string())
-        .body(Full::default())
-        .unwrap();
-    let (
-        http::response::Parts {
-            status, headers, ..
-        },
-        body,
-    ) = http_request(&http, req).await.unwrap();
-    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    assert!(body.is_empty());
-    let genesis_cbor = minicbor::to_vec(&genesis).unwrap();
-    assert_eq!(
-        headers.get(CONTENT_LENGTH).map(|v| v.as_bytes()),
-        Some(genesis_cbor.len().to_string().as_bytes())
-    );
 
     let score_publish_envelope = build_publish_envelope(
         ADMIN.clone(),
@@ -465,42 +445,6 @@ async fn http() {
     assert_eq!(height, 4);
     let got = client.get_transaction(tx_digest).await.unwrap();
     assert_eq!(got, tx);
-
-    let req = build_transaction_get_request(&api_base, &tx_digest, Some(APPLICATION_CBOR)).unwrap();
-    let (
-        http::response::Parts {
-            status, headers, ..
-        },
-        body,
-    ) = http_request(&http, req).await.unwrap();
-    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    assert_eq!(body, tx_cbor);
-    assert_eq!(
-        headers.get(CONTENT_TYPE).map(|v| v.as_bytes()),
-        Some(APPLICATION_CBOR.to_string().as_bytes())
-    );
-
-    let req = http::Request::builder()
-        .method(Method::HEAD)
-        .uri(format!(
-            "http://{addr}/transactions/{}",
-            encode_digest(&tx_digest)
-        ))
-        .header(ACCEPT, APPLICATION_CBOR.to_string())
-        .body(Full::default())
-        .unwrap();
-    let (
-        http::response::Parts {
-            status, headers, ..
-        },
-        body,
-    ) = http_request(&http, req).await.unwrap();
-    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    assert!(body.is_empty());
-    assert_eq!(
-        headers.get(CONTENT_LENGTH).map(|v| v.as_bytes()),
-        Some(tx_cbor.len().to_string().as_bytes())
-    );
 
     let tx_envelope = bindings::starstream::ledger::transaction::get_envelope(
         &wrpc,

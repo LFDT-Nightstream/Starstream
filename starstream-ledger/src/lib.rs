@@ -31,10 +31,6 @@ pub const APPLICATION_COSE: MediaType =
 pub const APPLICATION_WASM: MediaType =
     MediaType::new(mediatype::names::APPLICATION, mediatype::names::WASM);
 
-/// CBOR media type
-pub const APPLICATION_CBOR: MediaType =
-    MediaType::new(mediatype::names::APPLICATION, mediatype::names::CBOR);
-
 /// wRPC media type
 pub const APPLICATION_WRPC: MediaType = MediaType::new(
     mediatype::names::APPLICATION,

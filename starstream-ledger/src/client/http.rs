@@ -136,16 +136,6 @@ pub fn build_transaction_get_request(
     req.body(Full::default()).context("failed to build request")
 }
 
-/// Build a genesis get request.
-pub fn build_genesis_get_request(base: &Uri) -> anyhow::Result<http::Request<Full<Bytes>>> {
-    let uri = endpoint_uri(base, "genesis")?;
-    Request::builder()
-        .method(Method::GET)
-        .uri(uri)
-        .body(Full::default())
-        .context("failed to build request")
-}
-
 #[derive(Clone)]
 pub struct ClientBuilder<C> {
     http: hyper_util::client::legacy::Builder,
