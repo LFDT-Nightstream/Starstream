@@ -263,11 +263,11 @@ pub async fn call_coordination_script(
                 let (external_id, wasm) = if utxo_contract_digest == digest {
                     let wasm =
                         apply_state(wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    (None, Bytes::from(wasm))
+                    (None, wasm)
                 } else if let Some(Contract { wasm, .. }) = imports.get(&utxo_contract_digest) {
                     let wasm =
                         apply_state(wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    (Some(Arc::from(utxo.contract)), Bytes::from(wasm))
+                    (Some(Arc::from(utxo.contract)), wasm)
                 } else {
                     let wasm = client
                         .get_contract_wasm(utxo_contract_digest)
@@ -282,7 +282,7 @@ pub async fn call_coordination_script(
                     );
                     let wasm =
                         apply_state(&wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    (Some(Arc::from(utxo.contract)), Bytes::from(wasm))
+                    (Some(Arc::from(utxo.contract)), wasm)
                 };
                 let contract = compile_contract(
                     client,
