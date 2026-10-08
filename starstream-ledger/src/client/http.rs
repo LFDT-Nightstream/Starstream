@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{Context as _, bail, ensure};
+use anyhow::{Context as _, ensure};
 use bytes::{Bytes, BytesMut};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::header::{ACCEPT, CONTENT_TYPE};
@@ -28,8 +28,8 @@ use crate::client::{
 use crate::cose::read_envelope;
 use crate::wrpc::{LEDGER_UTXO_INSTANCE, bindings};
 use crate::{
-    APPLICATION_COSE, APPLICATION_WRPC, Fund, Message, Publish, Transaction, TransactionInput,
-    TransactionOutput, encode_digest, parse_digest,
+    APPLICATION_COSE, APPLICATION_WRPC, Fund, PUBLISH_CONTEXT, Publish, TRANSACTION_CONTEXT,
+    Transaction, TransactionInput, TransactionOutput, encode_digest, parse_digest,
 };
 
 /// Default network used by the client
@@ -464,6 +464,41 @@ where
         Ok(Some(tx))
     }
 
+    fn verify_envelope(
+        &self,
+        body: Result<Bytes, bindings::starstream::ledger::types::GetError>,
+        digest: &[u8; 32],
+        context: u8,
+    ) -> anyhow::Result<Option<Bytes>> {
+        let body = match body {
+            Ok(body) => body,
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
+            Err(err) => return Err(err.into()),
+        };
+        let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
+        ensure!(
+            envelope.network == self.network,
+            "unexpected network `{}`, expected `{}`",
+            envelope.network,
+            self.network
+        );
+        ensure!(
+            envelope.message.context() == context,
+            "unexpected context `{}`, expected `{context}`",
+            envelope.message.context()
+        );
+        let message_digest = envelope
+            .message
+            .payload_digest()
+            .context("failed to compute payload digest")?;
+        ensure!(
+            message_digest == *digest,
+            "digest mismatch, got `{}`",
+            encode_digest(&message_digest)
+        );
+        Ok(Some(body))
+    }
+
     /// Get the envelope of the transaction identified by `digest`.
     #[instrument(skip_all)]
     pub async fn get_transaction_envelope(
@@ -477,28 +512,8 @@ where
             &encode_digest(digest),
         )
         .await?;
-        let body = match body {
-            Ok(body) => body,
-            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
-            Err(err) => return Err(err).context("failed to get transaction envelope"),
-        };
-        let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
-        ensure!(
-            envelope.network == self.network,
-            "unexpected network `{}`, expected `{}`",
-            envelope.network,
-            self.network
-        );
-        let Message::Transaction(tx) = envelope.message else {
-            bail!("unexpected context `{}`", envelope.message.context());
-        };
-        let tx_digest = tx.digest().context("failed to encode transaction")?;
-        ensure!(
-            tx_digest == *digest,
-            "transaction digest mismatch, got `{}`",
-            encode_digest(&tx_digest)
-        );
-        Ok(Some(body))
+        self.verify_envelope(body, digest, TRANSACTION_CONTEXT)
+            .context("failed to get transaction envelope")
     }
 
     /// Get the genesis outputs.
@@ -542,27 +557,7 @@ where
             &encode_digest(digest),
         )
         .await?;
-        let body = match body {
-            Ok(body) => body,
-            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
-            Err(err) => return Err(err).context("failed to get contract envelope"),
-        };
-        let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
-        ensure!(
-            envelope.network == self.network,
-            "unexpected network `{}`, expected `{}`",
-            envelope.network,
-            self.network
-        );
-        let Message::Publish(publish) = envelope.message else {
-            bail!("unexpected context `{}`", envelope.message.context());
-        };
-        let wasm_digest: [u8; 32] = Sha256::digest(&publish.wasm).into();
-        ensure!(
-            wasm_digest == *digest,
-            "contract digest mismatch, got `{}`",
-            encode_digest(&wasm_digest)
-        );
-        Ok(Some(body))
+        self.verify_envelope(body, digest, PUBLISH_CONTEXT)
+            .context("failed to get contract envelope")
     }
 }

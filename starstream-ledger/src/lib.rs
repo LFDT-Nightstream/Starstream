@@ -167,6 +167,20 @@ impl Message {
             Self::Transaction(..) => TRANSACTION_CONTEXT,
         }
     }
+
+    /// Compute the digest identifying the message payload.
+    pub fn payload_digest(
+        &self,
+    ) -> Result<[u8; 32], minicbor::encode::Error<core::convert::Infallible>> {
+        match self {
+            Self::Fund(fund) => {
+                let cbor = minicbor::to_vec(fund)?;
+                Ok(Sha256::digest(cbor).into())
+            }
+            Self::Publish(Publish { wasm, .. }) => Ok(Sha256::digest(wasm).into()),
+            Self::Transaction(tx) => tx.digest(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
