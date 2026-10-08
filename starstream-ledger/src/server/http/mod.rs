@@ -370,8 +370,9 @@ impl Ledger {
         signers: Vec<VerifyingKey>,
         transaction: crate::Transaction,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, TransactionPostError> {
-        let payload = minicbor::to_vec(&transaction).map_err(TransactionPostError::CborEncoding)?;
-        let digest: [u8; 32] = Sha256::digest(&payload).into();
+        let digest = transaction
+            .digest()
+            .map_err(TransactionPostError::CborEncoding)?;
         let crate::Transaction { inputs, .. } = &transaction;
         if inputs.is_empty() {
             return Err(TransactionPostError::InputsEmpty);

@@ -6,6 +6,7 @@ use bytes::Bytes;
 use mediatype::MediaType;
 use minicbor::{Decode, Encode};
 use serde::Serialize;
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
 use crate::runtime::ModuleState;
@@ -148,6 +149,14 @@ pub enum Message {
     Fund(Fund),
     Publish(Publish),
     Transaction(Transaction),
+}
+
+impl Transaction {
+    /// Compute the digest identifying this transaction: SHA-256 of its CBOR encoding.
+    pub fn digest(&self) -> Result<[u8; 32], minicbor::encode::Error<core::convert::Infallible>> {
+        let cbor = minicbor::to_vec(self)?;
+        Ok(Sha256::digest(cbor).into())
+    }
 }
 
 impl Message {

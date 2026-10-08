@@ -455,8 +455,7 @@ where
             Err(err) => return Err(err).context("failed to get transaction"),
         };
         let tx = Transaction::from(tx);
-        let tx_cbor = minicbor::to_vec(&tx).context("failed to encode transaction")?;
-        let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
+        let tx_digest = tx.digest().context("failed to encode transaction")?;
         ensure!(
             tx_digest == digest,
             "transaction digest mismatch, got `{}`",
@@ -493,8 +492,7 @@ where
         let Message::Transaction(tx) = envelope.message else {
             bail!("unexpected context `{}`", envelope.message.context());
         };
-        let tx_cbor = minicbor::to_vec(&tx).context("failed to encode transaction")?;
-        let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
+        let tx_digest = tx.digest().context("failed to encode transaction")?;
         ensure!(
             tx_digest == *digest,
             "transaction digest mismatch, got `{}`",
