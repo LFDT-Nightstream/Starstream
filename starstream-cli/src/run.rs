@@ -208,13 +208,13 @@ pub async fn call(
     args: &mut dyn ExactSizeIterator<Item = &str>,
 ) -> wasmtime::Result<String> {
     let mut store = Store::new(
-        &engine,
+        engine,
         Ctx {
             table: ResourceTable::default(),
             outputs: Vec::default(),
         },
     );
-    let script = contract.get_coordination_script(&script)?;
+    let script = contract.get_coordination_script(script)?;
     let contract = contract.instantiate(&mut store).await?;
     let params_ty = script.ty().params();
     ensure!(
@@ -225,7 +225,7 @@ pub async fn call(
     );
     let params = zip(params_ty, args)
         .map(|((name, ty), arg)| {
-            Val::from_wave(&ty, &arg).with_context(|| format!("failed to parse argument `{name}`"))
+            Val::from_wave(&ty, arg).with_context(|| format!("failed to parse argument `{name}`"))
         })
         .collect::<wasmtime::Result<Vec<_>>>()?;
     let mut results = vec![Val::Bool(false); script.ty().results().len()];

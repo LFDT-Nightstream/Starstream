@@ -105,7 +105,7 @@ impl InputArg {
     fn get_artifacts_dir(&self) -> miette::Result<PathBuf> {
         // Use `--artifacts-dir` if specified.
         if let Some(path) = &self.artifacts_dir {
-            std::fs::create_dir_all(&path)
+            std::fs::create_dir_all(path)
                 .into_diagnostic()
                 .wrap_err_with(|| format!("error creating `{}`", path.display()))?;
             return Ok(path.clone());
