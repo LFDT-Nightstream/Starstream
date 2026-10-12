@@ -438,7 +438,7 @@ pub async fn read_value<R: AsyncRead + Unpin>(
             let n = r.read_u32_leb128().await?;
             let n = n.try_into().unwrap_or(usize::MAX);
             let ty = ty.ty();
-            let mut vs = Vec::with_capacity(n);
+            let mut vs = Vec::default();
             for _ in 0..n {
                 let mut v = Val::Bool(false);
                 Box::pin(read_value(&mut *r, &mut v, &ty)).await?;

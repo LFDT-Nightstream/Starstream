@@ -134,26 +134,11 @@ impl TransactionGetError {
 }
 
 #[derive(Debug, Error)]
-pub enum GenesisGetError {
-    #[error(transparent)]
-    AcceptHeader(AcceptHeaderError),
-    #[error(transparent)]
-    Http(http::Error),
-}
-
-impl GenesisGetError {
-    pub fn http_status_code(&self) -> http::StatusCode {
-        match self {
-            Self::AcceptHeader(err) => err.http_status_code(),
-            Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
-}
-
-#[derive(Debug, Error)]
 pub enum TransactionPostError {
-    #[error("failed to encode transaction: {0}")]
-    Encoding(minicbor::encode::Error<core::convert::Infallible>),
+    #[error("failed to encode transaction as CBOR: {0}")]
+    CborEncoding(minicbor::encode::Error<core::convert::Infallible>),
+    #[error("failed to encode transaction as wRPC: {0}")]
+    WrpcEncoding(std::io::Error),
     #[error("transaction `{}` already exists", encode_digest(.0))]
     AlreadyExists([u8; 32]),
     #[error("transaction must have at least one input")]
@@ -182,7 +167,9 @@ impl TransactionPostError {
             Self::AlreadyExists(..) => http::StatusCode::CONFLICT,
             Self::InputNotFound => http::StatusCode::NOT_FOUND,
             Self::InputUnauthorized => http::StatusCode::FORBIDDEN,
-            Self::Encoding(..) | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::CborEncoding(..) | Self::WrpcEncoding(..) | Self::Http(..) => {
+                http::StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
@@ -232,8 +219,6 @@ pub enum RpcPostError {
     Envelope(EnvelopePostError),
     #[error("failed to read wRPC invocation header: {0}")]
     Header(wrpc_transport::frame::HeaderReadError),
-    #[error("instance `{0}` not found")]
-    InstanceNotFound(String),
     #[error("function `{name}` not found in instance `{instance}`")]
     FunctionNotFound { instance: String, name: String },
     #[error("failed to parse transaction digest: {0}")]
@@ -294,8 +279,7 @@ impl RpcPostError {
             | Self::ParameterDecoding(..)
             | Self::UtxoStorageMissing
             | Self::ResourceTable(..) => http::StatusCode::BAD_REQUEST,
-            Self::InstanceNotFound(..)
-            | Self::FunctionNotFound { .. }
+            Self::FunctionNotFound { .. }
             | Self::UtxoNotFound
             | Self::ContractNotFound
             | Self::UtxoInstanceNotFound { .. }

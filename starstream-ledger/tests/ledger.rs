@@ -1,5 +1,6 @@
 #![cfg(all(feature = "client", feature = "server"))]
 
+use core::net::SocketAddr;
 use core::str::FromStr as _;
 
 use std::collections::HashMap;
@@ -9,7 +10,7 @@ use anyhow::Context as _;
 use bytes::{Bytes, BytesMut};
 use coset::{CoseSign1Builder, HeaderBuilder, TaggedCborSerializable as _, iana};
 use ed25519_dalek::Signer as _;
-use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
+use http::header::{CONTENT_LENGTH, CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
 use http::{Method, StatusCode, Uri};
 use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -24,7 +25,8 @@ use starstream_ledger::client::runtime::compile_contract;
 use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
-    APPLICATION_CBOR, Transaction, TransactionInput, TransactionOutput, encode_digest,
+    APPLICATION_COSE, Envelope, Message, Transaction, TransactionInput, TransactionOutput,
+    encode_digest,
 };
 use tokio::io::AsyncReadExt as _;
 use tokio_util::codec::Encoder as _;
@@ -49,6 +51,38 @@ pub async fn http_request(
         .await
         .context("failed to receive response body")?;
     Ok((parts, body.to_bytes()))
+}
+
+fn admin_protected_header() -> coset::Header {
+    HeaderBuilder::new()
+        .algorithm(iana::Algorithm::EdDSA)
+        .key_id(ADMIN.verifying_key().to_bytes().into())
+        .build()
+}
+
+fn build_sign1_envelope(protected: coset::Header, payload: Vec<u8>) -> Vec<u8> {
+    CoseSign1Builder::new()
+        .protected(protected)
+        .payload(payload)
+        .create_signature(b"", |data| ADMIN.sign(data).to_bytes().into())
+        .build()
+        .to_tagged_vec()
+        .unwrap()
+}
+
+async fn post_envelope(
+    client: &hyper_util::client::legacy::Client<HttpConnector, Full<Bytes>>,
+    addr: SocketAddr,
+    envelope: Vec<u8>,
+) -> (StatusCode, String) {
+    let req = http::Request::builder()
+        .method(Method::POST)
+        .uri(format!("http://{addr}/rpc"))
+        .header(CONTENT_TYPE, "application/cose")
+        .body(Full::new(Bytes::from(envelope)))
+        .unwrap();
+    let (parts, body) = http_request(client, req).await.unwrap();
+    (parts.status, String::from_utf8_lossy(&body).into_owned())
 }
 
 #[tokio::test]
@@ -136,26 +170,6 @@ async fn http() {
     let outputs = client.get_genesis().await.unwrap();
     assert_eq!(outputs, genesis);
 
-    let req = http::Request::builder()
-        .method(Method::HEAD)
-        .uri(format!("http://{addr}/genesis"))
-        .header(ACCEPT, APPLICATION_CBOR.to_string())
-        .body(Full::default())
-        .unwrap();
-    let (
-        http::response::Parts {
-            status, headers, ..
-        },
-        body,
-    ) = http_request(&http, req).await.unwrap();
-    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    assert!(body.is_empty());
-    let genesis_cbor = minicbor::to_vec(&genesis).unwrap();
-    assert_eq!(
-        headers.get(CONTENT_LENGTH).map(|v| v.as_bytes()),
-        Some(genesis_cbor.len().to_string().as_bytes())
-    );
-
     let score_publish_envelope = build_publish_envelope(
         ADMIN.clone(),
         NETWORK,
@@ -192,21 +206,8 @@ async fn http() {
         .key_id(ADMIN.verifying_key().to_bytes().into())
         .add_critical(iana::HeaderParameter::Alg)
         .build();
-    let crit_envelope = CoseSign1Builder::new()
-        .protected(protected)
-        .payload(Vec::default())
-        .create_signature(b"", |data| ADMIN.sign(data).to_bytes().into())
-        .build()
-        .to_tagged_vec()
-        .unwrap();
-    let req = http::Request::builder()
-        .method(Method::POST)
-        .uri(format!("http://{addr}/rpc"))
-        .header(CONTENT_TYPE, "application/cose")
-        .body(Full::new(Bytes::from(crit_envelope)))
-        .unwrap();
-    let (http::response::Parts { status, .. }, body) = http_request(&http, req).await.unwrap();
-    let body = String::from_utf8_lossy(&body);
+    let crit_envelope = build_sign1_envelope(protected, Vec::default());
+    let (status, body) = post_envelope(&http, addr, crit_envelope).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(body, "envelope must not contain critical headers");
 
@@ -286,7 +287,8 @@ async fn http() {
         .unwrap();
     assert_eq!(digest, *SCORE_WASM_DIGEST);
 
-    let wasm = client.get_contract_wasm(*SCORE_WASM_DIGEST).await.unwrap();
+    let wasm = client.get_contract(*SCORE_WASM_DIGEST).await.unwrap();
+    let wasm = wasm.unwrap();
     assert_eq!(wasm, SCORE_WASM.as_ref());
 
     let score_publish_envelope = build_publish_envelope(
@@ -303,7 +305,7 @@ async fn http() {
         .get_contract_envelope(&SCORE_WASM_DIGEST)
         .await
         .unwrap();
-    assert_eq!(envelope, score_publish_envelope);
+    assert_eq!(envelope.unwrap(), score_publish_envelope);
 
     let req = build_contract_get_request(&api_base, &SCORE_WASM_DIGEST, None).unwrap();
     let (
@@ -431,9 +433,11 @@ async fn http() {
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 4);
     let got = client.get_transaction(tx_digest).await.unwrap();
-    assert_eq!(got, tx);
+    assert_eq!(got.unwrap(), tx);
 
-    let req = build_transaction_get_request(&api_base, &tx_digest, Some(APPLICATION_CBOR)).unwrap();
+    let envelope = client.get_transaction_envelope(&tx_digest).await.unwrap();
+    let envelope = envelope.unwrap();
+    let req = build_transaction_get_request(&api_base, &tx_digest, None).unwrap();
     let (
         http::response::Parts {
             status, headers, ..
@@ -441,10 +445,10 @@ async fn http() {
         body,
     ) = http_request(&http, req).await.unwrap();
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-    assert_eq!(body, tx_cbor);
+    assert_eq!(body, envelope);
     assert_eq!(
         headers.get(CONTENT_TYPE).map(|v| v.as_bytes()),
-        Some(APPLICATION_CBOR.to_string().as_bytes())
+        Some(APPLICATION_COSE.to_string().as_bytes())
     );
 
     let req = http::Request::builder()
@@ -453,7 +457,6 @@ async fn http() {
             "http://{addr}/transactions/{}",
             encode_digest(&tx_digest)
         ))
-        .header(ACCEPT, APPLICATION_CBOR.to_string())
         .body(Full::default())
         .unwrap();
     let (
@@ -466,8 +469,9 @@ async fn http() {
     assert!(body.is_empty());
     assert_eq!(
         headers.get(CONTENT_LENGTH).map(|v| v.as_bytes()),
-        Some(tx_cbor.len().to_string().as_bytes())
+        Some(envelope.len().to_string().as_bytes())
     );
+
     let err = client
         .transact(
             ADMIN.clone(),
@@ -509,6 +513,28 @@ async fn http() {
     let mut buf = Vec::default();
     rx.read_to_end(&mut buf).await.unwrap();
     assert_eq!(buf, [42]);
+
+    let tx = Transaction {
+        inputs: vec![TransactionInput {
+            transaction: Box::default(),
+            index: 1,
+        }],
+        outputs: outputs.clone(),
+        events: Vec::default(),
+        proof: Box::default(),
+    };
+    let tx_digest: [u8; 32] = Sha256::digest(minicbor::to_vec(&tx).unwrap()).into();
+    let tx_payload = minicbor::to_vec(Envelope {
+        network: NETWORK.into(),
+        message: Message::Transaction(tx.clone()),
+    })
+    .unwrap();
+    let protected = admin_protected_header();
+    let tx_envelope = build_sign1_envelope(protected, tx_payload);
+    let (status, body) = post_envelope(&http, addr, tx_envelope).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let got = client.get_transaction(tx_digest).await.unwrap();
+    assert_eq!(got.unwrap(), tx);
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked")

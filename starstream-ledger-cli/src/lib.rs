@@ -178,11 +178,11 @@ struct ImportClient<'a, T> {
 }
 
 impl<T: Client> Client for ImportClient<'_, T> {
-    async fn get_contract_wasm(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
+    async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
         if let Some(wasm) = self.imports.get(&digest) {
             return Ok(wasm.clone());
         }
-        self.client.get_contract_wasm(digest).await
+        self.client.get_contract(digest).await
     }
 
     async fn get_input_utxo(&self, input: &TransactionInput) -> anyhow::Result<TransactionOutput> {
@@ -416,7 +416,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 client: &client,
             };
             let mut contracts = HashMap::default();
-            let wasm = imports.get_contract_wasm(digest).await?;
+            let wasm = imports.get_contract(digest).await?;
             let contract = compile_contract(
                 &imports,
                 client.engine(),
@@ -523,6 +523,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         }
         Command::Transaction(TransactionCommand::Get { digest }) => {
             let tx = client.get_transaction(digest).await?;
+            let tx = tx.context("transaction not found")?;
             let tx = toml::to_string_pretty(&tx).context("failed to encode TOML")?;
             stdout()
                 .write_all(tx.as_bytes())
@@ -557,7 +558,8 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             } = client.get_input_utxo(&input).await?;
             let digest = starstream_ledger::parse_digest(&contract)
                 .with_context(|| format!("failed to parse `{contract}` as multibase multihash"))?;
-            let wasm = client.get_contract_wasm(digest).await?;
+            let wasm = client.get_contract(digest).await?;
+            let wasm = wasm.context("contract not found")?;
             let (resolve, world) = decode_component(&wasm)?;
             let world = &resolve.worlds[world];
             let ty = world

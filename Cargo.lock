@@ -1924,9 +1924,9 @@ dependencies = [
 
 [[package]]
 name = "leb128-tokio"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68e94e2f8143ae63a07c670a27f2fc42a333293c249566f8d4cd6609689656bb"
+checksum = "f1411e775c0f76d980266d80374665fc9c3c50cb75b1897ecce8170cdd27f435"
 dependencies = [
  "tokio",
  "tokio-util",
@@ -3539,6 +3539,7 @@ dependencies = [
  "wit-bindgen-wrpc",
  "wit-component 0.258.0",
  "wrpc-http",
+ "wrpc-pack",
  "wrpc-transport",
 ]
 
@@ -4486,9 +4487,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-tokio"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a89e5174a1312bd31d081a1dd6db8e48e2dc680b2988aba43befabb8459ea999"
+checksum = "44af5abbb5bbba6903c16c26c57d58ccd4ffe56b8e0cbb65536ace3d6ac7ab9f"
 dependencies = [
  "leb128-tokio",
  "tokio",
@@ -4536,9 +4537,9 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.251.0"
+version = "0.253.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "437970b35b1a85cfde9c74b2398352d8d653f3bd8e3a3db0c063ea8f5b4b36ff"
+checksum = "19db11f87d2486580e1e8b6f494c54df7e0566b87d0b599db843c24019667339"
 dependencies = [
  "bitflags 2.9.4",
  "indexmap",
@@ -5085,13 +5086,13 @@ dependencies = [
 
 [[package]]
 name = "wit-bindgen-core"
-version = "0.58.0"
+version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4738d1c9a78e97bc7f664bfafd5d8e67d7bb26faa5c41e6d628e8bbdad3ec351"
+checksum = "05cf25dc4bb1981c16aa549ec66c6762b7752bfb8b7c3b3936ae13100298dc72"
 dependencies = [
  "anyhow",
  "heck",
- "wit-parser 0.251.0",
+ "wit-parser 0.253.0",
 ]
 
 [[package]]
@@ -5128,7 +5129,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc"
 version = "0.11.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
 dependencies = [
  "anyhow",
  "bitflags 2.9.4",
@@ -5145,27 +5146,27 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc-rust"
 version = "0.11.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
 dependencies = [
  "anyhow",
  "heck",
  "prettyplease",
  "syn 2.0.119",
- "wit-bindgen-core 0.58.0",
+ "wit-bindgen-core 0.59.0",
  "wrpc-introspect",
 ]
 
 [[package]]
 name = "wit-bindgen-wrpc-rust-macro"
 version = "0.11.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
 dependencies = [
  "anyhow",
  "prettyplease",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
- "wit-bindgen-core 0.58.0",
+ "wit-bindgen-core 0.59.0",
  "wit-bindgen-wrpc-rust",
 ]
 
@@ -5227,9 +5228,9 @@ dependencies = [
 
 [[package]]
 name = "wit-parser"
-version = "0.251.0"
+version = "0.253.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e960732e824fab95099971a09e638979347c94ca48568d3c854c945729196947"
+checksum = "4d997b8e5920fcbeec742b58e583325d6419a6aca617ae8075c406a61c65ba8a"
 dependencies = [
  "anyhow",
  "hashbrown 0.17.1",
@@ -5240,8 +5241,8 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "unicode-xid",
- "wasmparser 0.251.0",
+ "unicode-ident",
+ "wasmparser 0.253.0",
 ]
 
 [[package]]
@@ -5272,10 +5273,11 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 [[package]]
 name = "wrpc-http"
 version = "0.1.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
 dependencies = [
  "anyhow",
  "bytes",
+ "futures",
  "http",
  "http-body",
  "http-body-util",
@@ -5291,15 +5293,27 @@ dependencies = [
 [[package]]
 name = "wrpc-introspect"
 version = "0.7.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
 dependencies = [
- "wit-parser 0.251.0",
+ "wit-parser 0.253.0",
+]
+
+[[package]]
+name = "wrpc-pack"
+version = "0.4.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "tokio",
+ "tokio-util",
+ "wrpc-transport",
 ]
 
 [[package]]
 name = "wrpc-transport"
 version = "0.29.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5315,8 +5329,8 @@ dependencies = [
 
 [[package]]
 name = "wrpc-wave"
-version = "0.1.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=68d2a8e0c306cfa960dc840fd8207bf8a1ec7270#68d2a8e0c306cfa960dc840fd8207bf8a1ec7270"
+version = "0.2.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
 dependencies = [
  "anyhow",
  "bytes",

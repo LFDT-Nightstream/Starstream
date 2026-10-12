@@ -53,8 +53,10 @@ pub struct Contract {
 }
 
 pub trait Client {
-    fn get_contract_wasm(&self, digest: [u8; 32]) -> impl Future<Output = anyhow::Result<Bytes>>;
+    /// Get Wasm of the contract corresponding to `digest`
+    fn get_contract(&self, digest: [u8; 32]) -> impl Future<Output = anyhow::Result<Bytes>>;
 
+    /// Get [TransactionOutput] of the UTXO corresponding to `input`
     fn get_input_utxo(
         &self,
         input: &TransactionInput,
@@ -117,7 +119,7 @@ pub async fn compile_contract(
                 wasm,
             }) => wasm.clone(),
             None => client
-                .get_contract_wasm(digest)
+                .get_contract(digest)
                 .await
                 .map_err(wasmtime::Error::from_anyhow)?,
         };
@@ -272,7 +274,7 @@ pub async fn call_coordination_script(
                     (Some(Arc::from(utxo.contract)), wasm)
                 } else {
                     let wasm = client
-                        .get_contract_wasm(utxo_contract_digest)
+                        .get_contract(utxo_contract_digest)
                         .await
                         .map_err(wasmtime::Error::from_anyhow)?;
                     imports.insert(

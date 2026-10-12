@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{Context as _, bail, ensure};
+use anyhow::{Context as _, ensure};
 use bytes::{Bytes, BytesMut};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::header::{ACCEPT, CONTENT_TYPE};
@@ -22,14 +22,14 @@ use wrpc_transport::Invoke as _;
 
 use crate::client::runtime::{CompiledContract, Contract, Ctx, UtxoCtx, call_coordination_script};
 use crate::client::{
-    CoordinationScriptArg, bindings, build_fund_envelope, build_publish_envelope,
-    build_transaction_envelope,
+    CoordinationScriptArg, build_fund_envelope, build_publish_envelope, build_transaction_envelope,
+    runtime,
 };
 use crate::cose::read_envelope;
-use crate::wrpc::LEDGER_PACKAGE;
+use crate::wrpc::{LEDGER_UTXO_INSTANCE, bindings};
 use crate::{
-    APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Fund, Message, Publish, Transaction,
-    TransactionInput, TransactionOutput, encode_digest, parse_digest,
+    APPLICATION_COSE, APPLICATION_WRPC, Fund, PUBLISH_CONTEXT, Publish, TRANSACTION_CONTEXT,
+    Transaction, TransactionInput, TransactionOutput, encode_digest, parse_digest,
 };
 
 /// Default network used by the client
@@ -137,16 +137,6 @@ pub fn build_transaction_get_request(
     req.body(Full::default()).context("failed to build request")
 }
 
-/// Build a genesis get request.
-pub fn build_genesis_get_request(base: &Uri) -> anyhow::Result<http::Request<Full<Bytes>>> {
-    let uri = endpoint_uri(base, "genesis")?;
-    Request::builder()
-        .method(Method::GET)
-        .uri(uri)
-        .body(Full::default())
-        .context("failed to build request")
-}
-
 #[derive(Clone)]
 pub struct ClientBuilder<C> {
     http: hyper_util::client::legacy::Builder,
@@ -235,12 +225,13 @@ where
     }
 }
 
-impl<C> crate::client::runtime::Client for Client<C>
+impl<C> runtime::Client for Client<C>
 where
     C: Connect + Clone + Send + Sync + 'static,
 {
-    async fn get_contract_wasm(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
-        self.get_contract_wasm(digest).await
+    async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
+        let wasm = Client::get_contract(self, digest).await?;
+        wasm.context("contract not found")
     }
 
     /// Get the UTXO referenced by the input.
@@ -284,7 +275,7 @@ where
     #[instrument(skip_all)]
     pub async fn block_height(&self) -> anyhow::Result<u64> {
         let cx = wrpc_context(&self.api_base)?;
-        bindings::starstream::ledger::block::height(&self.wrpc, cx).await
+        bindings::starstream::ledger::block::get_height(&self.wrpc, cx).await
     }
 
     /// Get the transaction UTXO referenced by `digest` and `idx`.
@@ -294,7 +285,8 @@ where
         digest: [u8; 32],
         idx: usize,
     ) -> anyhow::Result<TransactionOutput> {
-        let Transaction { outputs, .. } = self.get_transaction(digest).await?;
+        let tx = self.get_transaction(digest).await?;
+        let Transaction { outputs, .. } = tx.context("transaction not found")?;
         outputs.into_iter().nth(idx).context("output not found")
     }
 
@@ -363,13 +355,7 @@ where
         params.extend_from_slice(args);
         let (tx, rx) = self
             .wrpc
-            .invoke(
-                cx,
-                &format!("{LEDGER_PACKAGE}/utxo"),
-                name,
-                params.freeze(),
-                [[]],
-            )
+            .invoke(cx, LEDGER_UTXO_INSTANCE, name, params.freeze(), [[]])
             .await?;
         drop(tx);
         Ok(rx)
@@ -455,58 +441,40 @@ where
 
     /// Get the transaction identified by `digest`.
     #[instrument(skip_all)]
-    pub async fn get_transaction(&self, digest: [u8; 32]) -> anyhow::Result<Transaction> {
-        let req = build_transaction_get_request(&self.api_base, &digest, Some(APPLICATION_COSE))?;
-        let (http::response::Parts { status, .. }, body) = self.request(req).await?;
-        ensure!(status.is_success(), "{}", String::from_utf8_lossy(&body));
-        let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
-        ensure!(
-            envelope.network == self.network,
-            "unexpected network `{}`, expected `{}`",
-            envelope.network,
-            self.network
-        );
-        let Message::Transaction(tx) = envelope.message else {
-            bail!("unexpected context `{}`", envelope.message.context());
+    pub async fn get_transaction(&self, digest: [u8; 32]) -> anyhow::Result<Option<Transaction>> {
+        let cx = wrpc_context(&self.api_base)?;
+        let tx = bindings::starstream::ledger::transaction::get_transaction(
+            &self.wrpc,
+            cx,
+            &encode_digest(&digest),
+        )
+        .await?;
+        let tx = match tx {
+            Ok(tx) => tx,
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
+            Err(err) => return Err(err).context("failed to get transaction"),
         };
-        let tx_cbor = minicbor::to_vec(&tx).context("failed to encode transaction")?;
-        let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
+        let tx = Transaction::from(tx);
+        let tx_digest = tx.digest().context("failed to encode transaction")?;
         ensure!(
             tx_digest == digest,
             "transaction digest mismatch, got `{}`",
             encode_digest(&tx_digest)
         );
-        Ok(tx)
+        Ok(Some(tx))
     }
 
-    /// Get the genesis outputs.
-    #[instrument(skip_all)]
-    pub async fn get_genesis(&self) -> anyhow::Result<Vec<TransactionOutput>> {
-        let req = build_genesis_get_request(&self.api_base)?;
-        let (http::response::Parts { status, .. }, body) = self.request(req).await?;
-        ensure!(status.is_success(), "{}", String::from_utf8_lossy(&body));
-        minicbor::decode(&body).context("invalid genesis")
-    }
-
-    #[instrument(skip_all)]
-    pub async fn get_contract_wasm(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
-        let req = build_contract_get_request(&self.api_base, &digest, Some(APPLICATION_WASM))?;
-        let (http::response::Parts { status, .. }, body) = self.request(req).await?;
-        ensure!(status.is_success(), "{}", String::from_utf8_lossy(&body));
-        let wasm_digest: [u8; 32] = Sha256::digest(&body).into();
-        ensure!(
-            wasm_digest == digest,
-            "contract digest mismatch, got `{}`",
-            encode_digest(&wasm_digest)
-        );
-        Ok(body)
-    }
-
-    #[instrument(skip_all)]
-    pub async fn get_contract_envelope(&self, digest: &[u8; 32]) -> anyhow::Result<Bytes> {
-        let req = build_contract_get_request(&self.api_base, digest, Some(APPLICATION_COSE))?;
-        let (http::response::Parts { status, .. }, body) = self.request(req).await?;
-        ensure!(status.is_success(), "{}", String::from_utf8_lossy(&body));
+    fn verify_envelope(
+        &self,
+        body: Result<Bytes, bindings::starstream::ledger::types::GetError>,
+        digest: &[u8; 32],
+        context: u8,
+    ) -> anyhow::Result<Option<Bytes>> {
+        let body = match body {
+            Ok(body) => body,
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
+            Err(err) => return Err(err.into()),
+        };
         let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
         ensure!(
             envelope.network == self.network,
@@ -514,15 +482,82 @@ where
             envelope.network,
             self.network
         );
-        let Message::Publish(publish) = envelope.message else {
-            bail!("unexpected context `{}`", envelope.message.context());
-        };
-        let wasm_digest: [u8; 32] = Sha256::digest(&publish.wasm).into();
         ensure!(
-            wasm_digest == *digest,
+            envelope.message.context() == context,
+            "unexpected context `{}`, expected `{context}`",
+            envelope.message.context()
+        );
+        let message_digest = envelope
+            .message
+            .payload_digest()
+            .context("failed to compute payload digest")?;
+        ensure!(
+            message_digest == *digest,
+            "digest mismatch, got `{}`",
+            encode_digest(&message_digest)
+        );
+        Ok(Some(body))
+    }
+
+    /// Get the envelope of the transaction identified by `digest`.
+    #[instrument(skip_all)]
+    pub async fn get_transaction_envelope(
+        &self,
+        digest: &[u8; 32],
+    ) -> anyhow::Result<Option<Bytes>> {
+        let cx = wrpc_context(&self.api_base)?;
+        let body = bindings::starstream::ledger::transaction::get_envelope(
+            &self.wrpc,
+            cx,
+            &encode_digest(digest),
+        )
+        .await?;
+        self.verify_envelope(body, digest, TRANSACTION_CONTEXT)
+            .context("failed to get transaction envelope")
+    }
+
+    /// Get the genesis outputs.
+    #[instrument(skip_all)]
+    pub async fn get_genesis(&self) -> anyhow::Result<Vec<TransactionOutput>> {
+        let cx = wrpc_context(&self.api_base)?;
+        let outputs = bindings::starstream::ledger::genesis::get_outputs(&self.wrpc, cx).await?;
+        Ok(outputs.into_iter().map(Into::into).collect())
+    }
+
+    /// Get the Wasm bytes of the contract identified by `digest`.
+    #[instrument(skip_all)]
+    pub async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Option<Bytes>> {
+        let cx = wrpc_context(&self.api_base)?;
+        let wasm = bindings::starstream::ledger::contract::get_wasm(
+            &self.wrpc,
+            cx,
+            &encode_digest(&digest),
+        )
+        .await?;
+        let wasm = match wasm {
+            Ok(wasm) => wasm,
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
+            Err(err) => return Err(err).context("failed to get contract Wasm"),
+        };
+        let wasm_digest: [u8; 32] = Sha256::digest(&wasm).into();
+        ensure!(
+            wasm_digest == digest,
             "contract digest mismatch, got `{}`",
             encode_digest(&wasm_digest)
         );
-        Ok(body)
+        Ok(Some(wasm))
+    }
+
+    #[instrument(skip_all)]
+    pub async fn get_contract_envelope(&self, digest: &[u8; 32]) -> anyhow::Result<Option<Bytes>> {
+        let cx = wrpc_context(&self.api_base)?;
+        let body = bindings::starstream::ledger::contract::get_envelope(
+            &self.wrpc,
+            cx,
+            &encode_digest(digest),
+        )
+        .await?;
+        self.verify_envelope(body, digest, PUBLISH_CONTEXT)
+            .context("failed to get contract envelope")
     }
 }

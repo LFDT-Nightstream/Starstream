@@ -6,6 +6,7 @@ use bytes::Bytes;
 use mediatype::MediaType;
 use minicbor::{Decode, Encode};
 use serde::Serialize;
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
 use crate::runtime::ModuleState;
@@ -30,10 +31,6 @@ pub const APPLICATION_COSE: MediaType =
 /// Wasm media type
 pub const APPLICATION_WASM: MediaType =
     MediaType::new(mediatype::names::APPLICATION, mediatype::names::WASM);
-
-/// CBOR media type
-pub const APPLICATION_CBOR: MediaType =
-    MediaType::new(mediatype::names::APPLICATION, mediatype::names::CBOR);
 
 /// wRPC media type
 pub const APPLICATION_WRPC: MediaType = MediaType::new(
@@ -154,12 +151,34 @@ pub enum Message {
     Transaction(Transaction),
 }
 
+impl Transaction {
+    /// Compute the digest identifying this transaction: SHA-256 of its CBOR encoding.
+    pub fn digest(&self) -> Result<[u8; 32], minicbor::encode::Error<core::convert::Infallible>> {
+        let cbor = minicbor::to_vec(self)?;
+        Ok(Sha256::digest(cbor).into())
+    }
+}
+
 impl Message {
     pub const fn context(&self) -> u8 {
         match self {
             Self::Fund(..) => FUND_CONTEXT,
             Self::Publish(..) => PUBLISH_CONTEXT,
             Self::Transaction(..) => TRANSACTION_CONTEXT,
+        }
+    }
+
+    /// Compute the digest identifying the message payload.
+    pub fn payload_digest(
+        &self,
+    ) -> Result<[u8; 32], minicbor::encode::Error<core::convert::Infallible>> {
+        match self {
+            Self::Fund(fund) => {
+                let cbor = minicbor::to_vec(fund)?;
+                Ok(Sha256::digest(cbor).into())
+            }
+            Self::Publish(Publish { wasm, .. }) => Ok(Sha256::digest(wasm).into()),
+            Self::Transaction(tx) => tx.digest(),
         }
     }
 }
