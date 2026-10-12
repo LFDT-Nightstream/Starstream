@@ -12,8 +12,8 @@ use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_compiler::{TypedWasmModule, WasmLinkage};
 use starstream_types::{
     AbiType, BinaryOp, DUMMY_SPAN, EnumType, EnumVariantKind, FunctionExport, FunctionKind,
-    ImportSource, IntWidth, Literal, NameId, ScopedName, Span, Spanned, StaticFunction, Type,
-    TypedAbiDef, TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr,
+    ImportSource, IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
+    TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEffectHandler, TypedEnumDef, TypedExpr,
     TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef,
     TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTestDef,
     TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
@@ -1471,12 +1471,7 @@ impl Compiler {
         );
     }
 
-    fn visit_effect_handler(
-        &mut self,
-        name: &ScopedName,
-        params: &[TypedPattern],
-        block: &TypedBlock,
-    ) {
+    fn visit_effect_handler(&mut self, handler: &TypedEffectHandler) {
         // ...
     }
 
@@ -2373,8 +2368,8 @@ impl Compiler {
                         .global_set(handler_global);
 
                     // Emit handler segments
-                    for (scoped_name, params, block) in effects {
-                        self.visit_effect_handler(scoped_name, params, block);
+                    for handler in effects {
+                        self.visit_effect_handler(handler);
                     }
                 }
             }

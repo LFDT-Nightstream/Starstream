@@ -587,8 +587,16 @@ pub enum Statement {
     Resume,
     TryWith {
         subject: Block,
-        effects: Vec<(ScopedName, Vec<Pattern>, Block)>,
+        effects: Vec<EffectHandler>,
     },
+}
+
+/// A `with Name(Args) {...}` block.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct EffectHandler {
+    pub effect: ScopedName,
+    pub params: Vec<Pattern>,
+    pub body: Block,
 }
 
 // ----------------------------------------------------------------------------

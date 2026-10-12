@@ -156,8 +156,16 @@ pub enum TypedStatement {
     Resume,
     TryWith {
         subject: TypedBlock,
-        effects: Vec<(ScopedName, Vec<TypedPattern>, TypedBlock)>,
+        effects: Vec<TypedEffectHandler>,
     },
+}
+
+/// Typed [EffectHandler][crate::ast::EffectHandler].
+#[derive(Clone, Debug)]
+pub struct TypedEffectHandler {
+    pub effect: ScopedName,
+    pub params: Vec<TypedPattern>,
+    pub body: TypedBlock,
 }
 
 /// `{ statement* }`

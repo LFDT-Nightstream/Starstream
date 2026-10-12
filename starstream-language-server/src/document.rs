@@ -1241,8 +1241,8 @@ impl DocumentState {
             TypedStatement::Resume => {}
             TypedStatement::TryWith { subject, effects } => {
                 self.collect_block(subject, scopes);
-                for (_, _, block) in effects {
-                    self.collect_block(block, scopes);
+                for handler in effects {
+                    self.collect_block(&handler.body, scopes);
                 }
             }
         }
@@ -1908,8 +1908,8 @@ impl DocumentState {
             }
             untyped_ast::Statement::TryWith { subject, effects } => {
                 self.collect_block_annotations_from_ast(subject);
-                for (name, params, block) in effects {
-                    self.collect_block_annotations_from_ast(block);
+                for handler in effects {
+                    self.collect_block_annotations_from_ast(&handler.body);
                 }
             }
         }

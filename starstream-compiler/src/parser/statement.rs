@@ -1,5 +1,8 @@
 use chumsky::prelude::*;
-use starstream_types::ast::{Block, Expr, Spanned, Statement};
+use starstream_types::{
+    EffectHandler,
+    ast::{Block, Expr, Spanned, Statement},
+};
 
 use crate::parser::pattern::{pattern, tuple_pattern};
 
@@ -92,7 +95,11 @@ pub fn statement<'a>(
             subject,
             effects: patterns
                 .into_iter()
-                .map(|((a, b), c)| (a, b, c))
+                .map(|((effect, params), body)| EffectHandler {
+                    effect,
+                    params,
+                    body,
+                })
                 .collect::<Vec<_>>(),
         });
 

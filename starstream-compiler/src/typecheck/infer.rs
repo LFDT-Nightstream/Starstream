@@ -7,12 +7,13 @@ use std::{
 };
 
 use starstream_types::{
-    AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
-    FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
-    Spanned, StaticFunction, SubstituteType, TestDef, TokenDef, TokenGlobal, TokenPart, TokenType,
-    Type, TypeParam, TypeVarId, TypedAbiMethodDecl, TypedFunctionParam, TypedImportItem,
-    TypedTestDef, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal,
-    TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart, UtxoType,
+    AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EffectHandler, EventDef,
+    FunctionExport, FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme,
+    ScopedName, Span, Spanned, StaticFunction, SubstituteType, TestDef, TokenDef, TokenGlobal,
+    TokenPart, TokenType, Type, TypeParam, TypeVarId, TypedAbiMethodDecl, TypedEffectHandler,
+    TypedFunctionParam, TypedImportItem, TypedTestDef, TypedTokenDef, TypedTokenGlobal,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    UtxoType,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportItems, ImportSource, IntegerLiteral, Literal, Pattern, Program, Statement, StructDef,
@@ -1160,8 +1161,8 @@ impl Inferencer {
                 Statement::Resume => {}
                 Statement::TryWith { subject, effects } => {
                     Self::collect_yields(dest, subject);
-                    for (_, _, body) in effects {
-                        Self::collect_yields(dest, body);
+                    for handler in effects {
+                        Self::collect_yields(dest, &handler.body);
                     }
                 }
             }
@@ -2516,9 +2517,13 @@ impl Inferencer {
                 )?;
                 children.push(unit_trace);
 
-                let mut typed_effects: Vec<(ScopedName, Vec<TypedPattern>, TypedBlock)> =
-                    Vec::with_capacity(effects.len());
-                for (name, patterns, block) in effects {
+                let mut typed_effects: Vec<TypedEffectHandler> = Vec::with_capacity(effects.len());
+                for EffectHandler {
+                    effect: name,
+                    params: patterns,
+                    body: block,
+                } in effects
+                {
                     env.push_scope();
                     let (ty, _) = self.lookup_name(env, name)?;
                     let Type::Function(func) = ty else {
@@ -2576,7 +2581,11 @@ impl Inferencer {
                     )?;
                     children.push(unit_trace);
 
-                    typed_effects.push((name.clone(), typed_patterns, block));
+                    typed_effects.push(TypedEffectHandler {
+                        effect: name.clone(),
+                        params: typed_patterns,
+                        body: block,
+                    });
                     env.pop_scope();
                 }
                 let tree = self.make_trace("T-TryWith", env_context, stmt_repr, None, || children);
@@ -4192,8 +4201,8 @@ impl Inferencer {
             TypedStatement::Resume => {}
             TypedStatement::TryWith { subject, effects } => {
                 self.apply_block(subject);
-                for (_, _, block) in effects {
-                    self.apply_block(block);
+                for handler in effects {
+                    self.apply_block(&mut handler.body);
                 }
             }
         }
