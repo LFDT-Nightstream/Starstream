@@ -164,6 +164,7 @@ pub enum TypedStatement {
 #[derive(Clone, Debug)]
 pub struct TypedEffectHandler {
     pub effect: ScopedName,
+    pub ty: Arc<FunctionType>,
     pub params: Vec<TypedPattern>,
     pub body: TypedBlock,
 }

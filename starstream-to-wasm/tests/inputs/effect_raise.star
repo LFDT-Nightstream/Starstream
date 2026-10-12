@@ -11,7 +11,6 @@ script fn main() {
         emit Log(4);
     } with Hello() {
         emit Log(3);
-        resume;
     }
     emit Log(5);
 }
