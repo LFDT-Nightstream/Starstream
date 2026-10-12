@@ -274,7 +274,7 @@ fn link_event_function<T: Host>(
     })
 }
 
-/// Link dynamic ABI instance in a [`LinkerInstance`].
+/// Link dynamic ABI event instance in a [`LinkerInstance`].
 #[instrument(level = "trace", skip_all)]
 fn link_event_instance<T: Host>(
     engine: &Engine,
@@ -301,6 +301,87 @@ fn link_event_instance<T: Host>(
             types::ComponentItem::Type(..) => {}
             types::ComponentItem::Resource(..) => {
                 bail!("event instance resource imports unsupported")
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Link ABI effect [`types::ComponentFunc`] in a [`LinkerInstance`]
+#[instrument(level = "trace", skip_all)]
+fn link_effect_function<T: Host>(
+    linker: &mut LinkerInstance<T>,
+    ty: types::ComponentFunc,
+    abi_name: &str,
+    name: &str,
+) -> wasmtime::Result<()> {
+    let abi_name = Arc::<str>::from(abi_name);
+    let name = Arc::<str>::from(name);
+    ensure!(ty.results().len() == 0);
+    linker.func_new(
+        &Arc::clone(&name),
+        move |mut store, _ty, params, _results| {
+            debug!(abi = ?abi_name, effect = ?name, ?params, "raise_effect");
+
+            let vec: Vec<_> = store.debug_exit_frames().collect();
+            assert!(
+                !vec.is_empty(),
+                "`debug_exit_frames()` was empty, must use `Config::guest_debug(true)`"
+            );
+
+            let core_name = format!("starstream:effect-handler/{abi_name}#{name}");
+            for each in vec {
+                debug!(pc = ?each.wasm_function_index_and_pc(&mut store));
+                if let Ok(instance) = each.instance(&mut store) {
+                    if let Some(handler) = instance.get_func(&mut store, &core_name) {
+                        debug!(handler = ?handler);
+                        let mut results = [wasmtime::Val::I32(0)];
+                        handler.call(&mut store, &[], &mut results[..])?;
+                        debug!(results = ?results);
+                        match results[0] {
+                            wasmtime::Val::I32(0) => continue,
+                            wasmtime::Val::I32(1) => break,
+                            _ => {
+                                return Err(wasmtime::Error::msg(
+                                    "invalid effect handler status code",
+                                ));
+                            }
+                        };
+                    }
+                }
+            }
+            Ok(())
+        },
+    )
+}
+
+/// Link dynamic ABI effect instance in a [`LinkerInstance`].
+#[instrument(level = "trace", skip_all)]
+fn link_effect_instance<T: Host>(
+    engine: &Engine,
+    linker: &mut LinkerInstance<T>,
+    ty: &types::ComponentInstance,
+    abi_name: &str,
+) -> wasmtime::Result<()> {
+    for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
+        debug!(name, "linking effect instance item");
+        match ty {
+            types::ComponentItem::ComponentFunc(ty) => {
+                link_effect_function(linker, ty, abi_name, name)?;
+            }
+            types::ComponentItem::CoreFunc(..) => {
+                bail!("effect instance core function imports unsupported")
+            }
+            types::ComponentItem::Module(..) => bail!("effect instance module imports unsupported"),
+            types::ComponentItem::Component(..) => {
+                bail!("effect instance component imports unsupported")
+            }
+            types::ComponentItem::ComponentInstance(..) => {
+                bail!("effect instance component instance imports unsupported")
+            }
+            types::ComponentItem::Type(..) => {}
+            types::ComponentItem::Resource(..) => {
+                bail!("effect instance resource imports unsupported")
             }
         }
     }
@@ -936,9 +1017,7 @@ fn link_instance<T: Host>(
 
         (Some(("starstream:events", name)), ..) => link_event_instance(engine, linker, ty, name),
 
-        (Some(("starstream:effects", ..)), ..) => {
-            bail!("effect imports unsupported")
-        }
+        (Some(("starstream:effects", name)), ..) => link_effect_instance(engine, linker, ty, name),
 
         (Some(("starstream:contract", "dynamic-utxo")), ..) => {
             link_dynamic_utxo_instance(engine, linker, ty)

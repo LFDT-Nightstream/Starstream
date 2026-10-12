@@ -18,6 +18,7 @@ wasmtime = { workspace = true, features = [
     "async",
     "component-model",
     "cranelift",
+    "debug",
     "runtime",
 ] }
 

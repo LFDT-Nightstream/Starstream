@@ -10,14 +10,14 @@ use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_compiler::{TypedWasmModule, WasmLinkage};
-use starstream_types::DUMMY_SPAN;
 use starstream_types::{
-    AbiType, BinaryOp, EnumType, EnumVariantKind, FunctionExport, FunctionKind, ImportSource,
-    IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type, TypedAbiDef,
-    TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind,
-    TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm,
-    TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedTestDef, TypedTokenDef,
-    TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    AbiType, BinaryOp, DUMMY_SPAN, EnumType, EnumVariantKind, FunctionExport, FunctionKind,
+    FunctionType, ImportSource, IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type,
+    TypedAbiDef, TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEffectHandler, TypedEnumDef,
+    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
+    TypedImportDef, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
+    TypedTestDef, TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp,
+    ast::Identifier,
 };
 use thiserror::Error;
 use wasm_encoder::{
@@ -238,6 +238,7 @@ struct Compiler {
     method_callables: HashMap<(Type, NameId), u32>,
     intrinsics: intrinsics::Intrinsics,
     builtins: world_spec::Builtins,
+    effect_handlers: BTreeMap<NameId, Effect>,
     /// Function bodies.
     code_bytes: Vec<Vec<u8>>,
 
@@ -251,6 +252,9 @@ struct Compiler {
     context_global: Option<u32>,
     context_local: Option<u32>,
     current_resource: Option<ResourceContext>,
+
+    handler_global: Option<u32>,
+    handler_id: i32,
 }
 
 struct ResourceContext {
@@ -260,6 +264,14 @@ struct ResourceContext {
     resource_new_fn: u32,
     // resource_drop_fn: u32,
     resource_local: u32,
+}
+
+struct Effect {
+    abi_name: String,
+    effect_name: String,
+    ty: Arc<FunctionType>,
+    /// (handler_id, function_idx)
+    handlers: Vec<(i32, u32)>,
 }
 
 impl Compiler {
@@ -275,6 +287,11 @@ impl Compiler {
     fn finish(mut self) -> CompileResult {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
+
+        // Create root effect handler functions which dispatch to children.
+        for (_, effect) in std::mem::take(&mut self.effect_handlers) {
+            self.finish_effect_handler(effect);
+        }
 
         // Flush function codes into the code section.
         for each in self.code_bytes {
@@ -583,6 +600,8 @@ impl Compiler {
                 &match ty {
                     ValType::I32 => ConstExpr::i32_const(0),
                     ValType::I64 => ConstExpr::i64_const(0),
+                    ValType::F32 => ConstExpr::f32_const(Ieee32::new(0)),
+                    ValType::F64 => ConstExpr::f64_const(Ieee64::new(0)),
                     _ => unimplemented!(),
                 },
             );
@@ -1299,6 +1318,15 @@ impl Compiler {
                         &part.ty.result,
                     );
                     self.callables.insert(part.id, func);
+                    self.effect_handlers.insert(
+                        part.id,
+                        Effect {
+                            abi_name: to_kebab_case(def.ty.name.as_str()),
+                            effect_name: to_kebab_case(part.name.as_str()),
+                            ty: part.ty.clone(),
+                            handlers: Default::default(),
+                        },
+                    );
                 }
                 FunctionKind::Normal => {
                     let func = self.declare_dynamic_method(
@@ -1443,10 +1471,6 @@ impl Compiler {
         if self.options.output_mermaid {
             self.mermaid
                 .push((name.clone(), func.cfg.to_mermaid().to_string()));
-            self.mermaid.push((
-                format!("{}_{bb_orig}", name),
-                stackified.to_mermaid().to_string(),
-            ));
         }
         let idx: u32 = self.add_function(&stackified.ty, stackified.code);
 
@@ -1462,6 +1486,123 @@ impl Compiler {
             },
             ComponentTypeRef::Func(type_idx),
         );
+    }
+
+    fn visit_effect_handler(&mut self, handler_id: i32, handler: &TypedEffectHandler) {
+        let span = handler.effect.last().unwrap().span;
+
+        // Build an internal function for the body of this specific handler.
+        let mut locals = HashMap::<String, Var>::new();
+        let mut params = Vec::with_capacity(16);
+        // TODO: obey handler patterns instead of ignoring them.
+        for p in &handler.ty.params {
+            locals.insert(
+                p.name.name.clone(),
+                Var::Local(u32::try_from(params.len()).unwrap()),
+            );
+            _ = self.star_to_core_types(p.name.span_or(span), &mut params, &p.ty);
+        }
+        let mut results = Vec::with_capacity(2);
+        results.push(ValType::I32); // u8 status code.
+        _ = self.star_to_core_types(span, &mut results, &handler.ty.result);
+
+        let mut func = StFunction::new(&params, &results);
+        let bb_orig = func.cfg.add_block();
+        func.cfg.seal(bb_orig, BlockType::Empty);
+        let mut bb = bb_orig;
+
+        // TODO: allow access to parent scope's globals (ex. utxo storage).
+        // TODO: allow access to parent scope's locals (spilled to globals?).
+        let parent = &() as &dyn Locals;
+        _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &handler.body);
+        if bb != usize::MAX {
+            func.instructions(&bb).i32_const(EFFECT_STATUS_RESUME);
+            self.visit_return(&mut func, &bb);
+            func.cfg.fill(bb, Out::Return);
+        }
+
+        let stackified = stackify(&func, bb_orig, stackifier::AsyncMode::Sync);
+        if self.options.output_mermaid {
+            let name = handler.effect.last().unwrap().to_string();
+            self.mermaid.push((name, func.cfg.to_mermaid().to_string()));
+        }
+        let idx: u32 = self.add_function(&stackified.ty, stackified.code);
+
+        // Push that handler to the list of handlers for this effect.
+        let Some(StaticFunction::Named(id)) = handler.ty.callee else {
+            self.push_error(span, "effect handler name cannot be a function pointer");
+            return;
+        };
+        let Some(effect) = self.effect_handlers.get_mut(&id) else {
+            self.push_error(span, "effect handler unknown");
+            return;
+        };
+        effect.handlers.push((handler_id, idx));
+    }
+
+    fn finish_effect_handler(&mut self, effect: Effect) {
+        if effect.handlers.is_empty() {
+            return;
+        }
+
+        let mut locals = HashMap::<String, Var>::new();
+        let mut params = Vec::with_capacity(16);
+        for p in &effect.ty.params {
+            locals.insert(
+                p.name.name.clone(),
+                Var::Local(u32::try_from(params.len()).unwrap()),
+            );
+            _ = self.star_to_core_types(p.name.span_or(effect.ty.name_span), &mut params, &p.ty);
+        }
+        let mut results = Vec::with_capacity(2);
+        results.push(ValType::I32); // u8 status code.
+        _ = self.star_to_core_types(effect.ty.name_span, &mut results, &effect.ty.result);
+
+        let mut sig = self.star_to_component_signature(None, &effect.ty.params, &effect.ty.result);
+        sig.result = Some(match sig.result {
+            Some(rest) => Rc::new(ComponentAbiType::Tuple {
+                fields: vec![Rc::new(ComponentAbiType::U8), rest],
+            }),
+            None => Rc::new(ComponentAbiType::U8),
+        });
+
+        let func_ty = FuncType::new(params, results.iter().copied());
+        let mut func = Function::new([]);
+
+        let handler_global = self.handler_global.unwrap();
+        for (handler_id, handler_function) in effect.handlers {
+            // Check if handler global matches this id.
+            func.instructions().block(BlockType::Empty);
+            func.instructions()
+                .global_get(handler_global)
+                .i32_const(handler_id)
+                .i32_ne()
+                .br_if(0);
+            // TODO: forward parameters.
+            func.instructions().return_call(handler_function);
+            func.instructions().end();
+        }
+        func.instructions().i32_const(EFFECT_STATUS_KEEP_SEARCHING);
+        for &ty in &results[1..] {
+            zero(func.instructions(), ty);
+        }
+        func.instructions().end();
+
+        let func = self.add_function(&func_ty, func.into_raw_body());
+        if let Some(func_idx) = self.make_component_export_wrapper_fn(
+            effect.ty.name_span,
+            &sig,
+            func,
+            &func_ty,
+            Vec::new(),
+        ) {
+            // TODO: handle multiple effects for the same ABI.
+            let iface_name = format!("starstream:effect-handler/{}", effect.abi_name);
+            let mut iface = TypeBuilder::new_interface(&self.world_type);
+            self.export_core_fn(&format!("{}#{}", iface_name, effect.effect_name), func_idx);
+            iface.export_fn(&effect.effect_name, &sig);
+            self.world_type.export_interface(&iface_name, &iface);
+        }
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
@@ -2323,23 +2464,48 @@ impl Compiler {
                     break;
                 }
                 TypedStatement::Resume => {
-                    func.cfg.fill(
-                        *bb,
-                        Out::ReturnCall {
-                            func: self.current_resource.as_ref().unwrap().resume_fn,
-                        },
-                    );
+                    if let Some(resource) = &self.current_resource {
+                        func.cfg.fill(
+                            *bb,
+                            Out::ReturnCall {
+                                func: resource.resume_fn,
+                            },
+                        );
+                    } else {
+                        // TODO: track span to here.
+                        self.push_error(DUMMY_SPAN, "`resume;` can only be used in a utxo method");
+                        func.cfg.fill(*bb, Out::Unreachable);
+                    }
                     *bb = usize::MAX;
                     break;
                 }
                 TypedStatement::TryWith { subject, effects } => {
+                    // Create current-effect-handler global if needed
+                    let handler_global;
+                    if let Some(h) = self.handler_global {
+                        handler_global = h;
+                    } else {
+                        handler_global = self.add_globals([ValType::I32], "handler");
+                        self.handler_global = Some(handler_global);
+                    };
+
+                    // Surround try{} block with setting and restoring the handler global
+                    self.handler_id += 1;
+                    let handler_id = self.handler_id;
+                    let previous_handler_local = func.add_locals([ValType::I32]);
+                    func.instructions(bb)
+                        .global_get(handler_global)
+                        .local_set(previous_handler_local)
+                        .i32_const(handler_id)
+                        .global_set(handler_global);
                     self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
-                    // TODO: actually emit effect handler blocks
-                    if let Some(first) = effects.first() {
-                        return Err(self.push_error(
-                            first.0.last().unwrap().span,
-                            "TODO: effect handlers not yet implemented",
-                        ));
+                    func.instructions(bb)
+                        .local_get(previous_handler_local)
+                        .global_set(handler_global);
+
+                    // Emit handler segments
+                    for handler in effects {
+                        self.visit_effect_handler(handler_id, handler);
                     }
                 }
             }
@@ -2602,13 +2768,7 @@ impl Compiler {
 
                     // Push 0 for the rest
                     for ty in iter {
-                        match ty {
-                            ValType::I32 => func.instructions(bb).i32_const(0),
-                            ValType::I64 => func.instructions(bb).i64_const(0),
-                            ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
-                            ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
-                            _ => todo!(),
-                        };
+                        zero(func.instructions(bb), ty);
                     }
 
                     Ok(())
@@ -3305,13 +3465,7 @@ impl Compiler {
 
                         // Push 0 for the rest
                         for ty in iter {
-                            match ty {
-                                ValType::I32 => func.instructions(bb).i32_const(0),
-                                ValType::I64 => func.instructions(bb).i64_const(0),
-                                ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
-                                ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
-                                _ => todo!(),
-                            };
+                            zero(func.instructions(bb), ty);
                         }
                     }
                     _ => panic!("StructConstructor type must be a Record or Enum"),
@@ -3379,13 +3533,7 @@ impl Compiler {
 
                         // Push 0 for the rest
                         for ty in iter {
-                            match ty {
-                                ValType::I32 => func.instructions(bb).i32_const(0),
-                                ValType::I64 => func.instructions(bb).i64_const(0),
-                                ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
-                                ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
-                                _ => todo!(),
-                            };
+                            zero(func.instructions(bb), ty);
                         }
 
                         Ok(())
@@ -3445,15 +3593,8 @@ impl Compiler {
                     let g = globals + (i as u32);
                     func.instructions(bb).global_get(g).local_set(i as u32);
                     // Store 0 back to the global for better compression
-                    match ty {
-                        ValType::I32 => {
-                            func.instructions(bb).i32_const(0).global_set(g);
-                        }
-                        ValType::I64 => {
-                            func.instructions(bb).i64_const(0).global_set(g);
-                        }
-                        _ => unimplemented!(),
-                    }
+                    zero(func.instructions(bb), *ty);
+                    func.instructions(bb).global_set(g);
                 }
 
                 Ok(())
@@ -4553,4 +4694,17 @@ fn to_kebab_case(name: &str) -> String {
     }
     out.truncate(out.trim_end_matches('-').len());
     out
+}
+
+const EFFECT_STATUS_KEEP_SEARCHING: i32 = 0;
+const EFFECT_STATUS_RESUME: i32 = 1;
+
+fn zero(mut sink: InstructionSink, ty: ValType) {
+    match ty {
+        ValType::I32 => sink.i32_const(0),
+        ValType::I64 => sink.i64_const(0),
+        ValType::F32 => sink.f32_const(Ieee32::new(0)),
+        ValType::F64 => sink.f64_const(Ieee64::new(0)),
+        _ => todo!(),
+    };
 }

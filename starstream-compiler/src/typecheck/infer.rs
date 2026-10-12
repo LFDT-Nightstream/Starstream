@@ -10,9 +10,9 @@ use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
     FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
     Spanned, StaticFunction, SubstituteType, TestDef, TokenDef, TokenGlobal, TokenPart, TokenType,
-    Type, TypeParam, TypeVarId, TypedAbiMethodDecl, TypedFunctionParam, TypedImportItem,
-    TypedTestDef, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal,
-    TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart, UtxoType,
+    Type, TypeParam, TypeVarId, TypedAbiMethodDecl, TypedEffectHandler, TypedFunctionParam,
+    TypedImportItem, TypedTestDef, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef,
+    TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart, UtxoType,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportItems, ImportSource, IntegerLiteral, Literal, Pattern, Program, Statement, StructDef,
@@ -1160,8 +1160,8 @@ impl Inferencer {
                 Statement::Resume => {}
                 Statement::TryWith { subject, effects } => {
                     Self::collect_yields(dest, subject);
-                    for (_, _, body) in effects {
-                        Self::collect_yields(dest, body);
+                    for handler in effects {
+                        Self::collect_yields(dest, &handler.body);
                     }
                 }
             }
@@ -2516,40 +2516,39 @@ impl Inferencer {
                 )?;
                 children.push(unit_trace);
 
-                let mut typed_effects: Vec<(ScopedName, Vec<TypedPattern>, TypedBlock)> =
-                    Vec::with_capacity(effects.len());
-                for (name, patterns, block) in effects {
+                let mut typed_effects: Vec<TypedEffectHandler> = Vec::with_capacity(effects.len());
+                for handler in effects {
                     env.push_scope();
-                    let (ty, _) = self.lookup_name(env, name)?;
+                    let (ty, _) = self.lookup_name(env, &handler.effect)?;
                     let Type::Function(func) = ty else {
                         return Err(TypeError::new(
                             TypeErrorKind::NotAFunction {
                                 found: self.apply_for_display(&ty),
                             },
-                            name.last().unwrap().span,
+                            handler.effect.last().unwrap().span,
                         ));
                     };
                     if func.kind != FunctionKind::Raise {
                         return Err(TypeError::new(
                             TypeErrorKind::WithRequiresEffect {
-                                function_name: name.last().unwrap().to_string(),
+                                function_name: handler.effect.last().unwrap().to_string(),
                                 wrong_keyword: func.kind,
                             },
-                            name.last().unwrap().span,
+                            handler.effect.last().unwrap().span,
                         ));
                     }
-                    if func.params.len() != patterns.len() {
+                    if func.params.len() != handler.params.len() {
                         return Err(TypeError::new(
                             TypeErrorKind::ArityMismatch {
                                 expected: func.params.len(),
-                                found: patterns.len(),
+                                found: handler.params.len(),
                             },
-                            name.last().unwrap().span,
+                            handler.effect.last().unwrap().span,
                         ));
                     }
 
-                    let mut typed_patterns = Vec::with_capacity(patterns.len());
-                    for (param, pat) in func.params.iter().zip(patterns) {
+                    let mut typed_patterns = Vec::with_capacity(handler.params.len());
+                    for (param, pat) in func.params.iter().zip(&handler.params) {
                         let (tp, trace) = self.infer_pattern(
                             env,
                             pat,
@@ -2562,7 +2561,7 @@ impl Inferencer {
                         children.extend(trace);
                     }
 
-                    let (block, trace) = self.infer_block(env, block, ctx, false)?;
+                    let (block, trace) = self.infer_block(env, &handler.body, ctx, false)?;
                     children.extend(trace);
                     let (_, unit_trace) = self.unify(
                         &Type::Unit,
@@ -2576,7 +2575,12 @@ impl Inferencer {
                     )?;
                     children.push(unit_trace);
 
-                    typed_effects.push((name.clone(), typed_patterns, block));
+                    typed_effects.push(TypedEffectHandler {
+                        effect: handler.effect.clone(),
+                        ty: func,
+                        params: typed_patterns,
+                        body: block,
+                    });
                     env.pop_scope();
                 }
                 let tree = self.make_trace("T-TryWith", env_context, stmt_repr, None, || children);
@@ -4192,8 +4196,8 @@ impl Inferencer {
             TypedStatement::Resume => {}
             TypedStatement::TryWith { subject, effects } => {
                 self.apply_block(subject);
-                for (_, _, block) in effects {
-                    self.apply_block(block);
+                for handler in effects {
+                    self.apply_block(&mut handler.body);
                 }
             }
         }
