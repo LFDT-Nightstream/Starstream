@@ -322,14 +322,31 @@ fn link_effect_function<T: Host>(
         &Arc::clone(&name),
         move |mut store, _ty, params, _results| {
             debug!(abi = ?abi_name, effect = ?name, ?params, "raise_effect");
+
             let vec: Vec<_> = store.debug_exit_frames().collect();
-            debug!(frames = ?vec.len());
+            assert!(
+                !vec.is_empty(),
+                "`debug_exit_frames()` was empty, must use `Config::guest_debug(true)`"
+            );
+
+            let core_name = format!("starstream:effect-handler/{abi_name}#{name}");
             for each in vec {
-                debug!(valid = ?each.is_valid(&mut store));
                 debug!(pc = ?each.wasm_function_index_and_pc(&mut store));
                 if let Ok(instance) = each.instance(&mut store) {
-                    if let Some(handler) = instance.get_export(&mut store, "handle-effect") {
+                    if let Some(handler) = instance.get_func(&mut store, &core_name) {
                         debug!(handler = ?handler);
+                        let mut results = [wasmtime::Val::I32(0)];
+                        handler.call(&mut store, &[], &mut results[..])?;
+                        debug!(results = ?results);
+                        match results[0] {
+                            wasmtime::Val::I32(0) => continue,
+                            wasmtime::Val::I32(1) => break,
+                            _ => {
+                                return Err(wasmtime::Error::msg(
+                                    "invalid effect handler status code",
+                                ));
+                            }
+                        };
                     }
                 }
             }

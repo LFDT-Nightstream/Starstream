@@ -3932,7 +3932,7 @@ panic: call_coordination_script: failed to call function
 Caused by:
     0: failed to call function
     1: error while executing at wasm backtrace:
-    0:    0x75f - <unknown>!<wasm function 16>
+    0:    0x764 - <unknown>!<wasm function 16>
     1:    0x7e9 - <unknown>!<wasm function 21>
     2:    0x820 - <unknown>!<wasm function 24>
     2: wasm trap: wasm `unreachable` instruction executed

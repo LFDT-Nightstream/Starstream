@@ -1133,6 +1133,15 @@ events: [
         name: "log",
         params: [
             U32(
+                3,
+            ),
+        ],
+    },
+    Event {
+        abi_name: "foo",
+        name: "log",
+        params: [
+            U32(
                 4,
             ),
         ],
