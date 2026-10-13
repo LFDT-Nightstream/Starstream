@@ -108,9 +108,8 @@ impl ModuleGraph {
     /// Build a workspace graph from either a root `.star` file or a directory
     /// to scan.
     pub fn from(fs: &mut FileSystem, entry: &Path) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
-        let metadata = entry.metadata();
-        if let Ok(m) = metadata
-            && m.is_file()
+        if let Ok(meta) = entry.metadata()
+            && meta.is_file()
         {
             let (graph, _) = ModuleGraph::from_entry(fs, entry)?;
             Ok(graph)

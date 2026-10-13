@@ -2,7 +2,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use miette::IntoDiagnostic;
+use miette::{Context, IntoDiagnostic};
 use starstream_compiler::ModuleGraph;
 use starstream_types::FileSystem;
 
@@ -15,6 +15,7 @@ mod format;
 mod lsp;
 mod run;
 mod style;
+mod test;
 mod wasm;
 
 pub use build::Build;
@@ -24,6 +25,7 @@ pub use explain::Explain;
 pub use format::Format;
 pub use lsp::Lsp;
 pub use run::Run;
+pub use test::Test;
 pub use wasm::Wasm;
 
 /// The Starstream language and toolchain CLI.
@@ -39,6 +41,7 @@ pub enum Command {
     #[clap(hide = true)]
     Lsp(Lsp),
     Run(Run),
+    Test(Test),
     Ledger(starstream_ledger_cli::Args),
     Node(starstream_ledger_node::Args),
 }
@@ -63,6 +66,7 @@ impl Cli {
             Command::Explain(e) => e.exec(),
             Command::Lsp(l) => l.exec().await,
             Command::Run(r) => r.exec().await,
+            Command::Test(t) => t.exec().await,
             Command::Ledger(l) => l.exec().await.map_err(|err| miette::miette!("{err}")),
             Command::Node(n) => n.exec().await.map_err(|err| miette::miette!("{err}")),
         }
@@ -99,22 +103,25 @@ pub struct InputArg {
 
 impl InputArg {
     fn get_artifacts_dir(&self) -> miette::Result<PathBuf> {
-        // Use --artifacts-dir if specified.
-        if let Some(dir) = &self.artifacts_dir {
-            std::fs::create_dir_all(&dir).into_diagnostic()?;
-            return Ok(dir.clone());
+        // Use `--artifacts-dir` if specified.
+        if let Some(path) = &self.artifacts_dir {
+            std::fs::create_dir_all(&path)
+                .into_diagnostic()
+                .wrap_err_with(|| format!("error creating `{}`", path.display()))?;
+            return Ok(path.clone());
         }
 
         // Otherwise use the input directory, or parent if it was a file, + "artifacts"
-        let mut path = std::fs::canonicalize(&self.input).into_diagnostic()?;
-        let metadata = path.metadata();
-        if let Ok(m) = metadata
-            && !m.is_dir()
+        let mut path = std::fs::canonicalize(&self.input).unwrap_or_else(|_| self.input.clone());
+        if let Ok(meta) = path.metadata()
+            && meta.is_file()
         {
             path.pop();
         }
         path.push("artifacts");
-        std::fs::create_dir_all(&path).into_diagnostic()?;
+        std::fs::create_dir_all(&path)
+            .into_diagnostic()
+            .wrap_err_with(|| format!("error creating `{}`", path.display()))?;
         Ok(path)
     }
 

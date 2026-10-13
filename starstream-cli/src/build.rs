@@ -19,8 +19,16 @@ pub struct Build {
     pub input: InputArg,
 }
 
+pub struct BuildSuccess {
+    pub component_wasm: Vec<PathBuf>,
+}
+
 impl Build {
-    pub fn exec(self) -> miette::Result<()> {
+    pub fn exec(self) -> miette::Result<BuildSuccess> {
+        let mut result = BuildSuccess {
+            component_wasm: Vec::new(),
+        };
+
         let mut fs = FileSystem::new();
         let graph = self.input.to_module_graph(&mut fs)?;
 
@@ -69,7 +77,14 @@ impl Build {
                 continue;
             };
 
-            if let Err(err) = write_outputs(&out_dir, &wasm, &compile_result, &stem, &mut fs) {
+            if let Err(err) = write_outputs(
+                &mut result,
+                &out_dir,
+                &wasm,
+                &compile_result,
+                &stem,
+                &mut fs,
+            ) {
                 eprintln!("error: {err}");
                 had_errors = true;
             }
@@ -78,11 +93,12 @@ impl Build {
         if had_errors {
             std::process::exit(1);
         }
-        Ok(())
+        Ok(result)
     }
 }
 
 fn write_outputs(
+    result: &mut BuildSuccess,
     out_dir: &Path,
     wasm: &[u8],
     compile_result: &starstream_to_wasm::CompileResult,
@@ -109,6 +125,7 @@ fn write_outputs(
     fs_tracker
         .write(&component_path, &component_wasm)
         .map_err(|e| format!("failed to write `{}`: {e}", component_path.display()))?;
+    result.component_wasm.push(component_path);
 
     let decoded = wit_component::decode(&component_wasm)
         .map_err(|e| format!("failed to decode component WIT for `{stem}`: {e}"))?;
