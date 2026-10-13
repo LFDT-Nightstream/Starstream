@@ -676,7 +676,11 @@ impl Inferencer {
                     None => panic!("missing TypedDefinition for {:?}", definition.node),
                 }
             }
-            assert!(self.typed_definitions.is_empty());
+            assert!(
+                self.typed_definitions.is_empty(),
+                "No errors, but typed definition was unused: {:#?}",
+                self.typed_definitions
+            );
 
             Ok((
                 TypedProgram {
@@ -685,6 +689,7 @@ impl Inferencer {
                 traces,
             ))
         } else {
+            self.typed_definitions.clear();
             Err(errors)
         }
     }

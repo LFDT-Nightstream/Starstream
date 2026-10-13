@@ -2,7 +2,7 @@ use core::iter::zip;
 use core::pin::Pin;
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use clap::Args;
@@ -31,13 +31,13 @@ pub struct Run {
     imports: Vec<PathBuf>,
 }
 
-struct Ctx {
+pub(crate) struct Ctx {
     table: ResourceTable,
     outputs: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
 }
 
 #[derive(Debug, Default)]
-struct UtxoCtx {
+pub(crate) struct UtxoCtx {
     methods: HashSet<(u64, u64, u64, u64)>,
 }
 
@@ -171,14 +171,10 @@ impl Host for Ctx {
     }
 }
 
-async fn exec(
-    Run {
-        wasm,
-        script,
-        args,
-        imports,
-    }: Run,
-) -> wasmtime::Result<()> {
+pub async fn load(
+    wasm: &Path,
+    imports: &mut dyn Iterator<Item = &Path>,
+) -> wasmtime::Result<(wasmtime::Engine, Contract<Ctx>)> {
     let mut config = wasmtime::Config::new();
     config.wasm_component_model_implements(true);
     config.guest_debug(true);
@@ -202,14 +198,23 @@ async fn exec(
     let wasm = fs::read(&wasm).await.context("failed to read contract")?;
     let component = Component::new(&engine, &wasm).context("failed to compile contract")?;
     let contract = Contract::new(&component, None, &lookup).context("failed to load contract")?;
+    Ok((engine, contract))
+}
+
+pub async fn call(
+    engine: &wasmtime::Engine,
+    contract: &Contract<Ctx>,
+    script: &str,
+    args: &mut dyn ExactSizeIterator<Item = &str>,
+) -> wasmtime::Result<String> {
     let mut store = Store::new(
-        &engine,
+        engine,
         Ctx {
             table: ResourceTable::default(),
             outputs: Vec::default(),
         },
     );
-    let script = contract.get_coordination_script(&script)?;
+    let script = contract.get_coordination_script(script)?;
     let contract = contract.instantiate(&mut store).await?;
     let params_ty = script.ty().params();
     ensure!(
@@ -220,7 +225,7 @@ async fn exec(
     );
     let params = zip(params_ty, args)
         .map(|((name, ty), arg)| {
-            Val::from_wave(&ty, &arg).with_context(|| format!("failed to parse argument `{name}`"))
+            Val::from_wave(&ty, arg).with_context(|| format!("failed to parse argument `{name}`"))
         })
         .collect::<wasmtime::Result<Vec<_>>>()?;
     let mut results = vec![Val::Bool(false); script.ty().results().len()];
@@ -250,6 +255,25 @@ async fn exec(
     let results = Val::Tuple(results)
         .to_wave()
         .context("failed to encode results")?;
+    Ok(results)
+}
+
+async fn exec(
+    Run {
+        wasm,
+        script,
+        args,
+        imports,
+    }: Run,
+) -> wasmtime::Result<()> {
+    let (engine, contract) = load(&wasm, &mut imports.iter().map(|p| p.as_path())).await?;
+    let results = call(
+        &engine,
+        &contract,
+        &script,
+        &mut args.iter().map(|a| a.as_str()),
+    )
+    .await?;
     println!("{results}");
     Ok(())
 }

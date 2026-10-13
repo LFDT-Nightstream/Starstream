@@ -1,6 +1,7 @@
 use std::collections::{HashMap, hash_map::Entry};
 
 /// Helper for concisely mapping AST nodes to cached data by their address.
+#[derive(Debug)]
 pub struct PointerMap<V> {
     inner: HashMap<usize, V>,
 }
@@ -38,5 +39,10 @@ impl<V> PointerMap<V> {
     #[inline]
     pub fn remove<T>(&mut self, k: *const T) -> Option<V> {
         self.inner.remove(&(k as usize))
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.inner.clear()
     }
 }
