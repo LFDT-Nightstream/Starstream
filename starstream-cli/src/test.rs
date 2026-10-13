@@ -1,4 +1,5 @@
 use clap::Args;
+use tracing::info;
 
 use crate::InputArg;
 use crate::diagnostics::print_report;
@@ -20,8 +21,11 @@ impl Test {
             crate::Build { input: self.input }.exec()?.component_wasm
         };
 
+        let mut errors = 0;
+
         for (i, wasm) in wasms.iter().enumerate() {
             let (before, after) = (&wasms[..i], &wasms[i + 1..]);
+            info!(file = wasm.display().to_string(), "Testing contract");
             match crate::run::load(
                 wasm,
                 &mut before.iter().chain(after.iter()).map(|p| p.as_path()),
@@ -33,6 +37,7 @@ impl Test {
                         if let Some(id) = export.external_id
                             && let Some(test_name) = id.strip_prefix("starstream:test:")
                         {
+                            info!(test = test_name, "Running test");
                             match crate::run::call(
                                 &engine,
                                 &contract,
@@ -41,21 +46,30 @@ impl Test {
                             )
                             .await
                             {
-                                Ok(_) => println!("{test_name}: OK"),
-                                Err(err) => print_report(miette::Report::msg(err).wrap_err(
-                                    format!("{wasm}: {test_name:?} failed", wasm = wasm.display()),
-                                ))?,
+                                Ok(output) => info!(test = test_name, output = output),
+                                Err(err) => {
+                                    errors += 1;
+                                    print_report(miette::Report::msg(err).wrap_err(format!(
+                                        "{wasm}: {test_name:?} failed",
+                                        wasm = wasm.display()
+                                    )))?;
+                                }
                             }
                         }
                     }
                 }
                 Err(err) => {
+                    errors += 1;
                     print_report(
                         miette::Report::msg(err)
                             .wrap_err(format!("could not load {wasm}", wasm = wasm.display())),
                     )?;
                 }
             }
+        }
+
+        if errors > 0 {
+            std::process::exit(1);
         }
 
         Ok(())
