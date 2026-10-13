@@ -105,6 +105,20 @@ pub struct ModuleGraph {
 }
 
 impl ModuleGraph {
+    /// Build a workspace graph from either a root `.star` file or a directory
+    /// to scan.
+    pub fn from(fs: &mut FileSystem, entry: &Path) -> Result<ModuleGraph, Vec<ModuleGraphError>> {
+        let metadata = entry.metadata();
+        if let Ok(m) = metadata
+            && m.is_file()
+        {
+            let (graph, _) = ModuleGraph::from_entry(fs, entry)?;
+            Ok(graph)
+        } else {
+            ModuleGraph::from_workspace(fs, entry)
+        }
+    }
+
     /// Build a graph rooted at `entry` for the single-file `wasm -c` flow.
     ///
     /// The entry point is treated as a contract even if it doesn't start with a

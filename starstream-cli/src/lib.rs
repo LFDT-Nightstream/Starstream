@@ -2,6 +2,9 @@
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
+use miette::IntoDiagnostic;
+use starstream_compiler::ModuleGraph;
+use starstream_types::FileSystem;
 
 mod build;
 mod check;
@@ -10,7 +13,6 @@ mod docs;
 mod explain;
 mod format;
 mod lsp;
-mod project;
 mod run;
 mod style;
 mod wasm;
@@ -55,7 +57,7 @@ impl Cli {
         match self.cmd {
             Command::Docs(d) => d.exec(),
             Command::Wasm(w) => w.exec(),
-            Command::Build(b) => b.exec(),
+            Command::Build(b) => b.exec().map(|_| ()),
             Command::Format(f) => f.exec(),
             Command::Check(c) => c.exec(),
             Command::Explain(e) => e.exec(),
@@ -82,4 +84,58 @@ pub fn starstream_files_excluding_gitignore(dir: &Path) -> impl Iterator<Item = 
 fn is_starstream_path(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e == starstream_compiler::FILE_EXTENSION)
+}
+
+#[derive(clap::Args, Debug)]
+pub struct InputArg {
+    /// Input directory to scan for `contract;` entry points.
+    /// Defaults to the current directory.
+    #[arg(default_value = ".")]
+    pub input: PathBuf,
+
+    #[clap(long)]
+    pub artifacts_dir: Option<PathBuf>,
+}
+
+impl InputArg {
+    fn get_artifacts_dir(&self) -> miette::Result<PathBuf> {
+        // Use --artifacts-dir if specified.
+        if let Some(dir) = &self.artifacts_dir {
+            std::fs::create_dir_all(&dir).into_diagnostic()?;
+            return Ok(dir.clone());
+        }
+
+        // Otherwise use the input directory, or parent if it was a file, + "artifacts"
+        let mut path = std::fs::canonicalize(&self.input).into_diagnostic()?;
+        let metadata = path.metadata();
+        if let Ok(m) = metadata
+            && !m.is_dir()
+        {
+            path.pop();
+        }
+        path.push("artifacts");
+        std::fs::create_dir_all(&path).into_diagnostic()?;
+        Ok(path)
+    }
+
+    fn to_module_graph(&self, fs: &mut FileSystem) -> miette::Result<ModuleGraph> {
+        let graph = match ModuleGraph::from(fs, &self.input) {
+            Ok(g) => g,
+            Err(errors) => {
+                for error in errors {
+                    diagnostics::print_report(miette::Report::new(error))?;
+                }
+                std::process::exit(1);
+            }
+        };
+
+        if graph.contract_entries().is_empty() {
+            return Err(miette::miette!(
+                "no contracts found under `{}` (looking for `.star` files containing `contract;`)",
+                self.input.display(),
+            ));
+        }
+
+        Ok(graph)
+    }
 }

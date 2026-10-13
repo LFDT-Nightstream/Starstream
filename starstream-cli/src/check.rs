@@ -1,13 +1,9 @@
-use std::path::PathBuf;
-
 use clap::Args;
-use miette::IntoDiagnostic;
-use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
+use starstream_compiler::{TypecheckOptions, typecheck_modules};
 use starstream_types::FileSystem;
 
-use crate::diagnostics::{print_diagnostic, print_report};
-use crate::project::default_scan_dir;
-use crate::style;
+use crate::diagnostics::print_diagnostic;
+use crate::{InputArg, style};
 
 /// Build one workspace module graph for the target directory and type-check
 /// every module in it.
@@ -17,37 +13,18 @@ use crate::style;
 /// scans exactly that dir.
 #[derive(Args, Debug)]
 pub struct Check {
-    /// Optional directory to scan. If omitted, walks up for `.git` and scans
-    /// the enclosing project root (falling back to cwd if no `.git` exists).
-    target_dir: Option<PathBuf>,
+    #[command(flatten)]
+    pub input: InputArg,
 
     /// Exit with a non-zero code if warnings are emitted.
     #[arg(short = 'D', long, visible_alias = "warnings-as-errors")]
-    deny_warnings: bool,
+    pub deny_warnings: bool,
 }
 
 impl Check {
     pub fn exec(self) -> miette::Result<()> {
-        let scan_dir = match self.target_dir {
-            Some(dir) => dir,
-            None => default_scan_dir().into_diagnostic()?,
-        };
-
         let mut fs = FileSystem::new();
-        let graph = match ModuleGraph::from_workspace(&mut fs, &scan_dir) {
-            Ok(g) => g,
-            Err(errors) => {
-                for error in errors {
-                    print_report(miette::Report::new(error))?;
-                }
-                std::process::exit(1);
-            }
-        };
-
-        if graph.modules().is_empty() {
-            eprintln!("no `.star` files found under `{}`", scan_dir.display());
-            return Ok(());
-        }
+        let graph = self.input.to_module_graph(&mut fs)?;
 
         let mut errors = 0usize;
         let mut warnings = 0usize;

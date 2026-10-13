@@ -2,12 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
-use miette::IntoDiagnostic;
-use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
+use starstream_compiler::{TypecheckOptions, typecheck_modules};
 use starstream_types::FileSystem;
 
-use crate::diagnostics::{print_diagnostic, print_report};
-use crate::project::default_scan_dir;
+use crate::InputArg;
+use crate::diagnostics::print_diagnostic;
 
 /// Compile every contract under the target directory to Wasm.
 ///
@@ -16,35 +15,14 @@ use crate::project::default_scan_dir;
 /// `<project-root>/artifacts/<filename-stem>/`.
 #[derive(Args, Debug)]
 pub struct Build {
-    /// Optional directory to scan. If omitted, uses the current directory.
-    target_dir: Option<PathBuf>,
+    #[command(flatten)]
+    pub input: InputArg,
 }
 
 impl Build {
     pub fn exec(self) -> miette::Result<()> {
-        let scan_dir = match self.target_dir {
-            Some(dir) => dir,
-            None => default_scan_dir().into_diagnostic()?,
-        };
-
         let mut fs = FileSystem::new();
-        let graph = match ModuleGraph::from_workspace(&mut fs, &scan_dir) {
-            Ok(g) => g,
-            Err(errors) => {
-                for error in errors {
-                    print_report(miette::Report::new(error))?;
-                }
-                std::process::exit(1);
-            }
-        };
-
-        if graph.contract_entries().is_empty() {
-            eprintln!(
-                "no contracts found under `{}` (looking for `.star` files containing `contract;`)",
-                scan_dir.display()
-            );
-            return Ok(());
-        }
+        let graph = self.input.to_module_graph(&mut fs)?;
 
         let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
             Ok(success) => {
@@ -64,16 +42,7 @@ impl Build {
             }
         };
 
-        let target_abs = fs::canonicalize(&scan_dir).unwrap_or(scan_dir.clone());
-        let artifacts_dir = target_abs.join("artifacts");
-        if let Err(err) = fs::create_dir_all(&artifacts_dir) {
-            eprintln!(
-                "error: failed to create `{}`: {}",
-                artifacts_dir.display(),
-                err
-            );
-            std::process::exit(1);
-        }
+        let artifacts_dir = self.input.get_artifacts_dir()?;
 
         let mut had_errors = false;
         for &entry_id in &typed.contract_entries {
