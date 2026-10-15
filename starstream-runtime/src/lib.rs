@@ -318,59 +318,65 @@ fn link_effect_function<T: Host>(
 ) -> wasmtime::Result<()> {
     let abi_name = Arc::<str>::from(abi_name);
     let name = Arc::<str>::from(name);
-    linker.func_new(
+    linker.func_new_async(
         &Arc::clone(&name),
         move |mut store, _ty, params, _results| {
-            debug!(abi = ?abi_name, effect = ?name, ?params, "raise_effect");
+            let abi_name = Arc::clone(&abi_name);
+            let name = Arc::clone(&name);
+            Box::new(async move {
+                debug!(abi = ?abi_name, effect = ?name, ?params, "raise_effect");
 
-            let vec: Vec<_> = store.debug_exit_frames().collect();
-            assert!(
-                !vec.is_empty(),
-                "`debug_exit_frames()` was empty, must use `Config::guest_debug(true)`"
-            );
+                let vec: Vec<_> = store.debug_exit_frames().collect();
+                assert!(
+                    !vec.is_empty(),
+                    "`debug_exit_frames()` was empty, must use `Config::guest_debug(true)`"
+                );
 
-            let core_name = format!("starstream:effect-handler/{abi_name}#{name}");
-            for (i, each) in vec.into_iter().enumerate() {
-                let instance = each.instance(&mut store)?;
-                if let Some(handler) = instance.get_func(&mut store, &core_name) {
-                    debug!(frame = ?i, instance = instance.debug_index_in_store(), handler = ?handler);
-                    let mut results = [wasmtime::Val::I32(0)];
-                    handler.call(&mut store, &[], &mut results[..])?;
-                    debug!(results = ?results);
-                    match results[0] {
-                        wasmtime::Val::I32(0) => continue,
-                        wasmtime::Val::I32(1) => return Ok(()),
-                        _ => {
-                            return Err(wasmtime::Error::msg("invalid effect handler status code"));
+                let core_name = format!("starstream:effect-handler/{abi_name}#{name}");
+                for (i, each) in vec.into_iter().enumerate() {
+                    let instance = each.instance(&mut store)?;
+                    if let Some(handler) = instance.get_func(&mut store, &core_name) {
+                        debug!(frame = ?i, instance = instance.debug_index_in_store(), handler = ?handler);
+                        let mut results = [wasmtime::Val::I32(0)];
+                        handler.call_async(&mut store, &[], &mut results[..]).await?;
+                        debug!(results = ?results);
+                        match results[0] {
+                            wasmtime::Val::I32(0) => continue,
+                            wasmtime::Val::I32(1) => return Ok(()),
+                            _ => {
+                                return Err(wasmtime::Error::msg("invalid effect handler status code"));
+                            }
+                        };
+                    } else if let Some(assert_effect_not_handled) =
+                        instance.get_func(&mut store, "assert-effect-not-handled")
+                    {
+                        let identity = format!("{abi_name}#{name}");
+                        let digest = sha2::Sha256::digest(&identity);
+                        let mut params2 = [wasmtime::Val::I32(0); 4];
+                        for (param, chunk) in params2.iter_mut().zip(digest.chunks_exact(8)) {
+                            *param = wasmtime::Val::I64(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
                         }
-                    };
-                } else if let Some(assert_effect_not_handled) =
-                    instance.get_func(&mut store, "assert-effect-not-handled")
-                {
-                    let identity = format!("{abi_name}#{name}");
-                    let digest = sha2::Sha256::digest(&identity);
-                    let mut params2 = [wasmtime::Val::I32(0); 4];
-                    for (param, chunk) in params2.iter_mut().zip(digest.chunks_exact(8)) {
-                        *param = wasmtime::Val::I64(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
+                        debug!(
+                            frame = ?i,
+                            instance = instance.debug_index_in_store(),
+                            assert_effect_not_handled = ?assert_effect_not_handled,
+                            identity = identity,
+                            params = ?params2,
+                        );
+                        assert_effect_not_handled
+                            .call_async(&mut store, &params2, &mut [])
+                            .await
+                            .with_context(|| format!("assert-effect-not-handled failed for {abi_name}::{name}{params:?}"))?;
+                    } else {
+                        // TODO: For non-Starstream frames, can we consider absence
+                        // of `assert-effect-not-handled` to mean asserting NOTHING
+                        // is handled?
+                        warn!(frame = ?i, instance = instance.debug_index_in_store(), "missing assert-effect-not-handled");
                     }
-                    debug!(
-                        frame = ?i,
-                        instance = instance.debug_index_in_store(),
-                        assert_effect_not_handled = ?assert_effect_not_handled,
-                        identity = identity,
-                        params = ?params2,
-                    );
-                    assert_effect_not_handled.call(&mut store, &params2, &mut [])
-                        .with_context(|| format!("assert-effect-not-handled failed for {abi_name}::{name}{params:?}"))?;
-                } else {
-                    // TODO: For non-Starstream frames, can we consider absence
-                    // of `assert-effect-not-handled` to mean asserting NOTHING
-                    // is handled?
-                    warn!(frame = ?i, instance = instance.debug_index_in_store(), "missing assert-effect-not-handled");
                 }
-            }
-            bail!("effect not handled: {abi_name}::{name}{params:?}")
-        },
+                bail!("effect not handled: {abi_name}::{name}{params:?}")
+            })
+        }
     )
 }
 
