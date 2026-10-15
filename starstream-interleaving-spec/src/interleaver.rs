@@ -140,7 +140,7 @@ fn schedule_execution(
     let mut current = 0_usize;
     let mut next_process = 1_usize;
     let mut call_stack = Vec::new();
-    let mut pending_constructors = HashMap::<usize, (usize, ResourceHandle)>::new();
+    let mut pending_constructors = HashMap::<usize, usize>::new();
     let mut resource_targets = HashMap::<(usize, ResourceHandle), usize>::new();
     let mut inputs = Vec::with_capacity(input_methods.len());
     for methods in input_methods {
@@ -180,9 +180,8 @@ fn schedule_execution(
         cursors[current] += 1;
 
         match step {
-            Step::NewUtxo { resource, .. } => {
-                let resource = resource.0;
-                if let Some(&(target, _)) = pending_constructors.get(&current) {
+            Step::NewUtxo { .. } => {
+                if let Some(&target) = pending_constructors.get(&current) {
                     return Err(InterleavingError::ConstructorAlreadyPending {
                         caller: ProcessIndex(current),
                         target: ProcessIndex(target),
@@ -198,7 +197,7 @@ fn schedule_execution(
                 let target = next_process;
                 next_process += 1;
                 allocation_order.push(target);
-                pending_constructors.insert(current, (target, resource));
+                pending_constructors.insert(current, target);
                 call_stack.push(current);
                 merged.push(step);
                 current = target;
@@ -215,7 +214,6 @@ fn schedule_execution(
                 current = target;
             }
             Step::Return { .. } => {
-                let returning = current;
                 merged.push(step);
                 let Some(caller) = call_stack.pop() else {
                     if current != 0 {
@@ -226,18 +224,26 @@ fn schedule_execution(
                     // The entrypoint returned to the transaction context.
                     break;
                 };
-                if let Some(&(target, resource)) = pending_constructors.get(&caller)
-                    && target == returning
-                {
-                    pending_constructors.remove(&caller);
-                    resource_targets.insert((caller, resource), target);
-                }
                 current = caller;
             }
+            Step::ReceiveNewUtxoHandle { resource } => {
+                let Some(target) = pending_constructors.remove(&current) else {
+                    return Err(InterleavingError::ConstructorResumeWithoutPendingCall {
+                        process: ProcessIndex(current),
+                    });
+                };
+                resource_targets.insert((current, resource.0), target);
+                merged.push(step);
+            }
+            Step::ReceiveMethodResult { .. } => merged.push(step),
             Step::YieldBegin => {
                 registrations[current].clear();
                 merged.push(step);
             }
+            Step::RaiseEffect { .. }
+            | Step::EnterEffectHandler { .. }
+            | Step::ExitEffectHandler { .. }
+            | Step::ResumeEffect { .. } => merged.push(step),
             Step::RegisterMethod { method } => {
                 registrations[current].push(method);
                 merged.push(step);
@@ -283,6 +289,9 @@ pub enum InterleavingError {
 
     #[error("process {process:?} exhausted its trace before the transaction returned")]
     UnexpectedEndOfTrace { process: ProcessIndex },
+
+    #[error("process {process:?} resumed a constructor without a pending constructor call")]
+    ConstructorResumeWithoutPendingCall { process: ProcessIndex },
 
     #[error("process {caller:?} began a constructor while process {target:?} was still pending")]
     ConstructorAlreadyPending {
@@ -376,9 +385,14 @@ mod tests {
         }
     }
 
-    fn new_utxo(arguments: impl Into<Vec<u32>>, resource: ResourceHandle) -> Step {
+    fn new_utxo(arguments: impl Into<Vec<u32>>) -> Step {
         Step::NewUtxo {
             arguments: value(arguments),
+        }
+    }
+
+    fn receive_new_utxo_handle(resource: ResourceHandle) -> Step {
+        Step::ReceiveNewUtxoHandle {
             resource: Out(resource),
         }
     }
@@ -392,6 +406,12 @@ mod tests {
             resource,
             method,
             arguments: value(arguments),
+        }
+    }
+
+    fn receive_method_result(method: MethodHash) -> Step {
+        Step::ReceiveMethodResult {
+            method,
             result: Out(StarstreamValue::default()),
         }
     }
@@ -410,9 +430,12 @@ mod tests {
         let live = ResourceHandle(7);
         let consumed = ResourceHandle(8);
         let coordinator = Trace::new([
-            new_utxo([1], live),
-            new_utxo([2], consumed),
+            new_utxo([1]),
+            receive_new_utxo_handle(live),
+            new_utxo([2]),
+            receive_new_utxo_handle(consumed),
             call_method(live, method(9), [13]),
+            receive_method_result(method(9)),
             ret(),
         ]);
         let live_utxo = Trace::new([
@@ -435,7 +458,11 @@ mod tests {
         let handle = ResourceHandle(7);
         interleave_transaction_with_inputs(
             &[
-                Trace::new([call_method(handle, method(9), [13]), ret()]),
+                Trace::new([
+                    call_method(handle, method(9), [13]),
+                    receive_method_result(method(9)),
+                    ret(),
+                ]),
                 Trace::new([
                     Step::SetStorage {
                         storage: value([42]),
@@ -495,9 +522,9 @@ mod tests {
     #[test]
     fn transaction_finalizes_live_and_consumed_utxos() {
         let transaction = interleave_transaction(&transaction_traces()).unwrap();
-        assert_eq!(transaction.execution.0.len(), 14);
+        assert_eq!(transaction.execution.0.len(), 17);
         assert_eq!(
-            transaction.trace.0[14..],
+            transaction.trace.0[17..],
             [
                 get_storage([21, 22]),
                 Step::ReadAbi { method: method(1) },
@@ -523,7 +550,7 @@ mod tests {
     #[test]
     fn transaction_requires_exactly_one_storage_read_per_live_utxo() {
         let resource = ResourceHandle(7);
-        let coordinator = Trace::new([new_utxo([1], resource), ret()]);
+        let coordinator = Trace::new([new_utxo([1]), receive_new_utxo_handle(resource), ret()]);
         let without_read = Trace::new([enter_constructor([1]), register(method(1)), ret()]);
         assert_eq!(
             interleave_transaction(&[coordinator.clone(), without_read]),
@@ -558,9 +585,12 @@ mod tests {
     fn reentered_method_traces() -> Vec<Trace> {
         let resource = ResourceHandle(7);
         let coordinator = Trace::new([
-            new_utxo([55], resource),
+            new_utxo([55]),
+            receive_new_utxo_handle(resource),
             call_method(resource, method(1), [13]),
+            receive_method_result(method(1)),
             call_method(resource, method(2), []),
+            receive_method_result(method(2)),
             ret(),
         ]);
         let utxo = Trace::new([
@@ -588,19 +618,22 @@ mod tests {
         assert_eq!(
             merged,
             Trace::new([
-                new_utxo([55], resource),
+                new_utxo([55]),
                 enter_constructor([55]),
                 Step::RegisterMethod { method: method(1) },
                 Step::RegisterMethod { method: method(2) },
                 ret(),
+                receive_new_utxo_handle(resource),
                 call_method(resource, method(1), [13]),
                 enter_method(method(1), [13]),
                 ret(),
+                receive_method_result(method(1)),
                 call_method(resource, method(2), []),
                 enter_method(method(2), []),
                 Step::YieldBegin,
                 Step::RegisterMethod { method: method(3) },
                 ret(),
+                receive_method_result(method(2)),
                 ret(),
             ])
         );
@@ -608,10 +641,14 @@ mod tests {
 
     fn two_utxo_traces() -> Vec<Trace> {
         let coordinator = Trace::new([
-            new_utxo([1], ResourceHandle(0)),
-            new_utxo([2], ResourceHandle(1)),
+            new_utxo([1]),
+            receive_new_utxo_handle(ResourceHandle(0)),
+            new_utxo([2]),
+            receive_new_utxo_handle(ResourceHandle(1)),
             call_method(ResourceHandle(1), method(2), []),
+            receive_method_result(method(2)),
             call_method(ResourceHandle(0), method(1), []),
+            receive_method_result(method(1)),
             ret(),
         ]);
         let first = Trace::new([
@@ -637,14 +674,16 @@ mod tests {
         let merged = interleave_execution_only(&two_utxo_traces()).expect("traces interleave");
 
         assert_eq!(
-            merged.0[8..],
+            merged.0[10..],
             [
                 call_method(ResourceHandle(1), method(2), []),
                 enter_method(method(2), []),
                 ret(),
+                receive_method_result(method(2)),
                 call_method(ResourceHandle(0), method(1), []),
                 enter_method(method(1), []),
                 ret(),
+                receive_method_result(method(1)),
                 ret(),
             ]
         );
@@ -685,7 +724,7 @@ mod tests {
 
     #[test]
     fn rejects_constructors_without_a_process_trace() {
-        let coordinator = Trace::new([new_utxo([], ResourceHandle(0)), ret()]);
+        let coordinator = Trace::new([new_utxo([]), ret()]);
 
         assert_eq!(
             interleave_execution_only(&[coordinator]),
@@ -710,7 +749,7 @@ mod tests {
 
     #[test]
     fn rejects_an_entrypoint_that_never_returns() {
-        let coordinator = Trace::new([new_utxo([], ResourceHandle(0))]);
+        let coordinator = Trace::new([new_utxo([])]);
         let utxo = Trace::new([enter_constructor([]), ret()]);
 
         assert_eq!(
@@ -723,7 +762,7 @@ mod tests {
 
     #[test]
     fn rejects_unconsumed_trailing_utxo_return() {
-        let coordinator = Trace::new([new_utxo([], ResourceHandle(0)), ret()]);
+        let coordinator = Trace::new([new_utxo([]), ret()]);
         let utxo = Trace::new([enter_constructor([]), ret(), ret()]);
 
         assert_eq!(

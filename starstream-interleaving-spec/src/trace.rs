@@ -39,6 +39,9 @@ pub struct ResourceHandle(pub u32);
 #[serde(transparent)]
 pub struct MethodHash(pub [u32; METHOD_WORDS]);
 
+/// Effect identities use the same exact SHA-256 representation as methods.
+pub type EffectHash = MethodHash;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Out<T>(pub T);
@@ -136,6 +139,8 @@ pub enum Step {
     FinishTransaction,
     NewUtxo {
         arguments: StarstreamValue,
+    },
+    ReceiveNewUtxoHandle {
         resource: Out<ResourceHandle>,
     },
     EnterConstructor {
@@ -152,11 +157,32 @@ pub enum Step {
         resource: ResourceHandle,
         method: MethodHash,
         arguments: StarstreamValue,
+    },
+    ReceiveMethodResult {
+        method: MethodHash,
         result: Out<StarstreamValue>,
     },
     EnterMethod {
         method: MethodHash,
         arguments: StarstreamValue,
+    },
+    /// Begin a dynamically handled effect call. The result is committed when
+    /// the import resumes, after one or more handler activations.
+    RaiseEffect {
+        effect: EffectHash,
+        arguments: StarstreamValue,
+    },
+    EnterEffectHandler {
+        effect: EffectHash,
+        arguments: StarstreamValue,
+    },
+    ExitEffectHandler {
+        handled: bool,
+        result: Out<StarstreamValue>,
+    },
+    ResumeEffect {
+        effect: EffectHash,
+        result: Out<StarstreamValue>,
     },
 }
 

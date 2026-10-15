@@ -66,8 +66,12 @@ module starstream_sim_core {
   action simulate_new_utxo: bool = all {
     state.next_utxo_id < SIM_MAX_UTXOS,
     nondet arguments = SIM_VALUES.oneOf()
+    new_utxo(arguments),
+  }
+
+  action simulate_receive_new_utxo_handle: bool = {
     nondet resource = SIM_RESOURCE_HANDLES.oneOf()
-    new_utxo(arguments, {value: resource }),
+    receive_new_utxo_handle({ value: resource })
   }
 
   action simulate_register_method: bool = all {
@@ -97,8 +101,13 @@ module starstream_sim_core {
     val target = state.resource_resolver.get(key)
     nondet method = state.enabled_methods.get(target).oneOf()
     nondet arguments = SIM_VALUES.oneOf()
+    call_method(key.handle, method, arguments)
+  }
+
+  action simulate_receive_method_result: bool = {
+    nondet method = SIM_METHODS.oneOf()
     nondet result = SIM_VALUES.oneOf()
-    call_method(key.handle, method, arguments, { value: result })
+    receive_method_result(method, { value: result })
   }
 
   action simulate_return: bool = {
@@ -158,11 +167,13 @@ module starstream_sim_core {
 
   action execution_step: bool = any {
       simulate_new_utxo,
+      simulate_receive_new_utxo_handle,
       simulate_enter_constructor,
       yield_begin,
       simulate_register_method,
       simulate_return,
       simulate_call_method,
+      simulate_receive_method_result,
       simulate_enter_method,
   }
 

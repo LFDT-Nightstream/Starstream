@@ -17,12 +17,18 @@ pub enum EventKind {
     SetStorage,
     GetStorage,
     NewUtxo,
+    ReceiveNewUtxoHandle,
     EnterConstructor,
     YieldBegin,
     RegisterMethod,
     Return,
     CallMethod,
+    ReceiveMethodResult,
     EnterMethod,
+    RaiseEffect,
+    EnterEffectHandler,
+    ExitEffectHandler,
+    ResumeEffect,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +38,7 @@ pub enum Word {
     Method(usize),
     Argument(usize),
     Result(usize),
+    Handled,
 }
 
 impl EventKind {
@@ -47,6 +54,12 @@ impl EventKind {
             7 => Self::EnterMethod,
             8 => Self::SetStorage,
             9 => Self::GetStorage,
+            10 => Self::RaiseEffect,
+            11 => Self::EnterEffectHandler,
+            12 => Self::ExitEffectHandler,
+            13 => Self::ResumeEffect,
+            14 => Self::ReceiveNewUtxoHandle,
+            15 => Self::ReceiveMethodResult,
             _ => return None,
         })
     }
@@ -56,12 +69,18 @@ impl EventKind {
             Step::SetStorage { .. } => Self::SetStorage,
             Step::GetStorage { .. } => Self::GetStorage,
             Step::NewUtxo { .. } => Self::NewUtxo,
+            Step::ReceiveNewUtxoHandle { .. } => Self::ReceiveNewUtxoHandle,
             Step::EnterConstructor { .. } => Self::EnterConstructor,
             Step::YieldBegin => Self::YieldBegin,
             Step::RegisterMethod { .. } => Self::RegisterMethod,
             Step::Return { .. } => Self::Return,
             Step::CallMethod { .. } => Self::CallMethod,
+            Step::ReceiveMethodResult { .. } => Self::ReceiveMethodResult,
             Step::EnterMethod { .. } => Self::EnterMethod,
+            Step::RaiseEffect { .. } => Self::RaiseEffect,
+            Step::EnterEffectHandler { .. } => Self::EnterEffectHandler,
+            Step::ExitEffectHandler { .. } => Self::ExitEffectHandler,
+            Step::ResumeEffect { .. } => Self::ResumeEffect,
             // these are circuit-only instructions
             Step::PreloadMethod { .. }
             | Step::ReadAbi { .. }
@@ -82,6 +101,12 @@ impl EventKind {
             Self::EnterMethod => 7,
             Self::SetStorage => 8,
             Self::GetStorage => 9,
+            Self::RaiseEffect => 10,
+            Self::EnterEffectHandler => 11,
+            Self::ExitEffectHandler => 12,
+            Self::ResumeEffect => 13,
+            Self::ReceiveNewUtxoHandle => 14,
+            Self::ReceiveMethodResult => 15,
         }
     }
 
@@ -99,25 +124,29 @@ impl EventKind {
             words.extend((0..4).map(|i| if argument { Argument(i) } else { Result(i) }));
         };
         match self {
-            Self::SetStorage => root(&mut words, &mut last_root_block, true),
-            Self::GetStorage => root(&mut words, &mut last_root_block, false),
-            Self::NewUtxo => {
+            Self::SetStorage | Self::NewUtxo | Self::EnterConstructor => {
                 root(&mut words, &mut last_root_block, true);
-                words.push(Resource);
             }
-            Self::EnterConstructor => root(&mut words, &mut last_root_block, true),
+            Self::GetStorage | Self::Return => root(&mut words, &mut last_root_block, false),
+            Self::ReceiveNewUtxoHandle => words.push(Resource),
             Self::YieldBegin => {}
             Self::RegisterMethod => words.extend((0..METHOD_WORDS).map(Method)),
-            Self::Return => root(&mut words, &mut last_root_block, false),
             Self::CallMethod => {
                 words.push(Resource);
                 words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, true);
+            }
+            Self::ReceiveMethodResult | Self::ResumeEffect => {
+                words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, false);
             }
-            Self::EnterMethod => {
+            Self::EnterMethod | Self::RaiseEffect | Self::EnterEffectHandler => {
                 words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, true);
+            }
+            Self::ExitEffectHandler => {
+                words.push(Handled);
+                root(&mut words, &mut last_root_block, false);
             }
         }
         words.resize(words.len().div_ceil(BLOCK_SIZE) * BLOCK_SIZE, Constant(0));
@@ -148,6 +177,7 @@ impl EventKind {
         let mut method = [0_u32; METHOD_WORDS];
         let mut argument = [0_u64; 4];
         let mut result = [0_u64; 4];
+        let mut handled = false;
         for (block_index, (layout_block, block)) in layout.iter().zip(blocks).enumerate() {
             for (word_index, (word, &value)) in layout_block.iter().zip(block).enumerate() {
                 if value >= FIELD_MODULUS {
@@ -187,12 +217,34 @@ impl EventKind {
                     Word::Method(index) => method[index] = named("method")?,
                     Word::Argument(index) => argument[index] = value,
                     Word::Result(index) => result[index] = value,
+                    Word::Handled => {
+                        handled = match value {
+                            0 => false,
+                            1 => true,
+                            _ => {
+                                return Err(EventCodecError::NamedArgumentOutOfRange {
+                                    block: block_index,
+                                    word: word_index,
+                                    name: "handled",
+                                    value,
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
         let method = MethodHash(method);
         if let Some(expected) = expected_method
-            && matches!(self, EventKind::CallMethod | EventKind::EnterMethod)
+            && matches!(
+                self,
+                EventKind::CallMethod
+                    | EventKind::ReceiveMethodResult
+                    | EventKind::EnterMethod
+                    | EventKind::RaiseEffect
+                    | EventKind::EnterEffectHandler
+                    | EventKind::ResumeEffect
+            )
             && method != expected
         {
             return Err(EventCodecError::MethodMismatch {
@@ -218,6 +270,8 @@ impl EventKind {
             },
             EventKind::NewUtxo => Step::NewUtxo {
                 arguments: argument,
+            },
+            EventKind::ReceiveNewUtxoHandle => Step::ReceiveNewUtxoHandle {
                 resource: Out(ResourceHandle(resource)),
             },
             EventKind::EnterConstructor => Step::EnterConstructor {
@@ -232,11 +286,30 @@ impl EventKind {
                 resource: ResourceHandle(resource),
                 method,
                 arguments: argument,
+            },
+            EventKind::ReceiveMethodResult => Step::ReceiveMethodResult {
+                method,
                 result: Out(result),
             },
             EventKind::EnterMethod => Step::EnterMethod {
                 method,
                 arguments: argument,
+            },
+            EventKind::RaiseEffect => Step::RaiseEffect {
+                effect: method,
+                arguments: argument,
+            },
+            EventKind::EnterEffectHandler => Step::EnterEffectHandler {
+                effect: method,
+                arguments: argument,
+            },
+            EventKind::ExitEffectHandler => Step::ExitEffectHandler {
+                handled,
+                result: Out(result),
+            },
+            EventKind::ResumeEffect => Step::ResumeEffect {
+                effect: method,
+                result: Out(result),
             },
         })
     }
@@ -255,10 +328,8 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         | Step::SkipConsumed
         | Step::FinalizeCoordinator
         | Step::FinishTransaction => unreachable!(),
-        Step::NewUtxo {
-            arguments,
-            resource,
-        } => (resource.0.0, None, Some(arguments), None),
+        Step::NewUtxo { arguments } => (0, None, Some(arguments), None),
+        Step::ReceiveNewUtxoHandle { resource } => (resource.0.0, None, None, None),
         Step::EnterConstructor { arguments } => (0, None, Some(arguments), None),
         Step::YieldBegin => (0, None, None, None),
         Step::RegisterMethod { method } => (0, Some(method), None, None),
@@ -267,9 +338,15 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
             resource,
             method,
             arguments,
-            result,
-        } => (resource.0, Some(method), Some(arguments), Some(&result.0)),
+        } => (resource.0, Some(method), Some(arguments), None),
+        Step::ReceiveMethodResult { method, result } => (0, Some(method), None, Some(&result.0)),
         Step::EnterMethod { method, arguments } => (0, Some(method), Some(arguments), None),
+        Step::RaiseEffect { effect, arguments }
+        | Step::EnterEffectHandler { effect, arguments } => {
+            (0, Some(effect), Some(arguments), None)
+        }
+        Step::ExitEffectHandler { result, .. } => (0, None, None, Some(&result.0)),
+        Step::ResumeEffect { effect, result } => (0, Some(effect), None, Some(&result.0)),
     };
     kind.blocks()
         .into_iter()
@@ -280,6 +357,10 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
                 Word::Method(i) => u64::from(method.unwrap().0[i]),
                 Word::Argument(i) => argument.unwrap().0[i],
                 Word::Result(i) => result.unwrap().0[i],
+                Word::Handled => match step {
+                    Step::ExitEffectHandler { handled, .. } => u64::from(*handled),
+                    _ => unreachable!(),
+                },
             })
         })
         .collect()
@@ -344,8 +425,8 @@ mod test {
                 coordinator_handle: ResourceHandle(7),
             },
             Step::GetStorage { storage: Out(ROOT) },
-            Step::NewUtxo {
-                arguments: ROOT,
+            Step::NewUtxo { arguments: ROOT },
+            Step::ReceiveNewUtxoHandle {
                 resource: Out(ResourceHandle(7)),
             },
             Step::EnterConstructor { arguments: ROOT },
@@ -356,18 +437,42 @@ mod test {
                 resource: ResourceHandle(7),
                 method: METHOD,
                 arguments: ROOT,
+            },
+            Step::ReceiveMethodResult {
+                method: METHOD,
                 result: Out(OTHER),
             },
             Step::EnterMethod {
                 method: METHOD,
                 arguments: ROOT,
             },
+            Step::RaiseEffect {
+                effect: METHOD,
+                arguments: ROOT,
+            },
+            Step::EnterEffectHandler {
+                effect: METHOD,
+                arguments: ROOT,
+            },
+            Step::ExitEffectHandler {
+                handled: true,
+                result: Out(OTHER),
+            },
+            Step::ResumeEffect {
+                effect: METHOD,
+                result: Out(OTHER),
+            },
         ]
     }
 
     fn expected_method(step: &Step) -> Option<MethodHash> {
         match step {
-            Step::CallMethod { method, .. } | Step::EnterMethod { method, .. } => Some(*method),
+            Step::CallMethod { method, .. }
+            | Step::ReceiveMethodResult { method, .. }
+            | Step::EnterMethod { method, .. }
+            | Step::RaiseEffect { effect: method, .. }
+            | Step::EnterEffectHandler { effect: method, .. }
+            | Step::ResumeEffect { effect: method, .. } => Some(*method),
             _ => None,
         }
     }
@@ -419,21 +524,21 @@ mod test {
     }
 
     #[test]
-    fn call_method_spans_three_blocks_with_one_root_each() {
+    fn split_method_events_keep_one_root_per_block() {
         let step = Step::CallMethod {
             resource: ResourceHandle(7),
             method: METHOD,
             arguments: ROOT,
-            result: Out(OTHER),
         };
         assert_eq!(
             encode(&step),
-            [
-                [6, 7, 1, 2, 3, 4, 5, 6],
-                [7, 8, 11, 12, 13, 14, 0, 0],
-                [21, 22, 23, 24, 0, 0, 0, 0],
-            ]
+            [[6, 7, 1, 2, 3, 4, 5, 6], [7, 8, 11, 12, 13, 14, 0, 0],]
         );
+        let resume = Step::ReceiveMethodResult {
+            method: METHOD,
+            result: Out(OTHER),
+        };
+        assert_eq!(encode(&resume).len(), 2);
     }
 
     #[test]
@@ -482,26 +587,26 @@ mod test {
 
     #[test]
     fn rejects_named_words_that_do_not_fit_the_wasm_encoding() {
-        let step = Step::NewUtxo {
-            arguments: ROOT,
+        let step = Step::ReceiveNewUtxoHandle {
             resource: Out(ResourceHandle(7)),
         };
         let mut encoded = encode(&step);
-        encoded[0][5] = 1 << 40;
+        encoded[0][1] = 1 << 40;
         let kind = EventKind::for_step(&step).unwrap();
         assert_eq!(
             kind.decode(&encoded, None, None),
             Err(EventCodecError::NamedArgumentOutOfRange {
                 block: 0,
-                word: 5,
+                word: 1,
                 name: "resource",
                 value: 1 << 40
             })
         );
-        let mut encoded = encode(&step);
+        let root_step = Step::NewUtxo { arguments: ROOT };
+        let mut encoded = encode(&root_step);
         encoded[0][1] = FIELD_MODULUS;
         assert_eq!(
-            kind.decode(&encoded, None, None),
+            EventKind::NewUtxo.decode(&encoded, None, None),
             Err(EventCodecError::NonCanonicalField {
                 block: 0,
                 word: 1,

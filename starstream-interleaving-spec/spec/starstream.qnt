@@ -30,18 +30,33 @@ module starstream {
     handle: ResourceHandle,
   }
 
-  type CallFrame = {
-    caller: CoroutineId,
-    expected_arguments: StarstreamValue,
-    expected_result: StarstreamValue,
-    expected_method: Option[MethodHash],
-  }
-
   type CurrPhase =
       CtorEnterPending
     | MethodEnterPending
     | Executing
-    | Yield
+    | ConstructorExecuting
+    | Registering
+    | EffectHandlerPending
+    | EffectHandlerExecuting
+    | EffectResumePending
+    | MethodResultPending
+    | NewUtxoHandlePending
+
+  type CallFrameKind = ProgramCall | ConstructorCall | EffectCall
+
+  type CallFrame = {
+    kind: CallFrameKind,
+    caller: CoroutineId,
+    callee: CoroutineId,
+    expected_arguments: StarstreamValue,
+    expected_result: StarstreamValue,
+    expected_method: Option[MethodHash],
+    saved_phase: CurrPhase,
+    // Core instances whose effect dispatcher must still be called, ordered
+    // from outermost to innermost. Coordinator calls are not modeled yet, so a
+    // raised effect currently initializes this to the raising instance alone.
+    handler_search: List[CoroutineId],
+  }
 
   type UtxoLifecycle = Live | Consumed
   // Running includes output processing once the call stack is empty.
@@ -83,26 +98,21 @@ module starstream {
     //
     // this map is not injective
     resource_resolver: ResourceKey -> CoroutineId,
-    // stores the id of the caller to utxo new
-    //
-    // we don't need a stack for this because utxo constructor can't call other
-    // constructors (for now)
-    //
-    // this gets consumed when the constructors returns, but the data is not
-    // available in that event, since only the coord has the coord-scoped
-    // resource
-    //
-    // because of that, we need to keep track of this until then
-    pending_ctor_key: Option[ResourceKey],
   }
 
   var state: State
 
   type Opcode =
       NewUtxo
+    | ReceiveNewUtxoHandle
     | EnterConstructor
     | CallMethod
+    | ReceiveMethodResult
     | EnterMethod
+    | RaiseEffect
+    | EnterEffectHandler
+    | ExitEffectHandler
+    | ResumeEffect
     | Return
     | YieldBegin
     | RegisterMethod
@@ -115,13 +125,29 @@ module starstream {
     state.call_stack.length() > 0,
     match op {
       | NewUtxo => state.curr_cid_phase == Executing
+      | ReceiveNewUtxoHandle => state.curr_cid_phase == NewUtxoHandlePending
       | EnterConstructor => state.curr_cid_phase == CtorEnterPending
       | CallMethod => state.curr_cid_phase == Executing
+      | ReceiveMethodResult => state.curr_cid_phase == MethodResultPending
       | EnterMethod => state.curr_cid_phase == MethodEnterPending
       | Return =>
-          state.curr_cid_phase == Executing or state.curr_cid_phase == Yield
+          state.curr_cid_phase == Executing or
+          state.curr_cid_phase == ConstructorExecuting or
+          state.curr_cid_phase == Registering
+      // The first `utxo-context.resume()` moves the invocation out of
+      // Executing, so this also forbids a second resume in that invocation.
+      // Revisit if the runtime/language is intended to allow that.
       | YieldBegin => state.curr_cid_phase == Executing
-      | RegisterMethod => state.curr_cid_phase == Yield
+      | RegisterMethod =>
+          state.curr_cid_phase == ConstructorExecuting or
+          state.curr_cid_phase == Registering
+      | RaiseEffect =>
+          state.curr_cid_phase == Executing or
+          state.curr_cid_phase == ConstructorExecuting or
+          state.curr_cid_phase == EffectHandlerExecuting
+      | EnterEffectHandler => state.curr_cid_phase == EffectHandlerPending
+      | ExitEffectHandler => state.curr_cid_phase == EffectHandlerExecuting
+      | ResumeEffect => state.curr_cid_phase == EffectResumePending
     }
   }
 
@@ -155,10 +181,14 @@ module starstream {
       coordinator_finalized: false,
       curr: cid,
       call_stack: List({
+        kind: ProgramCall,
         caller: Coord(0),
+        callee: cid,
         expected_arguments: UNIT_VALUE,
         expected_result: UNIT_VALUE,
         expected_method: None,
+        saved_phase: Executing,
+        handler_search: List(),
       }),
       curr_cid_phase: Executing,
       utxo_lifecycle: Map(),
@@ -169,7 +199,6 @@ module starstream {
       abi_read_remaining: 0,
       abi_read_ordinal: 0,
       resource_resolver: Map(),
-      pending_ctor_key: None,
     }
   }
 
@@ -298,10 +327,7 @@ module starstream {
   }
 
   // triggers on a call to a utxo main function, in a coord script context
-  action new_utxo(
-    arguments: StarstreamValue,
-    resource: Output[ResourceHandle]
-  ): bool = {
+  action new_utxo(arguments: StarstreamValue): bool = {
     val caller = state.curr
     val target = Utxo(state.next_utxo_id)
 
@@ -314,10 +340,14 @@ module starstream {
         tx_phase: Running,
         call_stack: state.call_stack.append(
           {
+            kind: ConstructorCall,
             caller: caller,
+            callee: target,
             expected_arguments: arguments,
             expected_result: UNIT_VALUE,
             expected_method: None,
+            saved_phase: state.curr_cid_phase,
+            handler_search: List(),
           }
         ),
         curr_cid_phase: CtorEnterPending,
@@ -326,10 +356,6 @@ module starstream {
         enabled_methods: state.enabled_methods.put(target, Set()),
         abi_method_count: state.abi_method_count.put(target, 0),
         abi_registrations: state.abi_registrations.put(target, List()),
-        pending_ctor_key: Some({
-          holder: caller,
-          handle: resource.value
-        }),
         ...state
       }
     }
@@ -340,15 +366,14 @@ module starstream {
       action_allowed(EnterConstructor),
       state.curr.is_utxo(),
       arguments.is_valid(),
+      state.call_stack.last().kind == ConstructorCall,
       state.call_stack.last().expected_arguments == arguments,
-
-      state.pending_ctor_key.is_some(),
 
       state' = {
         tx_phase: Running,
         // Constructors establish generation zero without a preceding runtime
-        // `resume` call, so constructor entry opens the initial ABI window.
-        curr_cid_phase: Yield,
+        // `resume` call. Their main body runs before its first registration.
+        curr_cid_phase: ConstructorExecuting,
         ...state
       }
     }
@@ -358,15 +383,11 @@ module starstream {
   action yield_begin(): bool = all {
     action_allowed(YieldBegin),
     state.curr.is_utxo(),
-    // this forbids "yielding twice" (because we set it to Yield in post)
-    //
-    // it may or may not be too restrictive, review later with the runtime/lang
-    // integration
 
     state' = {
       abi_method_count: state.abi_method_count.put(state.curr, 0),
       abi_registrations: state.abi_registrations.put(state.curr, List()),
-      curr_cid_phase: Yield,
+      curr_cid_phase: Registering,
       tx_phase: Running,
       enabled_methods:
         // begin yield (a `resume` keyword in a utxo method) resets the abi set
@@ -384,6 +405,7 @@ module starstream {
     state' = {
       abi_method_count: state.abi_method_count.setBy(state.curr, count => count + 1),
       abi_registrations: state.abi_registrations.setBy(state.curr, methods => methods.append(method)),
+      curr_cid_phase: Registering,
       tx_phase: Running,
       // Set insertion makes repeated registrations semantically idempotent.
       enabled_methods:
@@ -398,18 +420,8 @@ module starstream {
   // need different semantics
   action return(result: Output[StarstreamValue]): bool = all {
     action_allowed(Return),
-    match state.pending_ctor_key {
-      | Some(key) => not(state.resource_resolver.keys().contains(key))
-      | None => true
-    },
     result.value.is_valid(),
     val frame = state.call_stack.last()
-
-    val resource_resolver = match state.pending_ctor_key {
-      | Some(key) =>
-        state.resource_resolver.put(key, state.curr)
-      | None => state.resource_resolver
-    }
 
     val utxo_lifecycle = if (state.curr.is_utxo()) {
       val yield_empty_abi = state.enabled_methods.get(state.curr) == Set()
@@ -428,17 +440,44 @@ module starstream {
     }
 
     all {
-      frame.expected_result == result.value,
+      frame.kind == ProgramCall or frame.kind == ConstructorCall,
+      if (frame.kind == ConstructorCall or frame.caller == Coord(0))
+        frame.expected_result == result.value
+      else true,
+      val returning_to_import = frame.caller != Coord(0)
       state' = {
         curr: frame.caller,
         tx_phase: Running,
-        resource_resolver: resource_resolver,
-        call_stack: state.call_stack.pop_last(),
-        pending_ctor_key: None,
+        call_stack:
+          if (returning_to_import)
+            state.call_stack.replaceAt(
+              state.call_stack.length() - 1,
+              { expected_result: result.value, ...frame })
+          else state.call_stack.pop_last(),
         utxo_lifecycle: utxo_lifecycle,
-        curr_cid_phase: Executing,
+        curr_cid_phase:
+          if (not(returning_to_import)) Executing
+          else if (frame.kind == ConstructorCall) NewUtxoHandlePending
+          else MethodResultPending,
         ...state
       },
+    }
+  }
+
+  action receive_new_utxo_handle(resource: Output[ResourceHandle]): bool = {
+    val frame = state.call_stack.last()
+    val key = { holder: state.curr, handle: resource.value }
+    all {
+      action_allowed(ReceiveNewUtxoHandle),
+      frame.kind == ConstructorCall,
+      frame.caller == state.curr,
+      not(state.resource_resolver.keys().contains(key)),
+      state' = {
+        call_stack: state.call_stack.pop_last(),
+        resource_resolver: state.resource_resolver.put(key, frame.callee),
+        curr_cid_phase: frame.saved_phase,
+        ...state
+      }
     }
   }
 
@@ -447,8 +486,7 @@ module starstream {
   action call_method(
     resource: ResourceHandle,
     method: MethodHash,
-    arguments: StarstreamValue,
-    result: Output[StarstreamValue]
+    arguments: StarstreamValue
   ): bool = {
     val target = state.resource_resolver.get({
       holder: state.curr,
@@ -458,7 +496,6 @@ module starstream {
     all {
       action_allowed(CallMethod),
       arguments.is_valid(),
-      result.value.is_valid(),
       // utxos can't call utxos
       state.curr.is_coord(),
       state.resource_resolver.keys().contains({ holder: state.curr, handle: resource }),
@@ -466,10 +503,14 @@ module starstream {
       state.utxo_lifecycle.get(target) == Live,
 
       val frame = {
+        kind: ProgramCall,
         caller: state.curr,
+        callee: target,
         expected_arguments: arguments,
-        expected_result: result.value,
-        expected_method: Some(method)
+        expected_result: UNIT_VALUE,
+        expected_method: Some(method),
+        saved_phase: state.curr_cid_phase,
+        handler_search: List(),
       }
       state' = {
         curr: target,
@@ -477,6 +518,24 @@ module starstream {
         tx_phase: Running,
         curr_cid_phase: MethodEnterPending,
 
+        ...state
+      }
+    }
+  }
+
+
+  action receive_method_result(method: MethodHash, result: Output[StarstreamValue]): bool = {
+    val frame = state.call_stack.last()
+    all {
+      action_allowed(ReceiveMethodResult),
+      result.value.is_valid(),
+      frame.kind != ConstructorCall,
+      frame.caller == state.curr,
+      frame.expected_method == Some(method),
+      frame.expected_result == result.value,
+      state' = {
+        call_stack: state.call_stack.pop_last(),
+        curr_cid_phase: frame.saved_phase,
         ...state
       }
     }
@@ -496,6 +555,7 @@ module starstream {
     // the utxo "calls" this
     state.curr.is_utxo(),
     state.call_stack.length() > 0,
+    state.call_stack.last().kind != ConstructorCall,
     state.call_stack.last().expected_arguments == arguments,
     state.call_stack.last().expected_method == Some(method),
 
@@ -504,6 +564,88 @@ module starstream {
       tx_phase: Running,
 
       ...state
+    }
+  }
+
+  // Effect imports are split around reentrant handler calls. Raising pushes a
+  // frame without changing coroutine ownership; same-instance handler entry,
+  // exit, and import resumption all remain on the raiser's trace chain.
+  action raise_effect(effect: MethodHash, arguments: StarstreamValue): bool = all {
+    action_allowed(RaiseEffect),
+    arguments.is_valid(),
+    state' = {
+      call_stack: state.call_stack.append({
+        kind: EffectCall,
+        caller: state.curr,
+        callee: state.curr,
+        expected_arguments: arguments,
+        expected_result: UNIT_VALUE,
+        expected_method: Some(effect),
+        saved_phase: state.curr_cid_phase,
+        // TODO: are utxos supposed to be in the search path?
+        //
+        // they can't call things, so they would be only handling their own effects
+        // maybe that's useful though?
+        handler_search: List(state.curr),
+      }),
+      curr_cid_phase: EffectHandlerPending,
+      tx_phase: Running,
+      ...state
+    }
+  }
+
+  action enter_effect_handler(effect: MethodHash, arguments: StarstreamValue): bool = {
+    val frame = state.call_stack.last()
+    all {
+      action_allowed(EnterEffectHandler),
+      arguments.is_valid(),
+      frame.kind == EffectCall,
+      frame.caller == state.curr,
+      frame.handler_search.length() > 0,
+      frame.handler_search.last() == state.curr,
+      frame.expected_method == Some(effect),
+      frame.expected_arguments == arguments,
+      state' = { curr_cid_phase: EffectHandlerExecuting, ...state }
+    }
+  }
+
+  action exit_effect_handler(handled: bool, result: Output[StarstreamValue]): bool = {
+    val frame = state.call_stack.last()
+    all {
+      action_allowed(ExitEffectHandler),
+      result.value.is_valid(),
+      frame.kind == EffectCall,
+      val remaining_search = if (handled) List() else frame.handler_search.pop_last()
+      state' = {
+        call_stack: state.call_stack.replaceAt(
+          state.call_stack.length() - 1,
+          {
+            expected_result: result.value,
+            handler_search: remaining_search,
+            ...frame
+          }
+        ),
+        curr_cid_phase: if (handled) EffectResumePending else EffectHandlerPending,
+        ...state
+      }
+    }
+  }
+
+  action resume_effect(effect: MethodHash, result: Output[StarstreamValue]): bool = {
+    val frame = state.call_stack.last()
+    all {
+      action_allowed(ResumeEffect),
+      result.value.is_valid(),
+      frame.kind == EffectCall,
+      frame.caller == state.curr,
+      frame.expected_method == Some(effect),
+      frame.expected_result == result.value,
+      frame.handler_search.length() == 0,
+      state' = {
+        call_stack: state.call_stack.pop_last(),
+        curr_cid_phase: frame.saved_phase,
+        ...state
+      }
     }
   }
 

@@ -28,21 +28,22 @@ module replay_trace {
   action init_empty_transaction = { state' = new_transaction(List(), List()) }
 
   run test_constructor_cannot_rebind_even_consumed_resource = init
-    .then(new_utxo(UNIT_VALUE, { value: 0 }))
+    .then(new_utxo(UNIT_VALUE))
     .then(enter_constructor(UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
-    .then(new_utxo(UNIT_VALUE, { value: 0 }))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(new_utxo(UNIT_VALUE))
     .then(enter_constructor(UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
-    .fail()
+    .then(receive_new_utxo_handle({ value: 0 }).fail())
 
   run test_constructor_cannot_rebind_input = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
-    .then(new_utxo(UNIT_VALUE, { value: 0 }))
+    .then(new_utxo(UNIT_VALUE))
     .then(enter_constructor(UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
-    .fail()
+    .then(receive_new_utxo_handle({ value: 0 }).fail())
 
   run test_input_cannot_rebind_input = {
     val input = { storage: UNIT_VALUE, methods: List(method) }
@@ -91,7 +92,7 @@ module replay_trace {
     .then(preload_method(method))
     .then(preload_method(method))
     .then(check_abi_count)
-    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(call_method(0, method, UNIT_VALUE))
     .then(enter_method(method, UNIT_VALUE))
     .then(yield_begin)
     .then(check_abi_count)
@@ -144,7 +145,7 @@ module replay_trace {
   run test_registration_count_bound_and_reset = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(255.reps(i => preload_method(method)))
-    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(call_method(0, method, UNIT_VALUE))
     .then(enter_method(method, UNIT_VALUE))
     .then(yield_begin)
     .then(all { assert(state.abi_method_count.get(Utxo(0)) == 0), state' = state })
@@ -205,11 +206,12 @@ module replay_trace {
   }
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
-    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(call_method(0, method, UNIT_VALUE))
     .then(enter_method(method, UNIT_VALUE))
     .then(yield_begin)
     .then(register_method(other_method))
     .then(return({ value: UNIT_VALUE }))
+    .then(receive_method_result(method, { value: UNIT_VALUE }))
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(other_method))
@@ -236,12 +238,14 @@ module replay_trace {
       .then(set_storage(second_storage, second_handle))
       .then(preload_method(other_method))
       // Both handles belong to the same coordinator, but resolve to different UTXOs.
-      .then(call_method(first_handle, method, UNIT_VALUE, { value: UNIT_VALUE }))
+      .then(call_method(first_handle, method, UNIT_VALUE))
       .then(enter_method(method, UNIT_VALUE))
       .then(return({ value: UNIT_VALUE }))
-      .then(call_method(second_handle, other_method, UNIT_VALUE, { value: UNIT_VALUE }))
+      .then(receive_method_result(method, { value: UNIT_VALUE }))
+      .then(call_method(second_handle, other_method, UNIT_VALUE))
       .then(enter_method(other_method, UNIT_VALUE))
       .then(return({ value: UNIT_VALUE }))
+      .then(receive_method_result(other_method, { value: UNIT_VALUE }))
       .then(return({ value: UNIT_VALUE }))
       .then(get_storage({ value: first_storage }))
       .then(read_abi(method))
@@ -255,7 +259,7 @@ module replay_trace {
   run test_storage_during_execution_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
-    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(call_method(0, method, UNIT_VALUE))
     .then(set_storage(UNIT_VALUE, 0))
     .fail()
 
@@ -266,14 +270,14 @@ module replay_trace {
   run test_export_during_execution_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
-    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(call_method(0, method, UNIT_VALUE))
     .then(get_storage({ value: UNIT_VALUE }))
     .fail()
 
   run test_preload_after_execution_starts_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
-    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(call_method(0, method, UNIT_VALUE))
     .then(preload_method(method))
     .fail()
 
@@ -290,47 +294,50 @@ module replay_trace {
     .fail()
 
   run test_centered_field_boundaries = init
-    .then(new_utxo(List(-FIELD_HALF, FIELD_HALF, -1, 0), { value: 0 }))
+    .then(new_utxo(List(-FIELD_HALF, FIELD_HALF, -1, 0)))
     .then(enter_constructor(List(-FIELD_HALF, FIELD_HALF, -1, 0)))
     .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
   run test_above_centered_field_bound_fails = init
-    .then(new_utxo(List(FIELD_HALF + 1, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(FIELD_HALF + 1, 0, 0, 0)))
     .fail()
 
   run test_below_centered_field_bound_fails = init
-    .then(new_utxo(List(-FIELD_HALF - 1, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(-FIELD_HALF - 1, 0, 0, 0)))
     .fail()
 
   run test_execution_satisfies_spec = init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
   run test_enter_constructor_twice_fails = init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .fail()
 
   run test_incomplete_execution_fails = init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
     .fail()
 
   run test_opcode_after_terminal_return_fails = init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
-    .then(new_utxo(List(7, 0, 0, 0), { value: 1 }))
+    .then(new_utxo(List(7, 0, 0, 0)))
     .fail()
 
   run test_yield_from_coordinator_fails = init
@@ -339,128 +346,265 @@ module replay_trace {
 
   run test_call_method_success =
     init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, method, List(42, 0, 0, 0), {value: List(7, 8, 0, 0)}))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_method(method, List(42, 0, 0, 0)))
     .then(return({ value: List(7, 8, 0, 0) }))
+    .then(receive_method_result(method, { value: List(7, 8, 0, 0) }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
+
+  run test_effect_handler_reentry = init
+    .then(raise_effect(method, List(1, 2, 3, 4)))
+    .then(enter_effect_handler(method, List(1, 2, 3, 4)))
+    .then(exit_effect_handler(true, { value: UNIT_VALUE }))
+    .then(resume_effect(method, { value: UNIT_VALUE }))
+    .then(return({ value: UNIT_VALUE }))
+    .then(execution_complete)
+
+  run test_unhandled_effect_cannot_resume = init
+    .then(raise_effect(method, UNIT_VALUE))
+    .then(enter_effect_handler(method, UNIT_VALUE))
+    .then(exit_effect_handler(false, { value: UNIT_VALUE }))
+    .then(resume_effect(method, { value: UNIT_VALUE }))
+    .fail()
+
+  run test_effect_handler_cannot_be_skipped = init
+    .then(raise_effect(method, UNIT_VALUE))
+    .then(resume_effect(method, { value: UNIT_VALUE }))
+    .fail()
+
+  run test_effect_handler_cannot_be_repeated_after_mismatch = init
+    .then(raise_effect(method, UNIT_VALUE))
+    .then(enter_effect_handler(method, UNIT_VALUE))
+    .then(exit_effect_handler(false, { value: UNIT_VALUE }))
+    .then(enter_effect_handler(method, UNIT_VALUE))
+    .fail()
+
+  run test_nested_effect_restores_handler_phase = init
+    .then(raise_effect(method, UNIT_VALUE))
+    .then(enter_effect_handler(method, UNIT_VALUE))
+    .then(raise_effect(other_method, UNIT_VALUE))
+    .then(enter_effect_handler(other_method, UNIT_VALUE))
+    .then(exit_effect_handler(true, { value: UNIT_VALUE }))
+    .then(resume_effect(other_method, { value: UNIT_VALUE }))
+    .then(exit_effect_handler(true, { value: UNIT_VALUE }))
+    .then(resume_effect(method, { value: UNIT_VALUE }))
+    .then(return({ value: UNIT_VALUE }))
+    .then(execution_complete)
+
+  run test_effect_during_constructor_execution_before_registration = init
+    .then(new_utxo(UNIT_VALUE))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(raise_effect(method, UNIT_VALUE))
+    .then(enter_effect_handler(method, UNIT_VALUE))
+    .then(exit_effect_handler(true, { value: UNIT_VALUE }))
+    .then(resume_effect(method, { value: UNIT_VALUE }))
+    .then(register_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(return({ value: UNIT_VALUE }))
+    .then(execution_complete)
+
+  run test_effect_after_registration_fails = init
+    .then(new_utxo(UNIT_VALUE))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(register_method(method))
+    .then(raise_effect(method, UNIT_VALUE))
+    .fail()
+
+  run test_effect_after_resume_signal_fails = init
+    .then(new_utxo(UNIT_VALUE))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(register_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, method, UNIT_VALUE))
+    .then(enter_method(method, UNIT_VALUE))
+    .then(yield_begin)
+    .then(raise_effect(method, UNIT_VALUE))
+    .fail()
 
   // Returning from a method without `resume` preserves the current ABI.
   run test_method_call_without_resume_preserves_abi =
     init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, method, List(42, 0, 0, 0), {value: UNIT_VALUE}))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_method(method, List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, method, List(42, 0, 0, 0), {value: UNIT_VALUE}))
+    .then(receive_method_result(method, { value: UNIT_VALUE }))
+    .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_method(method, List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
+    .then(receive_method_result(method, { value: UNIT_VALUE }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
+  run test_return_cannot_skip_method_result = init
+    .then(new_utxo(UNIT_VALUE))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(register_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, method, UNIT_VALUE))
+    .then(enter_method(method, UNIT_VALUE))
+    .then(return({ value: UNIT_VALUE }))
+    .then(return({ value: UNIT_VALUE }))
+    .fail()
+
+  run test_effect_cannot_skip_method_result = init
+    .then(new_utxo(UNIT_VALUE))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(register_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, method, UNIT_VALUE))
+    .then(enter_method(method, UNIT_VALUE))
+    .then(return({ value: UNIT_VALUE }))
+    .then(raise_effect(other_method, UNIT_VALUE))
+    .fail()
+
+  run test_return_cannot_skip_new_utxo_handle = init
+    .then(new_utxo(UNIT_VALUE))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(return({ value: UNIT_VALUE }))
+    .then(return({ value: UNIT_VALUE }))
+    .fail()
+
+  run test_effect_cannot_skip_new_utxo_handle = init
+    .then(new_utxo(UNIT_VALUE))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(return({ value: UNIT_VALUE }))
+    .then(raise_effect(other_method, UNIT_VALUE))
+    .fail()
+
+  run test_constructor_and_entrypoint_results_are_unit = init
+    .then(new_utxo(UNIT_VALUE))
+    .then(enter_constructor(UNIT_VALUE))
+    .then(return({ value: List(1, 0, 0, 0) }))
+    .fail()
+
+  run test_entrypoint_result_is_unit = init
+    .then(return({ value: List(1, 0, 0, 0) }))
+    .fail()
+
   run test_enter_method_twice_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, method, List(42, 0, 0, 0), {value: UNIT_VALUE}))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_method(method, List(42, 0, 0, 0)))
     .then(enter_method(method, List(42, 0, 0, 0)))
     .fail()
 
   run test_enter_method_with_wrong_method_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, method, List(42, 0, 0, 0), {value: UNIT_VALUE}))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_method(other_method, List(42, 0, 0, 0)))
     .fail()
 
   run test_call_unregistered_method_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, other_method, List(42, 0, 0, 0), { value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, other_method, List(42, 0, 0, 0)))
     .fail()
 
   // A shared method dictionary does not make registrations global.
   run test_method_registered_only_by_another_utxo_fails = init
-    .then(new_utxo(UNIT_VALUE, { value: 0 }))
+    .then(new_utxo(UNIT_VALUE))
     .then(enter_constructor(UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(new_utxo(UNIT_VALUE, { value: 1 }))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(new_utxo(UNIT_VALUE))
     .then(enter_constructor(UNIT_VALUE))
     .then(register_method(other_method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(1, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 1 }))
+    .then(call_method(1, method, UNIT_VALUE))
     .fail()
 
   // Both UTXOs expose the same hash; resuming A must not reset B's ABI.
   run test_yield_preserves_another_utxos_abi = init
-    .then(new_utxo(UNIT_VALUE, { value: 0 }))
+    .then(new_utxo(UNIT_VALUE))
     .then(enter_constructor(UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(new_utxo(UNIT_VALUE, { value: 1 }))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(new_utxo(UNIT_VALUE))
     .then(enter_constructor(UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 1 }))
+    .then(call_method(0, method, UNIT_VALUE))
     .then(enter_method(method, UNIT_VALUE))
     .then(yield_begin)
     .then(register_method(other_method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(1, method, UNIT_VALUE, { value: UNIT_VALUE }))
+    .then(receive_method_result(method, { value: UNIT_VALUE }))
+    .then(call_method(1, method, UNIT_VALUE))
     .then(enter_method(method, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
+    .then(receive_method_result(method, { value: UNIT_VALUE }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
   run test_duplicate_method_registration_is_idempotent =
     init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
   run test_stale_method_after_yield_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, method, List(42, 0, 0, 0), { value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_method(method, List(42, 0, 0, 0)))
     .then(yield_begin)
     .then(register_method(other_method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, method, List(42, 0, 0, 0), { value: UNIT_VALUE }))
+    .then(receive_method_result(method, { value: UNIT_VALUE }))
+    .then(call_method(0, method, List(42, 0, 0, 0)))
     .fail()
 
   run test_return_with_wrong_result_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0), { value: 0 }))
+    .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
-    .then(call_method(0, method, List(42, 0, 0, 0), {value: List(7, 8, 0, 0)}))
+    .then(receive_new_utxo_handle({ value: 0 }))
+    .then(call_method(0, method, List(42, 0, 0, 0)))
     .then(enter_method(method, List(42, 0, 0, 0)))
     .then(return({ value: List(7, 9, 0, 0) }))
-    .fail()
+    .then(receive_method_result(method, { value: List(7, 8, 0, 0) }).fail())
 }
