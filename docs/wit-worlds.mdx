@@ -178,6 +178,11 @@ world root {
 }
 ```
 
+Also, contracts should export an `assert-effect-not-handled` function, with
+signature `func(id: tuple<u64, u64, u64, u64>)`. The input is the SHA-256 hash
+of the ABI name followed by `#` followed by the effect name. The function
+should trap if an `effect-handler` for this effect exists, or do nothing and return otherwise.
+
 ### ABI methods
 
 To call methods on a Utxo without knowing its concrete type, import the methods
