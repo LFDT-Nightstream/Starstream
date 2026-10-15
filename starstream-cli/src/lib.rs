@@ -146,3 +146,7 @@ impl InputArg {
         Ok(graph)
     }
 }
+
+fn wasmtime_error_to_report(error: wasmtime::Error) -> miette::Report {
+    miette::Report::msg(format!("{:?}", error))
+}

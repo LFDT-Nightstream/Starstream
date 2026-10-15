@@ -311,13 +311,12 @@ fn link_event_instance<T: Host>(
 #[instrument(level = "trace", skip_all)]
 fn link_effect_function<T: Host>(
     linker: &mut LinkerInstance<T>,
-    ty: types::ComponentFunc,
+    _ty: types::ComponentFunc,
     abi_name: &str,
     name: &str,
 ) -> wasmtime::Result<()> {
     let abi_name = Arc::<str>::from(abi_name);
     let name = Arc::<str>::from(name);
-    ensure!(ty.results().len() == 0);
     linker.func_new(
         &Arc::clone(&name),
         move |mut store, _ty, params, _results| {

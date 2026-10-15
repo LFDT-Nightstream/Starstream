@@ -280,6 +280,6 @@ async fn exec(
 
 impl Run {
     pub async fn exec(self) -> miette::Result<()> {
-        exec(self).await.map_err(|err| miette::miette!("{err}"))
+        exec(self).await.map_err(crate::wasmtime_error_to_report)
     }
 }
