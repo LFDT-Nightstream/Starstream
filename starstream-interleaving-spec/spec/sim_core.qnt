@@ -105,9 +105,8 @@ module starstream_sim_core {
   }
 
   action simulate_receive_method_result: bool = {
-    nondet method = SIM_METHODS.oneOf()
     nondet result = SIM_VALUES.oneOf()
-    receive_method_result(method, { value: result })
+    receive_method_result({ value: result })
   }
 
   action simulate_return: bool = {

@@ -127,7 +127,9 @@ impl EventKind {
             Self::SetStorage | Self::NewUtxo | Self::EnterConstructor => {
                 root(&mut words, &mut last_root_block, true);
             }
-            Self::GetStorage | Self::Return => root(&mut words, &mut last_root_block, false),
+            Self::GetStorage | Self::Return | Self::ResumeEffect | Self::ReceiveMethodResult => {
+                root(&mut words, &mut last_root_block, false)
+            }
             Self::ReceiveNewUtxoHandle => words.push(Resource),
             Self::YieldBegin => {}
             Self::RegisterMethod => words.extend((0..METHOD_WORDS).map(Method)),
@@ -135,10 +137,6 @@ impl EventKind {
                 words.push(Resource);
                 words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, true);
-            }
-            Self::ReceiveMethodResult | Self::ResumeEffect => {
-                words.extend((0..METHOD_WORDS).map(Method));
-                root(&mut words, &mut last_root_block, false);
             }
             Self::EnterMethod | Self::RaiseEffect | Self::EnterEffectHandler => {
                 words.extend((0..METHOD_WORDS).map(Method));
@@ -239,11 +237,9 @@ impl EventKind {
             && matches!(
                 self,
                 EventKind::CallMethod
-                    | EventKind::ReceiveMethodResult
                     | EventKind::EnterMethod
                     | EventKind::RaiseEffect
                     | EventKind::EnterEffectHandler
-                    | EventKind::ResumeEffect
             )
             && method != expected
         {
@@ -288,7 +284,6 @@ impl EventKind {
                 arguments: argument,
             },
             EventKind::ReceiveMethodResult => Step::ReceiveMethodResult {
-                method,
                 result: Out(result),
             },
             EventKind::EnterMethod => Step::EnterMethod {
@@ -308,7 +303,6 @@ impl EventKind {
                 result: Out(result),
             },
             EventKind::ResumeEffect => Step::ResumeEffect {
-                effect: method,
                 result: Out(result),
             },
         })
@@ -339,14 +333,14 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
             method,
             arguments,
         } => (resource.0, Some(method), Some(arguments), None),
-        Step::ReceiveMethodResult { method, result } => (0, Some(method), None, Some(&result.0)),
+        Step::ReceiveMethodResult { result } => (0, None, None, Some(&result.0)),
         Step::EnterMethod { method, arguments } => (0, Some(method), Some(arguments), None),
         Step::RaiseEffect { effect, arguments }
         | Step::EnterEffectHandler { effect, arguments } => {
             (0, Some(effect), Some(arguments), None)
         }
         Step::ExitEffectHandler { result, .. } => (0, None, None, Some(&result.0)),
-        Step::ResumeEffect { effect, result } => (0, Some(effect), None, Some(&result.0)),
+        Step::ResumeEffect { result } => (0, None, None, Some(&result.0)),
     };
     kind.blocks()
         .into_iter()
@@ -438,10 +432,7 @@ mod test {
                 method: METHOD,
                 arguments: ROOT,
             },
-            Step::ReceiveMethodResult {
-                method: METHOD,
-                result: Out(OTHER),
-            },
+            Step::ReceiveMethodResult { result: Out(OTHER) },
             Step::EnterMethod {
                 method: METHOD,
                 arguments: ROOT,
@@ -458,21 +449,16 @@ mod test {
                 handled: true,
                 result: Out(OTHER),
             },
-            Step::ResumeEffect {
-                effect: METHOD,
-                result: Out(OTHER),
-            },
+            Step::ResumeEffect { result: Out(OTHER) },
         ]
     }
 
     fn expected_method(step: &Step) -> Option<MethodHash> {
         match step {
             Step::CallMethod { method, .. }
-            | Step::ReceiveMethodResult { method, .. }
             | Step::EnterMethod { method, .. }
             | Step::RaiseEffect { effect: method, .. }
-            | Step::EnterEffectHandler { effect: method, .. }
-            | Step::ResumeEffect { effect: method, .. } => Some(*method),
+            | Step::EnterEffectHandler { effect: method, .. } => Some(*method),
             _ => None,
         }
     }
@@ -534,11 +520,8 @@ mod test {
             encode(&step),
             [[6, 7, 1, 2, 3, 4, 5, 6], [7, 8, 11, 12, 13, 14, 0, 0],]
         );
-        let resume = Step::ReceiveMethodResult {
-            method: METHOD,
-            result: Out(OTHER),
-        };
-        assert_eq!(encode(&resume).len(), 2);
+        let resume = Step::ReceiveMethodResult { result: Out(OTHER) };
+        assert_eq!(encode(&resume), [[15, 21, 22, 23, 24, 0, 0, 0]]);
     }
 
     #[test]

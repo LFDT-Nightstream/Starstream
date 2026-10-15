@@ -784,10 +784,7 @@ fn build_effect_template(
     }
     call = call.root(import_arguments_root(import, 0)?)?;
 
-    let mut return_ = Sequence::op(EventKind::ResumeEffect);
-    for word in effect.0 {
-        return_ = return_.constant_i32(word)?;
-    }
+    let return_ = Sequence::op(EventKind::ResumeEffect);
     let (result, high_lane) = import_result_root(import)?;
     let mut return_events = return_.root(result)?.finish()?;
     return_events.extend(high_lane);
@@ -941,9 +938,6 @@ fn build_call_method_template(
     let call = sequence.finish()?;
 
     let mut return_ = Sequence::op(EventKind::ReceiveMethodResult);
-    for word in method.0 {
-        return_ = return_.constant_i32(word)?;
-    }
     let (result, high_lane) = import_result_root(import)?;
     return_ = return_.root(result)?;
     let mut return_events = return_.finish()?;
@@ -1458,7 +1452,6 @@ mod tests {
         assert_eq!(
             crate::decode_tagged_blocks(&return_blocks, &mut std::iter::empty()).unwrap(),
             Trace::new([Step::ResumeEffect {
-                effect,
                 result: StarstreamValue::UNIT_VALUE.into(),
             }])
         );
@@ -1619,7 +1612,6 @@ mod tests {
                     arguments: arguments.clone(),
                 },
                 Step::ReceiveMethodResult {
-                    method,
                     result: Out(StarstreamValue::UNIT_VALUE),
                 },
             ])
@@ -1681,7 +1673,6 @@ mod tests {
                     arguments,
                 },
                 Step::ReceiveMethodResult {
-                    method: method_hash("poke"),
                     result: Out(StarstreamValue::UNIT_VALUE),
                 },
             ])

@@ -80,11 +80,8 @@ fn call(resource: ResourceHandle, method: &str, argument: u64) -> Step {
     }
 }
 
-fn receive_method_result(method: &str) -> Step {
-    Step::ReceiveMethodResult {
-        method: method_hash(method),
-        result: Out(UNIT),
-    }
+fn receive_method_result() -> Step {
+    Step::ReceiveMethodResult { result: Out(UNIT) }
 }
 
 fn enter(method: &str, argument: u64) -> Step {
@@ -128,7 +125,7 @@ fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
             resource: Out(resource),
         },
         call(resource, "accept", 13),
-        receive_method_result("accept"),
+        receive_method_result(),
         ret(),
     ]);
     let utxo = Trace::new([
@@ -153,10 +150,7 @@ fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
         },
     ];
     for (method, argument) in calls {
-        coordinator.extend([
-            call(resource, method, argument),
-            receive_method_result(method),
-        ]);
+        coordinator.extend([call(resource, method, argument), receive_method_result()]);
     }
     coordinator.push(ret());
 
@@ -294,10 +288,7 @@ async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> 
             handled: true,
             result: Out(UNIT),
         },
-        Step::ResumeEffect {
-            effect,
-            result: Out(UNIT),
-        },
+        Step::ResumeEffect { result: Out(UNIT) },
         ret(),
     ]);
     assert_eq!(
@@ -329,10 +320,7 @@ async fn unhandled_effect_is_rejected_by_the_circuit() -> wasmtime::Result<()> {
             handled: false,
             result: Out(UNIT),
         },
-        Step::ResumeEffect {
-            effect,
-            result: Out(UNIT),
-        },
+        Step::ResumeEffect { result: Out(UNIT) },
         ret(),
     ]);
     assert_eq!(execution.transaction.execution, expected);
@@ -444,7 +432,7 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
             expected.push(Step::YieldBegin);
         }
         expected.push(ret());
-        expected.push(receive_method_result(method));
+        expected.push(receive_method_result());
     }
     expected.push(ret());
     assert_eq!(execution.transaction.execution, Trace::new(expected));

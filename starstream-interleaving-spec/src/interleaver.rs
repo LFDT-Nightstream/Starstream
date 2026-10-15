@@ -409,9 +409,8 @@ mod tests {
         }
     }
 
-    fn receive_method_result(method: MethodHash) -> Step {
+    fn receive_method_result() -> Step {
         Step::ReceiveMethodResult {
-            method,
             result: Out(StarstreamValue::default()),
         }
     }
@@ -435,7 +434,7 @@ mod tests {
             new_utxo([2]),
             receive_new_utxo_handle(consumed),
             call_method(live, method(9), [13]),
-            receive_method_result(method(9)),
+            receive_method_result(),
             ret(),
         ]);
         let live_utxo = Trace::new([
@@ -460,7 +459,7 @@ mod tests {
             &[
                 Trace::new([
                     call_method(handle, method(9), [13]),
-                    receive_method_result(method(9)),
+                    receive_method_result(),
                     ret(),
                 ]),
                 Trace::new([
@@ -588,9 +587,9 @@ mod tests {
             new_utxo([55]),
             receive_new_utxo_handle(resource),
             call_method(resource, method(1), [13]),
-            receive_method_result(method(1)),
+            receive_method_result(),
             call_method(resource, method(2), []),
-            receive_method_result(method(2)),
+            receive_method_result(),
             ret(),
         ]);
         let utxo = Trace::new([
@@ -627,13 +626,13 @@ mod tests {
                 call_method(resource, method(1), [13]),
                 enter_method(method(1), [13]),
                 ret(),
-                receive_method_result(method(1)),
+                receive_method_result(),
                 call_method(resource, method(2), []),
                 enter_method(method(2), []),
                 Step::YieldBegin,
                 Step::RegisterMethod { method: method(3) },
                 ret(),
-                receive_method_result(method(2)),
+                receive_method_result(),
                 ret(),
             ])
         );
@@ -646,9 +645,9 @@ mod tests {
             new_utxo([2]),
             receive_new_utxo_handle(ResourceHandle(1)),
             call_method(ResourceHandle(1), method(2), []),
-            receive_method_result(method(2)),
+            receive_method_result(),
             call_method(ResourceHandle(0), method(1), []),
-            receive_method_result(method(1)),
+            receive_method_result(),
             ret(),
         ]);
         let first = Trace::new([
@@ -679,11 +678,11 @@ mod tests {
                 call_method(ResourceHandle(1), method(2), []),
                 enter_method(method(2), []),
                 ret(),
-                receive_method_result(method(2)),
+                receive_method_result(),
                 call_method(ResourceHandle(0), method(1), []),
                 enter_method(method(1), []),
                 ret(),
-                receive_method_result(method(1)),
+                receive_method_result(),
                 ret(),
             ]
         );

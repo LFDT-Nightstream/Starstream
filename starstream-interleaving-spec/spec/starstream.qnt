@@ -469,7 +469,6 @@ module starstream {
     val key = { holder: state.curr, handle: resource.value }
     all {
       action_allowed(ReceiveNewUtxoHandle),
-      frame.kind == ConstructorCall,
       frame.caller == state.curr,
       not(state.resource_resolver.keys().contains(key)),
       state' = {
@@ -524,14 +523,12 @@ module starstream {
   }
 
 
-  action receive_method_result(method: MethodHash, result: Output[StarstreamValue]): bool = {
+  action receive_method_result(result: Output[StarstreamValue]): bool = {
     val frame = state.call_stack.last()
     all {
       action_allowed(ReceiveMethodResult),
       result.value.is_valid(),
-      frame.kind != ConstructorCall,
       frame.caller == state.curr,
-      frame.expected_method == Some(method),
       frame.expected_result == result.value,
       state' = {
         call_stack: state.call_stack.pop_last(),
@@ -631,14 +628,13 @@ module starstream {
     }
   }
 
-  action resume_effect(effect: MethodHash, result: Output[StarstreamValue]): bool = {
+  action resume_effect(result: Output[StarstreamValue]): bool = {
     val frame = state.call_stack.last()
     all {
       action_allowed(ResumeEffect),
       result.value.is_valid(),
       frame.kind == EffectCall,
       frame.caller == state.curr,
-      frame.expected_method == Some(effect),
       frame.expected_result == result.value,
       frame.handler_search.length() == 0,
       state' = {

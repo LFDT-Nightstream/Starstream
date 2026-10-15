@@ -559,8 +559,8 @@ impl fmt::Display for Qnt<&Step> {
                 Qnt(method),
                 Qnt(arguments)
             ),
-            Step::ReceiveMethodResult { method, result } => {
-                write!(f, "receive_method_result({}, {})", Qnt(method), Qnt(result))
+            Step::ReceiveMethodResult { result } => {
+                write!(f, "receive_method_result({})", Qnt(result))
             }
             Step::EnterMethod { method, arguments } => {
                 write!(f, "enter_method({}, {})", Qnt(method), Qnt(arguments))
@@ -577,8 +577,8 @@ impl fmt::Display for Qnt<&Step> {
             Step::ExitEffectHandler { handled, result } => {
                 write!(f, "exit_effect_handler({}, {})", handled, Qnt(result))
             }
-            Step::ResumeEffect { effect, result } => {
-                write!(f, "resume_effect({}, {})", Qnt(effect), Qnt(result))
+            Step::ResumeEffect { result } => {
+                write!(f, "resume_effect({})", Qnt(result))
             }
         }
     }

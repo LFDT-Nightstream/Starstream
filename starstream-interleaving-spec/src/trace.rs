@@ -158,8 +158,9 @@ pub enum Step {
         method: MethodHash,
         arguments: StarstreamValue,
     },
+    /// Receive the completed top frame's result; the Wasm proof pairs this
+    /// return with its suspended method import.
     ReceiveMethodResult {
-        method: MethodHash,
         result: Out<StarstreamValue>,
     },
     EnterMethod {
@@ -180,8 +181,9 @@ pub enum Step {
         handled: bool,
         result: Out<StarstreamValue>,
     },
+    /// Receive the top effect frame's result. The Wasm proof pairs the return
+    /// with its suspended import, including across same-instance reentry.
     ResumeEffect {
-        effect: EffectHash,
         result: Out<StarstreamValue>,
     },
 }
