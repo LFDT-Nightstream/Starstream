@@ -7,7 +7,7 @@ use ed25519_dalek::SigningKey;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::server::Ledger;
-use starstream_ledger::{Publish, Transaction};
+use starstream_ledger::{CardanoCtx, Publish, Transaction};
 use tempfile::NamedTempFile;
 use tokio::fs;
 use tokio::process::Command;
@@ -71,6 +71,7 @@ async fn cli() {
         NETWORK,
         ADMIN.verifying_key(),
         [],
+        CardanoCtx::default(),
     );
     let ledger = Arc::new(ledger);
     let addr = free_tcp_addr().await.unwrap();

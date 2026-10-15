@@ -250,6 +250,16 @@ pub struct Block {
     pub actions: Box<[Action]>,
 }
 
+/// The Cardano context a contract can observe via the `starstream:std/cardano`
+/// host functions.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CardanoCtx {
+    /// Block height reported to the guest via `cardano#block-height`.
+    pub block_height: i64,
+    /// Current slot reported to the guest via `cardano#current-slot`.
+    pub current_slot: i64,
+}
+
 #[derive(Debug, Error)]
 pub enum DigestParseError {
     #[error(transparent)]

@@ -28,7 +28,8 @@ use crate::client::CoordinationScriptArg;
 use crate::runtime::{apply_state, parse_state};
 use crate::wrpc::codec::{ValEncoder, read_value};
 use crate::{
-    Transaction, TransactionEvent, TransactionInput, TransactionOutput, encode_digest, parse_digest,
+    CardanoCtx, Transaction, TransactionEvent, TransactionInput, TransactionOutput, encode_digest,
+    parse_digest,
 };
 
 /// Contract compiled from the instrumented component bytes
@@ -459,6 +460,7 @@ pub struct Ctx {
     pub events: Vec<TransactionEvent>,
     pub outputs: Vec<starstream_runtime::Utxo<<Self as starstream_runtime::Host>::UtxoContext>>,
     pub traces: WasmtimeTraceRegistry,
+    pub cardano: CardanoCtx,
 }
 
 #[derive(Clone, Debug)]
@@ -486,11 +488,11 @@ impl WasmTraceSink for Ctx {
 
 impl starstream::std::cardano::Host for Ctx {
     fn block_height(&mut self) -> wasmtime::Result<i64> {
-        bail!("TODO")
+        Ok(self.cardano.block_height)
     }
 
     fn current_slot(&mut self) -> wasmtime::Result<i64> {
-        bail!("TODO")
+        Ok(self.cardano.current_slot)
     }
 }
 

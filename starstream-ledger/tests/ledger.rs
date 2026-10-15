@@ -25,8 +25,8 @@ use starstream_ledger::client::runtime::compile_contract;
 use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
-    APPLICATION_COSE, Envelope, Message, Transaction, TransactionInput, TransactionOutput,
-    encode_digest,
+    APPLICATION_COSE, CardanoCtx, Envelope, Message, Transaction, TransactionInput,
+    TransactionOutput, encode_digest,
 };
 use tokio::io::AsyncReadExt as _;
 use tokio_util::codec::Encoder as _;
@@ -151,7 +151,14 @@ async fn http() {
         score_progress_genesis_utxo,
     ];
 
-    let ledger = Ledger::new(engine, 128, NETWORK, ADMIN.verifying_key(), genesis.clone());
+    let ledger = Ledger::new(
+        engine,
+        128,
+        NETWORK,
+        ADMIN.verifying_key(),
+        genesis.clone(),
+        CardanoCtx::default(),
+    );
     let ledger = Arc::new(ledger);
     let addr = free_tcp_addr().await.unwrap();
     let (ledger, shutdown) = ledger.handle_http(addr).await.unwrap();
