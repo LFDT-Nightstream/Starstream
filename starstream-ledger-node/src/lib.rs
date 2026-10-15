@@ -237,9 +237,9 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         current_slot: cardano_current_slot,
     };
 
-    let mut config = wasmtime::Config::default();
-    config.wasm_component_model_implements(true);
-    let engine = wasmtime::Engine::new(&config)?;
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config)?;
 
     let genesis = if let Some(genesis) = genesis {
         build_genesis(&engine, genesis, imports, cardano).await?

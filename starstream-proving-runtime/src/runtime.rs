@@ -2,13 +2,6 @@ use neo_wasm::host_event_bindings::HostEventBindings;
 use wasmtime::Store;
 use wasmtime::error::Context as _;
 
-#[must_use]
-pub fn new_wasmtime_config() -> wasmtime::Config {
-    let mut config = wasmtime::Config::new();
-    config.guest_debug(true);
-    config
-}
-
 /// Register a component's core module before it first executes.
 ///
 /// Componentize compiler output first, then use the same component bytes for

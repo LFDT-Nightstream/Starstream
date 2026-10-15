@@ -400,17 +400,17 @@ fn handle_deploy(input_len: usize) -> wasmtime::Result<()> {
     let input = read_input_bytes(input_len);
     let DeployInput { digest, wasm } = serde_cbor::from_slice(&input)?;
 
-    let mut config = wasmtime::Config::new();
-    config.wasm_component_model_implements(true);
+    let mut engine_config = wasmtime::Config::default();
+    starstream_runtime::configure_wasmtime(&mut engine_config);
     // Pulley bytecode in malloc-backed memory: no signals, guards or CoW images
     // (see `platform`).
-    config.target("pulley32")?;
-    config.signals_based_traps(false);
-    config.memory_guard_size(0);
-    config.memory_reservation(0);
-    config.memory_reservation_for_growth(1 << 20);
-    config.memory_init_cow(false);
-    let engine = wasmtime::Engine::new(&config)?;
+    engine_config.target("pulley32")?;
+    engine_config.signals_based_traps(false);
+    engine_config.memory_guard_size(0);
+    engine_config.memory_reservation(0);
+    engine_config.memory_reservation_for_growth(1 << 20);
+    engine_config.memory_init_cow(false);
+    let engine = wasmtime::Engine::new(&engine_config)?;
     let component = Component::from_binary(&engine, wasm).context("failed to compile component")?;
     let contract =
         Contract::new(&component, None, NoContracts).context("failed to link contract")?;

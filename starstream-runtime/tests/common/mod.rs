@@ -11,9 +11,9 @@ use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, StoreContextMut, bail, ensure, format_err};
 
 pub static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(|| {
-    let mut config = wasmtime::Config::default();
-    let config = config.wasm_component_model_implements(true);
-    wasmtime::Engine::new(config).expect("failed to construct engine")
+    let mut engine_config = wasmtime::Config::default();
+    starstream_runtime::configure_wasmtime(&mut engine_config);
+    wasmtime::Engine::new(&engine_config).expect("failed to construct engine")
 });
 
 pub fn compile_contract(source: &str) -> wasmtime::Result<Vec<u8>> {
