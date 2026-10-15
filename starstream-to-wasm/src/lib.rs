@@ -1566,7 +1566,7 @@ impl Compiler {
             None => Rc::new(ComponentAbiType::U8),
         });
 
-        let func_ty = FuncType::new(params, results.iter().copied());
+        let func_ty = FuncType::new(params.iter().copied(), results.iter().copied());
         let mut func = Function::new([]);
 
         let handler_global = self.handler_global.unwrap();
@@ -1578,7 +1578,9 @@ impl Compiler {
                 .i32_const(handler_id)
                 .i32_ne()
                 .br_if(0);
-            // TODO: forward parameters.
+            for i in 0..u32::try_from(params.len()).unwrap() {
+                func.instructions().local_get(i);
+            }
             func.instructions().return_call(handler_function);
             func.instructions().end();
         }
