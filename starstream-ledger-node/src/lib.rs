@@ -18,7 +18,9 @@ use starstream_ledger::client::runtime::{
     Client, Contract, Ctx, call_coordination_script, compile_contract,
 };
 use starstream_ledger::server::Ledger;
-use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest, parse_digest};
+use starstream_ledger::{
+    CardanoCtx, TransactionInput, TransactionOutput, encode_digest, parse_digest,
+};
 use tokio::fs;
 use tokio::signal;
 use tokio::time::timeout;
@@ -58,6 +60,14 @@ pub struct Args {
     /// Paths to contracts used to resolve genesis coordination script calls.
     #[arg(long = "import", value_name = "PATH", requires = "genesis")]
     imports: Vec<PathBuf>,
+
+    /// Cardano block height reported to contracts (`cardano#block-height`).
+    #[arg(long, default_value_t = 0)]
+    cardano_block_height: i64,
+
+    /// Cardano current slot reported to contracts (`cardano#current-slot`).
+    #[arg(long, default_value_t = 0)]
+    cardano_current_slot: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,6 +117,7 @@ async fn build_genesis(
     engine: &wasmtime::Engine,
     genesis: impl AsRef<Path>,
     imports: Vec<PathBuf>,
+    cardano: CardanoCtx,
 ) -> anyhow::Result<Vec<TransactionOutput>> {
     let genesis = genesis.as_ref();
     let genesis = fs::read_to_string(genesis)
@@ -167,8 +178,12 @@ async fn build_genesis(
         }
         ensure!(args.next().is_none(), "trailing arguments");
         let mut results = vec![Val::Bool(false); ty.results().len()];
+        let ctx = Ctx {
+            cardano,
+            ..Ctx::default()
+        };
         let (tx, ..) = call_coordination_script(
-            &mut Store::new(engine, Ctx::default()),
+            &mut Store::new(engine, ctx),
             &GenesisClient(&imported),
             &wizer,
             &contract,
@@ -213,20 +228,26 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         shutdown_timeout,
         genesis,
         imports,
+        cardano_block_height,
+        cardano_current_slot,
     } = args;
     let shutdown_timeout = Duration::from_secs(shutdown_timeout);
+    let cardano = CardanoCtx {
+        block_height: cardano_block_height,
+        current_slot: cardano_current_slot,
+    };
 
     let mut config = wasmtime::Config::default();
     config.wasm_component_model_implements(true);
     let engine = wasmtime::Engine::new(&config)?;
 
     let genesis = if let Some(genesis) = genesis {
-        build_genesis(&engine, genesis, imports).await?
+        build_genesis(&engine, genesis, imports, cardano).await?
     } else {
         Vec::default()
     };
 
-    let ledger = Ledger::new(engine, max_requests, network, admin, genesis);
+    let ledger = Ledger::new(engine, max_requests, network, admin, genesis, cardano);
     let ledger = Arc::new(ledger);
 
     let (http, http_shutdown) = ledger.handle_http(addr).await?;

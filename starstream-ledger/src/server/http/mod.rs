@@ -701,7 +701,11 @@ impl Ledger {
                     .push(Arc::clone(&cx))
                     .map_err(RpcPostError::ResourceTable)?;
 
-                let mut store = wasmtime::Store::new(&self.engine, Ctx { table });
+                let ctx = Ctx {
+                    table,
+                    cardano: self.cardano,
+                };
+                let mut store = wasmtime::Store::new(&self.engine, ctx);
                 let cx_res = cx_res
                     .try_into_resource_any(&mut store)
                     .map_err(RpcPostError::Runtime)?;
