@@ -5,19 +5,25 @@ use crate::ccs::layout::*;
 
 /// Circuit encoding of Quint's `CurrPhase` variants.
 ///
-/// The values are chosen so the phase preconditions used by the current spec
-/// have simple two-bit encodings:
+/// The bits make the multi-phase opcode predicates linear:
 ///
-/// - constructor entry requires `CtorEnterPending` (`01`),
-/// - method entry requires `MethodEnterPending` (`10`), and
-/// - return allows `Executing` or `Yield` (both bits equal).
+/// - bit 1 rejects raising once registration has started,
+/// - bit 2 rejects ordinary returns from a handler,
+/// - `ConstructorExecuting` and `Registering` share bit 0 for registration entry, and
+/// - pending phases are excluded by the opcode-specific bit predicates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum CurrPhase {
-    Executing = 0b00,
-    CtorEnterPending = 0b01,
-    MethodEnterPending = 0b10,
-    Yield = 0b11,
+    Executing = 0b0000,
+    ConstructorExecuting = 0b0001,
+    Registering = 0b0011,
+    EffectHandlerExecuting = 0b0100,
+    CtorEnterPending = 0b0110,
+    MethodEnterPending = 0b0111,
+    EffectHandlerPending = 0b1110,
+    EffectResumePending = 0b1111,
+    MethodResultPending = 0b1000,
+    NewUtxoHandlePending = 0b1001,
 }
 
 impl CurrPhase {
@@ -147,24 +153,6 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
                 COL_ENABLED_METHOD_LOG_LEN_AFTER,
                 COL_ENABLED_METHOD_LOG_LEN_BEFORE,
             )],
-        },
-        ContinuityGroup {
-            name: "pending_constructor_key_continuity",
-            role: "the pending constructor resource key must carry across adjacent rows",
-            links: vec![
-                link(
-                    COL_PENDING_CTOR_PRESENT_AFTER,
-                    COL_PENDING_CTOR_PRESENT_BEFORE,
-                ),
-                link(
-                    COL_PENDING_CTOR_HOLDER_AFTER,
-                    COL_PENDING_CTOR_HOLDER_BEFORE,
-                ),
-                link(
-                    COL_PENDING_CTOR_HANDLE_AFTER,
-                    COL_PENDING_CTOR_HANDLE_BEFORE,
-                ),
-            ],
         },
     ]
 }

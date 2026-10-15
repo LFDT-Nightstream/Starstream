@@ -13,12 +13,18 @@ define_column_region! {
     columns: [
         COL_ONE: Field => "",
         COL_SEL_NEW_UTXO: Boolean => "selector for the NewUtxo action",
+        COL_SEL_RECEIVE_NEW_UTXO_HANDLE: Boolean => "selector for the ReceiveNewUtxoHandle action",
         COL_SEL_ENTER_CONSTRUCTOR: Boolean => "selector for the EnterConstructor action",
         COL_SEL_YIELD_BEGIN: Boolean => "selector for the YieldBegin action",
         COL_SEL_REGISTER_METHOD: Boolean => "selector for the RegisterMethod action",
         COL_SEL_RETURN: Boolean => "selector for the Return action",
         COL_SEL_CALL_METHOD: Boolean => "selector for the CallMethod action",
+        COL_SEL_RECEIVE_METHOD_RESULT: Boolean => "selector for the ReceiveMethodResult action",
         COL_SEL_ENTER_METHOD: Boolean => "selector for the EnterMethod action",
+        COL_SEL_RAISE_EFFECT: Boolean => "selector for the RaiseEffect action",
+        COL_SEL_ENTER_EFFECT_HANDLER: Boolean => "selector for the EnterEffectHandler action",
+        COL_SEL_EXIT_EFFECT_HANDLER: Boolean => "selector for the ExitEffectHandler action",
+        COL_SEL_RESUME_EFFECT: Boolean => "selector for the ResumeEffect action",
         COL_SEL_PADDING: Boolean => "state-preserving circuit-only padding slot",
         COL_SEL_SET_STORAGE: Boolean => "load an input UTXO",
         COL_SEL_PRELOAD_METHOD: Boolean => "load a ledger ABI entry",
@@ -35,15 +41,23 @@ define_column_region! {
         COL_CURR_BEFORE: U32 => "packed coroutine id that has the turn",
         COL_CURR_AFTER: U32 => "packed coroutine id that has the turn in the next step",
         COL_CALL_STACK_PUSH: Boolean => "true when a call happens and we need to keep track of the caller's context",
-        COL_CALL_STACK_POP: Boolean => "true when returning from a call",
+        COL_CALL_STACK_POP: Boolean => "true when consuming a completed call or resuming an effect",
         COL_CALL_STACK_TOP: Boolean => "true when peeking at the top of the call stack without popping",
+        COL_CALL_FRAME_IS_EFFECT: Boolean => "whether the call frame is an effect frame",
+        COL_CALL_FRAME_CONSTRUCTOR: Boolean => "program call is a constructor call",
+        COL_CALL_FRAME_CALLEE: U32 => "callee retained for a split import's return phase",
+        COL_CALL_FRAME_SAVED_PHASE: (Bits(4)) => "phase saved in an effect frame and restored on resume",
+        COL_RETURN_REQUIRES_UNIT: Boolean => "return is from a constructor or the top-level coordinator",
+        COL_HANDLER_SEARCH_REMAINING_BEFORE: U32 => "effect-dispatch candidates remaining before this call-stack access",
+        COL_HANDLER_SEARCH_REMAINING_AFTER: U32 => "effect-dispatch candidates remaining after this call-stack access",
+        COL_EFFECT_HANDLED: Boolean => "handler exit status: continue search = 0, resume = 1",
         COL_CALL_SP_BEFORE_INVERSE: Field => "inverse proving that an execution row starts with a nonempty call stack",
         // TODO: limit sp so that this doesn't overflow
         COL_CALL_STACK_MUL_STRIDE_8: [U32; 8] => "SP * 8 + i (push/pop/peek)",
         // TODO: limit sp so that this doesn't overflow
         COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8: [U32; 8] => "SP * 8 + i",
         COL_CALL_STACK_EXPECTED_ARG_VALUE: [U32; 8] => "opaque argument root, little-endian 32-bit limbs; written on call, read on entry",
-        COL_CALL_STACK_EXPECTED_RESULT_VALUE: [U32; 8] => "opaque result root, little-endian 32-bit limbs; written on call, read on return",
+        COL_CALL_STACK_EXPECTED_RESULT_VALUE: [U32; 8] => "opaque result root, little-endian 32-bit limbs; updated on return/handler exit and read when the caller/effect resumes",
         // using 8 limbs for exact sha256 repr for now (in 32-bit limbs), we
         // could improve this, but the memory argument as currently implemented
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
@@ -52,6 +66,8 @@ define_column_region! {
         COL_METHOD_LOOKUP: Boolean => "RegisterMethod, PreloadMethod, CallMethod or ReadAbi resolves a method hash",
         COL_METHOD_TABLE_ADDR: [U32; 8] => "method_index * 8 + hash limb offset",
         COL_CALL_TARGET: U32 => "packed coroutine id that gets control in the next step",
+        COL_CALL_TARGET_IS_ZERO: Boolean => "whether the call target is the Coord(0) sentinel",
+        COL_CALL_TARGET_INVERSE: Field => "inverse proving that a call target is nonzero",
         COL_ABI_METHOD_COUNT_ADDR: U32 => "packed UTXO key for current-generation registration count",
         COL_SEL_READ_ABI: Boolean => "host-synthesized output ABI enumeration",
         COL_ABI_READ_REMAINING_BEFORE: (Bits(8)) => "unread registrations of the last exported UTXO",
@@ -75,7 +91,7 @@ define_column_region! {
         COL_RESOURCE_RESOLVER_ADDR_HANDLE: U32 => "resource handle in the resource key",
         COL_RESOURCE_RESOLVER_VALUE: U32 => "the packed coroutine id assigned to the resource at (cid, handle)",
         COL_RESOURCE_RESOLVER_BEFORE: Field => "zero old value required when binding a previously unbound resource",
-        COL_RESOURCE_RESOLVER_WRITE: Boolean => "SetStorage or constructor Return writes a resource binding",
+        COL_RESOURCE_RESOLVER_WRITE: Boolean => "SetStorage or ReceiveNewUtxoHandle writes a resource binding",
         COL_RESOURCE_RESOLVER_READ: Boolean => "1 if reading from the resource resolver map (on call_method)",
 
         // TODO: limit curr side so that this doesn't overflow
@@ -100,20 +116,14 @@ define_column_region! {
         COL_OUTPUT_CURSOR_AFTER: U32 => "next UTXO ID after this row",
         COL_COORD_FINALIZED_BEFORE: Boolean => "whether Coord(1)'s root has been enumerated",
         COL_COORD_FINALIZED_AFTER: Boolean => "coordinator enumeration after this row",
-        COL_CURR_PHASE_BEFORE: (Bits(2)) => "internal phase of curr for enforcing cross-step consistency",
-        COL_CURR_PHASE_AFTER: (Bits(2)) => "internal phase of curr in the next step",
+        COL_CURR_PHASE_BEFORE: (Bits(4)) => "internal phase of curr for enforcing cross-step consistency",
+        COL_CURR_PHASE_AFTER: (Bits(4)) => "internal phase of curr in the next step",
         COL_CALL_SP_BEFORE: U32 => "call stack pointer before",
         COL_CALL_SP_AFTER: U32 => "call stack pointer after",
         COL_NEXT_UTXO_ID_BEFORE: U32 => "utxo id allocator",
         COL_NEXT_UTXO_ID_AFTER: U32 => "utxo id allocator",
         COL_ENABLED_METHOD_LOG_LEN_BEFORE: U32 => "next free enabled-method append-log entry",
         COL_ENABLED_METHOD_LOG_LEN_AFTER: U32 => "next free enabled-method append-log entry after this step",
-        COL_PENDING_CTOR_PRESENT_BEFORE: Boolean => "whether a constructor resource key is pending",
-        COL_PENDING_CTOR_PRESENT_AFTER: Boolean => "whether a constructor resource key remains pending",
-        COL_PENDING_CTOR_HOLDER_BEFORE: U32 => "packed holder coroutine id in the pending constructor key",
-        COL_PENDING_CTOR_HOLDER_AFTER: U32 => "packed holder coroutine id in the pending constructor key",
-        COL_PENDING_CTOR_HANDLE_BEFORE: U32 => "resource handle in the pending constructor key",
-        COL_PENDING_CTOR_HANDLE_AFTER: U32 => "resource handle in the pending constructor key",
     ]
 }
 
@@ -141,16 +151,22 @@ define_column_region! {
     ]
 }
 
-pub const SELECTORS: [usize; 15] = [
+pub const SELECTORS: [usize; 21] = [
     COL_SEL_FINALIZE_COORDINATOR,
     COL_SEL_READ_ABI,
     COL_SEL_NEW_UTXO,
+    COL_SEL_RECEIVE_NEW_UTXO_HANDLE,
     COL_SEL_ENTER_CONSTRUCTOR,
     COL_SEL_YIELD_BEGIN,
     COL_SEL_REGISTER_METHOD,
     COL_SEL_RETURN,
     COL_SEL_CALL_METHOD,
+    COL_SEL_RECEIVE_METHOD_RESULT,
     COL_SEL_ENTER_METHOD,
+    COL_SEL_RAISE_EFFECT,
+    COL_SEL_ENTER_EFFECT_HANDLER,
+    COL_SEL_EXIT_EFFECT_HANDLER,
+    COL_SEL_RESUME_EFFECT,
     COL_SEL_PADDING,
     COL_SEL_SET_STORAGE,
     COL_SEL_PRELOAD_METHOD,

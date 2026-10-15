@@ -367,9 +367,6 @@ pub(crate) fn check_statement(
         (COL_CALL_SP_BEFORE, 1),
         (COL_NEXT_UTXO_ID_BEFORE, 0),
         (COL_ENABLED_METHOD_LOG_LEN_BEFORE, 0),
-        (COL_PENDING_CTOR_PRESENT_BEFORE, 0),
-        (COL_PENDING_CTOR_HOLDER_BEFORE, 0),
-        (COL_PENDING_CTOR_HANDLE_BEFORE, 0),
     ] {
         if first[column] != F::new(value) {
             return Err(reject());

@@ -18,12 +18,18 @@ use crate::{
 fn kind(op: Opcode) -> Option<EventKind> {
     Some(match op {
         Opcode::NewUtxo => EventKind::NewUtxo,
+        Opcode::ReceiveNewUtxoHandle => EventKind::ReceiveNewUtxoHandle,
         Opcode::EnterConstructor => EventKind::EnterConstructor,
         Opcode::YieldBegin => EventKind::YieldBegin,
         Opcode::RegisterMethod => EventKind::RegisterMethod,
         Opcode::Return => EventKind::Return,
         Opcode::CallMethod => EventKind::CallMethod,
+        Opcode::ReceiveMethodResult => EventKind::ReceiveMethodResult,
         Opcode::EnterMethod => EventKind::EnterMethod,
+        Opcode::RaiseEffect => EventKind::RaiseEffect,
+        Opcode::EnterEffectHandler => EventKind::EnterEffectHandler,
+        Opcode::ExitEffectHandler => EventKind::ExitEffectHandler,
+        Opcode::ResumeEffect => EventKind::ResumeEffect,
         Opcode::SetStorage => EventKind::SetStorage,
         Opcode::GetStorage => EventKind::GetStorage,
         Opcode::Padding
@@ -59,6 +65,7 @@ fn source(word: Word) -> (usize, F) {
         Word::Method(i) => (COL_METHOD_HASH_VALUE[i], F::ONE),
         Word::Argument(i) => (COL_ARGUMENT_ROOT[i], F::ONE),
         Word::Result(i) => (COL_RESULT_ROOT[i], F::ONE),
+        Word::Handled => (COL_EFFECT_HANDLED, F::ONE),
     }
 }
 

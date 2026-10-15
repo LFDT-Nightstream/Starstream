@@ -20,7 +20,6 @@ fn constructor_trace(arguments: [u32; 4]) -> Trace {
     Trace::new([
         Step::NewUtxo {
             arguments: arguments.to_vec().into(),
-            resource: ResourceHandle(0).into(),
         },
         Step::EnterConstructor {
             arguments: arguments.to_vec().into(),
@@ -30,6 +29,9 @@ fn constructor_trace(arguments: [u32; 4]) -> Trace {
         },
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
+        },
+        Step::ReceiveNewUtxoHandle {
+            resource: ResourceHandle(0).into(),
         },
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
@@ -41,12 +43,38 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
     Trace::new([
         Step::NewUtxo {
             arguments: arguments.to_vec().into(),
-            resource: ResourceHandle(0).into(),
         },
         Step::EnterConstructor {
             arguments: arguments.to_vec().into(),
         },
         Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+        Step::ReceiveNewUtxoHandle {
+            resource: ResourceHandle(0).into(),
+        },
+        Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+    ])
+}
+
+fn effect_handler_trace() -> Trace {
+    let effect = MethodHash([9, 0, 1, 0, 1, 0, 1, 0]);
+    Trace::new([
+        Step::RaiseEffect {
+            effect,
+            arguments: StarstreamValue::UNIT_VALUE,
+        },
+        Step::EnterEffectHandler {
+            effect,
+            arguments: StarstreamValue::UNIT_VALUE,
+        },
+        Step::ExitEffectHandler {
+            handled: true,
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+        Step::ResumeEffect {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::Return {
@@ -55,11 +83,40 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
     ])
 }
 
+fn effect_after_registration_trace() -> Trace {
+    let effect = MethodHash([9, 0, 1, 0, 1, 0, 1, 0]);
+    Trace::new([
+        Step::NewUtxo {
+            arguments: StarstreamValue::UNIT_VALUE,
+        },
+        Step::EnterConstructor {
+            arguments: StarstreamValue::UNIT_VALUE,
+        },
+        Step::RegisterMethod { method: effect },
+        Step::RaiseEffect {
+            effect,
+            arguments: StarstreamValue::UNIT_VALUE,
+        },
+    ])
+}
+
+fn effect_after_resume_signal_trace() -> Trace {
+    let mut trace = method_call_trace(true);
+    trace.0.insert(7, Step::YieldBegin);
+    trace.0.insert(
+        8,
+        Step::RaiseEffect {
+            effect: MethodHash([1, 0, 1, 0, 1, 0, 1, 0]),
+            arguments: StarstreamValue::UNIT_VALUE,
+        },
+    );
+    trace
+}
+
 fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
     Trace::new([
         Step::NewUtxo {
             arguments: arguments.to_vec().into(),
-            resource: ResourceHandle(0).into(),
         },
         Step::EnterConstructor {
             arguments: arguments.to_vec().into(),
@@ -74,7 +131,6 @@ fn repeated_constructor_entry_trace(arguments: [u32; 4]) -> Trace {
     Trace::new([
         Step::NewUtxo {
             arguments: arguments.to_vec().into(),
-            resource: ResourceHandle(0).into(),
         },
         Step::EnterConstructor {
             arguments: arguments.to_vec().into(),
@@ -90,7 +146,6 @@ fn opcode_after_terminal_return_trace() -> Trace {
     trace.0.extend([
         Step::NewUtxo {
             arguments: vec![7].into(),
-            resource: ResourceHandle(1).into(),
         },
         Step::EnterConstructor {
             arguments: vec![7].into(),
@@ -120,7 +175,6 @@ fn method_call_result_trace(
     let mut steps = vec![
         Step::NewUtxo {
             arguments: vec![0, 1, 2, 3].into(),
-            resource: ResourceHandle(0).into(),
         },
         Step::EnterConstructor {
             arguments: vec![0, 1, 2, 3].into(),
@@ -129,11 +183,13 @@ fn method_call_result_trace(
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
+        Step::ReceiveNewUtxoHandle {
+            resource: ResourceHandle(0).into(),
+        },
         Step::CallMethod {
             resource: ResourceHandle(0),
             method,
             arguments: method_arguments.clone(),
-            result: expected_result.into(),
         },
     ];
 
@@ -147,6 +203,9 @@ fn method_call_result_trace(
     steps.extend([
         Step::Return {
             result: actual_result.into(),
+        },
+        Step::ReceiveMethodResult {
+            result: expected_result.into(),
         },
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
@@ -169,10 +228,12 @@ fn repeated_method_call_without_resume_trace() -> Trace {
                 resource: ResourceHandle(0),
                 method,
                 arguments: arguments.clone(),
-                result: StarstreamValue::UNIT_VALUE.into(),
             },
             Step::EnterMethod { method, arguments },
             Step::Return {
+                result: StarstreamValue::UNIT_VALUE.into(),
+            },
+            Step::ReceiveMethodResult {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
         ],
@@ -185,13 +246,13 @@ fn unregistered_method_call_trace() -> Trace {
     let mut trace = method_call_trace(true);
     let unregistered_method = MethodHash([2, 0, 1, 0, 1, 0, 1, 0]);
 
-    let Step::CallMethod { method, .. } = &mut trace.0[4] else {
-        panic!("method-call trace has a call at step 4");
+    let Step::CallMethod { method, .. } = &mut trace.0[5] else {
+        panic!("method-call trace has a call at step 5");
     };
     *method = unregistered_method;
 
-    let Step::EnterMethod { method, .. } = &mut trace.0[5] else {
-        panic!("method-call trace enters the method at step 5");
+    let Step::EnterMethod { method, .. } = &mut trace.0[6] else {
+        panic!("method-call trace enters the method at step 6");
     };
     *method = unregistered_method;
 
@@ -217,7 +278,6 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
     Trace::new([
         Step::NewUtxo {
             arguments: vec![0, 1, 2, 3].into(),
-            resource: ResourceHandle(0).into(),
         },
         Step::EnterConstructor {
             arguments: vec![0, 1, 2, 3].into(),
@@ -228,11 +288,13 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
+        Step::ReceiveNewUtxoHandle {
+            resource: ResourceHandle(0).into(),
+        },
         Step::CallMethod {
             resource: ResourceHandle(0),
             method: first_method,
             arguments: arguments.clone(),
-            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::EnterMethod {
             method: first_method,
@@ -245,17 +307,22 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
+        Step::ReceiveMethodResult {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
         Step::CallMethod {
             resource: ResourceHandle(0),
             method: final_method,
             arguments: arguments.clone(),
-            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::EnterMethod {
             method: final_method,
             arguments,
         },
         Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+        Step::ReceiveMethodResult {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::Return {
@@ -271,7 +338,6 @@ fn two_utxo_trace(first_method: MethodHash, second_method: MethodHash) -> Trace 
         steps.extend([
             Step::NewUtxo {
                 arguments: StarstreamValue::UNIT_VALUE,
-                resource: ResourceHandle(handle).into(),
             },
             Step::EnterConstructor {
                 arguments: StarstreamValue::UNIT_VALUE,
@@ -279,6 +345,9 @@ fn two_utxo_trace(first_method: MethodHash, second_method: MethodHash) -> Trace 
             Step::RegisterMethod { method },
             Step::Return {
                 result: StarstreamValue::UNIT_VALUE.into(),
+            },
+            Step::ReceiveNewUtxoHandle {
+                resource: ResourceHandle(handle).into(),
             },
         ]);
     }
@@ -294,13 +363,15 @@ fn call_other_utxos_method_trace() -> Trace {
             resource: ResourceHandle(1),
             method: first_method,
             arguments: StarstreamValue::UNIT_VALUE,
-            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::EnterMethod {
             method: first_method,
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+        Step::ReceiveMethodResult {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::Return {
@@ -318,7 +389,6 @@ fn yield_preserves_other_utxos_abi_trace() -> Trace {
             resource: ResourceHandle(0),
             method,
             arguments: StarstreamValue::UNIT_VALUE,
-            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::EnterMethod {
             method,
@@ -331,17 +401,22 @@ fn yield_preserves_other_utxos_abi_trace() -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
+        Step::ReceiveMethodResult {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
         Step::CallMethod {
             resource: ResourceHandle(1),
             method,
             arguments: StarstreamValue::UNIT_VALUE,
-            result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::EnterMethod {
             method,
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+        Step::ReceiveMethodResult {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::Return {
@@ -351,7 +426,7 @@ fn yield_preserves_other_utxos_abi_trace() -> Trace {
     trace
 }
 
-fn cases() -> [Case; 23] {
+fn cases() -> [Case; 26] {
     let accepted = constructor_trace([0, 1, 2, 3]);
     let repeated_arguments = constructor_trace([7, 7, 7, 7]);
     let full_root = StarstreamValue([0xffff_ffff_0000_0000, 1 << 50, (1 << 32) + 1, 0]);
@@ -362,7 +437,6 @@ fn cases() -> [Case; 23] {
     let mut noncanonical = constructor_trace([0; 4]);
     noncanonical.0[0] = Step::NewUtxo {
         arguments: StarstreamValue([0xffff_ffff_0000_0001, 0, 0, 0]),
-        resource: ResourceHandle(0).into(),
     };
     let minimal_constructor = minimal_constructor_trace([0, 1, 2, 3]);
     let mut mismatched_arguments = constructor_trace([1, 2, 3, 4]);
@@ -372,14 +446,13 @@ fn cases() -> [Case; 23] {
     let return_before_constructor_entry = Trace::new([
         Step::NewUtxo {
             arguments: vec![0, 1, 2, 3].into(),
-            resource: ResourceHandle(0).into(),
         },
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
     ]);
     let mut wrong_enter_method = method_call_trace(true);
-    wrong_enter_method.0[5] = Step::EnterMethod {
+    wrong_enter_method.0[6] = Step::EnterMethod {
         method: MethodHash([2, 0, 1, 0, 1, 0, 1, 0]),
         arguments: vec![1, 2, 3, 4].into(),
     };
@@ -396,6 +469,24 @@ fn cases() -> [Case; 23] {
             trace: accepted,
             expected: Outcome::Accept,
             rejected_step: None,
+        },
+        Case {
+            name: "effect handler re-entry",
+            trace: effect_handler_trace(),
+            expected: Outcome::Accept,
+            rejected_step: None,
+        },
+        Case {
+            name: "effect after registration starts",
+            trace: effect_after_registration_trace(),
+            expected: Outcome::Reject,
+            rejected_step: Some(3),
+        },
+        Case {
+            name: "effect after resume signal",
+            trace: effect_after_resume_signal_trace(),
+            expected: Outcome::Reject,
+            rejected_step: Some(8),
         },
         Case {
             name: "utxo constructor with repeated arguments",
@@ -419,7 +510,7 @@ fn cases() -> [Case; 23] {
             name: "opcode after terminal return",
             trace: opcode_after_terminal_return_trace(),
             expected: Outcome::Reject,
-            rejected_step: Some(4),
+            rejected_step: Some(5),
         },
         Case {
             name: "constructor arguments disagree",
@@ -455,13 +546,13 @@ fn cases() -> [Case; 23] {
             name: "enter method with wrong method",
             trace: wrong_enter_method,
             expected: Outcome::Reject,
-            rejected_step: Some(5),
+            rejected_step: Some(6),
         },
         Case {
             name: "call to unregistered method",
             trace: unregistered_method_call_trace(),
             expected: Outcome::Reject,
-            rejected_step: Some(4),
+            rejected_step: Some(5),
         },
         Case {
             name: "duplicate method registration is idempotent",
@@ -479,13 +570,13 @@ fn cases() -> [Case; 23] {
             name: "stale method after yield",
             trace: method_reyield_trace(MethodHash([1, 0, 1, 0, 1, 0, 1, 0])),
             expected: Outcome::Reject,
-            rejected_step: Some(9),
+            rejected_step: Some(11),
         },
         Case {
             name: "method registered only by another UTXO",
             trace: call_other_utxos_method_trace(),
             expected: Outcome::Reject,
-            rejected_step: Some(8),
+            rejected_step: Some(10),
         },
         Case {
             name: "yield preserves another UTXO's ABI",
@@ -497,13 +588,13 @@ fn cases() -> [Case; 23] {
             name: "return with wrong result",
             trace: method_call_result_trace(true, vec![7, 8].into(), vec![7, 9].into()),
             expected: Outcome::Reject,
-            rejected_step: Some(6),
+            rejected_step: Some(8),
         },
         Case {
             name: "return without entering method",
             trace: method_call_trace(false),
             expected: Outcome::Reject,
-            rejected_step: Some(5),
+            rejected_step: Some(6),
         },
         Case {
             name: "yield from coordinator",
@@ -521,7 +612,7 @@ fn cases() -> [Case; 23] {
             name: "opaque result differs in high limb",
             trace: wrong_high,
             expected: Outcome::Reject,
-            rejected_step: Some(6),
+            rejected_step: Some(8),
         },
         Case {
             name: "noncanonical opaque root",

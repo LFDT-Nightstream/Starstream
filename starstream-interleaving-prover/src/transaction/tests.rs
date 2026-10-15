@@ -44,13 +44,15 @@ fn final_instance_roots_are_authenticated_by_memory() {
     let consumed = Trace::new([
         Step::NewUtxo {
             arguments: unit.clone(),
-            resource: ResourceHandle(0).into(),
         },
         Step::EnterConstructor {
             arguments: unit.clone(),
         },
         Step::Return {
             result: unit.clone().into(),
+        },
+        Step::ReceiveNewUtxoHandle {
+            resource: ResourceHandle(0).into(),
         },
         Step::Return {
             result: unit.into(),
@@ -106,7 +108,6 @@ fn count_ram_resets_and_outputs_accept_multiple_registrations() {
                 resource: ResourceHandle(0),
                 method,
                 arguments: StarstreamValue::UNIT_VALUE,
-                result: StarstreamValue::UNIT_VALUE.into(),
             },
             Step::EnterMethod {
                 method,
@@ -116,6 +117,9 @@ fn count_ram_resets_and_outputs_accept_multiple_registrations() {
             Step::RegisterMethod { method },
             Step::RegisterMethod { method },
             Step::Return {
+                result: StarstreamValue::UNIT_VALUE.into(),
+            },
+            Step::ReceiveMethodResult {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
         ],
@@ -202,7 +206,6 @@ fn registration_counts_are_bounded_and_reset_per_generation() {
                     resource: ResourceHandle(0),
                     method,
                     arguments: StarstreamValue::UNIT_VALUE,
-                    result: StarstreamValue::UNIT_VALUE.into(),
                 },
                 Step::EnterMethod {
                     method,

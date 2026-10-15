@@ -184,10 +184,7 @@ fn initial_state() -> Vec<F> {
             | COL_ABI_READ_REMAINING_BEFORE
             | COL_ABI_READ_ORDINAL_BEFORE
             | COL_OUTPUT_CURSOR_BEFORE
-            | COL_ENABLED_METHOD_LOG_LEN_BEFORE
-            | COL_PENDING_CTOR_PRESENT_BEFORE
-            | COL_PENDING_CTOR_HOLDER_BEFORE
-            | COL_PENDING_CTOR_HANDLE_BEFORE => F::ZERO,
+            | COL_ENABLED_METHOD_LOG_LEN_BEFORE => F::ZERO,
             column if COL_IO_BEFORE.contains(&column) => F::ZERO,
             column => panic!("missing canonical initial value for carried column {column}"),
         })
