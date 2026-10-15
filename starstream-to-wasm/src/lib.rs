@@ -289,8 +289,12 @@ impl Compiler {
         // committing constants to the memory/data section.
 
         // Create root effect handler functions which dispatch to children.
+        let mut ifaces = Default::default();
         for (_, effect) in std::mem::take(&mut self.effect_handlers) {
-            self.finish_effect_handler(effect);
+            self.finish_effect_handler(effect, &mut ifaces);
+        }
+        for (iface_name, iface) in ifaces {
+            self.world_type.export_interface(&iface_name, &iface);
         }
 
         // Flush function codes into the code section.
@@ -1540,7 +1544,11 @@ impl Compiler {
         effect.handlers.push((handler_id, idx));
     }
 
-    fn finish_effect_handler(&mut self, effect: Effect) {
+    fn finish_effect_handler(
+        &mut self,
+        effect: Effect,
+        ifaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
+    ) {
         if effect.handlers.is_empty() {
             return;
         }
@@ -1600,10 +1608,11 @@ impl Compiler {
         ) {
             // TODO: handle multiple effects for the same ABI.
             let iface_name = format!("starstream:effect-handler/{}", effect.abi_name);
-            let mut iface = TypeBuilder::new_interface(&self.world_type);
             self.export_core_fn(&format!("{}#{}", iface_name, effect.effect_name), func_idx);
-            iface.export_fn(&effect.effect_name, &sig);
-            self.world_type.export_interface(&iface_name, &iface);
+            ifaces
+                .entry(iface_name)
+                .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+                .export_fn(&effect.effect_name, &sig);
         }
     }
 
