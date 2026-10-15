@@ -13,6 +13,7 @@ use starstream_interleaving_spec::{
     MethodHash, Out, OutputUtxo, QuintVerifier, ResourceHandle, StarstreamValue, Step, Trace,
     TransactionStatement,
 };
+use starstream_proving_runtime::effect_hash_from_names;
 use starstream_proving_runtime::{flat_value_root, method_hash_from_name};
 use wasmparser::ValType;
 use wasmtime::bail;
@@ -25,6 +26,38 @@ use crate::common::{
 const BATCH_SIZE: usize = 3;
 
 const UNIT: StarstreamValue = StarstreamValue::UNIT_VALUE;
+
+const EFFECT_REENTRY: &str = r#"
+    abi Foo {
+        effect Hello();
+        event Log(point: u32);
+    }
+
+    script fn main() {
+        emit Log(1);
+        try {
+            emit Log(2);
+            raise Hello();
+            emit Log(4);
+        } with Hello() {
+            emit Log(3);
+        }
+        emit Log(5);
+    }
+"#;
+
+const UNHANDLED_EFFECT: &str = r#"
+    abi Foo {
+        effect Hello();
+    }
+
+    script fn main() {
+        try {
+        } with Hello() {
+        }
+        raise Hello();
+    }
+"#;
 
 /// The root a single `u64` argument commits to.
 fn u64_root(value: u64) -> StarstreamValue {
@@ -44,6 +77,12 @@ fn call(resource: ResourceHandle, method: &str, argument: u64) -> Step {
         resource,
         method: method_hash(method),
         arguments: u64_root(argument),
+    }
+}
+
+fn receive_method_result(method: &str) -> Step {
+    Step::ReceiveMethodResult {
+        method: method_hash(method),
         result: Out(UNIT),
     }
 }
@@ -63,10 +102,14 @@ fn register(method: &str) -> Step {
 
 /// The resource handle the coordinator observed for its single constructor.
 fn constructed_resource(coordinator: &Trace) -> ResourceHandle {
-    match coordinator.0.first() {
-        Some(Step::NewUtxo { resource, .. }) => resource.0,
-        other => panic!("coordinator trace must start with NewUtxo, got {other:?}"),
-    }
+    coordinator
+        .0
+        .iter()
+        .find_map(|step| match step {
+            Step::ReceiveNewUtxoHandle { resource } => Some(resource.0),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("coordinator trace has no received UTXO handle: {coordinator:?}"))
 }
 
 /// What the runtime emits for the counter script, per core instance, before
@@ -80,9 +123,12 @@ fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
     let coordinator = Trace::new([
         Step::NewUtxo {
             arguments: u64_root(55),
+        },
+        Step::ReceiveNewUtxoHandle {
             resource: Out(resource),
         },
         call(resource, "accept", 13),
+        receive_method_result("accept"),
         ret(),
     ]);
     let utxo = Trace::new([
@@ -100,11 +146,18 @@ fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
 /// What the runtime emits for `examples/score.star`'s `example` script.
 fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
     let calls = [("plus_chips", 42), ("plus_mult", 2), ("mult_mult", 200)];
-    let mut coordinator = vec![Step::NewUtxo {
-        arguments: UNIT,
-        resource: Out(resource),
-    }];
-    coordinator.extend(calls.map(|(method, argument)| call(resource, method, argument)));
+    let mut coordinator = vec![
+        Step::NewUtxo { arguments: UNIT },
+        Step::ReceiveNewUtxoHandle {
+            resource: Out(resource),
+        },
+    ];
+    for (method, argument) in calls {
+        coordinator.extend([
+            call(resource, method, argument),
+            receive_method_result(method),
+        ]);
+    }
     coordinator.push(ret());
 
     let mut utxo = vec![Step::EnterConstructor { arguments: UNIT }];
@@ -223,6 +276,83 @@ async fn score_transaction_satisfies_the_circuit() -> wasmtime::Result<()> {
 }
 
 #[tokio::test]
+async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> {
+    let execution = trace_coordination_script(EFFECT_REENTRY, "main").await?;
+    common::check_wasm_constraints(&execution)?;
+
+    let effect = effect_hash_from_names("foo", "hello");
+    let expected = Trace::new([
+        Step::RaiseEffect {
+            effect,
+            arguments: UNIT,
+        },
+        Step::EnterEffectHandler {
+            effect,
+            arguments: UNIT,
+        },
+        Step::ExitEffectHandler {
+            handled: true,
+            result: Out(UNIT),
+        },
+        Step::ResumeEffect {
+            effect,
+            result: Out(UNIT),
+        },
+        ret(),
+    ]);
+    assert_eq!(
+        execution.semantic_traces().as_slice(),
+        std::slice::from_ref(&expected)
+    );
+    assert_eq!(execution.transaction.execution, expected);
+    verify_sat(&execution.transaction.execution)
+        .map_err(|error| wasmtime::format_err!("circuit rejected effect re-entry: {error}"))?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn unhandled_effect_is_rejected_by_the_circuit() -> wasmtime::Result<()> {
+    let execution = trace_coordination_script(UNHANDLED_EFFECT, "main").await?;
+    common::check_wasm_constraints(&execution)?;
+
+    let effect = effect_hash_from_names("foo", "hello");
+    let expected = Trace::new([
+        Step::RaiseEffect {
+            effect,
+            arguments: UNIT,
+        },
+        Step::EnterEffectHandler {
+            effect,
+            arguments: UNIT,
+        },
+        Step::ExitEffectHandler {
+            handled: false,
+            result: Out(UNIT),
+        },
+        Step::ResumeEffect {
+            effect,
+            result: Out(UNIT),
+        },
+        ret(),
+    ]);
+    assert_eq!(execution.transaction.execution, expected);
+    let error = verify_sat(&execution.transaction.execution)
+        .expect_err("the circuit must reject resuming an unhandled effect");
+    assert!(
+        matches!(
+            error,
+            Error::Unsatisfied(Unsatisfied::Constraint {
+                step: 3,
+                constraint: "resume effect constraints",
+                ..
+            })
+        ),
+        "{error:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 #[ignore = "requires Quint; run with --include-ignored"]
 async fn traced_transactions_satisfy_the_quint_specification() -> wasmtime::Result<()> {
     let verifier = QuintVerifier::new()
@@ -276,10 +406,7 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
         .0
         .iter()
         .filter_map(|step| match step {
-            Step::NewUtxo {
-                resource: Out(handle),
-                ..
-            } => Some(*handle),
+            Step::ReceiveNewUtxoHandle { resource } => Some(resource.0),
             _ => None,
         })
         .collect();
@@ -289,7 +416,6 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
         expected.extend([
             Step::NewUtxo {
                 arguments: u64_root(initial),
-                resource: Out(*handle),
             },
             Step::EnterConstructor {
                 arguments: u64_root(initial),
@@ -297,6 +423,9 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
             register("increment"),
             register("finish"),
             ret(),
+            Step::ReceiveNewUtxoHandle {
+                resource: Out(*handle),
+            },
         ]);
     }
     for (utxo, method) in [(2, "increment"), (0, "increment"), (1, "finish")] {
@@ -305,7 +434,6 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
                 resource: handles[utxo],
                 method: method_hash(method),
                 arguments: UNIT,
-                result: Out(UNIT),
             },
             Step::EnterMethod {
                 method: method_hash(method),
@@ -316,6 +444,7 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
             expected.push(Step::YieldBegin);
         }
         expected.push(ret());
+        expected.push(receive_method_result(method));
     }
     expected.push(ret());
     assert_eq!(execution.transaction.execution, Trace::new(expected));

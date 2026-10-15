@@ -625,7 +625,7 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
             proof.proof.state.semantic_state_digest,
             semantic_state_digest(final_state)
         );
-        assert!(final_state.halted && !final_state.trapped);
+        assert!(final_state.is_terminal() && !final_state.trapped);
         assert_eq!(
             final_state.comm_chain,
             execution.commitments[&coroutine_id(index)]
