@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import type {
+  CompiledContract,
   SandboxWorkerRequest,
   SandboxWorkerResponse,
 } from "../sandbox.worker";
@@ -135,7 +136,7 @@ function Tabs(props: {
           </button>
         ))}
         <div className="flex--grow">{props.after}</div>
-        <div>{props.right}</div>
+        <div className="sandbox-tabs__right">{props.right}</div>
       </div>
       {/* Put all tabs in the DOM upfront to avoid unmounting/remounting the Monaco editor constantly. */}
       {props.tabs.map((tab) => (
@@ -176,6 +177,8 @@ function readArg(kind: string, raw: string): unknown {
 
 // A deployed component, identified by the sha256 hex digest of its Wasm.
 interface RunDeployment {
+  /** The contract's name, e.g. `main.star`. */
+  name: string;
   digest: string;
   describe: Describe;
   deployedAt: Date;
@@ -539,6 +542,7 @@ function CardanoForm({
 
 function RunPanel({
   canDeploy,
+  deployLabel,
   deployHint,
   deployErrors,
   onDeploy,
@@ -554,6 +558,7 @@ function RunPanel({
   log,
 }: {
   canDeploy: boolean;
+  deployLabel: string;
   /** Why deploying is unavailable, shown next to the disabled button. */
   deployHint: ReactNode | undefined;
   /** Errors of the last failed deploy, shown as a warning under the button. */
@@ -604,7 +609,7 @@ function RunPanel({
           disabled={!canDeploy}
           onClick={onDeploy}
         >
-          Deploy
+          {deployLabel}
         </button>
         {deployHint && <span>{deployHint}</span>}
       </div>
@@ -638,7 +643,7 @@ function RunPanel({
             >
               {deployments.map((d) => (
                 <option key={d.digest} value={d.digest}>
-                  {d.digest.slice(0, 16)}… — deployed at{" "}
+                  {d.name} ({d.digest.slice(0, 8)}…) — deployed at{" "}
                   {d.deployedAt.toLocaleTimeString()}
                 </option>
               ))}
@@ -710,28 +715,111 @@ function RunPanel({
   );
 }
 
+// ----------------------------------------------------------------------------
+// Compiler output tabs.
+
+// A compiled contract, with the sha256 hex digest of its component (if it has
+// one), which identifies its deployment.
+type Contract = CompiledContract & { digest?: string };
+
+// Shown in place of an output the selected contract doesn't have.
+function NoOutput({ contract, what }: { contract?: Contract; what: string }) {
+  return (
+    <div style={{ color: "var(--ifm-color-emphasis-500)" }}>
+      {contract
+        ? `${contract.name} failed to compile; see the browser console for errors.`
+        : `No ${what} output available`}
+    </div>
+  );
+}
+
+// One download button, for a compiler output that may be missing.
+function DownloadLink({
+  bytes,
+  filename,
+  type,
+  label,
+}: {
+  bytes: Uint8Array | undefined;
+  filename: string;
+  type: string;
+  label: string;
+}) {
+  const url = useBlobUrl(bytes, filename, type);
+  if (!url) return null;
+  return (
+    <li style={{ marginBottom: 8 }}>
+      <a
+        href={url}
+        download={filename}
+        className="button button--secondary button--block"
+      >
+        {label}
+      </a>
+    </li>
+  );
+}
+
+// A contract's compiler outputs, like `starstream build` writes to
+// `artifacts/<stem>/`, flattened into file names.
+function ContractDownloads({ contract }: { contract: Contract }) {
+  const stem = contract.name.replace(/\.star$/, "").replace(/\//g, "_");
+  const witBytes = useMemo(
+    () =>
+      contract.wit === undefined
+        ? undefined
+        : new TextEncoder().encode(contract.wit),
+    [contract.wit],
+  );
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <h3>
+        <code>{contract.name}</code>
+      </h3>
+      {contract.coreWasm ? (
+        <ul style={{ listStyle: "none", padding: 0 }}>
+          <DownloadLink
+            bytes={contract.coreWasm}
+            filename={`${stem}.core.wasm`}
+            type="application/wasm"
+            label="Download Core .wasm"
+          />
+          <DownloadLink
+            bytes={contract.componentWasm}
+            filename={`${stem}.component.wasm`}
+            type="application/wasm"
+            label="Download Component .wasm"
+          />
+          <DownloadLink
+            bytes={witBytes}
+            filename={`${stem}.wit`}
+            type="text/plain"
+            label="Download .wit"
+          />
+        </ul>
+      ) : (
+        <p>Failed to compile; see the browser console for errors.</p>
+      )}
+    </div>
+  );
+}
+
 export function Sandbox() {
   const [outputTab, setOutputTab] = useState("About");
-
-  const [wat, setWat] = useState("");
-  const [wit, setWit] = useState("");
   const editorModule = useEditorModule();
 
-  const [coreWasm, setCoreWasm] = useState<Uint8Array>();
-  const [componentWasm, setComponentWasm] = useState<Uint8Array>();
-
-  const coreWasmUrl = useBlobUrl(
-    coreWasm,
-    "starstream_sandbox.core.wasm",
-    "application/wasm",
-  );
-  const componentWasmUrl = useBlobUrl(
-    componentWasm,
-    "starstream_sandbox.component.wasm",
-    "application/wasm",
-  );
-  const witBlob = useMemo(() => new TextEncoder().encode(wit), [wit]);
-  const witUrl = useBlobUrl(witBlob, "starstream_sandbox.wit", "text/plain");
+  // Every contract the last successful compile produced.
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  // The contract shown in the WAT and WIT tabs. Stays put as contracts are
+  // added, and falls back to the first one if it goes away.
+  const [selectedPath, setSelectedPath] = useState<string>();
+  useEffect(() => {
+    setSelectedPath((prev) =>
+      contracts.some((c) => c.path === prev) ? prev : contracts[0]?.path,
+    );
+  }, [contracts]);
+  const selected =
+    contracts.find((c) => c.path === selectedPath) ?? contracts[0];
 
   const request_id = useRef(0);
   const worker = useSandboxWorker((response) => {
@@ -749,16 +837,22 @@ export function Sandbox() {
         `[${response.target}]`,
         response.body,
       );
-    } else if (response.type == "wat") {
-      setWat(response.wat);
-    } else if (response.type == "core_wasm") {
-      setCoreWasm(response.bytes);
-      setComponentWasm(undefined); // In case of error.
-      setWit("");
-    } else if (response.type == "wit") {
-      setWit(response.wit);
-    } else if (response.type == "component_wasm") {
-      setComponentWasm(response.bytes);
+    } else if (response.type == "contracts") {
+      Promise.all(
+        response.contracts.map(
+          async (c): Promise<Contract> => ({
+            ...c,
+            digest: c.componentWasm
+              ? await sha256Hex(c.componentWasm)
+              : undefined,
+          }),
+        ),
+      ).then((contracts) => {
+        // Drop the result if a newer request went out while hashing.
+        if (response.request_id === request_id.current) {
+          setContracts(contracts);
+        }
+      });
     } else {
       response satisfies never;
     }
@@ -783,33 +877,26 @@ export function Sandbox() {
     setUtxoLogs((prev) => ({ ...prev, [key]: [...(prev[key] ?? []), item] }));
   }, []);
 
-  // The digest of the current compiler output, identifying its deployment.
-  const [componentDigest, setComponentDigest] = useState<string>();
-  useEffect(() => {
-    setComponentDigest(undefined);
-    if (!componentWasm) return;
-    let cancelled = false;
-    sha256Hex(componentWasm).then((digest) => {
-      if (!cancelled) setComponentDigest(digest);
+  // Digests with a deploy in flight.
+  const [deploying, setDeploying] = useState<ReadonlySet<string>>(new Set());
+  const settleDeploy = useCallback((digest: string) => {
+    setDeploying((prev) => {
+      const next = new Set(prev);
+      next.delete(digest);
+      return next;
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [componentWasm]);
+  }, []);
 
-  // The digest last deployed; Deploy is disabled until the Wasm digest changes.
-  const [lastDeployedDigest, setLastDeployedDigest] = useState<string>();
-
-  // Errors of the last failed deploy, shown next to the Deploy button.
+  // Errors of the last failed deploys, shown next to the Deploy button.
   const [deployErrors, setDeployErrors] = useState<string[]>([]);
   useEffect(() => {
     setDeployErrors([]);
-  }, [componentWasm]);
+  }, [contracts]);
 
   // In-flight deploys and method calls by request id, to attribute their
   // logs and results to the deploy warning or to the UTXO being called.
   type Pending =
-    | { kind: "deploy" }
+    | { kind: "deploy"; name: string }
     | { kind: "call"; key: string; digest: string; handle: number; label: string };
   const pending = useRef(new Map<number, Pending>());
 
@@ -836,26 +923,31 @@ export function Sandbox() {
             text: entry,
           });
         } else if (request?.kind === "deploy") {
-          setDeployErrors((prev) => [...prev, entry]);
+          setDeployErrors((prev) => [...prev, `${request.name}: ${entry}`]);
         } else {
           setRunLog((prev) => [...prev, entry]);
         }
       }
     } else if (response.type == "deployed") {
-      const { digest, describe } = response;
-      const deployment = { digest, describe, deployedAt: new Date() };
+      const { name, digest, describe } = response;
+      const deployment = { name, digest, describe, deployedAt: new Date() };
       // Most recent deployment first; a re-deploy moves its digest up front.
       setDeployments((prev) => [
         deployment,
         ...prev.filter((d) => d.digest !== digest),
       ]);
+      settleDeploy(digest);
     } else if (response.type == "deploy_failed") {
       // The cause arrived as "log" responses; ensure the warning shows anyway.
-      setDeployErrors((prev) => (prev.length > 0 ? prev : ["Unknown error."]));
-      // Re-enable the Deploy button that onDeploy optimistically disabled.
-      setLastDeployedDigest((prev) =>
-        prev === response.digest ? undefined : prev,
+      const request = pending.current.get(response.request_id);
+      const name = request?.kind === "deploy" ? request.name : response.digest;
+      setDeployErrors((prev) =>
+        prev.some((e) => e.startsWith(`${name}: `))
+          ? prev
+          : [...prev, `${name}: Unknown error.`],
       );
+      // Re-enable the Deploy button for it.
+      settleDeploy(response.digest);
     } else if (response.type == "constructed") {
       const { digest, instance, handle, events } = response;
       const counterKey = `${digest}|${instance}`;
@@ -949,20 +1041,46 @@ export function Sandbox() {
     }
   });
 
+  // Compiled contracts that can be deployed, those not deployed yet, and of
+  // those the ones without a deploy in flight.
+  const deployable = useMemo(
+    () =>
+      contracts.flatMap((c) =>
+        c.digest && c.componentWasm
+          ? [{ name: c.name, digest: c.digest, component: c.componentWasm }]
+          : [],
+      ),
+    [contracts],
+  );
+  const undeployed = useMemo(
+    () =>
+      deployable.filter((c) => !deployments.some((d) => d.digest === c.digest)),
+    [deployable, deployments],
+  );
+  const toDeploy = useMemo(
+    () => undeployed.filter((c) => !deploying.has(c.digest)),
+    [undeployed, deploying],
+  );
+
+  // Deploy every compiled contract that isn't deployed yet.
   const onDeploy = useCallback(() => {
-    if (!componentWasm || !componentDigest) return;
-    setLastDeployedDigest(componentDigest);
     setDeployErrors([]);
     setRunLog([]);
-    const request_id = ++run_request_id.current;
-    pending.current.set(request_id, { kind: "deploy" });
-    runWorker.request({
-      request_id,
-      type: "deploy",
-      digest: componentDigest,
-      component: componentWasm,
-    });
-  }, [componentWasm, componentDigest]);
+    setDeploying(
+      (prev) => new Set([...prev, ...toDeploy.map((c) => c.digest)]),
+    );
+    for (const { name, digest, component } of toDeploy) {
+      const request_id = ++run_request_id.current;
+      pending.current.set(request_id, { kind: "deploy", name });
+      runWorker.request({
+        request_id,
+        type: "deploy",
+        name,
+        digest,
+        component,
+      });
+    }
+  }, [toDeploy]);
 
   const onConstruct = useCallback(
     (digest: string, instance: string, ctor: string, args: unknown[]) => {
@@ -1021,21 +1139,37 @@ export function Sandbox() {
     [],
   );
 
-  // Whether the current output is deployed, and whether a deploy is in flight.
-  const deployed =
-    componentDigest !== undefined &&
-    deployments.some((d) => d.digest === componentDigest);
-  const deploying =
-    !deployed &&
-    componentDigest !== undefined &&
-    componentDigest === lastDeployedDigest;
-
   const onWorkspaceChanged = useCallback(
-    ({ files, entry }: WorkspaceSnapshot) => {
-      worker.request({ request_id: ++request_id.current, files, entry });
+    ({ files, root, entry }: WorkspaceSnapshot) => {
+      worker.request({ request_id: ++request_id.current, files, root, entry });
     },
     [],
   );
+
+  const contractPicker = contracts.length > 0 &&
+    (outputTab === "WAT" || outputTab === "WIT") && (
+      <div className="sandbox-tabs__picker">
+        {selected?.standalone && (
+          <span className="sandbox-tabs__hint">
+            No file declares <code>contract;</code>, so the active file is
+            compiled alone.
+          </span>
+        )}
+        <label>
+          {selected?.standalone ? "File" : "Contract"}{" "}
+          <select
+            value={selected?.path}
+            onChange={(e) => setSelectedPath(e.target.value)}
+          >
+            {contracts.map((c) => (
+              <option key={c.path} value={c.path}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    );
 
   return (
     <div className="flex--grow sandbox-container">
@@ -1051,6 +1185,7 @@ export function Sandbox() {
           current={outputTab}
           setCurrent={setOutputTab}
           style={{ height: "100%" }}
+          right={contractPicker}
           tabs={[
             {
               key: "About",
@@ -1061,25 +1196,31 @@ export function Sandbox() {
                   <ul>
                     <li>
                       Wasm/WAT: The output of the Starstream compiler targeting
-                      WebAssembly. Updates live.
+                      WebAssembly, for the contract picked in the tab bar.
+                      Updates live.
                     </li>
                     <li>
                       WIT: The WebAssembly interface that is generated by the
-                      compiler. Updates live.
+                      compiler, for the contract picked in the tab bar. Updates
+                      live.
                     </li>
                     <li>
-                      Downloads: Buttons for downloading the compiler outputs.
+                      Downloads: Buttons for downloading each contract's
+                      compiler outputs.
                     </li>
                     <li>
-                      Run: Deploy the compiled component, mint UTXOs by calling a
-                      constructor, and invoke methods on them.
+                      Run: Deploy the compiled contracts, mint UTXOs by calling
+                      a constructor, and invoke methods on them.
                     </li>
                   </ul>
                   <p>
                     The editor is a VS Code workbench over an in-memory
-                    workspace: create files in the Explorer and import them
-                    with <code>import {"{ … }"} from "./file.star";</code>. The
-                    file in the active editor is compiled (or{" "}
+                    workspace: create files in the Explorer and import them with{" "}
+                    <code>import {"{ … }"} from "./file.star";</code>. Like{" "}
+                    <code>starstream build</code>, every file that starts with{" "}
+                    <code>contract;</code> is compiled as a contract, along with
+                    the files it imports. If no file is a contract, the file in
+                    the active editor is compiled on its own (or{" "}
                     <code>main.star</code> if the active editor isn't a{" "}
                     <code>.star</code> file).
                   </p>
@@ -1098,9 +1239,13 @@ export function Sandbox() {
                   className="padding--md"
                   style={{ height: "100%", overflow: "auto" }}
                 >
-                  <pre>
-                    <AnsiHtml text={wat} />
-                  </pre>
+                  {selected?.wat ? (
+                    <pre>
+                      <AnsiHtml text={selected.wat} />
+                    </pre>
+                  ) : (
+                    <NoOutput contract={selected} what="WAT" />
+                  )}
                 </div>
               ),
             },
@@ -1111,12 +1256,10 @@ export function Sandbox() {
                   className="padding--md"
                   style={{ height: "100%", overflow: "auto" }}
                 >
-                  {wit ? (
-                    <pre>{wit}</pre>
+                  {selected?.wit ? (
+                    <pre>{selected.wit}</pre>
                   ) : (
-                    <div style={{ color: "var(--ifm-color-emphasis-500)" }}>
-                      No WIT output available
-                    </div>
+                    <NoOutput contract={selected} what="WIT" />
                   )}
                 </div>
               ),
@@ -1124,44 +1267,15 @@ export function Sandbox() {
             {
               key: "Downloads",
               body: (
-                <div className="padding--md">
-                  <h3>Downloads</h3>
-                  <ul style={{ listStyle: "none", padding: 0 }}>
-                    {coreWasmUrl && (
-                      <li style={{ marginBottom: 8 }}>
-                        <a
-                          href={coreWasmUrl}
-                          download
-                          className="button button--secondary button--block"
-                        >
-                          Download Core .wasm
-                        </a>
-                      </li>
-                    )}
-                    {componentWasmUrl && (
-                      <li style={{ marginBottom: 8 }}>
-                        <a
-                          href={componentWasmUrl}
-                          download
-                          className="button button--secondary button--block"
-                        >
-                          Download Component .wasm
-                        </a>
-                      </li>
-                    )}
-                    {witUrl && (
-                      <li style={{ marginBottom: 8 }}>
-                        <a
-                          href={witUrl}
-                          download
-                          className="button button--secondary button--block"
-                        >
-                          Download .wit
-                        </a>
-                      </li>
-                    )}
-                  </ul>
-                  {!coreWasmUrl && !componentWasmUrl && !witUrl && (
+                <div
+                  className="padding--md"
+                  style={{ height: "100%", overflow: "auto" }}
+                >
+                  {contracts.length > 0 ? (
+                    contracts.map((c) => (
+                      <ContractDownloads key={c.path} contract={c} />
+                    ))
+                  ) : (
                     <p>Compile the code to see download options.</p>
                   )}
                 </div>
@@ -1171,22 +1285,22 @@ export function Sandbox() {
               key: "Run",
               body: (
                 <RunPanel
-                  canDeploy={
-                    !deployed && !deploying && componentDigest !== undefined
+                  canDeploy={toDeploy.length > 0}
+                  deployLabel={
+                    toDeploy.length > 1
+                      ? `Deploy ${toDeploy.length} contracts`
+                      : "Deploy"
                   }
                   deployHint={
-                    !componentWasm ? (
-                      "Compile the code to deploy it."
-                    ) : deploying ? (
-                      "Deploying…"
-                    ) : deployed ? (
-                      <>
-                        Contract deployed as{" "}
-                        <code style={{ overflowWrap: "anywhere" }}>
-                          {componentDigest}
-                        </code>
-                      </>
-                    ) : undefined
+                    deployable.length === 0
+                      ? "Compile the code to deploy it."
+                      : toDeploy.length > 0
+                        ? undefined
+                        : undeployed.length > 0
+                          ? "Deploying…"
+                          : deployable.length === 1
+                            ? "The contract is deployed."
+                            : "All contracts are deployed."
                   }
                   deployErrors={deployErrors}
                   onDeploy={onDeploy}

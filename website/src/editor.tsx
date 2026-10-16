@@ -24,11 +24,16 @@ import "./starstream.vsix";
 
 /** Root of the playground's in-memory workspace. */
 const WORKSPACE = "/workspace";
-/** Compiled when the active editor isn't a `.star` file. */
+/**
+ * Compiled on its own when the workspace has no contracts and the active
+ * editor isn't a `.star` file.
+ */
 const DEFAULT_ENTRY = `${WORKSPACE}/main.star`;
 
 const STARTER_FILES: Record<string, string> = {
   "main.star": `\
+contract;
+
 import { total } from "./math.star";
 
 abi Score {
@@ -78,7 +83,9 @@ fn total(chips: u64, mult: u64) -> u64 {
 export interface WorkspaceSnapshot {
   /** Absolute path -> contents of every `.star`/`.wasm` file. */
   files: Record<string, Uint8Array>;
-  /** The file to compile. */
+  /** The workspace directory, scanned for `contract;` files. */
+  root: string;
+  /** The file compiled on its own when the workspace has no contracts. */
   entry: string;
 }
 
@@ -136,7 +143,7 @@ async function snapshot(): Promise<WorkspaceSnapshot> {
     active?.scheme === "file" && active.path.endsWith(".star")
       ? active.path
       : DEFAULT_ENTRY;
-  return { files, entry };
+  return { files, root: WORKSPACE, entry };
 }
 
 // ----------------------------------------------------------------------------

@@ -21,7 +21,9 @@ use fiber::block_on;
 use log::error;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use starstream_compiler::{ModuleGraph, typecheck_modules};
+use starstream_compiler::{
+    ModuleGraph, ModuleGraphError, ModuleId, TypedModuleGraph, typecheck_modules,
+};
 use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use starstream_types::{FileSystem, MemoryFs};
 use wasmtime::component::{Component, Resource, ResourceTable, Type, Val, types};
@@ -41,6 +43,11 @@ unsafe extern "C" {
         body: *const u8,
         body_len: usize,
     );
+    /// Start the outputs of the contract whose entry file is at this path: the
+    /// `set_wat`/`set_core_wasm`/`set_wit`/`set_component_wasm` calls that
+    /// follow belong to it. `standalone` is 1 if the file isn't a contract but
+    /// is compiled on its own because the workspace has none.
+    unsafe fn set_contract(ptr: *const u8, len: usize, standalone: u32);
     unsafe fn set_wat(ptr: *const u8, len: usize);
     unsafe fn set_core_wasm(ptr: *const u8, len: usize);
     unsafe fn set_wit(ptr: *const u8, len: usize);
@@ -227,7 +234,10 @@ thread_local! {
 struct Input {
     /// Absolute path -> contents, for every `.star`/`.wasm` file.
     files: BTreeMap<String, serde_bytes::ByteBuf>,
-    /// The file to compile as the contract entry point.
+    /// The workspace directory, scanned for `contract;` files like
+    /// `starstream build` does.
+    root: String,
+    /// The file compiled on its own when the workspace has no contracts.
     entry: String,
 }
 
@@ -266,6 +276,11 @@ fn init() {
 
 /// Compile the CBOR [`Input`] from `read_input` to core/WIT/component.
 ///
+/// Like `starstream build`, scans the workspace and compiles every file that
+/// declares `contract;`, reporting each one's outputs after a `set_contract`.
+/// A workspace without contracts compiles [`Input::entry`] on its own instead,
+/// like `starstream wasm -c`, so single-file experiments still work.
+///
 /// # Safety
 ///
 /// `input_len` must equal the number of bytes the host staged for `read_input`.
@@ -283,16 +298,22 @@ pub unsafe extern "C" fn run(input_len: usize) {
     }
     let mut fs = FileSystem::with_vfs(memory);
 
-    // Load the entry and everything it imports.
-    let (graph, entry_id) = match ModuleGraph::from_entry(&mut fs, Path::new(&input.entry)) {
-        Ok(graph) => graph,
-        Err(errors) => {
-            for error in errors {
-                write_report(&error.into());
+    // Load every module in the workspace, or the entry and everything it
+    // imports if no module is a contract.
+    let (graph, entries, standalone) =
+        match ModuleGraph::from_workspace(&mut fs, Path::new(&input.root)) {
+            Ok(graph) if graph.contract_entries().is_empty() => {
+                match ModuleGraph::from_entry(&mut fs, Path::new(&input.entry)) {
+                    Ok((graph, entry_id)) => (graph, vec![entry_id], true),
+                    Err(errors) => return write_graph_errors(errors),
+                }
             }
-            return;
-        }
-    };
+            Ok(graph) => {
+                let entries = graph.contract_entries().to_vec();
+                (graph, entries, false)
+            }
+            Err(errors) => return write_graph_errors(errors),
+        };
 
     // Typecheck.
     let typed = match typecheck_modules(&graph, Default::default()) {
@@ -315,8 +336,22 @@ pub unsafe extern "C" fn run(input_len: usize) {
         }
     };
 
-    // Compile to Wasm.
-    let compile_result = starstream_to_wasm::compile_contract(&typed, entry_id);
+    for entry_id in entries {
+        let path = graph.module(entry_id).abs_path.to_string_lossy();
+        unsafe { set_contract(path.as_ptr(), path.len(), u32::from(standalone)) };
+        compile_contract(&graph, &typed, entry_id);
+    }
+}
+
+fn write_graph_errors(errors: Vec<ModuleGraphError>) {
+    for error in errors {
+        write_report(&error.into());
+    }
+}
+
+/// Compile the contract at `entry_id` and report its outputs.
+fn compile_contract(graph: &ModuleGraph, typed: &TypedModuleGraph, entry_id: ModuleId) {
+    let compile_result = starstream_to_wasm::compile_contract(typed, entry_id);
     for error in &compile_result.errors {
         let source = graph.source(error.module.unwrap_or(entry_id));
         write_report(&miette::Report::new(error.clone()).with_source_code(source));
