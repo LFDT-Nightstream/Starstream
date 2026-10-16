@@ -70,7 +70,7 @@ impl Build {
 
             let mut compile_result = starstream_to_wasm::compile_contract(&typed, entry_id);
             for error in compile_result.errors.drain(..) {
-                print_diagnostic(graph.source(entry_id), error)?;
+                print_diagnostic(graph.source(error.module.unwrap_or(entry_id)), error)?;
             }
             let Some(wasm) = compile_result.wasm.clone() else {
                 had_errors = true;

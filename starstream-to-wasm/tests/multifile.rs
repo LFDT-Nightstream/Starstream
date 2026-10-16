@@ -82,6 +82,33 @@ fn imports_are_importer_relative() {
 }
 
 #[test]
+fn helper_codegen_error_names_helper() {
+    // The helper's `script fn` has more params than the component ABI can
+    // pass flat, which only codegen rejects. The error must point into the
+    // helper, not the entry.
+    let entry = fixture("helper_codegen_error").join("main.star");
+    let mut tracker = starstream_types::FileSystem::new();
+    let (graph, entry_id) =
+        starstream_compiler::ModuleGraph::from_entry(&mut tracker, &entry).expect("graph");
+    let typed =
+        starstream_compiler::typecheck_modules(&graph, Default::default()).expect("typecheck");
+    let result = starstream_to_wasm::compile_contract(&typed, entry_id);
+    let [error] = result.errors.as_slice() else {
+        panic!("expected one compile error, got {:?}", result.errors);
+    };
+    let module = error
+        .module
+        .expect("compile_contract errors carry a module");
+    let module = typed.module(module);
+    assert!(
+        module.abs_path.ends_with("helpers/wide.star"),
+        "error attributed to {:?}",
+        module.abs_path
+    );
+    assert_eq!(&module.source[error.span.into_range()], "wide");
+}
+
+#[test]
 fn cross_contract_import_errors() {
     // Helper file also declares `contract;` — must be rejected at graph build.
     let entry = fixture("cross_contract").join("main.star");

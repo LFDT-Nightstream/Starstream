@@ -1,0 +1,33 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/multifile/helper_codegen_error
+---
+==== Workspace ====
+ModuleGraph {
+    modules.len(): 2,
+    topo_order: [
+        ModuleId(0),
+        ModuleId(1),
+    ],
+    edges: {
+        1: [
+            PathImport {
+                def_index: 1,
+                target: ModuleId(0),
+                span: 31..52,
+            },
+        ],
+    },
+    contract_entries: [
+        ModuleId(1),
+    ],
+}
+==== main.star ====
+  x TODO: Component ABI for function with too many params
+   ,-[$PWD/tests/multifile/helper_codegen_error/helpers/wide.star:5:11]
+ 4 | 
+ 5 | script fn wide(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64, h: i64, i: i64, j: i64, k: i64, l: i64, m: i64, n: i64, o: i64, p: i64, q: i64) -> i64 {
+   :           ^^|^
+   :             `-- TODO: Component ABI for function with too many params
+ 6 |     a
+   `----
