@@ -49,6 +49,10 @@ pub struct Args {
     #[arg(long, global = true, value_name = "MAX_REQUESTS", default_value_t = u32::from(u16::MAX))]
     max_requests: u32,
 
+    /// Fuel available to each UTXO method call over `/rpc`.
+    #[arg(long, value_name = "FUEL", default_value_t = 1_000_000_000)]
+    fuel: u64,
+
     /// Time to wait for graceful shutdown before exiting, in seconds.
     #[arg(long, value_name = "SECONDS", default_value_t = 10)]
     shutdown_timeout: u64,
@@ -114,7 +118,6 @@ impl Client for GenesisClient<'_> {
 }
 
 async fn build_genesis(
-    engine: &wasmtime::Engine,
     genesis: impl AsRef<Path>,
     imports: Vec<PathBuf>,
     cardano: CardanoCtx,
@@ -132,6 +135,9 @@ async fn build_genesis(
             .with_context(|| format!("failed to read `{}`", path.display()))?;
         imported.insert(Sha256::digest(&wasm).into(), Bytes::from(wasm));
     }
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config)?;
     let wizer = Wizer::new();
     let mut contracts: HashMap<_, Contract> = HashMap::with_capacity(imported.len());
     let mut outputs = Vec::default();
@@ -149,7 +155,7 @@ async fn build_genesis(
             let wasm = get_contract(&imported, &digest)?;
             let contract = compile_contract(
                 &GenesisClient(&imported),
-                engine,
+                &engine,
                 &wizer,
                 wasm,
                 None,
@@ -183,7 +189,7 @@ async fn build_genesis(
             ..Ctx::default()
         };
         let (tx, execution) = call_coordination_script(
-            &mut Store::new(engine, ctx),
+            &mut Store::new(&engine, ctx),
             &GenesisClient(&imported),
             &wizer,
             &contract,
@@ -228,6 +234,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         admin,
         addr,
         max_requests,
+        fuel,
         shutdown_timeout,
         genesis,
         imports,
@@ -241,16 +248,16 @@ async fn exec(args: Args) -> anyhow::Result<()> {
     };
 
     let mut engine_config = wasmtime::Config::default();
-    starstream_ledger::configure_wasmtime(&mut engine_config);
+    starstream_ledger::server::configure_wasmtime(&mut engine_config);
     let engine = wasmtime::Engine::new(&engine_config)?;
 
     let genesis = if let Some(genesis) = genesis {
-        build_genesis(&engine, genesis, imports, cardano).await?
+        build_genesis(genesis, imports, cardano).await?
     } else {
         Vec::default()
     };
 
-    let ledger = Ledger::new(engine, max_requests, network, admin, genesis, cardano);
+    let ledger = Ledger::new(engine, max_requests, fuel, network, admin, genesis, cardano);
     let ledger = Arc::new(ledger);
 
     let (http, http_shutdown) = ledger.handle_http(addr).await?;

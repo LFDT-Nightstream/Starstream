@@ -21,6 +21,12 @@ use crate::{Block, CardanoCtx, TransactionOutput, parse_digest};
 mod http;
 mod runtime;
 
+/// Configure `engine_config` for the engine of a [Ledger].
+pub fn configure_wasmtime(engine_config: &mut wasmtime::Config) -> &mut wasmtime::Config {
+    crate::configure_wasmtime(engine_config);
+    engine_config.consume_fuel(true)
+}
+
 /// The ledger-side state of a publishing account, identified by its Ed25519
 /// public key.
 ///
@@ -83,12 +89,18 @@ pub struct Ledger {
     cardano: CardanoCtx,
     max_requests: u32,
     permits: Semaphore,
+    fuel: u64,
 }
 
 impl Ledger {
+    /// Create a new ledger.
+    ///
+    /// Each UTXO method call over `/rpc` runs with `fuel` units of fuel.
+    /// `engine` must be configured with [`configure_wasmtime`].
     pub fn new(
         engine: wasmtime::Engine,
         max_requests: u32,
+        fuel: u64,
         network: impl Into<Arc<str>>,
         admin: VerifyingKey,
         genesis: impl Into<Box<[TransactionOutput]>>,
@@ -124,6 +136,7 @@ impl Ledger {
             cardano,
             max_requests: max_requests as _,
             permits: Semaphore::new(max_requests),
+            fuel,
         }
     }
 

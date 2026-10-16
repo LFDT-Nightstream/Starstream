@@ -66,12 +66,13 @@ async fn cli() {
         .expect("failed to write admin key file");
 
     let mut engine_config = wasmtime::Config::default();
-    starstream_ledger::configure_wasmtime(&mut engine_config);
+    starstream_ledger::server::configure_wasmtime(&mut engine_config);
     let engine = wasmtime::Engine::new(&engine_config).unwrap();
 
     let ledger = Ledger::new(
         engine,
         128,
+        u64::MAX,
         NETWORK,
         ADMIN.verifying_key(),
         [],
