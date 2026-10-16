@@ -15,6 +15,8 @@ const IMPLEMENTS_METHOD: &str = "[method]utxo-context.implements-method";
 const DYNAMIC_UTXO_INTERFACE: &str = "starstream:contract/dynamic-utxo";
 const SELF_INTERFACE_PREFIX: &str = "starstream:self/";
 const TYPED_UTXO_INTERFACE_PREFIX: &str = "starstream:utxo/";
+const EFFECT_INTERFACE_PREFIX: &str = "starstream:effects/";
+const EFFECT_HANDLER_INTERFACE_PREFIX: &str = "starstream:effect-handler/";
 const CONSTRUCTOR_PREFIX: &str = "[static]utxo.";
 const METHOD_PREFIX: &str = "[method]utxo.";
 const GET_STORAGE_EXPORT: &str = "get-storage";
@@ -93,6 +95,7 @@ enum ExportKind {
     SetStorage,
     /// A compiler-generated export with no interleaving semantics.
     Internal,
+    EffectHandler(MethodHash),
 }
 
 /// Event builder that reserves whole blocks for roots.
@@ -115,6 +118,12 @@ enum ImportKind {
     NewUtxo,
     CallMethod(MethodHash),
     Advice,
+    Effect(MethodHash),
+}
+
+struct ImportEvents {
+    call: Vec<EventBlock>,
+    return_: Option<Vec<EventBlock>>,
 }
 
 /// Build host-event templates from a core Wasm module or component.
@@ -164,12 +173,14 @@ pub fn build_component_templates(
     for import in imports {
         import_frefs.insert((import.module.clone(), import.field.clone()), import.fref);
         let events = build_import_template(&import)?;
-        bindings.import(import.fref, events).map_err(|error| {
-            TemplateBuildError::InvalidImportBindings {
-                module: import.module.clone(),
-                field: import.field.clone(),
-                message: error.to_string(),
-            }
+        let binding = match events.return_ {
+            Some(return_events) => bindings.split_import(import.fref, events.call, return_events),
+            None => bindings.import(import.fref, events.call),
+        };
+        binding.map_err(|error| TemplateBuildError::InvalidImportBindings {
+            module: import.module.clone(),
+            field: import.field.clone(),
+            message: error.to_string(),
         })?;
     }
 
@@ -250,6 +261,7 @@ impl ExportKind {
             Self::GetStorage => "get-storage",
             Self::SetStorage => "set-storage",
             Self::Internal => "internal",
+            Self::EffectHandler(_) => "effect handler",
         }
     }
 }
@@ -263,6 +275,9 @@ fn classify_export(
             return Err(TemplateBuildError::UnclassifiedFunctionExport {
                 name: export.name.clone(),
             });
+        }
+        if let Some(abi) = instance.strip_prefix(EFFECT_HANDLER_INTERFACE_PREFIX) {
+            return Ok(ExportKind::EffectHandler(effect_hash_from_names(abi, item)));
         }
         if item.starts_with(CONSTRUCTOR_PREFIX) {
             return Ok(ExportKind::Constructor);
@@ -335,11 +350,6 @@ impl Sequence {
 
     fn arg_i64(self, arg: u8) -> Result<Self, neo_wasm::WasmBuildError> {
         self.map(2, |builder| builder.arg_i64(arg))
-    }
-
-    /// Both result lanes.
-    fn result(self) -> Result<Self, neo_wasm::WasmBuildError> {
-        self.map(2, |builder| builder.result())
     }
 
     /// Append a root in its own four-word slot.
@@ -424,7 +434,8 @@ fn bootstrap_advice(
     Ok(builder.finish()?)
 }
 
-/// Root over export parameters after `skip`.
+/// Root over export parameters after `skip`; its InputLocal bindings also
+/// initialize those parameter locals, so they need no separate bootstrap advice.
 fn entry_arguments_root(
     export: &FunctionExport,
     inputs: &mut EntryInputs,
@@ -679,6 +690,27 @@ fn build_export_events(
             entry: Vec::new(),
             exit: Vec::new(),
         }),
+        ExportKind::EffectHandler(effect) => {
+            let mut entry = Sequence::op(EventKind::EnterEffectHandler);
+            for word in effect.0 {
+                entry = entry.constant_i32(word)?;
+            }
+            entry = entry.root(entry_arguments_root(export, &mut inputs, 0)?)?;
+            let entry = entry.finish()?;
+            if export.results.as_ref() != [ValType::I32] {
+                return Err(TemplateBuildError::InvalidEffectHandlerResult {
+                    name: export.name.clone(),
+                    results: export.results.clone(),
+                });
+            }
+            let exit = Sequence::op(EventKind::ExitEffectHandler)
+                .map(1, |builder| {
+                    builder.push(SlotBinding::OutputElem { limb: Limb::Lo })
+                })?
+                .root(Root::unit())?
+                .finish()?;
+            Ok(ExportEvents { entry, exit })
+        }
     }
 }
 
@@ -706,17 +738,65 @@ fn classify_import(import: &FunctionImport) -> Result<ImportKind, TemplateBuildE
             &import.field,
         )?));
     }
+    if let Some(abi) = import.module.strip_prefix(EFFECT_INTERFACE_PREFIX) {
+        // TODO: method_hash_from_name already says that this is missing the
+        // full abi (the type signature)
+        //
+        // plus still unsure if just the name of the abi is enough here or not
+        return Ok(ImportKind::Effect(effect_hash_from_names(
+            abi,
+            &import.field,
+        )));
+    }
     Ok(ImportKind::Advice)
 }
 
-fn build_import_template(import: &FunctionImport) -> Result<Vec<EventBlock>, TemplateBuildError> {
-    match classify_import(import)? {
+fn build_import_template(import: &FunctionImport) -> Result<ImportEvents, TemplateBuildError> {
+    let kind = classify_import(import)?;
+    let call = match kind {
         ImportKind::YieldBegin => build_yield_begin_template(import),
         ImportKind::RegisterMethod => build_register_method_template(import),
-        ImportKind::NewUtxo => build_new_utxo_template(import),
-        ImportKind::CallMethod(method) => build_call_method_template(import, method),
+        ImportKind::NewUtxo => return build_new_utxo_template(import),
+        ImportKind::CallMethod(method) => return build_call_method_template(import, method),
         ImportKind::Advice => result_advice_events(import),
+        ImportKind::Effect(effect) => return build_effect_template(import, effect),
+    }?;
+
+    Ok(ImportEvents {
+        call,
+        return_: None,
+    })
+}
+
+fn build_effect_template(
+    import: &FunctionImport,
+    effect: MethodHash,
+) -> Result<ImportEvents, TemplateBuildError> {
+    if !import.params.is_empty() {
+        return Err(TemplateBuildError::UnsupportedEffectParameters {
+            module: import.module.clone(),
+            field: import.field.clone(),
+        });
     }
+    let mut call = Sequence::op(EventKind::RaiseEffect);
+    for word in effect.0 {
+        call = call.constant_i32(word)?;
+    }
+    call = call.root(import_arguments_root(import, 0)?)?;
+
+    let return_ = Sequence::op(EventKind::ResumeEffect);
+    let (result, high_lane) = import_result_root(import)?;
+    let mut return_events = return_.root(result)?.finish()?;
+    return_events.extend(high_lane);
+    Ok(ImportEvents {
+        call: call.finish()?,
+        return_: Some(return_events),
+    })
+}
+
+/// SHA-256 identity shared by an effect import and its generated handler export.
+pub fn effect_hash_from_names(abi: &str, effect: &str) -> MethodHash {
+    method_hash_from_name(&format!("{abi}#{effect}"))
 }
 
 /// Root over import arguments after `skip`.
@@ -780,7 +860,7 @@ fn import_result_root(
     })
 }
 
-fn build_new_utxo_template(import: &FunctionImport) -> Result<Vec<EventBlock>, TemplateBuildError> {
+fn build_new_utxo_template(import: &FunctionImport) -> Result<ImportEvents, TemplateBuildError> {
     if import.results.as_ref() != [ValType::I32] {
         return Err(TemplateBuildError::InvalidConstructorResult {
             module: import.module.clone(),
@@ -788,10 +868,27 @@ fn build_new_utxo_template(import: &FunctionImport) -> Result<Vec<EventBlock>, T
             results: import.results.clone(),
         });
     }
-    let sequence = Sequence::op(EventKind::NewUtxo).root(import_arguments_root(import, 0)?)?;
-    // The i32 result's high lane is advice-only.
-    let sequence = sequence.result()?;
-    Ok(sequence.finish()?)
+
+    let call = Sequence::op(EventKind::NewUtxo)
+        .root(import_arguments_root(import, 0)?)?
+        .finish()?;
+
+    let mut return_events = Sequence::op(EventKind::ReceiveNewUtxoHandle)
+        .map(1, |builder| {
+            builder.push(SlotBinding::ResultElem { limb: Limb::Lo })
+        })?
+        .finish()?;
+
+    return_events.extend(
+        EventSequenceBuilder::advice()
+            .push(SlotBinding::ResultElem { limb: Limb::Hi })?
+            .finish()?,
+    );
+
+    Ok(ImportEvents {
+        call,
+        return_: Some(return_events),
+    })
 }
 
 fn build_yield_begin_template(
@@ -826,7 +923,7 @@ fn build_register_method_template(
 fn build_call_method_template(
     import: &FunctionImport,
     method: MethodHash,
-) -> Result<Vec<EventBlock>, TemplateBuildError> {
+) -> Result<ImportEvents, TemplateBuildError> {
     if !matches!(import.params.first(), Some(ValType::I32)) {
         return Err(TemplateBuildError::InvalidMethodReceiver {
             module: import.module.clone(),
@@ -838,11 +935,17 @@ fn build_call_method_template(
         sequence = sequence.constant_i32(word)?;
     }
     sequence = sequence.root(import_arguments_root(import, 1)?)?;
+    let call = sequence.finish()?;
+
+    let mut return_ = Sequence::op(EventKind::ReceiveMethodResult);
     let (result, high_lane) = import_result_root(import)?;
-    sequence = sequence.root(result)?;
-    let mut events = sequence.finish()?;
-    events.extend(high_lane);
-    Ok(events)
+    return_ = return_.root(result)?;
+    let mut return_events = return_.finish()?;
+    return_events.extend(high_lane);
+    Ok(ImportEvents {
+        call,
+        return_: Some(return_events),
+    })
 }
 
 fn require_signature(
@@ -1065,6 +1168,11 @@ pub enum TemplateBuildError {
     },
 
     #[error(
+        "effect import `{module}`.`{field}` has parameters, which are not supported until the compiler forwards them to handler dispatchers"
+    )]
+    UnsupportedEffectParameters { module: String, field: String },
+
+    #[error(
         "import `{module}`.`{field}` has unsupported flat result types {results:?}; \
          only no result or one i32/i64 result is supported"
     )]
@@ -1079,6 +1187,12 @@ pub enum TemplateBuildError {
          only no result or one i32/i64 result is supported"
     )]
     UnsupportedExportResult {
+        name: String,
+        results: Box<[ValType]>,
+    },
+
+    #[error("effect handler export `{name}` must return one i32 status, found {results:?}")]
+    InvalidEffectHandlerResult {
         name: String,
         results: Box<[ValType]>,
     },
@@ -1219,8 +1333,18 @@ mod tests {
     ) -> Trace {
         let (_, template) = import(templates, module, field);
         let expanded = expand_import_events(template, args, result, &[], &[]).unwrap();
-        let blocks = absorbed_blocks(&template.events, &expanded).unwrap();
-        crate::decode_tagged_blocks(&blocks, &mut std::iter::empty()).unwrap()
+        let call_len = template.events.len();
+        let blocks = absorbed_blocks(&template.events, &expanded[..call_len]).unwrap();
+        let mut trace = crate::decode_tagged_blocks(&blocks, &mut std::iter::empty()).unwrap();
+        if let Some(return_events) = &template.return_events {
+            let blocks = absorbed_blocks(return_events, &expanded[call_len..]).unwrap();
+            trace.0.extend(
+                crate::decode_tagged_blocks(&blocks, &mut std::iter::empty())
+                    .unwrap()
+                    .0,
+            );
+        }
+        trace
     }
 
     /// Decode the entry transcript of one export turn.
@@ -1299,6 +1423,59 @@ mod tests {
         assert_eq!(method_hash_from_name("add"), method_hash("add"));
     }
 
+    const EFFECT_WASM_FIXTURE: &str = r#"
+        (module
+          (import "starstream:effects/foo" "hello" (func $effect))
+          (func (export "main") call $effect)
+          (func (export "starstream:effect-handler/foo#hello") (result i32)
+            i32.const 1))
+    "#;
+
+    #[test]
+    fn effect_templates_split_raise_from_resume_and_bind_handler_status() {
+        let templates = build(EFFECT_WASM_FIXTURE, &["main"]);
+        let (_, import) = import(&templates, "starstream:effects/foo", "hello");
+        let return_events = import.return_events.as_ref().unwrap();
+        let expanded = expand_import_events(import, &[], None, &[], &[]).unwrap();
+        let call_blocks =
+            absorbed_blocks(&import.events, &expanded[..import.events.len()]).unwrap();
+        let return_blocks =
+            absorbed_blocks(return_events, &expanded[import.events.len()..]).unwrap();
+        let effect = effect_hash_from_names("foo", "hello");
+        assert_eq!(
+            crate::decode_tagged_blocks(&call_blocks, &mut std::iter::empty()).unwrap(),
+            Trace::new([Step::RaiseEffect {
+                effect,
+                arguments: StarstreamValue::UNIT_VALUE,
+            }])
+        );
+        assert_eq!(
+            crate::decode_tagged_blocks(&return_blocks, &mut std::iter::empty()).unwrap(),
+            Trace::new([Step::ResumeEffect {
+                result: StarstreamValue::UNIT_VALUE.into(),
+            }])
+        );
+        assert_eq!(
+            enter(&templates, "starstream:effect-handler/foo#hello", &[]),
+            Trace::new([Step::EnterEffectHandler {
+                effect,
+                arguments: StarstreamValue::UNIT_VALUE,
+            }])
+        );
+        assert_eq!(
+            exit(
+                &templates,
+                "starstream:effect-handler/foo#hello",
+                Some((1, 0)),
+                &[],
+            ),
+            Trace::new([Step::ExitEffectHandler {
+                handled: true,
+                result: StarstreamValue::UNIT_VALUE.into(),
+            }])
+        );
+    }
+
     #[test]
     fn flat_roots_are_inline_up_to_four_words_and_hashed_beyond() {
         assert_eq!(flat_value_root(&[], &[]), StarstreamValue::UNIT_VALUE);
@@ -1355,10 +1532,14 @@ mod tests {
                     &args,
                     Some((42, 0)),
                 ),
-                Trace::new([Step::NewUtxo {
-                    arguments: flat_value_root(&types, &values),
-                    resource: Out(ResourceHandle(42)),
-                }]),
+                Trace::new([
+                    Step::NewUtxo {
+                        arguments: flat_value_root(&types, &values),
+                    },
+                    Step::ReceiveNewUtxoHandle {
+                        resource: Out(ResourceHandle(42)),
+                    },
+                ]),
                 "{words}-word arguments must leave the resource in its fixed slot",
             );
         }
@@ -1376,10 +1557,14 @@ mod tests {
                 &[limbs(55)],
                 Some((7, 0))
             ),
-            Trace::new([Step::NewUtxo {
-                arguments: arguments.clone(),
-                resource: Out(ResourceHandle(7)),
-            }])
+            Trace::new([
+                Step::NewUtxo {
+                    arguments: arguments.clone(),
+                },
+                Step::ReceiveNewUtxoHandle {
+                    resource: Out(ResourceHandle(7)),
+                },
+            ])
         );
         // Entry inputs: the i64 argument's limbs, then the context handle.
         let (_, template) = export(&templates, "counter#[static]utxo.new");
@@ -1403,15 +1588,14 @@ mod tests {
         let method = method_hash("add");
         let arguments = flat_value_root(&[ValType::I64], &[13]);
         let (_, template) = import(&templates, "starstream:self/counter", "[method]utxo.add");
+        let expanded =
+            expand_import_events(template, &[(7, 0), limbs(13)], None, &[], &[]).unwrap();
         assert_eq!(
-            absorbed_blocks(
-                &template.events,
-                &expand_import_events(template, &[(7, 0), limbs(13)], None, &[], &[]).unwrap()
-            )
-            .unwrap()
-            .len(),
-            3,
-            "tag+resource+method, method tail+arguments, unit result"
+            absorbed_blocks(&template.events, &expanded[..template.events.len()])
+                .unwrap()
+                .len(),
+            2,
+            "the call side commits the tag, resource, method, and arguments"
         );
         assert_eq!(
             call(
@@ -1421,12 +1605,16 @@ mod tests {
                 &[(7, 0), limbs(13)],
                 None
             ),
-            Trace::new([Step::CallMethod {
-                resource: ResourceHandle(7),
-                method,
-                arguments: arguments.clone(),
-                result: Out(StarstreamValue::UNIT_VALUE),
-            }])
+            Trace::new([
+                Step::CallMethod {
+                    resource: ResourceHandle(7),
+                    method,
+                    arguments: arguments.clone(),
+                },
+                Step::ReceiveMethodResult {
+                    result: Out(StarstreamValue::UNIT_VALUE),
+                },
+            ])
         );
         let (_, template) = export(&templates, "counter#[method]utxo.add");
         assert_eq!(bootstrap_writes(template), [(2, 0, false)]);
@@ -1448,7 +1636,8 @@ mod tests {
             Some((41, 0)),
         );
         let [
-            Step::CallMethod {
+            Step::CallMethod { .. },
+            Step::ReceiveMethodResult {
                 result: Out(called),
                 ..
             },
@@ -1477,12 +1666,16 @@ mod tests {
                 &[(7, 0), (1, 0), (2, 0)],
                 None
             ),
-            Trace::new([Step::CallMethod {
-                resource: ResourceHandle(7),
-                method: method_hash("poke"),
-                arguments,
-                result: Out(StarstreamValue::UNIT_VALUE),
-            }])
+            Trace::new([
+                Step::CallMethod {
+                    resource: ResourceHandle(7),
+                    method: method_hash("poke"),
+                    arguments,
+                },
+                Step::ReceiveMethodResult {
+                    result: Out(StarstreamValue::UNIT_VALUE),
+                },
+            ])
         );
     }
 

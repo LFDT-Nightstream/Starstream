@@ -1,6 +1,6 @@
 use std::iter;
 
-use neo_application::{ApplicationRelation, TaggedR1csBuilder};
+use neo_application::{ApplicationRelation, TaggedR1csBuilder, ZeroTest};
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
 
@@ -9,26 +9,33 @@ use crate::{
     ccs::{
         layout::{
             COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
-            COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_SP_BEFORE_INVERSE,
-            COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8, COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP,
-            COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER,
-            COL_CURR_BEFORE, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE,
+            COL_CALL_FRAME_CALLEE, COL_CALL_FRAME_CONSTRUCTOR, COL_CALL_FRAME_IS_EFFECT,
+            COL_CALL_FRAME_SAVED_PHASE, COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE,
+            COL_CALL_SP_BEFORE_INVERSE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8,
+            COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH,
+            COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER, COL_CURR_BEFORE,
+            COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE, COL_EFFECT_HANDLED,
             COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
             COL_ENABLED_METHOD_LOG_LEN_AFTER, COL_ENABLED_METHOD_LOG_LEN_BEFORE,
-            COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_OWNER_STRIDE_8, COL_METHOD_INDEX,
-            COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER,
-            COL_NEXT_UTXO_ID_BEFORE, COL_PENDING_CTOR_HANDLE_AFTER, COL_PENDING_CTOR_HANDLE_BEFORE,
-            COL_PENDING_CTOR_HOLDER_AFTER, COL_PENDING_CTOR_HOLDER_BEFORE,
-            COL_PENDING_CTOR_PRESENT_AFTER, COL_PENDING_CTOR_PRESENT_BEFORE,
-            COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE,
-            COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
-            COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO, COL_SEL_RETURN, SELECTORS, range_check_layout,
+            COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_OWNER_STRIDE_8,
+            COL_HANDLER_SEARCH_REMAINING_AFTER, COL_HANDLER_SEARCH_REMAINING_BEFORE,
+            COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER,
+            COL_NEXT_UTXO_ID_BEFORE, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_READ,
+            COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_RESULT_ROOT,
+            COL_RETURN_REQUIRES_UNIT, COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO, COL_SEL_RAISE_EFFECT,
+            COL_SEL_RECEIVE_NEW_UTXO_HANDLE, SELECTORS, range_check_layout,
         },
         tags::{ConstraintScope, always, opcode_tag, opcode_tags},
     },
     ivc_state::CoroutineKind,
     opcode::Opcode,
 };
+
+pub(crate) const CALL_TARGET_ZERO_TEST: ZeroTest = ZeroTest::column(
+    COL_CALL_TARGET,
+    layout::COL_CALL_TARGET_INVERSE,
+    layout::COL_CALL_TARGET_IS_ZERO,
+);
 
 pub(crate) mod layout;
 pub(crate) mod tags;
@@ -93,27 +100,14 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             .filter(|op| !op.is_execution() && *op != Opcode::Padding)
             .map(|op| (op.selector(), F::ONE))
             .collect::<Vec<_>>();
-        for (after, before) in [
-            (COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE),
-            (
-                COL_PENDING_CTOR_PRESENT_AFTER,
-                COL_PENDING_CTOR_PRESENT_BEFORE,
-            ),
-            (
-                COL_PENDING_CTOR_HOLDER_AFTER,
-                COL_PENDING_CTOR_HOLDER_BEFORE,
-            ),
-            (
-                COL_PENDING_CTOR_HANDLE_AFTER,
-                COL_PENDING_CTOR_HANDLE_BEFORE,
-            ),
-        ] {
-            b.push_row(
-                non_execution.iter().copied(),
-                [(after, F::ONE), (before, -F::ONE)],
-                [],
-            );
-        }
+        b.push_row(
+            non_execution.iter().copied(),
+            [
+                (COL_CURR_PHASE_AFTER, F::ONE),
+                (COL_CURR_PHASE_BEFORE, -F::ONE),
+            ],
+            [],
+        );
     });
 
     crate::transaction::constraints(&mut b);
@@ -134,17 +128,65 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         );
     });
 
+    b.with_tag(always("call target zero test"), |b| {
+        CALL_TARGET_ZERO_TEST.push_constraints(b);
+    });
+
     b.with_tag(
         opcode_tags(
-            "call stack push global condition: true if new_utxo or call_method",
-            &[Opcode::NewUtxo, Opcode::CallMethod],
+            "call stack push global condition",
+            &[Opcode::NewUtxo, Opcode::CallMethod, Opcode::RaiseEffect],
         ),
         |b| {
             b.push_linear_zero([
                 (COL_SEL_NEW_UTXO, F::ONE),
                 (COL_SEL_CALL_METHOD, F::ONE),
+                (COL_SEL_RAISE_EFFECT, F::ONE),
                 (COL_CALL_STACK_PUSH, -F::ONE),
             ]);
+        },
+    );
+
+    // One-hot selectors make the RHS the active opcode's required flag value.
+    let effect_frame_opcodes = Opcode::all()
+        .iter()
+        .copied()
+        .filter(|op| op.required_effect_frame().is_some())
+        .collect::<Vec<_>>();
+    b.with_tag(
+        opcode_tags("effect frame requirements", &effect_frame_opcodes),
+        |b| {
+            b.push_row(
+                effect_frame_opcodes
+                    .iter()
+                    .map(|op| (op.selector(), F::ONE)),
+                [(COL_CALL_FRAME_IS_EFFECT, F::ONE)],
+                effect_frame_opcodes
+                    .iter()
+                    .filter(|op| op.required_effect_frame() == Some(true))
+                    .map(|op| (op.selector(), F::ONE)),
+            );
+        },
+    );
+
+    let constructor_frame_opcodes = Opcode::all()
+        .iter()
+        .copied()
+        .filter(|op| op.required_constructor_frame().is_some())
+        .collect::<Vec<_>>();
+    b.with_tag(
+        opcode_tags("constructor frame requirements", &constructor_frame_opcodes),
+        |b| {
+            b.push_row(
+                constructor_frame_opcodes
+                    .iter()
+                    .map(|op| (op.selector(), F::ONE)),
+                [(COL_CALL_FRAME_CONSTRUCTOR, F::ONE)],
+                constructor_frame_opcodes
+                    .iter()
+                    .filter(|op| op.required_constructor_frame() == Some(true))
+                    .map(|op| (op.selector(), F::ONE)),
+            );
         },
     );
 
@@ -162,14 +204,11 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             (COL_RESOURCE_RESOLVER_READ, F::ONE),
             (COL_SEL_CALL_METHOD, -F::ONE),
         ]);
-        b.push_row(
-            [(COL_SEL_RETURN, F::ONE)],
-            [(COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE)],
-            [
-                (COL_RESOURCE_RESOLVER_WRITE, F::ONE),
-                (layout::COL_SEL_SET_STORAGE, -F::ONE),
-            ],
-        );
+        b.push_linear_zero([
+            (COL_RESOURCE_RESOLVER_WRITE, F::ONE),
+            (COL_SEL_RECEIVE_NEW_UTXO_HANDLE, -F::ONE),
+            (layout::COL_SEL_SET_STORAGE, -F::ONE),
+        ]);
     });
 
     b.with_tag(always("enabled method log transition"), |b| {
@@ -179,6 +218,8 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             (Opcode::PreloadMethod.selector(), -F::ONE),
             (Opcode::CallMethod.selector(), -F::ONE),
             (Opcode::ReadAbi.selector(), -F::ONE),
+            (Opcode::RaiseEffect.selector(), -F::ONE),
+            (Opcode::EnterEffectHandler.selector(), -F::ONE),
         ]);
         b.push_linear_zero([
             (COL_ENABLED_METHOD_LOG_LEN_AFTER, F::ONE),
@@ -208,9 +249,9 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     // Benchmark both layouts once proof batching is wired.
     //
     // A push writes at the next free address (`sp`), while peeks and pops read
-    // the current top (`sp - 1`). The corresponding access flag selects the
-    // latter address.
-    b.with_tag(always("call stack mul stride (8)"), |b| {
+    // the current top (`sp - 1`). The corresponding access flag, or Return's
+    // selector for its data-dependent pop, selects the latter address.
+    b.with_tag(always("call stack expected-address stride (8)"), |b| {
         COL_CALL_STACK_MUL_STRIDE_8
             .iter()
             .enumerate()
@@ -219,13 +260,14 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
                     (COL_CALL_SP_BEFORE, F::new(8)),
                     (COL_CALL_STACK_TOP, -F::new(8)),
                     (COL_CALL_STACK_POP, -F::new(8)),
+                    (layout::COL_SEL_RETURN, -F::new(8)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);
             });
     });
 
-    b.with_tag(always("call stack mul stride (8)"), |b| {
+    b.with_tag(always("call stack expected-address stride (8)"), |b| {
         COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8
             .iter()
             .enumerate()
@@ -233,6 +275,8 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
                 b.push_linear_zero([
                     (COL_CALL_SP_BEFORE, F::new(8)),
                     (COL_CALL_STACK_TOP, -F::new(8)),
+                    (COL_CALL_STACK_POP, -F::new(8)),
+                    (layout::COL_SEL_RETURN, -F::new(8)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);
@@ -285,7 +329,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     let call_stack_poping_opcodes = Opcode::all()
         .iter()
         .copied()
-        .filter(|op| op.pops_from_call_stack())
+        .filter(|op| op.pops_from_call_stack_unconditionally())
         .collect::<Vec<_>>();
 
     b.with_tag(
@@ -315,7 +359,11 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     let call_stack_preserving_opcodes = Opcode::all()
         .iter()
         .copied()
-        .filter(|op| !op.pushes_to_call_stack() && !op.pops_from_call_stack())
+        .filter(|op| {
+            !op.pushes_to_call_stack()
+                && !op.pops_from_call_stack_unconditionally()
+                && *op != Opcode::Return
+        })
         .collect::<Vec<_>>();
 
     b.with_tag(
@@ -359,6 +407,13 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         opcode_tag("new utxo constraints", Opcode::NewUtxo),
         visit_new_utxo,
     );
+    b.with_tag(
+        opcode_tag(
+            "receive new utxo handle constraints",
+            Opcode::ReceiveNewUtxoHandle,
+        ),
+        visit_receive_new_utxo_handle,
+    );
 
     b.with_tag(
         opcode_tag("enter constructor constraints", Opcode::EnterConstructor),
@@ -381,8 +436,34 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         visit_call_method,
     );
     b.with_tag(
+        opcode_tag(
+            "receive method result constraints",
+            Opcode::ReceiveMethodResult,
+        ),
+        visit_receive_method_result,
+    );
+    b.with_tag(
         opcode_tag("enter method constraints", Opcode::EnterMethod),
         visit_enter_method,
+    );
+    b.with_tag(
+        opcode_tag("raise effect constraints", Opcode::RaiseEffect),
+        visit_raise_effect,
+    );
+    b.with_tag(
+        opcode_tag(
+            "enter effect handler constraints",
+            Opcode::EnterEffectHandler,
+        ),
+        visit_enter_effect_handler,
+    );
+    b.with_tag(
+        opcode_tag("exit effect handler constraints", Opcode::ExitEffectHandler),
+        visit_exit_effect_handler,
+    );
+    b.with_tag(
+        opcode_tag("resume effect constraints", Opcode::ResumeEffect),
+        visit_resume_effect,
     );
 
     crate::commitment::constraints(&mut b);
@@ -421,7 +502,7 @@ fn require_phase_after(
     );
 }
 
-fn phase_bits(column: usize) -> [usize; 2] {
+fn phase_bits(column: usize) -> [usize; 4] {
     assert!(
         [COL_CURR_PHASE_BEFORE, COL_CURR_PHASE_AFTER].contains(&column),
         "this function should only be called on the phase columns"
@@ -431,7 +512,7 @@ fn phase_bits(column: usize) -> [usize; 2] {
         .bit_columns_for(column)
         .expect("phase column has decomposition bits");
 
-    [bits.start, bits.start + 1]
+    [bits.start, bits.start + 1, bits.start + 2, bits.start + 3]
 }
 
 fn low_bit(column: usize) -> usize {
@@ -465,28 +546,6 @@ fn require_equal(
     b.push_gated_linear_zero(opcode.selector(), [(left, F::ONE), (right, -F::ONE)]);
 }
 
-fn preserve_pending_constructor_key(
-    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
-    opcode: Opcode,
-) {
-    for (after, before) in [
-        (
-            COL_PENDING_CTOR_PRESENT_AFTER,
-            COL_PENDING_CTOR_PRESENT_BEFORE,
-        ),
-        (
-            COL_PENDING_CTOR_HOLDER_AFTER,
-            COL_PENDING_CTOR_HOLDER_BEFORE,
-        ),
-        (
-            COL_PENDING_CTOR_HANDLE_AFTER,
-            COL_PENDING_CTOR_HANDLE_BEFORE,
-        ),
-    ] {
-        require_equal(b, opcode, after, before);
-    }
-}
-
 fn visit_enter_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_coroutine_kind(b, Opcode::EnterMethod, COL_CURR_BEFORE, CoroutineKind::Utxo);
     require_phase_before(
@@ -499,7 +558,6 @@ fn visit_enter_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::EnterMethod,
         crate::ivc_state::CurrPhase::Executing,
     );
-    preserve_pending_constructor_key(b, Opcode::EnterMethod);
 }
 
 fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -530,6 +588,18 @@ fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_equal(
         b,
         Opcode::CallMethod,
+        COL_CALL_FRAME_CALLEE,
+        COL_CALL_TARGET,
+    );
+    require_equal(
+        b,
+        Opcode::CallMethod,
+        COL_CALL_FRAME_SAVED_PHASE,
+        COL_CURR_PHASE_BEFORE,
+    );
+    require_equal(
+        b,
+        Opcode::CallMethod,
         COL_ABI_GENERATION_ADDR,
         COL_CALL_TARGET,
     );
@@ -545,50 +615,57 @@ fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         COL_ENABLED_METHOD_LOG_GENERATION,
         COL_ABI_GENERATION_BEFORE,
     );
-    preserve_pending_constructor_key(b, Opcode::CallMethod);
 }
 
 fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
-    // Return is allowed in Executing (00) and Yield (11).
+    // Bits 2 and 3 are both clear exactly for Executing,
+    // ConstructorExecuting, and Registering.
     let phase_before = phase_bits(COL_CURR_PHASE_BEFORE);
     b.push_gated_linear_zero(
         Opcode::Return.selector(),
-        [(phase_before[0], F::ONE), (phase_before[1], -F::ONE)],
+        [(phase_before[2], F::ONE), (phase_before[3], F::ONE)],
     );
-    require_phase_after(b, Opcode::Return, crate::ivc_state::CurrPhase::Executing);
     require_coroutine_kind(b, Opcode::Return, COL_CURR_AFTER, CoroutineKind::Coord);
-
-    // These Boolean/U32 values sum to at most 2^33 - 1, below the field
-    // modulus, so a zero sum forces every component of `None` to be zero.
+    // Constructors and the root coordinator have statically unit return
+    // types. A nonzero frame caller means that a caller-side Receive* event
+    // still has to consume this frame. Constructor and root indicators are
+    // mutually exclusive, so this relation is linear.
     b.push_gated_linear_zero(
         Opcode::Return.selector(),
         [
-            (COL_PENDING_CTOR_PRESENT_AFTER, F::ONE),
-            (COL_PENDING_CTOR_HOLDER_AFTER, F::ONE),
-            (COL_PENDING_CTOR_HANDLE_AFTER, F::ONE),
+            (COL_RETURN_REQUIRES_UNIT, F::ONE),
+            (COL_CALL_FRAME_CONSTRUCTOR, -F::ONE),
+            (layout::COL_CALL_TARGET_IS_ZERO, -F::ONE),
         ],
     );
-
-    for (resolver_column, pending_column) in [
-        (
-            COL_RESOURCE_RESOLVER_ADDR_CID,
-            COL_PENDING_CTOR_HOLDER_BEFORE,
-        ),
-        (
-            COL_RESOURCE_RESOLVER_ADDR_HANDLE,
-            COL_PENDING_CTOR_HANDLE_BEFORE,
-        ),
-        (COL_RESOURCE_RESOLVER_VALUE, COL_CURR_BEFORE),
-    ] {
-        b.push_row(
-            [
-                (COL_RESOURCE_RESOLVER_WRITE, F::ONE),
-                (layout::COL_SEL_SET_STORAGE, -F::ONE),
-            ],
-            [(resolver_column, F::ONE), (pending_column, -F::ONE)],
-            [],
-        );
+    for limb in COL_RESULT_ROOT {
+        b.push_row([(COL_RETURN_REQUIRES_UNIT, F::ONE)], [(limb, F::ONE)], []);
     }
+    // A root return pops immediately. Other program returns leave their frame
+    // live for ReceiveMethodResult or ReceiveNewUtxoHandle to consume.
+    b.push_gated_linear_zero(
+        Opcode::Return.selector(),
+        [
+            (COL_CALL_SP_AFTER, F::ONE),
+            (COL_CALL_SP_BEFORE, -F::ONE),
+            (layout::COL_CALL_TARGET_IS_ZERO, F::ONE),
+        ],
+    );
+    let root_phase = F::new(crate::ivc_state::CurrPhase::Executing.value() as u64);
+    let method_phase = F::new(crate::ivc_state::CurrPhase::MethodResultPending.value() as u64);
+    let constructor_phase =
+        F::new(crate::ivc_state::CurrPhase::NewUtxoHandlePending.value() as u64);
+    // Start with the method receive phase, then select the root or constructor
+    // phase using their mutually exclusive indicators.
+    b.push_gated_linear_zero(
+        Opcode::Return.selector(),
+        [
+            (COL_CURR_PHASE_AFTER, F::ONE),
+            (COL_ONE, -method_phase),
+            (layout::COL_CALL_TARGET_IS_ZERO, method_phase - root_phase),
+            (COL_CALL_FRAME_CONSTRUCTOR, method_phase - constructor_phase),
+        ],
+    );
 }
 
 fn visit_register_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -598,15 +675,20 @@ fn visit_register_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         COL_CURR_BEFORE,
         CoroutineKind::Utxo,
     );
-    require_phase_before(
-        b,
-        Opcode::RegisterMethod,
-        crate::ivc_state::CurrPhase::Yield,
+    // ConstructorExecuting (0001) and Registering (0011) differ only in bit 1.
+    let phase_before = phase_bits(COL_CURR_PHASE_BEFORE);
+    b.push_gated_linear_zero(
+        Opcode::RegisterMethod.selector(),
+        [(phase_before[0], F::ONE), (COL_ONE, -F::ONE)],
+    );
+    b.push_gated_linear_zero(
+        Opcode::RegisterMethod.selector(),
+        [(phase_before[2], F::ONE), (phase_before[3], F::ONE)],
     );
     require_phase_after(
         b,
         Opcode::RegisterMethod,
-        crate::ivc_state::CurrPhase::Yield,
+        crate::ivc_state::CurrPhase::Registering,
     );
     require_equal(
         b,
@@ -632,7 +714,6 @@ fn visit_register_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         COL_ENABLED_METHOD_LOG_GENERATION,
         COL_ABI_GENERATION_BEFORE,
     );
-    preserve_pending_constructor_key(b, Opcode::RegisterMethod);
 }
 
 fn visit_yield_begin(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -642,7 +723,11 @@ fn visit_yield_begin(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::YieldBegin,
         crate::ivc_state::CurrPhase::Executing,
     );
-    require_phase_after(b, Opcode::YieldBegin, crate::ivc_state::CurrPhase::Yield);
+    require_phase_after(
+        b,
+        Opcode::YieldBegin,
+        crate::ivc_state::CurrPhase::Registering,
+    );
     require_equal(
         b,
         Opcode::YieldBegin,
@@ -657,7 +742,6 @@ fn visit_yield_begin(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             (COL_ONE, -F::ONE),
         ],
     );
-    preserve_pending_constructor_key(b, Opcode::YieldBegin);
 }
 
 fn visit_enter_constructor(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -675,16 +759,8 @@ fn visit_enter_constructor(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_phase_after(
         b,
         Opcode::EnterConstructor,
-        crate::ivc_state::CurrPhase::Yield,
+        crate::ivc_state::CurrPhase::ConstructorExecuting,
     );
-    b.push_gated_linear_zero(
-        Opcode::EnterConstructor.selector(),
-        [
-            (COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE),
-            (COL_ONE, -F::ONE),
-        ],
-    );
-    preserve_pending_constructor_key(b, Opcode::EnterConstructor);
 }
 
 fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -703,30 +779,161 @@ fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             (COL_ONE, -F::ONE),
         ],
     );
-    b.push_gated_linear_zero(
-        Opcode::NewUtxo.selector(),
-        [(COL_PENDING_CTOR_PRESENT_BEFORE, F::ONE)],
-    );
-    b.push_gated_linear_zero(
-        Opcode::NewUtxo.selector(),
-        [(COL_PENDING_CTOR_PRESENT_AFTER, F::ONE), (COL_ONE, -F::ONE)],
-    );
+    require_equal(b, Opcode::NewUtxo, COL_CALL_FRAME_CALLEE, COL_CALL_TARGET);
     require_equal(
         b,
         Opcode::NewUtxo,
-        COL_PENDING_CTOR_HOLDER_AFTER,
+        COL_CALL_FRAME_SAVED_PHASE,
+        COL_CURR_PHASE_BEFORE,
+    );
+}
+
+fn visit_receive_new_utxo_handle(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_phase_before(
+        b,
+        Opcode::ReceiveNewUtxoHandle,
+        crate::ivc_state::CurrPhase::NewUtxoHandlePending,
+    );
+    require_equal(
+        b,
+        Opcode::ReceiveNewUtxoHandle,
+        COL_CALL_TARGET,
         COL_CURR_BEFORE,
     );
     require_equal(
         b,
-        Opcode::NewUtxo,
-        COL_PENDING_CTOR_HANDLE_AFTER,
-        COL_RESOURCE_RESOLVER_ADDR_HANDLE,
+        Opcode::ReceiveNewUtxoHandle,
+        COL_CURR_PHASE_AFTER,
+        COL_CALL_FRAME_SAVED_PHASE,
     );
     require_equal(
         b,
-        Opcode::NewUtxo,
+        Opcode::ReceiveNewUtxoHandle,
         COL_RESOURCE_RESOLVER_ADDR_CID,
         COL_CURR_BEFORE,
+    );
+    require_equal(
+        b,
+        Opcode::ReceiveNewUtxoHandle,
+        COL_RESOURCE_RESOLVER_VALUE,
+        COL_CALL_FRAME_CALLEE,
+    );
+}
+
+fn visit_receive_method_result(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_phase_before(
+        b,
+        Opcode::ReceiveMethodResult,
+        crate::ivc_state::CurrPhase::MethodResultPending,
+    );
+    require_equal(
+        b,
+        Opcode::ReceiveMethodResult,
+        COL_CALL_TARGET,
+        COL_CURR_BEFORE,
+    );
+    require_equal(
+        b,
+        Opcode::ReceiveMethodResult,
+        COL_CURR_PHASE_AFTER,
+        COL_CALL_FRAME_SAVED_PHASE,
+    );
+}
+
+fn visit_raise_effect(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    // Among reachable phases, bits 1 and 3 are both clear exactly for
+    // Executing, ConstructorExecuting, and handler execution.
+    let phase_before = phase_bits(COL_CURR_PHASE_BEFORE);
+    b.push_gated_linear_zero(
+        Opcode::RaiseEffect.selector(),
+        [(phase_before[1], F::ONE), (phase_before[3], F::ONE)],
+    );
+    require_phase_after(
+        b,
+        Opcode::RaiseEffect,
+        crate::ivc_state::CurrPhase::EffectHandlerPending,
+    );
+    require_equal(b, Opcode::RaiseEffect, COL_CALL_TARGET, COL_CURR_BEFORE);
+    b.push_gated_linear_zero(
+        Opcode::RaiseEffect.selector(),
+        [
+            (COL_HANDLER_SEARCH_REMAINING_AFTER, F::ONE),
+            (COL_ONE, -F::ONE),
+        ],
+    );
+    require_equal(
+        b,
+        Opcode::RaiseEffect,
+        COL_CALL_FRAME_SAVED_PHASE,
+        COL_CURR_PHASE_BEFORE,
+    );
+}
+
+fn visit_enter_effect_handler(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_phase_before(
+        b,
+        Opcode::EnterEffectHandler,
+        crate::ivc_state::CurrPhase::EffectHandlerPending,
+    );
+    require_phase_after(
+        b,
+        Opcode::EnterEffectHandler,
+        crate::ivc_state::CurrPhase::EffectHandlerExecuting,
+    );
+    b.push_gated_linear_zero(
+        Opcode::EnterEffectHandler.selector(),
+        [
+            (COL_HANDLER_SEARCH_REMAINING_BEFORE, F::ONE),
+            (COL_ONE, -F::ONE),
+        ],
+    );
+}
+
+fn visit_exit_effect_handler(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_phase_before(
+        b,
+        Opcode::ExitEffectHandler,
+        crate::ivc_state::CurrPhase::EffectHandlerExecuting,
+    );
+    b.push_gated_linear_zero(
+        Opcode::ExitEffectHandler.selector(),
+        [
+            (COL_CURR_PHASE_AFTER, F::ONE),
+            (
+                COL_ONE,
+                -F::new(crate::ivc_state::CurrPhase::EffectHandlerPending.value() as u64),
+            ),
+            (COL_EFFECT_HANDLED, -F::ONE),
+        ],
+    );
+    b.push_gated_linear_zero(
+        Opcode::ExitEffectHandler.selector(),
+        [
+            (COL_HANDLER_SEARCH_REMAINING_BEFORE, F::ONE),
+            (COL_ONE, -F::ONE),
+        ],
+    );
+    b.push_gated_linear_zero(
+        Opcode::ExitEffectHandler.selector(),
+        [(COL_HANDLER_SEARCH_REMAINING_AFTER, F::ONE)],
+    );
+}
+
+fn visit_resume_effect(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    require_phase_before(
+        b,
+        Opcode::ResumeEffect,
+        crate::ivc_state::CurrPhase::EffectResumePending,
+    );
+    require_equal(
+        b,
+        Opcode::ResumeEffect,
+        COL_CURR_PHASE_AFTER,
+        COL_CALL_FRAME_SAVED_PHASE,
+    );
+    require_equal(b, Opcode::ResumeEffect, COL_CALL_TARGET, COL_CURR_BEFORE);
+    b.push_gated_linear_zero(
+        Opcode::ResumeEffect.selector(),
+        [(COL_HANDLER_SEARCH_REMAINING_BEFORE, F::ONE)],
     );
 }

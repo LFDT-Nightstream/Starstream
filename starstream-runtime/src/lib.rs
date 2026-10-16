@@ -328,37 +328,52 @@ fn link_effect_function<T: Host>(
     let abi_name = Arc::<str>::from(abi_name);
     let name = Arc::<str>::from(name);
     ensure!(ty.results().len() == 0);
-    linker.func_new(
+    linker.func_new_async(
         &Arc::clone(&name),
         move |mut store, _ty, params, _results| {
-            debug!(abi = ?abi_name, effect = ?name, ?params, "raise_effect");
+            let abi_name = Arc::clone(&abi_name);
+            let name = Arc::clone(&name);
+            Box::new(async move {
+                debug!(abi = ?abi_name, effect = ?name, ?params, "raise_effect");
 
-            let vec: Vec<_> = store.debug_exit_frames().collect();
-            assert!(
-                !vec.is_empty(),
-                "`debug_exit_frames()` was empty, must use `Config::guest_debug(true)`"
-            );
+                let frames: Vec<_> = store.debug_exit_frames().collect();
+                assert!(
+                    !frames.is_empty(),
+                    "`debug_exit_frames()` was empty, must use `Config::guest_debug(true)`"
+                );
 
-            let core_name = format!("starstream:effect-handler/{abi_name}#{name}");
-            for each in vec {
-                debug!(pc = ?each.wasm_function_index_and_pc(&mut store));
-                if let Ok(instance) = each.instance(&mut store)
-                    && let Some(handler) = instance.get_func(&mut store, &core_name)
-                {
+                let core_name = format!("starstream:effect-handler/{abi_name}#{name}");
+                // FrameHandle is invalidated as soon as guest execution resumes.
+                // Resolve every dispatcher to a stable Func before calling any
+                // handler so an unhandled inner frame can continue outward.
+                let mut handlers = Vec::new();
+                for each in frames {
+                    debug!(pc = ?each.wasm_function_index_and_pc(&mut store));
+                    if let Ok(instance) = each.instance(&mut store)
+                        && let Some(handler) = instance.get_func(&mut store, &core_name)
+                    {
+                        handlers.push(handler);
+                    }
+                }
+                for handler in handlers {
                     debug!(handler = ?handler);
                     let mut results = [wasmtime::Val::I32(0)];
-                    handler.call(&mut store, &[], &mut results[..])?;
+                    handler
+                        .call_async(&mut store, &[], &mut results[..])
+                        .await?;
                     debug!(results = ?results);
                     match results[0] {
                         wasmtime::Val::I32(0) => continue,
-                        wasmtime::Val::I32(1) => break,
+                        wasmtime::Val::I32(1) => {
+                            break;
+                        }
                         _ => {
                             return Err(wasmtime::Error::msg("invalid effect handler status code"));
                         }
                     };
                 }
-            }
-            Ok(())
+                Ok(())
+            })
         },
     )
 }

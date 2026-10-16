@@ -70,7 +70,6 @@ fn fixture_with_handle(
             resource: handle,
             method: METHOD,
             arguments: UNIT,
-            result: UNIT.into(),
         },
         Step::EnterMethod {
             method: METHOD,
@@ -85,6 +84,9 @@ fn fixture_with_handle(
     }
     trace.0.extend([
         Step::Return {
+            result: UNIT.into(),
+        },
+        Step::ReceiveMethodResult {
             result: UNIT.into(),
         },
         Step::Return {
@@ -102,6 +104,7 @@ fn fixture_with_handle(
     ]);
     owners.extend([
         Some(1),
+        Some(2),
         Some(2),
         if consumed { None } else { Some(1) },
         None,
@@ -162,10 +165,7 @@ fn new_utxo_transaction(
         },
         Step::PreloadMethod { method: METHOD },
         Step::PreloadMethod { method: METHOD }, // idempotent membership, recorded in the input sequence
-        Step::NewUtxo {
-            arguments: UNIT,
-            resource: ResourceHandle(1).into(),
-        },
+        Step::NewUtxo { arguments: UNIT },
         Step::EnterConstructor { arguments: UNIT },
     ]);
     let mut owners = vec![Some(1), None, None, Some(2), Some(3)];
@@ -177,6 +177,9 @@ fn new_utxo_transaction(
         Step::Return {
             result: UNIT.into(),
         },
+        Step::ReceiveNewUtxoHandle {
+            resource: ResourceHandle(1).into(),
+        },
         Step::Return {
             result: UNIT.into(),
         },
@@ -186,7 +189,7 @@ fn new_utxo_transaction(
         Step::ReadAbi { method: METHOD },
         Step::ReadAbi { method: METHOD },
     ]);
-    owners.extend([Some(3), Some(2), Some(1), None, None]);
+    owners.extend([Some(3), Some(2), Some(2), Some(1), None, None]);
     let mut statement = TransactionStatement {
         inputs: vec![InputUtxo {
             storage: UNIT,
@@ -286,6 +289,7 @@ fn replaced_abi_transaction() -> (Trace, TransactionStatement, TraceCommitments)
             Some(1),
             Some(1), // yield and registrations
             Some(1),
+            Some(2),
             Some(2),
             Some(1), // returns and storage
             None,
@@ -540,7 +544,6 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
                 resource: ResourceHandle(7),
                 method: METHOD,
                 arguments: UNIT,
-                result: UNIT.into(),
             },
             Step::EnterMethod {
                 method: METHOD,

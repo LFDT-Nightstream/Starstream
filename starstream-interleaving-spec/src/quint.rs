@@ -538,10 +538,10 @@ impl fmt::Display for Qnt<&Step> {
             Step::ReadAbi { method } => write!(f, "read_abi({})", Qnt(method)),
             Step::FinishTransaction => f.write_str("finish_transaction"),
             Step::FinalizeCoordinator => f.write_str("finalize_coordinator"),
-            Step::NewUtxo {
-                arguments,
-                resource,
-            } => write!(f, "new_utxo({}, {})", Qnt(arguments), Qnt(resource)),
+            Step::NewUtxo { arguments } => write!(f, "new_utxo({})", Qnt(arguments)),
+            Step::ReceiveNewUtxoHandle { resource } => {
+                write!(f, "receive_new_utxo_handle({})", Qnt(resource))
+            }
             Step::EnterConstructor { arguments } => {
                 write!(f, "enter_constructor({})", Qnt(arguments))
             }
@@ -552,17 +552,33 @@ impl fmt::Display for Qnt<&Step> {
                 resource,
                 method,
                 arguments,
-                result,
             } => write!(
                 f,
-                "call_method({}, {}, {}, {})",
+                "call_method({}, {}, {})",
                 Qnt(resource),
                 Qnt(method),
-                Qnt(arguments),
-                Qnt(result)
+                Qnt(arguments)
             ),
+            Step::ReceiveMethodResult { result } => {
+                write!(f, "receive_method_result({})", Qnt(result))
+            }
             Step::EnterMethod { method, arguments } => {
                 write!(f, "enter_method({}, {})", Qnt(method), Qnt(arguments))
+            }
+            Step::RaiseEffect { effect, arguments } => {
+                write!(f, "raise_effect({}, {})", Qnt(effect), Qnt(arguments))
+            }
+            Step::EnterEffectHandler { effect, arguments } => write!(
+                f,
+                "enter_effect_handler({}, {})",
+                Qnt(effect),
+                Qnt(arguments)
+            ),
+            Step::ExitEffectHandler { handled, result } => {
+                write!(f, "exit_effect_handler({}, {})", handled, Qnt(result))
+            }
+            Step::ResumeEffect { result } => {
+                write!(f, "resume_effect({})", Qnt(result))
             }
         }
     }
@@ -604,7 +620,6 @@ mod tests {
         let trace = Trace::new([
             NewUtxo {
                 arguments: vec![0, 1, 2, 3].into(),
-                resource: ResourceHandle(0).into(),
             },
             EnterConstructor {
                 arguments: vec![0, 1, 2, 3].into(),
@@ -614,6 +629,9 @@ mod tests {
             },
             Return {
                 result: StarstreamValue::UNIT_VALUE.into(),
+            },
+            ReceiveNewUtxoHandle {
+                resource: ResourceHandle(0).into(),
             },
             Return {
                 result: StarstreamValue::UNIT_VALUE.into(),
@@ -632,7 +650,6 @@ mod tests {
         let trace = Trace::new([
             NewUtxo {
                 arguments: vec![0, 1, 2, 3].into(),
-                resource: ResourceHandle(0).into(),
             },
             Return {
                 result: StarstreamValue::UNIT_VALUE.into(),

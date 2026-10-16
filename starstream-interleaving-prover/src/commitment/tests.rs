@@ -107,7 +107,6 @@ fn output_selection_handles_every_block_count() {
         (0, &padding),
         (1, &normalized.steps[0]),
         (2, &normalized.steps[2]),
-        (3, &normalized.steps[4]),
     ] {
         let mut row = crate::witness::build_witness_vector(step);
         // Nonzero input also tests padding's passthrough, not just zero=zero.
@@ -116,7 +115,7 @@ fn output_selection_handles_every_block_count() {
         }
         assign_from_bus(&mut row, step.opcode);
         range_check_layout().assign_bits(&mut row).unwrap();
-        check(&row).unwrap();
+        check(&row).unwrap_or_else(|error| panic!("count {count}: {error:?}"));
         for block in 0..3 {
             let g = gadget(block);
             let chain = neo_application::event_commitment::commit_block(
@@ -127,7 +126,8 @@ fn output_selection_handles_every_block_count() {
         }
         assert_eq!(
             COL_OUT.map(|c| row[c]),
-            output_columns(count).map(|c| row[c])
+            output_columns(count).map(|c| row[c]),
+            "count {count}"
         );
 
         // Pick the wrong prefix, but keep its limb encoding and canonicality
@@ -180,12 +180,12 @@ pub(crate) fn expected(
 #[test]
 fn multi_block_encoding_and_statement_are_bound() {
     let trace = crate::tests::method_call_trace(true);
-    let blocks = starstream_interleaving_spec::events::encode(&trace.0[4]);
-    // EventSequenceBuilder packing: tag+resource+six method limbs; remaining
-    // method limbs+argument root; second root must start a new block.
+    let blocks = starstream_interleaving_spec::events::encode(&trace.0[5]);
+    // EventSequenceBuilder packing: tag+resource+six method limbs, then the
+    // remaining method limbs and argument root.
     assert_eq!(
         blocks,
-        vec![[6, 0, 1, 0, 1, 0, 1, 0], [1, 0, 1, 2, 3, 4, 0, 0], [0; 8],]
+        vec![[6, 0, 1, 0, 1, 0, 1, 0], [1, 0, 1, 2, 3, 4, 0, 0]]
     );
     let statement = expected(
         &trace,
@@ -195,8 +195,10 @@ fn multi_block_encoding_and_statement_are_bound() {
             UTXO,
             UTXO,
             COORDINATOR,
+            COORDINATOR,
             UTXO,
             UTXO,
+            COORDINATOR,
             COORDINATOR,
         ],
     );
@@ -234,16 +236,18 @@ fn changed_values_and_order_cannot_reuse_a_statement() {
             UTXO,
             UTXO,
             COORDINATOR,
+            COORDINATOR,
             UTXO,
             UTXO,
+            COORDINATOR,
             COORDINATOR,
         ],
     );
     let mut changed = trace.clone();
-    if let Step::CallMethod { arguments, .. } = &mut changed.0[4] {
+    if let Step::CallMethod { arguments, .. } = &mut changed.0[5] {
         arguments.0[3] += 1;
     }
-    if let Step::EnterMethod { arguments, .. } = &mut changed.0[5] {
+    if let Step::EnterMethod { arguments, .. } = &mut changed.0[6] {
         arguments.0[3] += 1;
     }
     crate::verify_sat(&changed).unwrap(); // matching sender/receiver, valid semantics
@@ -265,8 +269,10 @@ fn changed_values_and_order_cannot_reuse_a_statement() {
             UTXO,
             UTXO,
             COORDINATOR,
+            COORDINATOR,
             UTXO,
             UTXO,
+            COORDINATOR,
             COORDINATOR,
         ],
     );
@@ -287,8 +293,8 @@ fn tampered_compression_and_canonical_aliases_are_rejected() {
         COL_IN_WORDS[0],
     ] {
         let (mut rows, preload) = build_witness_rows(&trace);
-        rows[4][column] += F::ONE;
-        range_check_layout().assign_bits(&mut rows[4]).unwrap();
+        rows[5][column] += F::ONE;
+        range_check_layout().assign_bits(&mut rows[5]).unwrap();
         assert!(
             verify_witness_rows(&rows, &preload).is_err(),
             "column {column}"
@@ -323,8 +329,10 @@ fn full_field_roots_survive_ram_and_batching() {
             UTXO,
             UTXO,
             COORDINATOR,
+            COORDINATOR,
             UTXO,
             UTXO,
+            COORDINATOR,
             COORDINATOR,
         ],
     );

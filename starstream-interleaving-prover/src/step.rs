@@ -22,7 +22,9 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             | Step::PreloadMethod { method }
             | Step::ReadAbi { method }
             | Step::CallMethod { method, .. }
-            | Step::EnterMethod { method, .. } => Some(*method),
+            | Step::EnterMethod { method, .. }
+            | Step::RaiseEffect { effect: method, .. }
+            | Step::EnterEffectHandler { effect: method, .. } => Some(*method),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -52,10 +54,16 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
     let mut curr = CoroutineId::Coord(1);
     let mut curr_phase = CurrPhase::Executing;
     // Quint's initial coordinator frame occupies the first stack slot.
-    let mut callers = vec![CoroutineId::Coord(0)];
+    let mut callers = vec![CallFrame {
+        caller: CoroutineId::Coord(0),
+        callee: CoroutineId::Coord(1),
+        saved_phase: CurrPhase::Executing,
+        kind: CallFrameKind::Program,
+        handler_search_remaining: 0,
+        arguments: starstream_interleaving_spec::StarstreamValue::UNIT_VALUE,
+    }];
     let mut call_sp = F::new(1);
     let mut next_utxo_id = 0u32;
-    let mut pending_ctor_key = None;
     let mut resource_resolver = HashMap::new();
     let mut abi_generations: HashMap<CoroutineId, u32> = HashMap::new();
     let mut abi_method_counts: HashMap<CoroutineId, u32> = HashMap::new();
@@ -101,14 +109,18 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let next_utxo_id_before = next_utxo_id;
         let enabled_method_log_len_before =
             u32::try_from(enabled_method_log.len()).expect("the enabled-method log fits in u32");
-        let pending_ctor_key_before = pending_ctor_key;
-        let curr_phase_after = opcode.phase_after(curr_phase_before);
-        curr_phase = curr_phase_after;
+        let mut dynamic_phase_after = None;
 
         let call_sp_before = call_sp;
+        let return_has_receiver = matches!(step, Step::Return { .. })
+            && callers
+                .last()
+                .is_some_and(|frame| frame.caller != CoroutineId::Coord(0));
         let call_sp_after = if opcode.pushes_to_call_stack() {
             call_sp_before + F::new(1)
-        } else if opcode.pops_from_call_stack() {
+        } else if opcode.pops_from_call_stack_unconditionally()
+            || (opcode == Opcode::Return && !return_has_receiver)
+        {
             call_sp_before - F::new(1)
         } else {
             call_sp_before
@@ -131,6 +143,14 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let mut enabled_method_log_address = 0;
         let mut enabled_method_log_utxo = CoroutineId::Coord(0);
         let mut enabled_method_log_generation = 0;
+        let mut call_frame_is_effect = false;
+        let mut call_frame_constructor = false;
+        let mut call_frame_callee = CoroutineId::Coord(0);
+        let mut call_frame_saved_phase = CurrPhase::Executing;
+        let mut return_requires_unit = false;
+        let mut handler_search_remaining_before = 0;
+        let mut handler_search_remaining_after = 0;
+        let mut effect_handled = false;
 
         match step {
             Step::ReadAbi { method } => {
@@ -183,10 +203,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     .expect("output cursor fits u32");
             }
             Step::FinalizeCoordinator => tx.coordinator_finalized = true,
-            Step::NewUtxo {
-                arguments,
-                resource,
-            } => {
+            Step::NewUtxo { arguments } => {
                 expected_arguments.replace(
                     arguments
                         .words32()
@@ -199,13 +216,25 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 next_utxo_id = next_utxo_id_before
                     .checked_add(1)
                     .expect("the UTXO allocator fits in u32");
-                callers.push(curr_before);
-                pending_ctor_key = Some((curr_before, resource.0));
+                callers.push(CallFrame {
+                    caller: curr_before,
+                    callee: target,
+                    saved_phase: curr_phase_before,
+                    kind: CallFrameKind::Constructor,
+                    handler_search_remaining: 0,
+                    arguments: arguments.clone(),
+                });
                 curr_after = target;
                 call_target = target;
-                resolver_address = (curr_before, resource.0);
+                call_frame_constructor = true;
+                call_frame_callee = target;
+                call_frame_saved_phase = curr_phase_before;
             }
             Step::EnterConstructor { arguments } => {
+                call_frame_constructor = callers
+                    .last()
+                    .map(|frame| frame.kind == CallFrameKind::Constructor)
+                    .unwrap_or(false);
                 expected_arguments.replace(
                     arguments
                         .words32()
@@ -261,26 +290,35 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                         .collect(),
                 );
 
-                if let Some(key) = pending_ctor_key_before {
-                    resource_resolver.insert(key, curr_before);
-                    resolver_address = key;
-                    resolver_value = curr_before;
-                    resolver_write = true;
-                }
-                pending_ctor_key = None;
-
                 // Malformed traces still normalize to a witness; the call-SP
                 // range check rejects an underflow instead of normalization
                 // panicking before the relation is checked.
-                let target = callers.pop().unwrap_or(CoroutineId::Coord(0));
-                curr_after = target;
-                call_target = target;
+                let frame = callers
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Program));
+                call_frame_is_effect = frame.kind == CallFrameKind::Effect;
+                call_frame_constructor = frame.kind == CallFrameKind::Constructor;
+                call_frame_callee = frame.callee;
+                return_requires_unit =
+                    frame.kind == CallFrameKind::Constructor || !return_has_receiver;
+                curr_after = frame.caller;
+                call_target = frame.caller;
+                if return_has_receiver {
+                    dynamic_phase_after = Some(if frame.kind == CallFrameKind::Constructor {
+                        CurrPhase::NewUtxoHandlePending
+                    } else {
+                        CurrPhase::MethodResultPending
+                    });
+                } else {
+                    callers.pop();
+                    dynamic_phase_after = Some(CurrPhase::Executing);
+                }
             }
             Step::CallMethod {
                 resource,
                 method,
                 arguments,
-                result,
             } => {
                 expected_arguments.replace(
                     arguments
@@ -290,14 +328,6 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                         .collect(),
                 );
                 method_hash.replace(encode_method_hash(*method));
-                expected_result.replace(
-                    result
-                        .0
-                        .words32()
-                        .iter()
-                        .map(|&x| F::new(x as u64))
-                        .collect(),
-                );
                 method_index = method_indices[method];
 
                 let key = (curr_before, *resource);
@@ -305,12 +335,21 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     .get(&key)
                     .copied()
                     .unwrap_or(CoroutineId::Coord(0));
-                callers.push(curr_before);
+                callers.push(CallFrame {
+                    caller: curr_before,
+                    callee: target,
+                    saved_phase: curr_phase_before,
+                    kind: CallFrameKind::Program,
+                    handler_search_remaining: 0,
+                    arguments: arguments.clone(),
+                });
                 curr_after = target;
                 call_target = target;
                 resolver_address = key;
                 resolver_value = target;
                 resolver_read = true;
+                call_frame_callee = target;
+                call_frame_saved_phase = curr_phase_before;
 
                 abi_generation_address = target;
                 abi_generation_before = abi_generations.get(&target).copied().unwrap_or(0);
@@ -331,9 +370,101 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 );
                 method_hash.replace(encode_method_hash(*method));
             }
+            Step::ReceiveNewUtxoHandle { resource } => {
+                let frame = callers
+                    .pop()
+                    .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Constructor));
+                call_frame_callee = frame.callee;
+                call_frame_saved_phase = frame.saved_phase;
+                call_target = frame.caller;
+                resolver_address = (curr_before, resource.0);
+                resolver_value = frame.callee;
+                resolver_write = true;
+                resource_resolver.insert(resolver_address, resolver_value);
+                dynamic_phase_after = Some(frame.saved_phase);
+            }
+            Step::ReceiveMethodResult { result } => {
+                expected_result = Some(result.0.words32().map(|x| F::new(u64::from(x))).to_vec());
+                let frame = callers
+                    .pop()
+                    .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Program));
+                call_frame_callee = frame.callee;
+                call_frame_saved_phase = frame.saved_phase;
+                call_target = frame.caller;
+                dynamic_phase_after = Some(frame.saved_phase);
+            }
+            Step::RaiseEffect { effect, arguments } => {
+                expected_arguments =
+                    Some(arguments.words32().map(|x| F::new(u64::from(x))).to_vec());
+                expected_result = Some(vec![F::ZERO; 8]);
+                method_hash = Some(encode_method_hash(*effect));
+                method_index = method_indices[effect];
+                call_target = curr_before;
+                call_frame_is_effect = true;
+                call_frame_saved_phase = curr_phase_before;
+                handler_search_remaining_after = 1;
+                callers.push(CallFrame {
+                    caller: curr_before,
+                    callee: curr_before,
+                    saved_phase: curr_phase_before,
+                    kind: CallFrameKind::Effect,
+                    handler_search_remaining: 1,
+                    arguments: arguments.clone(),
+                });
+            }
+            Step::EnterEffectHandler { effect, arguments } => {
+                expected_arguments =
+                    Some(arguments.words32().map(|x| F::new(u64::from(x))).to_vec());
+                method_hash = Some(encode_method_hash(*effect));
+                method_index = method_indices[effect];
+                call_frame_is_effect = true;
+                handler_search_remaining_before = callers
+                    .last()
+                    .map(|frame| frame.handler_search_remaining)
+                    .unwrap_or(0);
+            }
+            Step::ExitEffectHandler { handled, result } => {
+                if let Some(frame) = callers.last_mut() {
+                    expected_arguments = Some(
+                        frame
+                            .arguments
+                            .words32()
+                            .map(|x| F::new(u64::from(x)))
+                            .to_vec(),
+                    );
+                    handler_search_remaining_before = frame.handler_search_remaining;
+                    frame.handler_search_remaining = 0;
+                }
+                handler_search_remaining_after = 0;
+                expected_result = Some(result.0.words32().map(|x| F::new(u64::from(x))).to_vec());
+                call_frame_is_effect = true;
+                effect_handled = *handled;
+                dynamic_phase_after = Some(if *handled {
+                    CurrPhase::EffectResumePending
+                } else {
+                    CurrPhase::EffectHandlerPending
+                });
+            }
+            Step::ResumeEffect { result } => {
+                expected_result = Some(result.0.words32().map(|x| F::new(u64::from(x))).to_vec());
+                let frame = callers
+                    .pop()
+                    .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Effect));
+                call_frame_is_effect = frame.kind == CallFrameKind::Effect;
+                call_frame_saved_phase = frame.saved_phase;
+                handler_search_remaining_before = frame.handler_search_remaining;
+                curr_after = frame.caller;
+                call_target = frame.caller;
+                dynamic_phase_after = Some(frame.saved_phase);
+            }
         }
 
+        let curr_phase_after = dynamic_phase_after
+            .or_else(|| opcode.fixed_phase_after(curr_phase_before))
+            .expect("normalization assigns every data-dependent phase transition");
+
         curr = curr_after;
+        curr_phase = curr_phase_after;
 
         let mut abi_method_count_before = 0;
         let mut abi_method_count_after = 0;
@@ -374,13 +505,19 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             call_sp_before,
             call_sp_after,
             call_target,
+            call_frame_is_effect,
+            call_frame_constructor,
+            call_frame_callee,
+            call_frame_saved_phase,
+            return_requires_unit,
+            handler_search_remaining_before,
+            handler_search_remaining_after,
+            effect_handled,
             next_utxo_id_before,
             next_utxo_id_after: next_utxo_id,
             enabled_method_log_len_before,
             enabled_method_log_len_after: u32::try_from(enabled_method_log.len())
                 .expect("the enabled-method log fits in u32"),
-            pending_ctor_key_before,
-            pending_ctor_key_after: pending_ctor_key,
             resolver_address,
             resolver_value,
             resolver_read,
@@ -413,6 +550,37 @@ pub(crate) struct NormalizedTrace {
     pub(crate) method_table: Vec<MethodHash>,
 }
 
+// The circuit encodes these variants with separate effect and constructor bits.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CallFrameKind {
+    Program,
+    Constructor,
+    Effect,
+}
+
+#[derive(Clone)]
+struct CallFrame {
+    caller: CoroutineId,
+    callee: CoroutineId,
+    saved_phase: CurrPhase,
+    kind: CallFrameKind,
+    handler_search_remaining: u32,
+    arguments: starstream_interleaving_spec::StarstreamValue,
+}
+
+impl CallFrame {
+    fn placeholder(kind: CallFrameKind) -> Self {
+        Self {
+            caller: CoroutineId::Coord(0),
+            callee: CoroutineId::Coord(0),
+            saved_phase: CurrPhase::Executing,
+            kind,
+            handler_search_remaining: 0,
+            arguments: starstream_interleaving_spec::StarstreamValue::UNIT_VALUE,
+        }
+    }
+}
+
 pub(crate) struct Wit {
     pub(crate) io_before: [F; 4],
     pub(crate) io_after: [F; 4],
@@ -433,12 +601,18 @@ pub(crate) struct Wit {
     pub(crate) call_sp_before: F,
     pub(crate) call_sp_after: F,
     pub(crate) call_target: CoroutineId,
+    pub(crate) call_frame_is_effect: bool,
+    pub(crate) call_frame_constructor: bool,
+    pub(crate) call_frame_callee: CoroutineId,
+    pub(crate) call_frame_saved_phase: CurrPhase,
+    pub(crate) return_requires_unit: bool,
+    pub(crate) handler_search_remaining_before: u32,
+    pub(crate) handler_search_remaining_after: u32,
+    pub(crate) effect_handled: bool,
     pub(crate) next_utxo_id_before: u32,
     pub(crate) next_utxo_id_after: u32,
     pub(crate) enabled_method_log_len_before: u32,
     pub(crate) enabled_method_log_len_after: u32,
-    pub(crate) pending_ctor_key_before: Option<(CoroutineId, ResourceHandle)>,
-    pub(crate) pending_ctor_key_after: Option<(CoroutineId, ResourceHandle)>,
     pub(crate) resolver_address: (CoroutineId, ResourceHandle),
     pub(crate) resolver_value: CoroutineId,
     pub(crate) resolver_read: bool,
@@ -483,16 +657,22 @@ impl Wit {
             curr_before: self.curr_after,
             curr_after: self.curr_after,
             curr_phase_before: self.curr_phase_after,
-            curr_phase_after: Opcode::Padding.phase_after(self.curr_phase_after),
+            curr_phase_after: self.curr_phase_after,
             call_sp_before: self.call_sp_after,
             call_sp_after: self.call_sp_after,
             call_target: CoroutineId::Coord(0),
+            call_frame_is_effect: false,
+            call_frame_constructor: false,
+            call_frame_callee: CoroutineId::Coord(0),
+            call_frame_saved_phase: CurrPhase::Executing,
+            return_requires_unit: false,
+            handler_search_remaining_before: 0,
+            handler_search_remaining_after: 0,
+            effect_handled: false,
             next_utxo_id_before: self.next_utxo_id_after,
             next_utxo_id_after: self.next_utxo_id_after,
             enabled_method_log_len_before: self.enabled_method_log_len_after,
             enabled_method_log_len_after: self.enabled_method_log_len_after,
-            pending_ctor_key_before: self.pending_ctor_key_after,
-            pending_ctor_key_after: self.pending_ctor_key_after,
             resolver_address: (CoroutineId::Coord(0), ResourceHandle(0)),
             resolver_value: CoroutineId::Coord(0),
             resolver_read: false,
