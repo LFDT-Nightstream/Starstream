@@ -87,9 +87,9 @@ async fn post_envelope(
 
 #[tokio::test]
 async fn http() {
-    let mut config = wasmtime::Config::default();
-    config.wasm_component_model_implements(true);
-    let engine = wasmtime::Engine::new(&config).unwrap();
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config).unwrap();
 
     let wizer = wasmtime_wizer::Wizer::new();
     let (wizer_cx, score) = wizer.instrument_component(&SCORE_WASM).unwrap();

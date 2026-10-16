@@ -27,6 +27,16 @@ pub mod bindings {
     });
 }
 
+pub fn configure_wasmtime(engine_config: &mut wasmtime::Config) -> &mut wasmtime::Config {
+    engine_config
+        .cranelift_nan_canonicalization(true)
+        .guest_debug(true)
+        .relaxed_simd_deterministic(true)
+        .shared_memory(false)
+        .wasm_component_model_implements(true)
+        .wasm_features(wasmtime::WasmFeatures::THREADS, false)
+}
+
 #[derive(Clone, Debug)]
 pub struct UtxoImport<'a> {
     pub name: &'a str,

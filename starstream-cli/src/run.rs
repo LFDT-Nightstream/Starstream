@@ -175,10 +175,9 @@ pub async fn load(
     wasm: &Path,
     imports: &mut dyn Iterator<Item = &Path>,
 ) -> wasmtime::Result<(wasmtime::Engine, Contract<Ctx>)> {
-    let mut config = wasmtime::Config::new();
-    config.wasm_component_model_implements(true);
-    config.guest_debug(true);
-    let engine = wasmtime::Engine::new(&config)?;
+    let mut engine_config = wasmtime::Config::default();
+    starstream_runtime::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config)?;
 
     let mut lookup = Imports::default();
     for import in imports {

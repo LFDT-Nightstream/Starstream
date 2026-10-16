@@ -305,10 +305,9 @@ fn multifile() {
 }
 
 fn run_tests(output: &mut String, component_wasm: &[u8]) {
-    let mut config = wasmtime::Config::new();
-    config.wasm_component_model_implements(true);
-    config.guest_debug(true);
-    let engine = wasmtime::Engine::new(&config).expect("failed to create wasmtime Engine");
+    let mut engine_config = wasmtime::Config::default();
+    starstream_runtime::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config).expect("failed to create wasmtime Engine");
     let component = Component::new(&engine, component_wasm).expect("failed to load component");
     let ty = component.component_type();
 
