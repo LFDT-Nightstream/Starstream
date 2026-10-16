@@ -318,7 +318,8 @@ pub unsafe extern "C" fn run(input_len: usize) {
     // Compile to Wasm.
     let compile_result = starstream_to_wasm::compile_contract(&typed, entry_id);
     for error in &compile_result.errors {
-        write_report(&miette::Report::new(error.clone()).with_source_code(graph.source(entry_id)));
+        let source = graph.source(error.module.unwrap_or(entry_id));
+        write_report(&miette::Report::new(error.clone()).with_source_code(source));
     }
     let Some(wasm) = &compile_result.wasm else {
         return;
