@@ -136,7 +136,7 @@ function Tabs(props: {
           </button>
         ))}
         <div className="flex--grow">{props.after}</div>
-        <div>{props.right}</div>
+        <div className="sandbox-tabs__right">{props.right}</div>
       </div>
       {/* Put all tabs in the DOM upfront to avoid unmounting/remounting the Monaco editor constantly. */}
       {props.tabs.map((tab) => (
@@ -1148,19 +1148,27 @@ export function Sandbox() {
 
   const contractPicker = contracts.length > 0 &&
     (outputTab === "WAT" || outputTab === "WIT") && (
-      <label className="sandbox-tabs__picker">
-        Contract{" "}
-        <select
-          value={selected?.path}
-          onChange={(e) => setSelectedPath(e.target.value)}
-        >
-          {contracts.map((c) => (
-            <option key={c.path} value={c.path}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="sandbox-tabs__picker">
+        {selected?.standalone && (
+          <span className="sandbox-tabs__hint">
+            No file declares <code>contract;</code>, so the active file is
+            compiled alone.
+          </span>
+        )}
+        <label>
+          {selected?.standalone ? "File" : "Contract"}{" "}
+          <select
+            value={selected?.path}
+            onChange={(e) => setSelectedPath(e.target.value)}
+          >
+            {contracts.map((c) => (
+              <option key={c.path} value={c.path}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
     );
 
   return (

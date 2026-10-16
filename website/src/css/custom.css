@@ -97,8 +97,14 @@
   background: var(--ifm-color-emphasis-100);
   padding: 0 8px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
+}
+
+/* Stays right-aligned when it wraps onto its own line in narrow panes. */
+.sandbox-tabs__right {
+  margin-left: auto;
 }
 
 .sandbox-tabs__btn {
@@ -356,6 +362,16 @@
 }
 
 .sandbox-tabs__picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 8px;
+  padding: 4px 0;
   font-size: 0.9rem;
   color: var(--ifm-color-emphasis-700);
+}
+
+.sandbox-tabs__hint {
+  color: var(--ifm-color-emphasis-600);
 }

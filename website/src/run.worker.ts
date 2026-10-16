@@ -166,7 +166,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
     body: number,
     body_len: number,
   ): void;
-  set_contract(ptr: number, len: number): void;
+  set_contract(ptr: number, len: number, standalone: number): void;
   set_wat(ptr: number, len: number): void;
   set_core_wasm(ptr: number, len: number): void;
   set_wit(ptr: number, len: number): void;

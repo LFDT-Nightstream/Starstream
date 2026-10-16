@@ -17,6 +17,11 @@ export interface CompiledContract {
   path: string;
   /** `path` relative to the workspace root, e.g. `main.star`. */
   name: string;
+  /**
+   * The file isn't a contract, but is compiled on its own because no file in
+   * the workspace declares `contract;`.
+   */
+  standalone: boolean;
   wat?: string;
   coreWasm?: Uint8Array;
   wit?: string;
@@ -63,7 +68,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
     body: number,
     body_len: number,
   ): void;
-  set_contract(ptr: number, len: number): void;
+  set_contract(ptr: number, len: number, standalone: number): void;
   set_wat(ptr: number, len: number): void;
   set_core_wasm(ptr: number, len: number): void;
   set_wit(ptr: number, len: number): void;
@@ -144,11 +149,11 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
         body: utf8(wasm, body, body_len),
       });
     },
-    set_contract(ptr, len) {
+    set_contract(ptr, len, standalone) {
       const path = utf8(wasm, ptr, len);
       const prefix = `${data.root}/`;
       const name = path.startsWith(prefix) ? path.slice(prefix.length) : path;
-      contracts.push({ path, name });
+      contracts.push({ path, name, standalone: standalone !== 0 });
     },
     set_wat(ptr, len) {
       current().wat = utf8(wasm, ptr, len);
