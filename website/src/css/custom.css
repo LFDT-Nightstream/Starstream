@@ -354,3 +354,8 @@
 .sandbox-workbench .part.sidebar > .title > .title-label {
   visibility: hidden;
 }
+
+.sandbox-tabs__picker {
+  font-size: 0.9rem;
+  color: var(--ifm-color-emphasis-700);
+}

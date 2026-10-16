@@ -5,8 +5,22 @@ export interface SandboxWorkerRequest {
   request_id: number;
   /** Absolute path -> contents of every `.star`/`.wasm` file. */
   files: Record<string, Uint8Array>;
-  /** The file to compile. */
+  /** The workspace directory, scanned for `contract;` files. */
+  root: string;
+  /** The file compiled on its own when the workspace has no contracts. */
   entry: string;
+}
+
+/** One compiled contract. Outputs are missing if its compilation failed. */
+export interface CompiledContract {
+  /** Absolute path of the contract's entry file. */
+  path: string;
+  /** `path` relative to the workspace root, e.g. `main.star`. */
+  name: string;
+  wat?: string;
+  coreWasm?: Uint8Array;
+  wit?: string;
+  componentWasm?: Uint8Array;
 }
 
 export type SandboxWorkerResponse = {
@@ -22,20 +36,12 @@ export type SandboxWorkerResponse = {
       body: string;
     }
   | {
-      type: "wat";
-      wat: string;
-    }
-  | {
-      type: "core_wasm";
-      bytes: Uint8Array;
-    }
-  | {
-      type: "wit";
-      wit: string;
-    }
-  | {
-      type: "component_wasm";
-      bytes: Uint8Array;
+      /**
+       * Every contract the request compiled, in workspace order. Not sent if
+       * the workspace failed to load or typecheck.
+       */
+      type: "contracts";
+      contracts: CompiledContract[];
     }
 );
 
@@ -43,6 +49,7 @@ export type SandboxWorkerResponse = {
 // These interfaces should match `starstream-sandbox-web/src/lib.rs`.
 interface SandboxInput {
   files: Record<string, Uint8Array>;
+  root: string;
   entry: string;
 }
 
@@ -56,6 +63,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
     body: number,
     body_len: number,
   ): void;
+  set_contract(ptr: number, len: number): void;
   set_wat(ptr: number, len: number): void;
   set_core_wasm(ptr: number, len: number): void;
   set_wit(ptr: number, len: number): void;
@@ -104,6 +112,11 @@ function utf8(wasm: SandboxWasmExports, ptr: number, len: number): string {
   return new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, ptr, len));
 }
 
+/** A copy of Wasm memory, since the buffer may be reused or grown. */
+function bytes(wasm: SandboxWasmExports, ptr: number, len: number): Uint8Array {
+  return new Uint8Array(wasm.memory.buffer, ptr, len).slice();
+}
+
 function send(r: SandboxWorkerResponse, opts?: WindowPostMessageOptions) {
   self.postMessage(r, opts);
 }
@@ -112,8 +125,12 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
   const request_id = data.request_id;
   const input = encode({
     files: data.files,
+    root: data.root,
     entry: data.entry,
   } satisfies SandboxInput);
+  // Outputs arrive per contract, each after its `set_contract`.
+  const contracts: CompiledContract[] = [];
+  const current = () => contracts[contracts.length - 1];
   const wasm = await getWasmInstance({
     read_input(ptr, len) {
       new Uint8Array(wasm.memory.buffer, ptr, len).set(input);
@@ -127,33 +144,23 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
         body: utf8(wasm, body, body_len),
       });
     },
+    set_contract(ptr, len) {
+      const path = utf8(wasm, ptr, len);
+      const prefix = `${data.root}/`;
+      const name = path.startsWith(prefix) ? path.slice(prefix.length) : path;
+      contracts.push({ path, name });
+    },
     set_wat(ptr, len) {
-      send({
-        request_id,
-        type: "wat",
-        wat: utf8(wasm, ptr, len),
-      });
+      current().wat = utf8(wasm, ptr, len);
     },
     set_core_wasm(ptr, len) {
-      send({
-        request_id,
-        type: "core_wasm",
-        bytes: new Uint8Array(wasm.memory.buffer, ptr, len),
-      });
+      current().coreWasm = bytes(wasm, ptr, len);
     },
     set_wit(ptr, len) {
-      send({
-        request_id,
-        type: "wit",
-        wit: utf8(wasm, ptr, len),
-      });
+      current().wit = utf8(wasm, ptr, len);
     },
     set_component_wasm(ptr, len) {
-      send({
-        request_id,
-        type: "component_wasm",
-        bytes: new Uint8Array(wasm.memory.buffer, ptr, len),
-      });
+      current().componentWasm = bytes(wasm, ptr, len);
     },
     // Only called by the Run tab's exports (`deploy`/`construct`/`call`/…),
     // which the run worker handles.
@@ -179,6 +186,9 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
       target: "sandbox",
       body: String(crash),
     });
+  }
+  if (contracts.length > 0) {
+    send({ request_id, type: "contracts", contracts });
   }
   send({
     request_id,
