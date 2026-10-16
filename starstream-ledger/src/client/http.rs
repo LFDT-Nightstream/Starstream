@@ -315,7 +315,7 @@ where
         results: &mut [Val],
         utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
     ) -> anyhow::Result<Transaction> {
-        let (tx, ..) = call_coordination_script(
+        let (tx, execution) = call_coordination_script(
             store,
             self,
             &self.wizer,
@@ -328,6 +328,9 @@ where
             utxos,
         )
         .await?;
+        if let Err(err) = execution {
+            warn!(?err, "failed to check execution trace");
+        }
         Ok(tx)
     }
 

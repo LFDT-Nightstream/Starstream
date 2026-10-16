@@ -26,7 +26,7 @@ use starstream_runtime::Utxo;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
 use tokio_util::codec::Encoder as _;
-use tracing::info;
+use tracing::{info, warn};
 use wasm_wave::wasm::WasmFunc as _;
 use wasmtime::Store;
 use wasmtime::component::{Val, types};
@@ -478,7 +478,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 ..Ctx::default()
             };
             let mut store = Store::new(client.engine(), ctx);
-            let (tx, ..) = call_coordination_script(
+            let (tx, execution) = call_coordination_script(
                 &mut store,
                 &imports,
                 client.wizer(),
@@ -491,6 +491,9 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 &mut utxos,
             )
             .await?;
+            if let Err(err) = execution {
+                warn!(?err, "failed to check execution trace");
+            }
             'outer: for result in &mut results {
                 if let &mut Val::Resource(utxo) = result {
                     let utxo = utxo

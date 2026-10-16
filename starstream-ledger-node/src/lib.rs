@@ -182,7 +182,7 @@ async fn build_genesis(
             cardano,
             ..Ctx::default()
         };
-        let (tx, ..) = call_coordination_script(
+        let (tx, execution) = call_coordination_script(
             &mut Store::new(engine, ctx),
             &GenesisClient(&imported),
             &wizer,
@@ -195,6 +195,9 @@ async fn build_genesis(
             &mut Vec::default(),
         )
         .await?;
+        if let Err(err) = execution {
+            warn!(?err, "failed to check execution trace");
+        }
         outputs.extend(tx.outputs);
     }
     Ok(outputs)
