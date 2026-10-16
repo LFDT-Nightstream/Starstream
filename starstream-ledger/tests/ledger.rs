@@ -6,7 +6,7 @@ use core::str::FromStr as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::Context as _;
+use anyhow::{Context as _, bail};
 use bytes::{Bytes, BytesMut};
 use coset::{CoseSign1Builder, HeaderBuilder, TaggedCborSerializable as _, iana};
 use ed25519_dalek::Signer as _;
@@ -21,7 +21,7 @@ use starstream_ledger::client::http::{
     ClientBuilder, build_contract_get_request, build_contract_publish_request, build_fund_request,
     build_transaction_get_request,
 };
-use starstream_ledger::client::runtime::compile_contract;
+use starstream_ledger::client::runtime::{Client, call_coordination_script, compile_contract};
 use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
@@ -151,9 +151,13 @@ async fn http() {
         score_progress_genesis_utxo,
     ];
 
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::server::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config).unwrap();
     let ledger = Ledger::new(
         engine,
         128,
+        u64::MAX,
         NETWORK,
         ADMIN.verifying_key(),
         genesis.clone(),
@@ -542,6 +546,135 @@ async fn http() {
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let got = client.get_transaction(tx_digest).await.unwrap();
     assert_eq!(got.unwrap(), tx);
+
+    shutdown.notify_one();
+    ledger.await.expect("ledger task panicked")
+}
+
+struct NoopClient;
+
+impl Client for NoopClient {
+    async fn get_contract(&self, _: [u8; 32]) -> anyhow::Result<Bytes> {
+        bail!("unexpected contract lookup")
+    }
+
+    async fn get_input_utxo(&self, _: &TransactionInput) -> anyhow::Result<TransactionOutput> {
+        bail!("unexpected UTXO lookup")
+    }
+}
+
+#[tokio::test]
+async fn rpc_out_of_fuel() {
+    let wasm = common::runtime::compile_contract(
+        r#"
+abi Spin {
+    fn get() -> u64;
+    fn spin();
+}
+
+utxo Spinner {
+    storage {
+        let mut n: u64;
+    }
+
+    main fn new() {
+        yield(Spin);
+    }
+
+    impl Spin {
+        fn get() -> u64 {
+            return n;
+        }
+        fn spin() {
+            while (true) {}
+        }
+    }
+}
+
+script fn create() {
+    Spinner::new();
+}
+"#,
+    )
+    .unwrap();
+
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config).unwrap();
+    let wizer = wasmtime_wizer::Wizer::new();
+    let mut imports = HashMap::default();
+    let contract = compile_contract(&NoopClient, &engine, &wizer, &wasm, None, &mut imports)
+        .await
+        .unwrap();
+    let create = contract.get_coordination_script("create").unwrap();
+    let (tx, ..) = call_coordination_script(
+        &mut Store::new(&engine, starstream_ledger::client::runtime::Ctx::default()),
+        &NoopClient,
+        &wizer,
+        &contract,
+        &wasm,
+        &create,
+        &mut imports,
+        Vec::default(),
+        &mut [],
+        &mut Vec::default(),
+    )
+    .await
+    .unwrap();
+
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::server::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config).unwrap();
+    let ledger = Ledger::new(
+        engine,
+        128,
+        1_000_000,
+        NETWORK,
+        ADMIN.verifying_key(),
+        tx.outputs,
+        CardanoCtx::default(),
+    );
+    let ledger = Arc::new(ledger);
+    let addr = free_tcp_addr().await.unwrap();
+    let (ledger, shutdown) = ledger.handle_http(addr).await.unwrap();
+    let ledger = tokio::spawn(ledger);
+
+    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
+    let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
+    let client = ClientBuilder::new(http, HttpConnector::new(), api_base)
+        .network(NETWORK)
+        .build();
+    client
+        .fund(ADMIN.clone(), 1, &ADMIN.verifying_key(), 1 << 20)
+        .await
+        .unwrap();
+    client
+        .publish_contract(ADMIN.clone(), 2, wasm)
+        .await
+        .unwrap();
+
+    let input = TransactionInput {
+        transaction: Box::default(),
+        index: 0,
+    };
+    let mut rx = client.call_utxo_method(&input, "spin", &[]).await.unwrap();
+    let mut buf = Vec::default();
+    let err = rx
+        .read_to_end(&mut buf)
+        .await
+        .expect_err("non-terminating method must run out of fuel");
+    assert_eq!(
+        err.to_string(),
+        "HTTP request failed with status `422 Unprocessable Entity`"
+    );
+
+    let mut rx = client
+        .call_utxo_method(&input, "get", &[])
+        .await
+        .expect("ledger must keep serving after running out of fuel");
+    let mut buf = Vec::default();
+    rx.read_to_end(&mut buf).await.unwrap();
+    assert_eq!(buf, [0]);
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked")

@@ -706,6 +706,7 @@ impl Ledger {
                     cardano: self.cardano,
                 };
                 let mut store = wasmtime::Store::new(&self.engine, ctx);
+                store.set_fuel(self.fuel).map_err(RpcPostError::Runtime)?;
                 let cx_res = cx_res
                     .try_into_resource_any(&mut store)
                     .map_err(RpcPostError::Runtime)?;
@@ -713,7 +714,7 @@ impl Ledger {
                 let contract = contract
                     .instantiate(&mut store)
                     .await
-                    .map_err(RpcPostError::Runtime)?;
+                    .map_err(RpcPostError::execution)?;
                 let utxo = contract
                     .load_utxo(
                         &mut store,
@@ -723,11 +724,11 @@ impl Ledger {
                         [Val::Resource(cx_res), storage],
                     )
                     .await
-                    .map_err(RpcPostError::Runtime)?;
+                    .map_err(RpcPostError::execution)?;
                 params[0] = Val::Resource(utxo.resource());
                 utxo.call_method(&mut store, &method_export, &params, &mut results)
                     .await
-                    .map_err(RpcPostError::Runtime)?;
+                    .map_err(RpcPostError::execution)?;
                 for (v, ty) in zip(results, result_tys) {
                     ValEncoder::new(&ty)
                         .encode(&v, &mut data)
