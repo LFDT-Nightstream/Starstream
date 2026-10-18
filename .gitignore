@@ -6,6 +6,7 @@ artifacts
 *.vsix
 .DS_Store
 papers/
+.claude/settings.local.json
 *.snap.new
 .claude/settings.local.json
 .nvim.lua
