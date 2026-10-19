@@ -1153,7 +1153,7 @@ TypedProgram {
   (export "test5" (func 11))
   (export "starstream:effect-handler/foo#basic" (func 12))
   (export "starstream:effect-handler/foo#complex" (func 14))
-  (export "assert-effect-not-handled" (func 15))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 15))
   (export "memory" (memory 0))
   (func (;6;) (type 2)
     (call 3)
@@ -1323,9 +1323,14 @@ TypedProgram {
                 )
               )
               (export (;3;) "starstream:effect-handler/foo" (instance (type 14)))
-              (type (;15;) (tuple u64 u64 u64 u64))
-              (type (;16;) (func (param "id" 15)))
-              (export (;3;) "assert-effect-not-handled" (func (type 16)))
+              (type (;15;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;4;) "starstream:meta/effect-handler" (instance (type 15)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -1350,8 +1355,8 @@ world root {
   export test4: func();
   @external-id("starstream:test:Unhandled")
   export test5: func();
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export starstream:effect-handler/foo;
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -1388,6 +1393,13 @@ package starstream:effect-handler {
   }
 }
 
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
+  }
+}
+
 ==== Test: Test ====
 events: [
     Event {
@@ -1416,5 +1428,5 @@ panic: call_coordination_script: failed to call function
 
 Caused by:
     0: error while executing at wasm backtrace:
-    0:    0x327 - <unknown>!<wasm function 11>
+    0:    0x346 - <unknown>!<wasm function 11>
     1: effect not handled: foo::basic[]

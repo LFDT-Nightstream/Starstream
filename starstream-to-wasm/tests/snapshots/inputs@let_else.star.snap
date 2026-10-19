@@ -370,7 +370,7 @@ TypedProgram {
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
   (export "unwrap-or-zero" (func 3))
-  (export "assert-effect-not-handled" (func 4))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 4))
   (func (;3;) (type 2) (param i32 i64) (result i64)
     (local i32 i64 i64 i64)
     (block ;; label = @1
@@ -423,9 +423,14 @@ TypedProgram {
               (type (;9;) (option s64))
               (type (;10;) (func (param "value" 9) (result s64)))
               (export (;0;) "unwrap-or-zero" (func (type 10)))
-              (type (;11;) (tuple u64 u64 u64 u64))
-              (type (;12;) (func (param "id" 11)))
-              (export (;1;) "assert-effect-not-handled" (func (type 12)))
+              (type (;11;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;1;) "starstream:meta/effect-handler" (instance (type 11)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -444,7 +449,7 @@ world root {
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
 
   export unwrap-or-zero: func(value: option<s64>) -> s64;
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -453,5 +458,12 @@ package starstream:std {
     }
 
     resource token;
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }

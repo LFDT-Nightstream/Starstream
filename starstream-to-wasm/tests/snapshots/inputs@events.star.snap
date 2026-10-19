@@ -623,7 +623,7 @@ TypedProgram {
   (export "main" (func 4))
   (export "test1" (func 5))
   (export "test2" (func 6))
-  (export "assert-effect-not-handled" (func 7))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 7))
   (func (;4;) (type 3)
     (call 3
       (i32.const 1)
@@ -680,9 +680,14 @@ TypedProgram {
               (export (;1;) "test1" (external-id "starstream:test:Simple Emit") (func (type 11)))
               (type (;12;) (func))
               (export (;2;) "test2" (external-id "starstream:test:Call Main") (func (type 12)))
-              (type (;13;) (tuple u64 u64 u64 u64))
-              (type (;14;) (func (param "id" 13)))
-              (export (;3;) "assert-effect-not-handled" (func (type 14)))
+              (type (;13;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;2;) "starstream:meta/effect-handler" (instance (type 13)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -706,7 +711,7 @@ world root {
   export test1: func();
   @external-id("starstream:test:Call Main")
   export test2: func();
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -722,6 +727,13 @@ package starstream:std {
 package starstream:events {
   interface foo {
     hello: func(one: s32, two-two: s32);
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }
 

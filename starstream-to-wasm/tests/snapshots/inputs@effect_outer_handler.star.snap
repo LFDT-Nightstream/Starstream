@@ -1260,7 +1260,7 @@ TypedProgram {
   (export "main" (func 22))
   (export "test9" (func 23))
   (export "starstream:effect-handler/effects#hello" (func 24))
-  (export "assert-effect-not-handled" (func 25))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 25))
   (export "memory" (memory 0))
   (func (;14;) (type 3)
     (call 4
@@ -1520,9 +1520,14 @@ TypedProgram {
                 )
               )
               (export (;7;) "starstream:effect-handler/effects" (instance (type 25)))
-              (type (;26;) (tuple u64 u64 u64 u64))
-              (type (;27;) (func (param "id" 26)))
-              (export (;2;) "assert-effect-not-handled" (func (type 27)))
+              (type (;26;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;8;) "starstream:meta/effect-handler" (instance (type 26)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -1550,7 +1555,6 @@ world root {
   export main: func();
   @external-id("starstream:test:Effect search reaches outer instance handler")
   export test9: func();
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export trigger-utxo: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
@@ -1570,6 +1574,7 @@ world root {
     set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
   }
   export starstream:effect-handler/effects;
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -1624,6 +1629,13 @@ package starstream:self {
 package starstream:effect-handler {
   interface effects {
     hello: func() -> u8;
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }
 

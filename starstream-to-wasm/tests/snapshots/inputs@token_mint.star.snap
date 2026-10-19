@@ -401,7 +401,7 @@ TypedProgram {
   (export "my-token#[method]token.detach" (func 9))
   (export "my-token#get-storage" (func 10))
   (export "my-token#set-storage" (func 11))
-  (export "assert-effect-not-handled" (func 12))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 12))
   (func (;7;) (type 3) (result i32)
     (local i32)
     (local.set 0
@@ -491,9 +491,14 @@ TypedProgram {
                 )
               )
               (export (;2;) "my-token" (instance (type 14)))
-              (type (;15;) (tuple u64 u64 u64 u64))
-              (type (;16;) (func (param "id" 15)))
-              (export (;0;) "assert-effect-not-handled" (func (type 16)))
+              (type (;15;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;3;) "starstream:meta/effect-handler" (instance (type 15)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -513,7 +518,6 @@ world root {
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
   use starstream:self/my-token.{token as t-my-token};
 
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export my-token: interface {
     use starstream:std/builtin.{utxo as s-utxo};
 
@@ -531,6 +535,7 @@ world root {
 
     set-storage: func(storage: storage) -> token;
   }
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -548,5 +553,12 @@ package starstream:self {
     resource token {
       mint: static func() -> token;
     }
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }

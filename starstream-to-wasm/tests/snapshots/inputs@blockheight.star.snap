@@ -435,7 +435,7 @@ TypedProgram {
   (import "starstream:std/cardano" "block-height" (func (;3;) (type 2)))
   (export "reexport" (func 4))
   (export "second" (func 5))
-  (export "assert-effect-not-handled" (func 6))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 6))
   (func (;4;) (type 2) (result i64)
     (drop
       (call 3))
@@ -485,9 +485,14 @@ TypedProgram {
               (export (;0;) "reexport" (func (type 10)))
               (type (;11;) (func (result s64)))
               (export (;1;) "second" (func (type 11)))
-              (type (;12;) (tuple u64 u64 u64 u64))
-              (type (;13;) (func (param "id" 12)))
-              (export (;2;) "assert-effect-not-handled" (func (type 13)))
+              (type (;12;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;2;) "starstream:meta/effect-handler" (instance (type 12)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -508,7 +513,7 @@ world root {
 
   export reexport: func() -> s64;
   export second: func() -> s64;
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -520,5 +525,12 @@ package starstream:std {
   }
   interface cardano {
     block-height: func() -> s64;
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }

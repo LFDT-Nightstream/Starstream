@@ -2943,7 +2943,7 @@ TypedProgram {
   (export "score-progress#set-storage" (func 30))
   (export "example" (func 31))
   (export "test13" (func 32))
-  (export "assert-effect-not-handled" (func 33))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 33))
   (export "memory" (memory 0))
   (func (;19;) (type 7)
     (call 4
@@ -3288,9 +3288,14 @@ TypedProgram {
               (export (;0;) "example" (func (type 22)))
               (type (;23;) (func))
               (export (;1;) "test13" (external-id "starstream:test:A Simple Example") (func (type 23)))
-              (type (;24;) (tuple u64 u64 u64 u64))
-              (type (;25;) (func (param "id" 24)))
-              (export (;2;) "assert-effect-not-handled" (func (type 25)))
+              (type (;24;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;6;) "starstream:meta/effect-handler" (instance (type 24)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -3317,7 +3322,6 @@ world root {
   export example: func();
   @external-id("starstream:test:A Simple Example")
   export test13: func();
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export score-progress: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
@@ -3341,6 +3345,7 @@ world root {
 
     set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
   }
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -3390,6 +3395,13 @@ package starstream:self {
       mult-mult: func(mult-pct: u64);
       finish: func();
     }
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }
 

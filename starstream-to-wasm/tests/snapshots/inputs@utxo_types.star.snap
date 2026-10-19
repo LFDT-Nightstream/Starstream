@@ -180,7 +180,7 @@ TypedProgram {
   (export "my-utxo#get-storage" (func 10))
   (export "my-utxo#set-storage" (func 11))
   (export "script-accepts-utxos" (func 13))
-  (export "assert-effect-not-handled" (func 14))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 14))
   (func (;9;) (type 4)
     (call 4
       (global.get 1))
@@ -287,9 +287,14 @@ TypedProgram {
               (export (;3;) "my-utxo" (instance (type 19)))
               (type (;20;) (func (param "utxo" 3) (param "my-utxo" 17)))
               (export (;0;) "script-accepts-utxos" (func (type 20)))
-              (type (;21;) (tuple u64 u64 u64 u64))
-              (type (;22;) (func (param "id" 21)))
-              (export (;1;) "assert-effect-not-handled" (func (type 22)))
+              (type (;21;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;4;) "starstream:meta/effect-handler" (instance (type 21)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -312,7 +317,6 @@ world root {
   use starstream:self/my-utxo.{utxo as u-my-utxo};
 
   export script-accepts-utxos: func(utxo: borrow<s-utxo>, my-utxo: borrow<u-my-utxo>);
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export my-utxo: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
@@ -326,6 +330,7 @@ world root {
 
     set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
   }
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -347,5 +352,12 @@ package starstream:std {
 package starstream:self {
   interface my-utxo {
     resource utxo;
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }

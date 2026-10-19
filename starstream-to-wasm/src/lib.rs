@@ -1689,8 +1689,14 @@ impl Compiler {
         if let Some(func_idx) =
             self.make_component_export_wrapper_fn(DUMMY_SPAN, &sig, func, &func_ty, Vec::new())
         {
-            self.export_core_fn("assert-effect-not-handled", func_idx);
-            self.world_type.export_fn("assert-effect-not-handled", &sig);
+            self.export_core_fn(
+                "starstream:meta/effect-handler#assert-effect-not-handled",
+                func_idx,
+            );
+            let mut iface = TypeBuilder::new_interface(&self.world_type);
+            iface.export_fn("assert-effect-not-handled", &sig);
+            self.world_type
+                .export_interface("starstream:meta/effect-handler", &iface);
         }
     }
 

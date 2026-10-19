@@ -396,7 +396,7 @@ TypedProgram {
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
   (export "total-value" (func 4))
-  (export "assert-effect-not-handled" (func 5))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 5))
   (func (;3;) (type 2) (param i64 i64) (result i64)
     (local i64 i64 i64)
     (local.tee 2
@@ -483,9 +483,14 @@ TypedProgram {
               (import "item" (type (;10;) (eq 9)))
               (type (;11;) (func (param "item" 10) (result s64)))
               (export (;0;) "total-value" (func (type 11)))
-              (type (;12;) (tuple u64 u64 u64 u64))
-              (type (;13;) (func (param "id" 12)))
-              (export (;1;) "assert-effect-not-handled" (func (type 13)))
+              (type (;12;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;1;) "starstream:meta/effect-handler" (instance (type 12)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -509,7 +514,7 @@ world root {
   }
 
   export total-value: func(item: item) -> s64;
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -518,5 +523,12 @@ package starstream:std {
     }
 
     resource token;
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }

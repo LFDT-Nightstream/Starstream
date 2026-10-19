@@ -241,7 +241,7 @@ TypedProgram {
   (export "my-utxo#[static]utxo.hello-utxo" (func 12))
   (export "my-utxo#get-storage" (func 13))
   (export "my-utxo#set-storage" (func 14))
-  (export "assert-effect-not-handled" (func 15))
+  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 15))
   (func (;11;) (type 3)
     (call 4
       (global.get 1))
@@ -359,9 +359,14 @@ TypedProgram {
                 )
               )
               (export (;4;) "my-utxo" (instance (type 20)))
-              (type (;21;) (tuple u64 u64 u64 u64))
-              (type (;22;) (func (param "id" 21)))
-              (export (;0;) "assert-effect-not-handled" (func (type 22)))
+              (type (;21;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "id" 0)))
+                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
+                )
+              )
+              (export (;5;) "starstream:meta/effect-handler" (instance (type 21)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -384,7 +389,6 @@ world root {
   use starstream:std/utxo-context.{utxo-context as s-utxo-context};
   use starstream:self/my-utxo.{utxo as u-my-utxo};
 
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export my-utxo: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
@@ -400,6 +404,7 @@ world root {
 
     set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
   }
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -430,5 +435,12 @@ package starstream:self {
     resource utxo {
       hello-utxo: static func() -> utxo;
     }
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }

@@ -354,8 +354,8 @@ fn link_effect_function<T: Host>(
 
                 for (i, instance) in stack.into_iter().rev().enumerate() {
                     if let Some(interface) = instance.get_export_index(store.as_context_mut(), None, &format!("starstream:effect-handler/{abi_name}"))
-                        && let Some(handler) = instance.get_export_index(store.as_context_mut(), Some(&interface), &name)
-                        && let Some(handler) = instance.get_func(store.as_context_mut(), handler)
+                        && let Some(idx) = instance.get_export_index(store.as_context_mut(), Some(&interface), &name)
+                        && let Some(handler) = instance.get_func(store.as_context_mut(), idx)
                     {
                         debug!(frame = ?i, handler = ?handler);
                         let mut handler_result = Val::U8(0);
@@ -380,8 +380,9 @@ fn link_effect_function<T: Host>(
                                 return Err(wasmtime::Error::msg("invalid effect handler status code"));
                             }
                         };
-                    } else if let Some(assert_effect_not_handled) =
-                        instance.get_func(&mut store, "assert-effect-not-handled")
+                    } else if let Some(interface) = instance.get_export_index(store.as_context_mut(), None, &format!("starstream:meta/effect-handler"))
+                        && let Some(idx) = instance.get_export_index(store.as_context_mut(), Some(&interface), "assert-effect-not-handled")
+                        && let Some(assert_effect_not_handled) = instance.get_func(store.as_context_mut(), idx)
                     {
                         let identity = format!("{abi_name}#{name}");
                         let digest = sha2::Sha256::digest(&identity);

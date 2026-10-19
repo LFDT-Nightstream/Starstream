@@ -178,7 +178,8 @@ world root {
 }
 ```
 
-Also, contracts should export an `assert-effect-not-handled` function, with
+Also, contracts should export a
+`starstream:meta/effect-handler#assert-effect-not-handled` function with the
 signature `func(id: tuple<u64, u64, u64, u64>)`. The input is the SHA-256 hash
 of the ABI name followed by `#` followed by the effect name. The function
 should trap if an `effect-handler` for this effect exists, or do nothing and return otherwise.

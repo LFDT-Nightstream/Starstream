@@ -37,7 +37,6 @@ world root {
   export run: func() -> s64;
   @external-id("starstream:test:Call a public method on an imported UTXO")
   export test8: func();
-  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export counter: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
@@ -56,6 +55,7 @@ world root {
 
     set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
   }
+  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -87,6 +87,13 @@ package starstream:self {
       new: static func() -> utxo;
       value: func() -> s64;
     }
+  }
+}
+
+
+package starstream:meta {
+  interface effect-handler {
+    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }
 
