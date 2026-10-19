@@ -6,7 +6,7 @@ use starstream_compiler::typecheck::TypecheckSuccess;
 use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use tracing::instrument;
-use wasmtime::component::{Resource, ResourceTable, Val};
+use wasmtime::component::{Instance, Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, StoreContextMut, bail, ensure, format_err};
 
@@ -71,6 +71,7 @@ pub struct Ctx {
     pub table: ResourceTable,
     pub events: Vec<Event>,
     pub outputs: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
+    pub stack: Vec<Instance>,
 }
 
 #[derive(Debug, Default)]
@@ -193,5 +194,23 @@ impl Host for Ctx {
             params: params.into(),
         });
         Ok(())
+    }
+
+    fn enter_instance(
+        mut store: StoreContextMut<Self>,
+        instance: &wasmtime::component::Instance,
+    ) -> wasmtime::Result<()> {
+        store.data_mut().stack.push(instance.clone());
+        Ok(())
+    }
+
+    fn exit_instance(mut store: StoreContextMut<Self>, _instance: &wasmtime::component::Instance) {
+        store.data_mut().stack.pop();
+    }
+
+    fn walk_instance_stack(
+        mut store: StoreContextMut<Self>,
+    ) -> impl Iterator<Item = wasmtime::component::Instance> {
+        store.data_mut().stack.clone().into_iter().rev()
     }
 }

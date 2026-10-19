@@ -19,7 +19,7 @@ use starstream_runtime::{
 };
 use tokio_util::codec::Encoder as _;
 use tracing::error;
-use wasmtime::component::{Component, Resource, ResourceTable, Type, Val};
+use wasmtime::component::{Component, Instance, Resource, ResourceTable, Type, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, Engine, Store, StoreContextMut, bail, ensure, format_err};
 use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
@@ -459,6 +459,7 @@ pub struct Ctx {
     pub events: Vec<TransactionEvent>,
     pub outputs: Vec<starstream_runtime::Utxo<<Self as starstream_runtime::Host>::UtxoContext>>,
     pub traces: WasmtimeTraceRegistry,
+    pub stack: Vec<Instance>,
 }
 
 #[derive(Clone, Debug)]
@@ -598,5 +599,23 @@ impl starstream_runtime::Host for Ctx {
             params: params.into(),
         });
         Ok(())
+    }
+
+    fn enter_instance(
+        mut store: StoreContextMut<Self>,
+        instance: &wasmtime::component::Instance,
+    ) -> wasmtime::Result<()> {
+        store.data_mut().stack.push(instance.clone());
+        Ok(())
+    }
+
+    fn exit_instance(mut store: StoreContextMut<Self>, _instance: &wasmtime::component::Instance) {
+        store.data_mut().stack.pop();
+    }
+
+    fn walk_instance_stack(
+        mut store: StoreContextMut<Self>,
+    ) -> impl Iterator<Item = wasmtime::component::Instance> {
+        store.data_mut().stack.clone().into_iter().rev()
     }
 }

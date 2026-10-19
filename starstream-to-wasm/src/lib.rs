@@ -1519,13 +1519,13 @@ impl Compiler {
         let bb_orig = func.cfg.add_block();
         func.cfg.seal(bb_orig, BlockType::Empty);
         let mut bb = bb_orig;
+        func.instructions(&bb).i32_const(EFFECT_STATUS_RESUME);
 
         // TODO: allow access to parent scope's globals (ex. utxo storage).
         // TODO: allow access to parent scope's locals (spilled to globals?).
         let parent = &() as &dyn Locals;
         _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &handler.body);
         if bb != usize::MAX {
-            func.instructions(&bb).i32_const(EFFECT_STATUS_RESUME);
             self.visit_return(&mut func, &bb);
             func.cfg.fill(bb, Out::Return);
         }

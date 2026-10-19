@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 use starstream_compiler::{ModuleGraph, typecheck_modules};
 use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use starstream_types::{FileSystem, MemoryFs};
-use wasmtime::component::{Component, Resource, ResourceTable, Type, Val, types};
+use wasmtime::component::{Component, Instance, Resource, ResourceTable, Type, Val, types};
 use wasmtime::error::Context as _;
 use wasmtime::{StoreContextMut, bail, format_err};
 use wit_component::DecodedWasm;
@@ -84,6 +84,7 @@ struct Ctx {
     table: ResourceTable,
     cardano: CardanoCtx,
     events: Vec<Value>,
+    stack: Vec<Instance>,
 }
 
 impl bindings::starstream::std::cardano::Host for Ctx {
@@ -187,6 +188,24 @@ impl Host for Ctx {
             "params": params,
         }));
         Ok(())
+    }
+
+    fn enter_instance(
+        mut store: StoreContextMut<Self>,
+        instance: &wasmtime::component::Instance,
+    ) -> wasmtime::Result<()> {
+        store.data_mut().stack.push(instance.clone());
+        Ok(())
+    }
+
+    fn exit_instance(mut store: StoreContextMut<Self>, _instance: &wasmtime::component::Instance) {
+        store.data_mut().stack.pop();
+    }
+
+    fn walk_instance_stack(
+        mut store: StoreContextMut<Self>,
+    ) -> impl Iterator<Item = wasmtime::component::Instance> {
+        store.data_mut().stack.clone().into_iter().rev()
     }
 }
 

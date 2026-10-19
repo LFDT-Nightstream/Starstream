@@ -12,7 +12,7 @@ use starstream_runtime::{
 };
 use tokio::sync::{RwLock, Semaphore};
 use tracing::error;
-use wasmtime::component::{Component, ResourceTable};
+use wasmtime::component::{Component, Instance, ResourceTable};
 use wasmtime::error::Context as _;
 
 use crate::wrpc::bindings;
@@ -45,6 +45,7 @@ struct AdminAccount {
 #[derive(Debug, Default)]
 struct Ctx {
     table: ResourceTable,
+    stack: Vec<Instance>,
 }
 
 #[derive(Debug)]

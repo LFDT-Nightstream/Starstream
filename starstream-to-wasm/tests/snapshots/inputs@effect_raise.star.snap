@@ -967,9 +967,9 @@ TypedProgram {
   (export "starstream:effect-handler/foo#hello" (func 8))
   (export "assert-effect-not-handled" (func 9))
   (func (;5;) (type 3) (result i32)
+    (i32.const 1)
     (call 4
       (i32.const 3))
-    (i32.const 1)
   )
   (func (;6;) (type 2)
     (local i32)

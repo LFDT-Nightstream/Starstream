@@ -10,7 +10,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use tokio::fs;
 use tracing::{debug, info, instrument};
-use wasmtime::component::{Component, Resource, ResourceTable, Val};
+use wasmtime::component::{Component, Instance, Resource, ResourceTable, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, Store, StoreContextMut, bail, ensure};
 
@@ -31,9 +31,11 @@ pub struct Run {
     imports: Vec<PathBuf>,
 }
 
+#[derive(Default)]
 pub(crate) struct Ctx {
     table: ResourceTable,
     outputs: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
+    stack: Vec<Instance>,
 }
 
 #[derive(Debug, Default)]
@@ -169,6 +171,24 @@ impl Host for Ctx {
         info!(abi = ?abi_name, event = ?name, params);
         Ok(())
     }
+
+    fn enter_instance(
+        mut store: StoreContextMut<Self>,
+        instance: &wasmtime::component::Instance,
+    ) -> wasmtime::Result<()> {
+        store.data_mut().stack.push(instance.clone());
+        Ok(())
+    }
+
+    fn exit_instance(mut store: StoreContextMut<Self>, _instance: &wasmtime::component::Instance) {
+        store.data_mut().stack.pop();
+    }
+
+    fn walk_instance_stack(
+        mut store: StoreContextMut<Self>,
+    ) -> impl Iterator<Item = wasmtime::component::Instance> {
+        store.data_mut().stack.clone().into_iter().rev()
+    }
 }
 
 pub async fn load(
@@ -207,13 +227,7 @@ pub async fn call(
     script: &str,
     args: &mut dyn ExactSizeIterator<Item = &str>,
 ) -> wasmtime::Result<String> {
-    let mut store = Store::new(
-        engine,
-        Ctx {
-            table: ResourceTable::default(),
-            outputs: Vec::default(),
-        },
-    );
+    let mut store = Store::new(engine, Ctx::default());
     let script = contract.get_coordination_script(script)?;
     let contract = contract.instantiate(&mut store).await?;
     let params_ty = script.ty().params();

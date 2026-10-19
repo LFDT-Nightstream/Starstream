@@ -22,7 +22,7 @@ use starstream_runtime::{
     Contract, ContractLookup, Host, StorageExport, Token, Utxo, UtxoExport, bindings,
 };
 use starstream_to_wasm::compile;
-use wasmtime::component::{Component, Resource, ResourceTable, Val};
+use wasmtime::component::{Component, Instance, Resource, ResourceTable, Val};
 use wasmtime::{AsContextMut, Engine, Store, StoreContextMut, bail};
 
 pub const MINIMAL_METHOD_CALL: &str = r#"
@@ -179,11 +179,13 @@ pub struct UtxoCtx {
     pub methods: Vec<(u64, u64, u64, u64)>,
 }
 
+#[derive(Default)]
 pub struct Ctx {
     table: ResourceTable,
     traces: neo_wasm::WasmtimeTraceRegistry,
     /// Every UTXO constructed during the script, in allocation order.
     created: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
+    stack: Vec<Instance>,
 }
 
 impl bindings::starstream::std::cardano::Host for Ctx {
@@ -280,6 +282,24 @@ impl Host for Ctx {
         _params: &[Val],
     ) -> wasmtime::Result<()> {
         Ok(())
+    }
+
+    fn enter_instance(
+        mut store: StoreContextMut<Self>,
+        instance: &wasmtime::component::Instance,
+    ) -> wasmtime::Result<()> {
+        store.data_mut().stack.push(instance.clone());
+        Ok(())
+    }
+
+    fn exit_instance(mut store: StoreContextMut<Self>, _instance: &wasmtime::component::Instance) {
+        store.data_mut().stack.pop();
+    }
+
+    fn walk_instance_stack(
+        mut store: StoreContextMut<Self>,
+    ) -> impl Iterator<Item = wasmtime::component::Instance> {
+        store.data_mut().stack.clone().into_iter().rev()
     }
 }
 
@@ -393,11 +413,7 @@ pub async fn trace_coordination_script(
     );
     let export = contract.get_coordination_script(script)?;
 
-    let ctx = Ctx {
-        table: ResourceTable::default(),
-        traces: neo_wasm::WasmtimeTraceRegistry::default(),
-        created: Vec::new(),
-    };
+    let ctx = Ctx::default();
 
     let mut store = Store::new(&engine, ctx);
     register_tracing_component(store.data_mut(), &wasm, &templates.bindings)?;

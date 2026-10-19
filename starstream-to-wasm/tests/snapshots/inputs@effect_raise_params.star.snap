@@ -1162,15 +1162,15 @@ TypedProgram {
         (i32.const 5)))
   )
   (func (;7;) (type 4) (result i32)
+    (i32.const 1)
     (call 5
       (i32.const 1))
-    (i32.const 1)
   )
   (func (;8;) (type 5) (param i32) (result i32 i32)
+    (i32.const 1)
     (i32.mul
       (local.get 0)
       (i32.const 13))
-    (i32.const 1)
   )
   (func (;9;) (type 2)
     (local i32)
@@ -1389,14 +1389,27 @@ package starstream:effect-handler {
 }
 
 ==== Test: Test ====
-panic: call_coordination_script: failed to call function
-
-Caused by:
-    0: error while executing at wasm backtrace:
-    0:    0x2f5 - <unknown>!<wasm function 6>
-    1:    0x319 - <unknown>!<wasm function 9>
-    2:    0x322 - <unknown>!<wasm function 10>
-    1: expected 1 arguments, got 0
+events: [
+    Event {
+        abi_name: "foo",
+        name: "log",
+        params: [
+            U32(
+                1,
+            ),
+        ],
+    },
+    Event {
+        abi_name: "foo",
+        name: "log",
+        params: [
+            U32(
+                65,
+            ),
+        ],
+    },
+]
+outputs: []
 
 ==== Test: Unhandled ====
 panic: call_coordination_script: failed to call function
