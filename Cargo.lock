@@ -1540,8 +1540,7 @@ dependencies = [
 [[package]]
 name = "headers-accept"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78beb98ea9a8f76b4a38c5ca651db6aa84701f307b63b4e0d78342ad4219c7e4"
+source = "git+https://github.com/maxcountryman/headers-accept?rev=e5a875f2504267f2fa4913e595e4299a76365db8#e5a875f2504267f2fa4913e595e4299a76365db8"
 dependencies = [
  "headers-core",
  "http",
