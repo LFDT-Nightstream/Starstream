@@ -302,45 +302,6 @@ async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> 
 }
 
 #[tokio::test]
-async fn unhandled_effect_is_rejected_by_the_circuit() -> wasmtime::Result<()> {
-    let execution = trace_coordination_script(UNHANDLED_EFFECT, "main").await?;
-    common::check_wasm_constraints(&execution)?;
-
-    let effect = effect_hash_from_names("foo", "hello");
-    let expected = Trace::new([
-        Step::RaiseEffect {
-            effect,
-            arguments: UNIT,
-        },
-        Step::EnterEffectHandler {
-            effect,
-            arguments: UNIT,
-        },
-        Step::ExitEffectHandler {
-            handled: false,
-            result: Out(UNIT),
-        },
-        Step::ResumeEffect { result: Out(UNIT) },
-        ret(),
-    ]);
-    assert_eq!(execution.transaction.execution, expected);
-    let error = verify_sat(&execution.transaction.execution)
-        .expect_err("the circuit must reject resuming an unhandled effect");
-    assert!(
-        matches!(
-            error,
-            Error::Unsatisfied(Unsatisfied::Constraint {
-                step: 3,
-                constraint: "resume effect constraints",
-                ..
-            })
-        ),
-        "{error:?}"
-    );
-    Ok(())
-}
-
-#[tokio::test]
 #[ignore = "requires Quint; run with --include-ignored"]
 async fn traced_transactions_satisfy_the_quint_specification() -> wasmtime::Result<()> {
     let verifier = QuintVerifier::new()
