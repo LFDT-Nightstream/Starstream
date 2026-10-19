@@ -315,10 +315,8 @@ impl Compiler {
         for (iface_name, iface) in ifaces {
             self.world_type.export_interface(&iface_name, &iface);
         }
-        if !id_set.is_empty() {
-            // TOOD: Do we need to emit this for ALL contracts?
-            self.finish_assert_effect_not_handled(&id_set);
-        }
+        // Unconditionally emit `assert-effect-not-handled` to simplify proving.
+        self.finish_assert_effect_not_handled(&id_set);
 
         // Flush function codes into the code section.
         for each in self.code_bytes {

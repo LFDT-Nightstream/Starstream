@@ -447,11 +447,13 @@ TypedProgram {
   (type (;0;) (func (param i32)))
   (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
   (type (;2;) (func (param i32) (result i32)))
+  (type (;3;) (func (param i64 i64 i64 i64)))
   (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
   (import "starstream:contract/dynamic-utxo" "hello" (func (;3;) (type 2)))
   (export "maybe-hello" (func 5))
+  (export "assert-effect-not-handled" (func 6))
   (func (;4;) (type 2) (param i32) (result i32)
     (block (result i32) ;; label = @1
       (block ;; label = @2
@@ -475,6 +477,7 @@ TypedProgram {
     (call 0
       (local.get 0))
   )
+  (func (;6;) (type 3) (param i64 i64 i64 i64))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -517,6 +520,9 @@ TypedProgram {
               (import "starstream:contract/dynamic-utxo" (instance (;1;) (type 9)))
               (type (;10;) (func (param "u" 3) (result s32)))
               (export (;0;) "maybe-hello" (func (type 10)))
+              (type (;11;) (tuple u64 u64 u64 u64))
+              (type (;12;) (func (param "id" 11)))
+              (export (;1;) "assert-effect-not-handled" (func (type 12)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -536,6 +542,7 @@ world root {
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
 
   export maybe-hello: func(u: borrow<s-utxo>) -> s32;
+  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
 }
 package starstream:std {
   interface builtin {

@@ -165,6 +165,7 @@ TypedProgram {
   (type (;4;) (func))
   (type (;5;) (func (param i32 i32) (result i32)))
   (type (;6;) (func (param i32 i32)))
+  (type (;7;) (func (param i64 i64 i64 i64)))
   (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
@@ -179,6 +180,7 @@ TypedProgram {
   (export "my-utxo#get-storage" (func 10))
   (export "my-utxo#set-storage" (func 11))
   (export "script-accepts-utxos" (func 13))
+  (export "assert-effect-not-handled" (func 14))
   (func (;9;) (type 4)
     (call 4
       (global.get 1))
@@ -206,6 +208,7 @@ TypedProgram {
     (call 6
       (local.get 1))
   )
+  (func (;14;) (type 7) (param i64 i64 i64 i64))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -284,6 +287,9 @@ TypedProgram {
               (export (;3;) "my-utxo" (instance (type 19)))
               (type (;20;) (func (param "utxo" 3) (param "my-utxo" 17)))
               (export (;0;) "script-accepts-utxos" (func (type 20)))
+              (type (;21;) (tuple u64 u64 u64 u64))
+              (type (;22;) (func (param "id" 21)))
+              (export (;1;) "assert-effect-not-handled" (func (type 22)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -306,6 +312,7 @@ world root {
   use starstream:self/my-utxo.{utxo as u-my-utxo};
 
   export script-accepts-utxos: func(utxo: borrow<s-utxo>, my-utxo: borrow<u-my-utxo>);
+  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export my-utxo: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 

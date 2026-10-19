@@ -30,6 +30,7 @@ world root {
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
 
   export run: func() -> s64;
+  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
 }
 package starstream:std {
   interface builtin {

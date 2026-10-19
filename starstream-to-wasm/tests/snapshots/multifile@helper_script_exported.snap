@@ -31,6 +31,7 @@ world root {
 
   export helper-script: func() -> s64;
   export run: func() -> s64;
+  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
 }
 package starstream:std {
   interface builtin {

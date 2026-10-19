@@ -1370,6 +1370,7 @@ TypedProgram {
   (type (;6;) (func (param i32 i32)))
   (type (;7;) (func (param i64) (result i32)))
   (type (;8;) (func))
+  (type (;9;) (func (param i64 i64 i64 i64)))
   (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
@@ -1387,6 +1388,7 @@ TypedProgram {
   (export "my-token#get-storage" (func 13))
   (export "my-token#set-storage" (func 14))
   (export "call-token-mint" (func 15))
+  (export "assert-effect-not-handled" (func 16))
   (func (;9;) (type 4) (result i32)
     (local i32)
     (local.set 0
@@ -1431,6 +1433,7 @@ TypedProgram {
     (call 3
       (local.get 3))
   )
+  (func (;16;) (type 9) (param i64 i64 i64 i64))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -1511,6 +1514,9 @@ TypedProgram {
               (export (;3;) "my-token" (instance (type 15)))
               (type (;16;) (func))
               (export (;0;) "call-token-mint" (func (type 16)))
+              (type (;17;) (tuple u64 u64 u64 u64))
+              (type (;18;) (func (param "id" 17)))
+              (export (;1;) "assert-effect-not-handled" (func (type 18)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -1532,6 +1538,7 @@ world root {
   use starstream:self/my-token.{token as t-my-token};
 
   export call-token-mint: func();
+  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export my-token: interface {
     use starstream:std/builtin.{utxo as s-utxo};
 

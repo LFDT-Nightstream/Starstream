@@ -2670,10 +2670,12 @@ TypedProgram {
   (type (;2;) (func (result i32 i64)))
   (type (;3;) (func (param i32 i64) (result i64)))
   (type (;4;) (func (param i32 i64 i32 i64)))
+  (type (;5;) (func (param i64 i64 i64 i64)))
   (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
   (export "run" (func 9))
+  (export "assert-effect-not-handled" (func 10))
   (func (;3;) (type 2) (result i32 i64)
     (i32.const 1)
     (i64.const 42)
@@ -2753,6 +2755,7 @@ TypedProgram {
       (call 8
         (call 6)))
   )
+  (func (;10;) (type 5) (param i64 i64 i64 i64))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -2788,6 +2791,9 @@ TypedProgram {
               (type (;12;) (result s64 (error bool)))
               (type (;13;) (func (param "x" 11) (param "y" 12)))
               (export (;0;) "run" (func (type 13)))
+              (type (;14;) (tuple u64 u64 u64 u64))
+              (type (;15;) (func (param "id" 14)))
+              (export (;1;) "assert-effect-not-handled" (func (type 15)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -2810,6 +2816,7 @@ world root {
   }
 
   export run: func(x: thing, y: result<s64, bool>);
+  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
 }
 package starstream:std {
   interface builtin {

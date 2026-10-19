@@ -121,9 +121,12 @@ TypedProgram {
 (module
   (type (;0;) (func (param i32)))
   (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;2;) (func (param i64 i64 i64 i64)))
   (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (export "assert-effect-not-handled" (func 3))
+  (func (;3;) (type 2) (param i64 i64 i64 i64))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -155,6 +158,9 @@ TypedProgram {
               (type (;8;) (own 6))
               (type (;9;) (record (field "x" s64) (field "y" s64) (field "w-z" s64)))
               (import "point" (type (;10;) (eq 9)))
+              (type (;11;) (tuple u64 u64 u64 u64))
+              (type (;12;) (func (param "id" 11)))
+              (export (;0;) "assert-effect-not-handled" (func (type 12)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -177,6 +183,8 @@ world root {
     y: s64,
     w-z: s64,
   }
+
+  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
 }
 package starstream:std {
   interface builtin {

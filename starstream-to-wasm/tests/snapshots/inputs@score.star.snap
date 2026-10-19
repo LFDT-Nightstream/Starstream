@@ -2907,6 +2907,7 @@ TypedProgram {
   (type (;8;) (func (param i64 i64) (result i64)))
   (type (;9;) (func (param i32) (result i32 i64 i64 i32 i32)))
   (type (;10;) (func (param i32 i32 i64 i64 i32 i32) (result i32)))
+  (type (;11;) (func (param i64 i64 i64 i64)))
   (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
@@ -2942,6 +2943,7 @@ TypedProgram {
   (export "score-progress#set-storage" (func 30))
   (export "example" (func 31))
   (export "test13" (func 32))
+  (export "assert-effect-not-handled" (func 33))
   (export "memory" (memory 0))
   (func (;19;) (type 7)
     (call 4
@@ -3161,6 +3163,7 @@ TypedProgram {
   (func (;32;) (type 7)
     (call 31)
   )
+  (func (;33;) (type 11) (param i64 i64 i64 i64))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -3285,6 +3288,9 @@ TypedProgram {
               (export (;0;) "example" (func (type 22)))
               (type (;23;) (func))
               (export (;1;) "test13" (external-id "starstream:test:A Simple Example") (func (type 23)))
+              (type (;24;) (tuple u64 u64 u64 u64))
+              (type (;25;) (func (param "id" 24)))
+              (export (;2;) "assert-effect-not-handled" (func (type 25)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -3311,6 +3317,7 @@ world root {
   export example: func();
   @external-id("starstream:test:A Simple Example")
   export test13: func();
+  export assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   export score-progress: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
