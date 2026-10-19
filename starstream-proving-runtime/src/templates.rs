@@ -21,6 +21,8 @@ const CONSTRUCTOR_PREFIX: &str = "[static]utxo.";
 const METHOD_PREFIX: &str = "[method]utxo.";
 const GET_STORAGE_EXPORT: &str = "get-storage";
 const SET_STORAGE_EXPORT: &str = "set-storage";
+const ASSERT_EFFECT_NOT_HANDLED_EXPORT: &str =
+    "starstream:meta/effect-handler#assert-effect-not-handled";
 
 /// Schema tag of a flat `i32`/`i64` value tuple committed as an opaque root.
 pub const FLAT_VALUE_SCHEMA_TAG: u64 = u64::from_le_bytes(*b"SSFLAT01");
@@ -96,6 +98,7 @@ enum ExportKind {
     /// A compiler-generated export with no interleaving semantics.
     Internal,
     EffectHandler(MethodHash),
+    AssertEffectNotHandled,
 }
 
 /// Event builder that reserves whole blocks for roots.
@@ -262,6 +265,7 @@ impl ExportKind {
             Self::SetStorage => "set-storage",
             Self::Internal => "internal",
             Self::EffectHandler(_) => "effect handler",
+            Self::AssertEffectNotHandled => "assert-effect-not-handled",
         }
     }
 }
@@ -270,6 +274,9 @@ fn classify_export(
     export: &FunctionExport,
     coordination_exports: &BTreeSet<&str>,
 ) -> Result<ExportKind, TemplateBuildError> {
+    if export.name == ASSERT_EFFECT_NOT_HANDLED_EXPORT {
+        return Ok(ExportKind::AssertEffectNotHandled);
+    }
     if let Some((instance, item)) = export.name.split_once('#') {
         if instance.is_empty() {
             return Err(TemplateBuildError::UnclassifiedFunctionExport {
@@ -707,6 +714,16 @@ fn build_export_events(
                 .map(1, |builder| {
                     builder.push(SlotBinding::OutputElem { limb: Limb::Lo })
                 })?
+                .root(Root::unit())?
+                .finish()?;
+            Ok(ExportEvents { entry, exit })
+        }
+        ExportKind::AssertEffectNotHandled => {
+            // TODO: represent as its own kind of thing?
+            let mut entry = Sequence::op(EventKind::EnterEffectHandler);
+            entry = entry.root(entry_arguments_root(export, &mut inputs, 0)?)?;
+            let entry = entry.finish()?;
+            let exit = Sequence::op(EventKind::ExitEffectHandler)
                 .root(Root::unit())?
                 .finish()?;
             Ok(ExportEvents { entry, exit })

@@ -401,9 +401,7 @@ fn link_effect_function<T: Host>(
                             .await
                             .with_context(|| format!("assert-effect-not-handled failed for {abi_name}::{name}{params:?}"))?;
                     } else {
-                        // TODO: For non-Starstream frames, can we consider absence
-                        // of `assert-effect-not-handled` to mean asserting NOTHING
-                        // is handled?
+                        // Will cause proving to fail, but just warn here for now.
                         warn!(frame = ?i, "missing assert-effect-not-handled");
                     }
                 }
