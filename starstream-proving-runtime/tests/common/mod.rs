@@ -16,7 +16,7 @@ use starstream_interleaving_spec::interleaver::{InterleavedTransaction, interlea
 use starstream_interleaving_spec::{Trace, events};
 use starstream_proving_runtime::{
     ComponentTemplates, build_component_templates, decode_tagged_blocks, enable_tracing,
-    new_wasmtime_config, register_tracing_component,
+    register_tracing_component,
 };
 use starstream_runtime::{
     Contract, ContractLookup, Host, StorageExport, Token, Utxo, UtxoExport, bindings,
@@ -387,9 +387,9 @@ pub async fn trace_coordination_script(
         .map_err(|error| wasmtime::format_err!("failed to componentize contract: {error:#}"))?;
     let templates = build_component_templates(&wasm, &[script])
         .map_err(|error| wasmtime::format_err!("failed to build templates: {error}"))?;
-    let mut config = new_wasmtime_config();
-    config.wasm_component_model_implements(true);
-    let engine = Engine::new(&config)?;
+    let mut engine_config = wasmtime::Config::default();
+    starstream_runtime::configure_wasmtime(&mut engine_config);
+    let engine = Engine::new(&engine_config)?;
     let component = Component::from_binary(&engine, &wasm)?;
     let contract = Contract::new(&component, None, NoopContractLookup)?;
     let artifacts = Arc::new(
@@ -627,7 +627,7 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
             proof.proof.state.semantic_state_digest,
             semantic_state_digest(final_state)
         );
-        assert!(final_state.halted && !final_state.trapped);
+        assert!(final_state.is_terminal() && !final_state.trapped);
         assert_eq!(
             final_state.comm_chain,
             execution.commitments[&coroutine_id(index)]

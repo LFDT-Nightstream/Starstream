@@ -20,13 +20,15 @@ fn bindings(first_input: bool, second_input: bool, duplicate: bool) -> Trace {
             steps.extend([
                 Step::NewUtxo {
                     arguments: StarstreamValue::UNIT_VALUE,
-                    resource: handle.into(),
                 },
                 Step::EnterConstructor {
                     arguments: StarstreamValue::UNIT_VALUE,
                 },
                 Step::Return {
                     result: StarstreamValue::UNIT_VALUE.into(),
+                },
+                Step::ReceiveNewUtxoHandle {
+                    resource: handle.into(),
                 },
             ]);
         }

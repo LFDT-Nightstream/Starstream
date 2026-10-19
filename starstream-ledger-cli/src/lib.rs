@@ -19,12 +19,14 @@ use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::http::ClientBuilder;
 use starstream_ledger::client::runtime::UtxoCtx;
 use starstream_ledger::client::runtime::{Client, Ctx, call_coordination_script, compile_contract};
-use starstream_ledger::{Transaction, TransactionInput, TransactionOutput, encode_digest};
+use starstream_ledger::{
+    CardanoCtx, Transaction, TransactionInput, TransactionOutput, encode_digest,
+};
 use starstream_runtime::Utxo;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
 use tokio_util::codec::Encoder as _;
-use tracing::info;
+use tracing::{info, warn};
 use wasm_wave::wasm::WasmFunc as _;
 use wasmtime::Store;
 use wasmtime::component::{Val, types};
@@ -156,6 +158,14 @@ enum ScriptCommand {
         /// Paths to contracts to resolve imports from instead of the ledger.
         #[arg(long = "import", value_name = "PATH")]
         imports: Vec<PathBuf>,
+
+        /// Cardano block height reported to the script (`cardano#block-height`).
+        #[arg(long, default_value_t = 0)]
+        cardano_block_height: i64,
+
+        /// Cardano current slot reported to the script (`cardano#current-slot`).
+        #[arg(long, default_value_t = 0)]
+        cardano_current_slot: i64,
 
         /// Digest of the published contract, either as multibase multihash or `sha256:HEX`.
         #[arg(value_parser = parse_digest)]
@@ -393,6 +403,8 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             simulate,
             output_transaction,
             imports,
+            cardano_block_height,
+            cardano_current_slot,
             digest,
             script,
             args,
@@ -458,8 +470,15 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let mut results = vec![Val::Bool(false); ty.results().len()];
 
             let mut utxos = Vec::default();
-            let mut store = Store::new(client.engine(), Ctx::default());
-            let (tx, ..) = call_coordination_script(
+            let ctx = Ctx {
+                cardano: CardanoCtx {
+                    block_height: cardano_block_height,
+                    current_slot: cardano_current_slot,
+                },
+                ..Ctx::default()
+            };
+            let mut store = Store::new(client.engine(), ctx);
+            let (tx, execution) = call_coordination_script(
                 &mut store,
                 &imports,
                 client.wizer(),
@@ -472,6 +491,9 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 &mut utxos,
             )
             .await?;
+            if let Err(err) = execution {
+                warn!(?err, "failed to check execution trace");
+            }
             'outer: for result in &mut results {
                 if let &mut Val::Resource(utxo) = result {
                     let utxo = utxo

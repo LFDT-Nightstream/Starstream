@@ -237,10 +237,7 @@ fn multifile() {
         match ModuleGraph::from_workspace(&mut fs, path) {
             Err(errors) => {
                 for err in errors {
-                    let txt = format!("{}", err);
-                    let txt =
-                        txt.replace(&*std::env::current_dir().unwrap().to_string_lossy(), "$PWD");
-                    writeln!(output, "{txt}").unwrap();
+                    writeln!(output, "{err}").unwrap();
                 }
             }
             Ok(graph) => {
@@ -280,7 +277,8 @@ fn multifile() {
                             let mut compile_result =
                                 starstream_to_wasm::compile_contract(&typed, entry_id);
                             for error in compile_result.errors.drain(..) {
-                                print_diagnostic(output, graph.source(entry_id), error);
+                                let module = error.module.unwrap_or(entry_id);
+                                print_diagnostic(output, graph.source(module), error);
                             }
 
                             if let Some(_) = &compile_result.wasm {
@@ -295,6 +293,10 @@ fn multifile() {
             }
         }
 
+        // Errors and diagnostics name files by absolute path.
+        let pwd = std::env::current_dir().unwrap();
+        *output = output.replace(&*pwd.to_string_lossy(), "$PWD");
+
         insta::with_settings!({
             omit_expression => true,
             prepend_module_to_snapshot => false,
@@ -305,10 +307,9 @@ fn multifile() {
 }
 
 fn run_tests(output: &mut String, component_wasm: &[u8]) {
-    let mut config = wasmtime::Config::new();
-    config.wasm_component_model_implements(true);
-    config.guest_debug(true);
-    let engine = wasmtime::Engine::new(&config).expect("failed to create wasmtime Engine");
+    let mut engine_config = wasmtime::Config::default();
+    starstream_runtime::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config).expect("failed to create wasmtime Engine");
     let component = Component::new(&engine, component_wasm).expect("failed to load component");
     let ty = component.component_type();
 

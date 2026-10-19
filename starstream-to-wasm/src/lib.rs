@@ -101,6 +101,9 @@ pub struct CompileResult {
 pub struct CompileError {
     pub message: String,
     pub span: Span,
+    /// The module whose source `span` points into. Always `Some` from
+    /// [`compile_contract`]; `None` from [`compile`], which has no graph.
+    pub module: Option<starstream_compiler::ModuleId>,
 }
 
 /// Compile a Starstream program to a Wasm module with default options.
@@ -138,7 +141,11 @@ impl Default for CompileOptions {
 impl CompileOptions {
     #[must_use]
     pub fn compile(self, program: &TypedProgram) -> CompileResult {
-        let definitions = program.definitions.iter().collect::<Vec<_>>();
+        let definitions = program
+            .definitions
+            .iter()
+            .map(|d| (None, d))
+            .collect::<Vec<_>>();
         let mut compiler = Compiler::new(self);
         compiler.visit_program(&definitions);
         compiler.finish()
@@ -165,16 +172,22 @@ impl CompileOptions {
         }
 
         let mut compiler = Compiler::new(self);
+        // Errors raised outside any one module's definitions are attributed
+        // to the entry.
+        compiler.module = Some(entry);
         let mut definitions = Vec::new();
         for &module_id in &graph.topo_order {
             if reachable.contains(&module_id) {
                 match &graph.module(module_id).contents {
                     TypedModuleContents::Empty => {}
                     TypedModuleContents::Starstream(program) => {
-                        definitions.extend(program.definitions.iter());
+                        definitions
+                            .extend(program.definitions.iter().map(|d| (Some(module_id), d)));
                     }
                     TypedModuleContents::Wasm(typed_wasm_module) => {
+                        compiler.module = Some(module_id);
                         compiler.visit_embedded_wasm(typed_wasm_module);
+                        compiler.module = Some(entry);
                     }
                 };
             }
@@ -224,6 +237,8 @@ struct Compiler {
     // Diagnostics.
     fatal: bool,
     errors: Vec<CompileError>,
+    /// The module currently being visited, recorded on each [`CompileError`].
+    module: Option<starstream_compiler::ModuleId>,
     mermaid: Vec<(String, String)>,
 
     // Debug info.
@@ -267,6 +282,8 @@ struct ResourceContext {
 }
 
 struct Effect {
+    /// The module that declares the effect, which `ty`'s spans point into.
+    module: Option<starstream_compiler::ModuleId>,
     abi_name: String,
     effect_name: String,
     ty: Arc<FunctionType>,
@@ -292,6 +309,7 @@ impl Compiler {
         let mut ifaces = Default::default();
         let mut id_set = Default::default();
         for (_, effect) in std::mem::take(&mut self.effect_handlers) {
+            self.module = effect.module;
             self.finish_effect_handler(effect, &mut ifaces, &mut id_set);
         }
         for (iface_name, iface) in ifaces {
@@ -434,6 +452,7 @@ impl Compiler {
         self.errors.push(CompileError {
             message: message.into(),
             span,
+            module: self.module,
         });
         self.fatal = true;
         ErrorToken
@@ -1153,7 +1172,10 @@ impl Compiler {
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
-    fn visit_program(&mut self, definitions: &[&TypedDefinition]) {
+    fn visit_program(
+        &mut self,
+        definitions: &[(Option<starstream_compiler::ModuleId>, &TypedDefinition)],
+    ) {
         // Core Wasm requires that all imported functions must precede all
         // defined functions, so import everything first.
 
@@ -1163,7 +1185,7 @@ impl Compiler {
         // Utxo context methods needed if the program contains any UTXOs.
         if definitions
             .iter()
-            .any(|d| matches!(d, TypedDefinition::Utxo(_)))
+            .any(|(_, d)| matches!(d, TypedDefinition::Utxo(_)))
         {
             self.import_utxo_context();
             self.yield_global = Some(self.add_globals([ValType::I32], "yield"));
@@ -1172,7 +1194,8 @@ impl Compiler {
 
         // Import anything the source file explicitly imports.
         let mut imported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>> = BTreeMap::new();
-        for definition in definitions {
+        for &(module, definition) in definitions {
+            self.module = module;
             match definition {
                 TypedDefinition::Import(def) => self.visit_import(def, &mut imported_interfaces),
                 TypedDefinition::Abi(def) => self.visit_abi(def, &mut imported_interfaces),
@@ -1185,7 +1208,8 @@ impl Compiler {
         }
 
         // Visit imported versions of Utxo and Token resource definitions.
-        for definition in definitions {
+        for &(module, definition) in definitions {
+            self.module = module;
             match definition {
                 TypedDefinition::Utxo(def) => self.pre_visit_utxo(def),
                 TypedDefinition::Token(def) => self.pre_visit_token(def),
@@ -1195,7 +1219,8 @@ impl Compiler {
         }
 
         // Function body compilation.
-        for definition in definitions {
+        for &(module, definition) in definitions {
+            self.module = module;
             match definition {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
@@ -1330,6 +1355,7 @@ impl Compiler {
                     self.effect_handlers.insert(
                         part.id,
                         Effect {
+                            module: self.module,
                             abi_name: to_kebab_case(def.ty.name.as_str()),
                             effect_name: to_kebab_case(part.name.as_str()),
                             ty: part.ty.clone(),

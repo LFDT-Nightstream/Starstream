@@ -87,7 +87,10 @@ impl Wasm {
         };
         let compile_result = options.compile_contract(&typed, entry_id);
         for error in &compile_result.errors {
-            print_diagnostic(graph.source(entry_id), error.clone())?;
+            print_diagnostic(
+                graph.source(error.module.unwrap_or(entry_id)),
+                error.clone(),
+            )?;
         }
         if let Some(output_mermaid) = self.output_mermaid {
             std::fs::create_dir_all(&output_mermaid).unwrap();

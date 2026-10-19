@@ -11,6 +11,8 @@ use thiserror::Error;
 
 use crate::runtime::ModuleState;
 
+pub use starstream_runtime::configure_wasmtime;
+
 #[cfg(feature = "client")]
 pub mod client;
 #[cfg(feature = "server")]
@@ -248,6 +250,16 @@ pub enum Action {
 
 pub struct Block {
     pub actions: Box<[Action]>,
+}
+
+/// The Cardano context a contract can observe via the `starstream:std/cardano`
+/// host functions.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CardanoCtx {
+    /// Block height reported to the guest via `cardano#block-height`.
+    pub block_height: i64,
+    /// Current slot reported to the guest via `cardano#current-slot`.
+    pub current_slot: i64,
 }
 
 #[derive(Debug, Error)]

@@ -52,6 +52,8 @@ export type RunWorkerRequest = {
 } & (
   | {
       type: "deploy";
+      /** The contract's name, echoed back in the `deployed` response. */
+      name: string;
       /** Sha256 hex digest of `component`, identifying the deployment. */
       digest: string;
       component: Uint8Array;
@@ -108,6 +110,7 @@ export type RunWorkerResponse = {
     }
   | {
       type: "deployed";
+      name: string;
       digest: string;
       describe: Describe;
     }
@@ -163,6 +166,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
     body: number,
     body_len: number,
   ): void;
+  set_contract(ptr: number, len: number, standalone: number): void;
   set_wat(ptr: number, len: number): void;
   set_core_wasm(ptr: number, len: number): void;
   set_wit(ptr: number, len: number): void;
@@ -334,6 +338,7 @@ function getWasmInstance(): Promise<RunWasm> {
             body: utf8(body, body_len),
           });
         },
+        set_contract() {},
         set_wat() {},
         set_core_wasm() {},
         set_wit() {},
@@ -429,6 +434,7 @@ async function serve(data: RunWorkerRequest) {
         send({
           request_id,
           type: "deployed",
+          name: data.name,
           digest: data.digest,
           describe: describeJson,
         });

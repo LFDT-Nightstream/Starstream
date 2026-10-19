@@ -29,9 +29,9 @@ impl Client for TestClient {
 
 #[tokio::test]
 async fn coordination_script_execution_is_checked() -> anyhow::Result<()> {
-    let mut config = starstream_proving_runtime::new_wasmtime_config();
-    config.wasm_component_model_implements(true);
-    let engine = Engine::new(&config)?;
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut engine_config);
+    let engine = Engine::new(&engine_config)?;
     let wizer = Wizer::new();
     let mut imports = HashMap::new();
     let contract = compile_contract(
@@ -71,9 +71,9 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         "{}\nscript fn update(prog: ScoreProgress) {{ prog.plus_chips(5); }}",
         include_str!("../../examples/score.star")
     ))?;
-    let mut config = starstream_proving_runtime::new_wasmtime_config();
-    config.wasm_component_model_implements(true);
-    let engine = Engine::new(&config)?;
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut engine_config);
+    let engine = Engine::new(&engine_config)?;
     let wizer = Wizer::new();
     let mut imports = HashMap::new();
     let contract = compile_contract(
@@ -152,9 +152,9 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
             1,
         );
     let wasm = wat::parse_str(wat)?;
-    let mut config = starstream_proving_runtime::new_wasmtime_config();
-    config.wasm_component_model_implements(true);
-    let engine = Engine::new(&config)?;
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut engine_config);
+    let engine = Engine::new(&engine_config)?;
     let wizer = Wizer::new();
     let mut imports = HashMap::new();
     let contract = compile_contract(

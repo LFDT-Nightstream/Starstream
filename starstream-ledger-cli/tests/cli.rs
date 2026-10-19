@@ -7,7 +7,7 @@ use ed25519_dalek::SigningKey;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::server::Ledger;
-use starstream_ledger::{Publish, Transaction};
+use starstream_ledger::{CardanoCtx, Publish, Transaction};
 use tempfile::NamedTempFile;
 use tokio::fs;
 use tokio::process::Command;
@@ -65,12 +65,18 @@ async fn cli() {
         .await
         .expect("failed to write admin key file");
 
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::server::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config).unwrap();
+
     let ledger = Ledger::new(
-        wasmtime::Engine::default(),
+        engine,
         128,
+        u64::MAX,
         NETWORK,
         ADMIN.verifying_key(),
         [],
+        CardanoCtx::default(),
     );
     let ledger = Arc::new(ledger);
     let addr = free_tcp_addr().await.unwrap();

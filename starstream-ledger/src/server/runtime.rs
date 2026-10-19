@@ -11,11 +11,11 @@ use crate::server::{Ctx, UtxoCtx};
 
 impl starstream::std::cardano::Host for Ctx {
     fn block_height(&mut self) -> wasmtime::Result<i64> {
-        bail!("TODO")
+        Ok(self.cardano.block_height)
     }
 
     fn current_slot(&mut self) -> wasmtime::Result<i64> {
-        bail!("TODO")
+        Ok(self.cardano.current_slot)
     }
 }
 

@@ -29,7 +29,8 @@ use crate::cose::read_envelope;
 use crate::wrpc::{LEDGER_UTXO_INSTANCE, bindings};
 use crate::{
     APPLICATION_COSE, APPLICATION_WRPC, Fund, PUBLISH_CONTEXT, Publish, TRANSACTION_CONTEXT,
-    Transaction, TransactionInput, TransactionOutput, encode_digest, parse_digest,
+    Transaction, TransactionInput, TransactionOutput, configure_wasmtime, encode_digest,
+    parse_digest,
 };
 
 /// Default network used by the client
@@ -153,8 +154,8 @@ impl<C> ClientBuilder<C> {
         connect: C,
         api_base: impl Into<Uri>,
     ) -> Self {
-        let mut engine_config = wasmtime::Config::new();
-        engine_config.wasm_component_model_implements(true);
+        let mut engine_config = wasmtime::Config::default();
+        configure_wasmtime(&mut engine_config);
         let engine = wasmtime::Engine::new(&engine_config).unwrap();
         Self {
             http,
@@ -314,7 +315,7 @@ where
         results: &mut [Val],
         utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
     ) -> anyhow::Result<Transaction> {
-        let (tx, ..) = call_coordination_script(
+        let (tx, execution) = call_coordination_script(
             store,
             self,
             &self.wizer,
@@ -327,6 +328,9 @@ where
             utxos,
         )
         .await?;
+        if let Err(err) = execution {
+            warn!(?err, "failed to check execution trace");
+        }
         Ok(tx)
     }
 
