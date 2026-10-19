@@ -135,6 +135,8 @@ pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'stati
 
     fn table(&mut self) -> &mut ResourceTable;
 
+    fn instance_stack(&mut self) -> &mut Vec<Instance>;
+
     fn call_utxo_main(
         store: StoreContextMut<Self>,
         instance_name: Arc<str>,
@@ -183,12 +185,6 @@ pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'stati
         name: &Arc<str>,
         params: &[Val],
     ) -> wasmtime::Result<()>;
-
-    fn enter_instance(store: StoreContextMut<Self>, instance: &Instance) -> wasmtime::Result<()>;
-
-    fn exit_instance(store: StoreContextMut<Self>, instance: &Instance);
-
-    fn walk_instance_stack(store: StoreContextMut<Self>) -> impl Iterator<Item = Instance>;
 }
 
 enum ContractImportTarget<'a, T: 'static> {
@@ -260,12 +256,16 @@ async fn call_func<T: Host>(
     mut results: impl AsMut<[Val]>,
 ) -> wasmtime::Result<()> {
     let f = get_func(store.as_context_mut(), instance, name)?;
-    T::enter_instance(store.as_context_mut(), instance)?;
+    store
+        .as_context_mut()
+        .data_mut()
+        .instance_stack()
+        .push(instance.clone());
     let result = f
         .call_async(&mut store, params.as_ref(), results.as_mut())
         .await
         .context("failed to call function");
-    T::exit_instance(store.as_context_mut(), instance);
+    store.as_context_mut().data_mut().instance_stack().pop();
     result
 }
 
@@ -334,15 +334,15 @@ fn link_effect_function<T: Host>(
             let abi_name = Arc::clone(&abi_name);
             let name = Arc::clone(&name);
             Box::new(async move {
-                let vec: Vec<_> = T::walk_instance_stack(store.as_context_mut()).collect();
+                let stack = store.as_context_mut().data_mut().instance_stack().clone();
                 assert!(
-                    !vec.is_empty(),
+                    !stack.is_empty(),
                     "`debug_exit_frames()` was empty, must use `Config::guest_debug(true)`"
                 );
 
-                debug!(abi = ?abi_name, effect = ?name, ?params, stack_len = ?vec.len(), "raise_effect");
+                debug!(abi = ?abi_name, effect = ?name, ?params, stack_len = ?stack.len(), "raise_effect");
 
-                for (i, instance) in vec.into_iter().enumerate() {
+                for (i, instance) in stack.into_iter().rev().enumerate() {
                     if let Some(interface) = instance.get_export_index(store.as_context_mut(), None, &format!("starstream:effect-handler/{abi_name}"))
                         && let Some(handler) = instance.get_export_index(store.as_context_mut(), Some(&interface), &name)
                         && let Some(handler) = instance.get_func(store.as_context_mut(), handler)

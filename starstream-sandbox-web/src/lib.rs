@@ -190,22 +190,8 @@ impl Host for Ctx {
         Ok(())
     }
 
-    fn enter_instance(
-        mut store: StoreContextMut<Self>,
-        instance: &wasmtime::component::Instance,
-    ) -> wasmtime::Result<()> {
-        store.data_mut().stack.push(instance.clone());
-        Ok(())
-    }
-
-    fn exit_instance(mut store: StoreContextMut<Self>, _instance: &wasmtime::component::Instance) {
-        store.data_mut().stack.pop();
-    }
-
-    fn walk_instance_stack(
-        mut store: StoreContextMut<Self>,
-    ) -> impl Iterator<Item = wasmtime::component::Instance> {
-        store.data_mut().stack.clone().into_iter().rev()
+    fn instance_stack(&mut self) -> &mut Vec<Instance> {
+        &mut self.stack
     }
 }
 
