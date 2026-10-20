@@ -6,7 +6,7 @@ use starstream_compiler::typecheck::TypecheckSuccess;
 use starstream_compiler::{TypecheckFailure, TypecheckOptions, parse_program, typecheck_program};
 use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use tracing::instrument;
-use wasmtime::component::{Resource, ResourceTable, Val};
+use wasmtime::component::{Resource, ResourceTable, Val, types};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, StoreContextMut, bail, ensure, format_err};
 
@@ -179,11 +179,12 @@ impl Host for Ctx {
         Ok(())
     }
 
-    #[instrument(skip(store), ret)]
+    #[instrument(skip(store, _ty), ret)]
     fn emit_event(
         mut store: StoreContextMut<Self>,
         abi_name: &Arc<str>,
         name: &Arc<str>,
+        _ty: types::ComponentFunc,
         params: &[Val],
     ) -> wasmtime::Result<()> {
         let Ctx { events, .. } = store.data_mut();

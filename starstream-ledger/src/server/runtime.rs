@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use starstream_runtime::bindings::starstream;
 use starstream_runtime::{Token, Utxo, UtxoExport};
-use wasmtime::component::{Resource, ResourceTable, Val};
+use wasmtime::component::{Resource, ResourceTable, Val, types};
 use wasmtime::{StoreContextMut, bail};
 
 use crate::server::{Ctx, UtxoCtx};
@@ -88,6 +88,7 @@ impl starstream_runtime::Host for Ctx {
         _store: StoreContextMut<Self>,
         abi_name: &Arc<str>,
         name: &Arc<str>,
+        _ty: types::ComponentFunc,
         params: &[Val],
     ) -> wasmtime::Result<()> {
         bail!("attempted to emit event `{abi_name}` `{name}` with `{params:?}`")
