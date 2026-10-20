@@ -10,7 +10,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
 use tokio::fs;
 use tracing::{debug, info, instrument};
-use wasmtime::component::{Component, Resource, ResourceTable, Val};
+use wasmtime::component::{Component, Resource, ResourceTable, Val, types};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, Store, StoreContextMut, bail, ensure};
 
@@ -156,11 +156,12 @@ impl Host for Ctx {
         Ok(())
     }
 
-    #[instrument(level = "debug", skip(_store), ret)]
+    #[instrument(level = "debug", skip(_store, _ty), ret)]
     fn emit_event(
         _store: StoreContextMut<Self>,
         abi_name: &Arc<str>,
         name: &Arc<str>,
+        _ty: types::ComponentFunc,
         params: &[Val],
     ) -> wasmtime::Result<()> {
         let params = Val::Tuple(params.to_vec())

@@ -1,6 +1,7 @@
 #![cfg(feature = "client")]
 
 use std::collections::HashMap;
+use std::slice;
 
 use anyhow::{Context as _, ensure};
 use bytes::Bytes;
@@ -68,7 +69,7 @@ async fn coordination_script_execution_is_checked() -> anyhow::Result<()> {
 #[tokio::test]
 async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
     let wasm = common::compile_contract(&format!(
-        "{}\nscript fn update(prog: ScoreProgress) {{ prog.plus_chips(5); }}",
+        "{}\nscript fn update(prog: ScoreProgress) {{ prog.plus_chips(5); }}\nscript fn end(prog: ScoreProgress) {{ prog.finish(); }}",
         include_str!("../../examples/score.star")
     ))?;
     let mut engine_config = wasmtime::Config::default();
@@ -126,13 +127,35 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
     .await?;
     let execution = execution?;
     let utxo = client.0.unwrap();
-    assert_eq!(transaction.inputs, [input]);
+    assert_eq!(transaction.inputs, slice::from_ref(&input));
     assert_eq!(transaction.outputs.len(), 1);
     assert_ne!(transaction.outputs[0].storage, utxo.storage);
     assert_eq!(transaction.outputs[0].methods, utxo.methods);
     assert_eq!(execution.transaction.statement.inputs.len(), 1);
     assert_eq!(execution.transaction.statement.outputs.len(), 1);
     assert_eq!(execution.traces.len(), 2);
+
+    let end = contract.get_coordination_script("end")?;
+    let (transaction, execution) = call_coordination_script(
+        &mut Store::new(&engine, Ctx::default()),
+        &TestClient(Some(utxo)),
+        &wizer,
+        &contract,
+        &wasm,
+        &end,
+        &mut imports,
+        vec![CoordinationScriptArg::Utxo(input)],
+        &mut [],
+        &mut Vec::default(),
+    )
+    .await?;
+    execution?;
+    let [event] = transaction.events.as_slice() else {
+        panic!("invalid events: {:?}", transaction.events);
+    };
+    assert_eq!(event.abi_name.as_ref(), "score");
+    assert_eq!(event.name.as_ref(), "finish");
+    assert_eq!(event.params.as_ref(), [0xa8, 0x01]);
     Ok(())
 }
 

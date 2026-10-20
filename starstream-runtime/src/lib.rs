@@ -190,6 +190,7 @@ pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'stati
         store: StoreContextMut<Self>,
         abi_name: &Arc<str>,
         name: &Arc<str>,
+        ty: types::ComponentFunc,
         params: &[Val],
     ) -> wasmtime::Result<()>;
 }
@@ -279,8 +280,8 @@ fn link_event_function<T: Host>(
     let abi_name = Arc::<str>::from(abi_name);
     let name = Arc::<str>::from(name);
     ensure!(ty.results().len() == 0);
-    linker.func_new(&Arc::clone(&name), move |store, _ty, params, _results| {
-        T::emit_event(store, &abi_name, &name, params)
+    linker.func_new(&Arc::clone(&name), move |store, ty, params, _results| {
+        T::emit_event(store, &abi_name, &name, ty, params)
     })
 }
 
