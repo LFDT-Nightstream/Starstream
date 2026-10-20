@@ -57,6 +57,10 @@ pub struct Args {
     #[arg(long, value_name = "SECONDS", default_value_t = 10)]
     shutdown_timeout: u64,
 
+    /// Time a client connection may stall before it is closed, in seconds.
+    #[arg(long, global = true, value_name = "SECONDS", default_value_t = 30)]
+    io_timeout: u64,
+
     /// Path to the genesis file.
     #[arg(long, value_name = "PATH")]
     genesis: Option<PathBuf>,
@@ -236,12 +240,14 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         max_requests,
         fuel,
         shutdown_timeout,
+        io_timeout,
         genesis,
         imports,
         cardano_block_height,
         cardano_current_slot,
     } = args;
     let shutdown_timeout = Duration::from_secs(shutdown_timeout);
+    let io_timeout = Duration::from_secs(io_timeout);
     let cardano = CardanoCtx {
         block_height: cardano_block_height,
         current_slot: cardano_current_slot,
@@ -260,7 +266,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
     let ledger = Ledger::new(engine, max_requests, fuel, network, admin, genesis, cardano);
     let ledger = Arc::new(ledger);
 
-    let (http, http_shutdown) = ledger.handle_http(addr).await?;
+    let (http, http_shutdown) = ledger.handle_http(addr, io_timeout).await?;
     let http = tokio::spawn(http);
     let mut http = pin!(http);
 

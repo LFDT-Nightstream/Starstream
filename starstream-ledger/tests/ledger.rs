@@ -2,6 +2,7 @@
 
 use core::net::SocketAddr;
 use core::str::FromStr as _;
+use core::time::Duration;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,12 +24,13 @@ use starstream_ledger::client::http::{
 };
 use starstream_ledger::client::runtime::{Client, call_coordination_script, compile_contract};
 use starstream_ledger::server::Ledger;
+use starstream_ledger::wrpc::LEDGER_BLOCK_INSTANCE;
 use starstream_ledger::wrpc::codec::ValEncoder;
 use starstream_ledger::{
-    APPLICATION_COSE, CardanoCtx, Envelope, Message, Transaction, TransactionInput,
-    TransactionOutput, encode_digest,
+    APPLICATION_COSE, APPLICATION_WRPC, CardanoCtx, Envelope, Message, Transaction,
+    TransactionInput, TransactionOutput, encode_digest,
 };
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio_util::codec::Encoder as _;
 use wasmtime::Store;
 use wasmtime::component::{Component, Type, Val};
@@ -165,7 +167,10 @@ async fn http() {
     );
     let ledger = Arc::new(ledger);
     let addr = free_tcp_addr().await.unwrap();
-    let (ledger, shutdown) = ledger.handle_http(addr).await.unwrap();
+    let (ledger, shutdown) = ledger
+        .handle_http(addr, Duration::from_secs(30))
+        .await
+        .unwrap();
     let ledger = tokio::spawn(ledger);
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
@@ -636,7 +641,10 @@ script fn create() {
     );
     let ledger = Arc::new(ledger);
     let addr = free_tcp_addr().await.unwrap();
-    let (ledger, shutdown) = ledger.handle_http(addr).await.unwrap();
+    let (ledger, shutdown) = ledger
+        .handle_http(addr, Duration::from_secs(30))
+        .await
+        .unwrap();
     let ledger = tokio::spawn(ledger);
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
@@ -675,6 +683,86 @@ script fn create() {
     let mut buf = Vec::default();
     rx.read_to_end(&mut buf).await.unwrap();
     assert_eq!(buf, [0]);
+
+    shutdown.notify_one();
+    ledger.await.expect("ledger task panicked")
+}
+
+#[tokio::test]
+async fn stalled_connections_are_closed() {
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::server::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config).unwrap();
+    let ledger = Ledger::new(
+        engine,
+        1,
+        1_000_000,
+        NETWORK,
+        ADMIN.verifying_key(),
+        [],
+        CardanoCtx::default(),
+    );
+    let ledger = Arc::new(ledger);
+    let addr = free_tcp_addr().await.unwrap();
+    let (ledger, shutdown) = ledger
+        .handle_http(addr, Duration::from_millis(100))
+        .await
+        .unwrap();
+    let ledger = tokio::spawn(ledger);
+
+    let mut idle = tokio::net::TcpStream::connect(addr).await.unwrap();
+
+    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
+    let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
+    let client = ClientBuilder::new(http, HttpConnector::new(), api_base)
+        .network(NETWORK)
+        .build();
+    let height = tokio::time::timeout(Duration::from_secs(10), client.block_height())
+        .await
+        .expect("idle connection must be closed")
+        .unwrap();
+    assert_eq!(height, 0);
+
+    let n = idle.read(&mut [0; 1]).await.unwrap();
+    assert_eq!(n, 0, "idle connection must be closed");
+
+    for content_type in [APPLICATION_COSE, APPLICATION_WRPC] {
+        let mut slow = tokio::net::TcpStream::connect(addr).await.unwrap();
+        slow.write_all(
+            format!("POST /rpc HTTP/1.1\r\nHost: ledger\r\nContent-Type: {content_type}\r\nContent-Length: 1\r\n\r\n").as_bytes(),
+        )
+        .await
+        .unwrap();
+        let mut res = [0; 12];
+        tokio::time::timeout(Duration::from_secs(10), slow.read_exact(&mut res))
+            .await
+            .expect("stalled request body must time out")
+            .unwrap();
+        assert_eq!(&res, b"HTTP/1.1 408", "{content_type}");
+    }
+
+    let mut header = vec![0x00];
+    for s in [LEDGER_BLOCK_INSTANCE, "get-height"] {
+        header.push(u8::try_from(s.len()).unwrap());
+        header.extend_from_slice(s.as_bytes());
+    }
+    let mut slow = tokio::net::TcpStream::connect(addr).await.unwrap();
+    slow.write_all(
+        format!(
+            "POST /rpc HTTP/1.1\r\nHost: ledger\r\nContent-Type: {APPLICATION_WRPC}\r\nContent-Length: {}\r\n\r\n",
+            header.len() + 1
+        )
+        .as_bytes(),
+    )
+    .await
+    .unwrap();
+    slow.write_all(&header).await.unwrap();
+    let mut res = [0; 12];
+    tokio::time::timeout(Duration::from_secs(10), slow.read_exact(&mut res))
+        .await
+        .expect("stalled parameters must time out")
+        .unwrap();
+    assert_eq!(&res, b"HTTP/1.1 408", "parameters");
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked")

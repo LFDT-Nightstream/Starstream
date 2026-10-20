@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use std::ffi::OsStr;
 use std::process::{Output, Stdio};
 use std::sync::Arc;
@@ -81,7 +83,7 @@ async fn cli() {
     let ledger = Arc::new(ledger);
     let addr = free_tcp_addr().await.unwrap();
     let (ledger, shutdown) = ledger
-        .handle_http(addr)
+        .handle_http(addr, Duration::from_secs(30))
         .await
         .expect("failed to handle HTTP");
     let ledger = tokio::spawn(ledger);

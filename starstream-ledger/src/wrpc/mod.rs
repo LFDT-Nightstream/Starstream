@@ -2,7 +2,6 @@
 
 use std::io::Cursor;
 
-use anyhow::ensure;
 use futures::{StreamExt as _, TryStreamExt as _};
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio_util::codec::{Decoder, FramedParts, FramedRead};
@@ -24,10 +23,15 @@ pub const LEDGER_UTXO_INSTANCE: &str = "starstream:ledger/utxo";
 pub fn flatten_stream(body: impl AsyncRead + Unpin) -> impl AsyncRead + Unpin {
     let body = FramedRead::new(body, FrameDecoder::default()).map(|frame| {
         let wrpc_transport::Frame { path, data } = frame?;
-        ensure!(path.is_empty(), "async values not supported");
+        if !path.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "async values not supported",
+            ));
+        }
         Ok(data)
     });
-    StreamReader::new(body.map_err(std::io::Error::other))
+    StreamReader::new(body)
 }
 
 /// Decode parameters from `body` using `dec`, failing on trailing data.
