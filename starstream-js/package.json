@@ -17,5 +17,8 @@
   "scripts": {
     "prepack": "tsdown",
     "test": "vitest"
+  },
+  "dependencies": {
+    "@bytecodealliance/wrpc": "^0.1.1"
   }
 }
