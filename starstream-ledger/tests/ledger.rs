@@ -564,12 +564,13 @@ impl Client for NoopClient {
 }
 
 #[tokio::test]
-async fn rpc_out_of_fuel() {
+async fn rpc_trap() {
     let wasm = common::runtime::compile_contract(
         r#"
 abi Spin {
     fn get() -> u64;
     fn spin();
+    fn fail();
 }
 
 utxo Spinner {
@@ -587,6 +588,9 @@ utxo Spinner {
         }
         fn spin() {
             while (true) {}
+        }
+        fn fail() {
+            error;
         }
     }
 }
@@ -668,10 +672,21 @@ script fn create() {
         "HTTP request failed with status `422 Unprocessable Entity`"
     );
 
+    let mut rx = client.call_utxo_method(&input, "fail", &[]).await.unwrap();
+    let mut buf = Vec::default();
+    let err = rx
+        .read_to_end(&mut buf)
+        .await
+        .expect_err("`error` must trap");
+    assert_eq!(
+        err.to_string(),
+        "HTTP request failed with status `422 Unprocessable Entity`"
+    );
+
     let mut rx = client
         .call_utxo_method(&input, "get", &[])
         .await
-        .expect("ledger must keep serving after running out of fuel");
+        .expect("ledger must keep serving after a trap");
     let mut buf = Vec::default();
     rx.read_to_end(&mut buf).await.unwrap();
     assert_eq!(buf, [0]);

@@ -252,8 +252,8 @@ pub enum RpcPostError {
     ParameterDecoding(std::io::Error),
     #[error("runtime failed: {0:#}")]
     Runtime(wasmtime::Error),
-    #[error("execution ran out of fuel")]
-    OutOfFuel,
+    #[error("execution trapped: {0}")]
+    Trap(wasmtime::Trap),
     #[error("resource table error: {0}")]
     ResourceTable(wasmtime::component::ResourceTableError),
     #[error("failed to encode result: {0}")]
@@ -268,9 +268,9 @@ pub enum RpcPostError {
 
 impl RpcPostError {
     pub(super) fn execution(err: wasmtime::Error) -> Self {
-        match err.downcast_ref() {
-            Some(wasmtime::Trap::OutOfFuel) => Self::OutOfFuel,
-            _ => Self::Runtime(err),
+        match err.downcast() {
+            Ok(trap) => Self::Trap(trap),
+            Err(err) => Self::Runtime(err),
         }
     }
 
@@ -293,7 +293,7 @@ impl RpcPostError {
             | Self::ContractNotFound
             | Self::UtxoInstanceNotFound { .. }
             | Self::UtxoMethodNotFound { .. } => http::StatusCode::NOT_FOUND,
-            Self::OutOfFuel => http::StatusCode::UNPROCESSABLE_ENTITY,
+            Self::Trap(..) => http::StatusCode::UNPROCESSABLE_ENTITY,
             Self::ContractDigestParsing(..)
             | Self::StateMerge(..)
             | Self::StorageDecoding(..)
