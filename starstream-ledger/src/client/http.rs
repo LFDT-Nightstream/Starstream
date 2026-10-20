@@ -33,9 +33,6 @@ use crate::{
     parse_digest,
 };
 
-/// Default network used by the client
-pub const DEFAULT_NETWORK: &str = "dev";
-
 fn endpoint_uri(base: &Uri, endpoint: impl AsRef<str>) -> anyhow::Result<String> {
     ensure!(
         base.query().is_none(),
@@ -155,12 +152,39 @@ pub fn build_utxo_wit_request(
     build_get_request(uri, accept)
 }
 
+fn verify_envelope(
+    body: Result<Bytes, bindings::starstream::ledger::types::GetError>,
+    digest: &[u8; 32],
+    context: u8,
+) -> anyhow::Result<Option<Bytes>> {
+    let body = match body {
+        Ok(body) => body,
+        Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
+    let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
+    ensure!(
+        envelope.message.context() == context,
+        "unexpected context `{}`, expected `{context}`",
+        envelope.message.context()
+    );
+    let message_digest = envelope
+        .message
+        .payload_digest()
+        .context("failed to compute payload digest")?;
+    ensure!(
+        message_digest == *digest,
+        "digest mismatch, got `{}`",
+        encode_digest(&message_digest)
+    );
+    Ok(Some(body))
+}
+
 #[derive(Clone)]
 pub struct ClientBuilder<C> {
     http: hyper_util::client::legacy::Builder,
     connect: C,
     api_base: Uri,
-    network: Box<str>,
     engine: wasmtime::Engine,
     wizer: Wizer,
 }
@@ -178,15 +202,9 @@ impl<C> ClientBuilder<C> {
             http,
             connect,
             api_base: api_base.into(),
-            network: DEFAULT_NETWORK.into(),
             engine,
             wizer: Wizer::new(),
         }
-    }
-
-    pub fn network(mut self, network: impl Into<Box<str>>) -> Self {
-        self.network = network.into();
-        self
     }
 
     pub fn engine(mut self, engine: wasmtime::Engine) -> Self {
@@ -211,7 +229,6 @@ pub struct Client<C> {
     wrpc: wrpc_http::Client<hyper_util::client::legacy::Client<C, wrpc_http::OutgoingBody>>,
     http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
     api_base: Uri,
-    network: Box<str>,
     engine: wasmtime::Engine,
     wizer: Wizer,
 }
@@ -225,7 +242,6 @@ where
             http,
             connect,
             api_base,
-            network,
             engine,
             wizer,
         }: ClientBuilder<C>,
@@ -236,7 +252,6 @@ where
             wrpc,
             http,
             api_base,
-            network,
             engine,
             wizer,
         }
@@ -294,6 +309,62 @@ where
     pub async fn block_height(&self) -> anyhow::Result<u64> {
         let cx = wrpc_context(&self.api_base)?;
         bindings::starstream::ledger::block::get_height(&self.wrpc, cx).await
+    }
+
+    /// Get the envelopes of the block at `height`, in order.
+    #[instrument(skip_all)]
+    pub async fn get_block(&self, height: u64) -> anyhow::Result<Option<Vec<Bytes>>> {
+        let cx = wrpc_context(&self.api_base)?;
+        let envelopes =
+            bindings::starstream::ledger::block::get_block(&self.wrpc, cx, height).await?;
+        let Some(envelopes) = envelopes else {
+            return Ok(None);
+        };
+        for envelope in &envelopes {
+            read_envelope(envelope).context("invalid envelope")?;
+        }
+        Ok(Some(envelopes))
+    }
+
+    /// Get the name of the network the ledger accepts envelopes for.
+    #[instrument(skip_all)]
+    pub async fn get_network(&self) -> anyhow::Result<String> {
+        let cx = wrpc_context(&self.api_base)?;
+        bindings::starstream::ledger::network::get_name(&self.wrpc, cx).await
+    }
+
+    /// Get the last nonce used by the admin key to fund accounts.
+    #[instrument(skip_all)]
+    pub async fn get_admin_nonce(&self) -> anyhow::Result<u64> {
+        let cx = wrpc_context(&self.api_base)?;
+        bindings::starstream::ledger::admin::get_nonce(&self.wrpc, cx).await
+    }
+
+    /// Get the balance of the account `key`.
+    #[instrument(skip_all)]
+    pub async fn get_account_balance(&self, key: &VerifyingKey) -> anyhow::Result<Option<u64>> {
+        let cx = wrpc_context(&self.api_base)?;
+        let key = Bytes::copy_from_slice(key.as_bytes());
+        let balance =
+            bindings::starstream::ledger::account::get_balance(&self.wrpc, cx, &key).await?;
+        match balance {
+            Ok(balance) => Ok(Some(balance)),
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => Ok(None),
+            Err(err) => Err(err).context("failed to get account balance"),
+        }
+    }
+
+    /// Get the last nonce used by the account `key` to publish contracts.
+    #[instrument(skip_all)]
+    pub async fn get_account_nonce(&self, key: &VerifyingKey) -> anyhow::Result<Option<u64>> {
+        let cx = wrpc_context(&self.api_base)?;
+        let key = Bytes::copy_from_slice(key.as_bytes());
+        let nonce = bindings::starstream::ledger::account::get_nonce(&self.wrpc, cx, &key).await?;
+        match nonce {
+            Ok(nonce) => Ok(Some(nonce)),
+            Err(bindings::starstream::ledger::types::GetError::NotFound) => Ok(None),
+            Err(err) => Err(err).context("failed to get account nonce"),
+        }
     }
 
     /// Get the transaction UTXO referenced by `digest` and `idx`.
@@ -419,6 +490,7 @@ where
     pub async fn fund(
         &self,
         key: SigningKey,
+        network: &str,
         nonce: u64,
         account: &VerifyingKey,
         amount: u64,
@@ -426,7 +498,7 @@ where
         let req = build_fund_request(
             &self.api_base,
             key,
-            self.network.as_ref(),
+            network,
             Fund {
                 nonce,
                 account: account.to_bytes(),
@@ -447,13 +519,14 @@ where
     pub async fn publish_contract(
         &self,
         key: SigningKey,
+        network: &str,
         nonce: u64,
         wasm: impl Into<Box<[u8]>>,
     ) -> anyhow::Result<[u8; 32]> {
         let req = build_contract_publish_request(
             &self.api_base,
             key,
-            self.network.as_ref(),
+            network,
             Publish {
                 nonce,
                 wasm: wasm.into(),
@@ -467,8 +540,13 @@ where
 
     /// Submit the transaction `tx` and return its digest.
     #[instrument(skip_all)]
-    pub async fn transact(&self, key: SigningKey, tx: Transaction) -> anyhow::Result<[u8; 32]> {
-        let req = build_transaction_request(&self.api_base, key, self.network.as_ref(), tx)?;
+    pub async fn transact(
+        &self,
+        key: SigningKey,
+        network: &str,
+        tx: Transaction,
+    ) -> anyhow::Result<[u8; 32]> {
+        let req = build_transaction_request(&self.api_base, key, network, tx)?;
         let (http::response::Parts { status, .. }, body) = self.request(req).await?;
         let body = String::from_utf8_lossy(&body);
         ensure!(status.is_success(), "{body}");
@@ -500,41 +578,6 @@ where
         Ok(Some(tx))
     }
 
-    fn verify_envelope(
-        &self,
-        body: Result<Bytes, bindings::starstream::ledger::types::GetError>,
-        digest: &[u8; 32],
-        context: u8,
-    ) -> anyhow::Result<Option<Bytes>> {
-        let body = match body {
-            Ok(body) => body,
-            Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
-            Err(err) => return Err(err.into()),
-        };
-        let (_, envelope) = read_envelope(&body).context("invalid envelope")?;
-        ensure!(
-            envelope.network == self.network,
-            "unexpected network `{}`, expected `{}`",
-            envelope.network,
-            self.network
-        );
-        ensure!(
-            envelope.message.context() == context,
-            "unexpected context `{}`, expected `{context}`",
-            envelope.message.context()
-        );
-        let message_digest = envelope
-            .message
-            .payload_digest()
-            .context("failed to compute payload digest")?;
-        ensure!(
-            message_digest == *digest,
-            "digest mismatch, got `{}`",
-            encode_digest(&message_digest)
-        );
-        Ok(Some(body))
-    }
-
     /// Get the envelope of the transaction identified by `digest`.
     #[instrument(skip_all)]
     pub async fn get_transaction_envelope(
@@ -548,7 +591,7 @@ where
             &encode_digest(digest),
         )
         .await?;
-        self.verify_envelope(body, digest, TRANSACTION_CONTEXT)
+        verify_envelope(body, digest, TRANSACTION_CONTEXT)
             .context("failed to get transaction envelope")
     }
 
@@ -593,7 +636,6 @@ where
             &encode_digest(digest),
         )
         .await?;
-        self.verify_envelope(body, digest, PUBLISH_CONTEXT)
-            .context("failed to get contract envelope")
+        verify_envelope(body, digest, PUBLISH_CONTEXT).context("failed to get contract envelope")
     }
 }

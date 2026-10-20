@@ -89,8 +89,6 @@ async fn cli() {
         "contract",
         "script",
         "call",
-        "--network",
-        NETWORK,
         "--simulate",
         "--output-transaction",
         &tx_file.path().to_string_lossy(),
@@ -144,6 +142,11 @@ async fn cli() {
         .unwrap();
     assert_eq!(stdout, b"0\n");
 
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "network", "name"])
+        .await
+        .unwrap();
+    assert_eq!(stdout, format!("{NETWORK}\n").as_bytes());
+
     let stdout = run_cli([
         "--url",
         &format!("http://{addr}"),
@@ -151,16 +154,39 @@ async fn cli() {
         "fund",
         "--key",
         &admin_file.path().to_string_lossy(),
-        "--network",
-        NETWORK,
-        "--nonce",
-        "1",
         &hex::encode(account.verifying_key().to_bytes()),
         &publish_cost.to_string(),
     ])
     .await
     .unwrap();
     assert_eq!(stdout, b"");
+
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "admin", "nonce"])
+        .await
+        .unwrap();
+    assert_eq!(stdout, b"1\n");
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "account",
+        "balance",
+        &hex::encode(account.verifying_key().to_bytes()),
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, format!("{publish_cost}\n").as_bytes());
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "account",
+        "nonce",
+        &hex::encode(account.verifying_key().to_bytes()),
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"0\n");
 
     let stdout = run_cli([
         "--url",
@@ -169,20 +195,46 @@ async fn cli() {
         "publish",
         "--key",
         &account_file.path().to_string_lossy(),
-        "--network",
-        NETWORK,
-        "--nonce",
-        "1",
         &score_wasm.path().to_string_lossy(),
     ])
     .await
     .unwrap();
     assert_eq!(stdout, format!("{score_digest}\n").as_bytes());
 
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "account",
+        "nonce",
+        &hex::encode(account.verifying_key().to_bytes()),
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"1\n");
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "account",
+        "balance",
+        &hex::encode(account.verifying_key().to_bytes()),
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"0\n");
+
     let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"])
         .await
         .unwrap();
     assert_eq!(stdout, b"2\n");
+
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "get", "2"])
+        .await
+        .unwrap();
+    assert_eq!(
+        stdout,
+        format!("{}\n", hex::encode(&publish_envelope)).as_bytes()
+    );
 
     let tx_file = NamedTempFile::new().unwrap();
     let stdout = run_cli([
@@ -191,8 +243,6 @@ async fn cli() {
         "contract",
         "script",
         "call",
-        "--network",
-        NETWORK,
         "--simulate",
         "--output-transaction",
         &tx_file.path().to_string_lossy(),
@@ -257,8 +307,6 @@ interface utxo {
         "contract",
         "script",
         "call",
-        "--network",
-        NETWORK,
         "--simulate",
         &format!(
             "sha256:{}",
