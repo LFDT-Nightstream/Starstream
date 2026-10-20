@@ -345,12 +345,10 @@ fn link_effect_function<T: Host>(
             let name = Arc::clone(&name);
             Box::new(async move {
                 let stack = store.as_context_mut().data_mut().instance_stack().clone();
-                assert!(
-                    !stack.is_empty(),
-                    "`debug_exit_frames()` was empty, must use `Config::guest_debug(true)`"
-                );
-
                 debug!(abi = ?abi_name, effect = ?name, ?params, stack_len = ?stack.len(), "raise_effect");
+                if stack.is_empty() {
+                    bail!("effect handler stack is empty");
+                }
 
                 for (i, instance) in stack.into_iter().rev().enumerate() {
                     if let Some(interface) = instance.get_export_index(store.as_context_mut(), None, &format!("starstream:effect-handler/{abi_name}"))
