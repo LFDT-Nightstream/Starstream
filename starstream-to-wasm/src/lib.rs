@@ -287,8 +287,12 @@ struct Effect {
     abi_name: String,
     effect_name: String,
     ty: Arc<FunctionType>,
-    /// (handler_id, function_idx)
-    handlers: Vec<(i32, u32)>,
+    handlers: Vec<EffectHandler>,
+}
+
+struct EffectHandler {
+    handler_id: i32,
+    func: u32,
 }
 
 impl Compiler {
@@ -1559,7 +1563,7 @@ impl Compiler {
             let name = handler.effect.last().unwrap().to_string();
             self.mermaid.push((name, func.cfg.to_mermaid().to_string()));
         }
-        let idx: u32 = self.add_function(&stackified.ty, stackified.code);
+        let func: u32 = self.add_function(&stackified.ty, stackified.code);
 
         // Push that handler to the list of handlers for this effect.
         let Some(StaticFunction::Named(id)) = handler.ty.callee else {
@@ -1570,7 +1574,7 @@ impl Compiler {
             self.push_error(span, "effect handler unknown");
             return;
         };
-        effect.handlers.push((handler_id, idx));
+        effect.handlers.push(EffectHandler { handler_id, func });
     }
 
     fn finish_effect_handler(
@@ -1623,18 +1627,18 @@ impl Compiler {
         let mut func = Function::new([]);
 
         let handler_global = self.handler_global.unwrap();
-        for (handler_id, handler_function) in effect.handlers {
+        for handler in effect.handlers {
             // Check if handler global matches this id.
             func.instructions().block(BlockType::Empty);
             func.instructions()
                 .global_get(handler_global)
-                .i32_const(handler_id)
+                .i32_const(handler.handler_id)
                 .i32_ne()
                 .br_if(0);
             for i in 0..u32::try_from(params.len()).unwrap() {
                 func.instructions().local_get(i);
             }
-            func.instructions().return_call(handler_function);
+            func.instructions().return_call(handler.func);
             func.instructions().end();
         }
         func.instructions().i32_const(EFFECT_STATUS_KEEP_SEARCHING);
