@@ -71,23 +71,6 @@ async fn cli() {
     starstream_ledger::server::configure_wasmtime(&mut engine_config);
     let engine = wasmtime::Engine::new(&engine_config).unwrap();
 
-    let ledger = Ledger::new(
-        engine,
-        128,
-        u64::MAX,
-        NETWORK,
-        ADMIN.verifying_key(),
-        [],
-        CardanoCtx::default(),
-    );
-    let ledger = Arc::new(ledger);
-    let addr = free_tcp_addr().await.unwrap();
-    let (ledger, shutdown) = ledger
-        .handle_http(addr, Duration::from_secs(30))
-        .await
-        .expect("failed to handle HTTP");
-    let ledger = tokio::spawn(ledger);
-
     let score_wasm = NamedTempFile::new().unwrap();
     fs::write(&score_wasm, &*SCORE_WASM)
         .await
@@ -103,8 +86,6 @@ async fn cli() {
 
     let tx_file = NamedTempFile::new().unwrap();
     let stdout = run_cli([
-        "--url",
-        &format!("http://{addr}"),
         "contract",
         "script",
         "call",
@@ -129,6 +110,23 @@ async fn cli() {
         .unwrap();
     let shown: toml::Value = toml::from_slice(&stdout).expect("failed to decode transaction TOML");
     assert_eq!(shown, toml::Value::try_from(&tx).unwrap());
+
+    let ledger = Ledger::new(
+        engine,
+        128,
+        u64::MAX,
+        NETWORK,
+        ADMIN.verifying_key(),
+        tx.outputs,
+        CardanoCtx::default(),
+    );
+    let ledger = Arc::new(ledger);
+    let addr = free_tcp_addr().await.unwrap();
+    let (ledger, shutdown) = ledger
+        .handle_http(addr, Duration::from_secs(30))
+        .await
+        .expect("failed to handle HTTP");
+    let ledger = tokio::spawn(ledger);
 
     let publish_envelope = build_publish_envelope(
         account.clone(),
@@ -206,6 +204,42 @@ async fn cli() {
     assert_eq!(stdout, b"()\n");
     let tx = fs::read(&tx_file).await.unwrap();
     assert_score_transaction(&tx, score_digest);
+
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "utxo", "wit", "0"])
+        .await
+        .unwrap();
+    assert_eq!(
+        str::from_utf8(&stdout).unwrap(),
+        r#"package starstream:ledger;
+
+interface utxo {
+  get-chips: func(transaction: option<string>, index: u32) -> u64;
+
+  get-mult: func(transaction: option<string>, index: u32) -> u64;
+
+  plus-chips: func(transaction: option<string>, index: u32, arg-chips2: u64);
+
+  plus-mult: func(transaction: option<string>, index: u32, arg-mult2: u64);
+
+  mult-mult: func(transaction: option<string>, index: u32, arg-mult-pct: u64);
+
+  finish: func(transaction: option<string>, index: u32);
+}
+
+"#
+    );
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "utxo",
+        "call",
+        "0",
+        "get-chips",
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"(42)\n");
 
     let require_hash_preimage_wasm = NamedTempFile::new().unwrap();
     fs::write(&require_hash_preimage_wasm, &*REQUIRE_HASH_PREIMAGE_WASM)

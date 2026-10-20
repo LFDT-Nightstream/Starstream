@@ -17,12 +17,15 @@ client = [
     "wrpc-http/client-legacy",
 ]
 server = [
+    "dep:anyhow",
     "dep:headers-accept",
     "dep:headers-core",
     "dep:http-body",
     "dep:hyper",
     "dep:tokio-io-timeout",
     "dep:tower-http",
+    "dep:wit-component",
+    "dep:wit-parser",
     "dep:wrpc-pack",
     "hyper-util/server",
     "hyper-util/server-graceful",
@@ -34,6 +37,7 @@ anyhow = { workspace = true }
 bytes = { workspace = true }
 coset = { workspace = true, features = ["std"] }
 ed25519-dalek = { workspace = true, features = ["fast", "std", "zeroize"] }
+form_urlencoded = { workspace = true, features = ["std"] }
 futures = { workspace = true }
 headers-accept = { workspace = true, optional = true }
 headers-core = { workspace = true, optional = true }
@@ -72,9 +76,16 @@ wasmtime-wizer = { workspace = true, optional = true, features = [
     "wasmtime",
 ] }
 wit-bindgen-wrpc = { workspace = true }
+wit-component = { workspace = true, optional = true }
+wit-parser = { workspace = true, optional = true }
 wrpc-http = { workspace = true, optional = true }
 wrpc-pack = { workspace = true, optional = true }
 wrpc-transport = { workspace = true }
+
+[build-dependencies]
+anyhow = { workspace = true, optional = true }
+wit-component = { workspace = true, optional = true }
+wit-parser = { workspace = true, optional = true }
 
 [dev-dependencies]
 starstream-compiler = { workspace = true }
