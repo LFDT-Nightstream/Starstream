@@ -302,6 +302,8 @@ pub struct TracedInstance {
 }
 
 pub struct TracedExecution {
+    /// The componentized contract that ran.
+    pub wasm: Vec<u8>,
     pub templates: ComponentTemplates,
     pub artifacts: Arc<neo_wasm::WasmProgramArtifacts>,
     pub instances: Vec<TracedInstance>,
@@ -478,6 +480,7 @@ pub async fn trace_coordination_script(
     }
 
     Ok(TracedExecution {
+        wasm,
         templates,
         artifacts,
         instances,
