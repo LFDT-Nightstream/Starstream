@@ -414,16 +414,7 @@ async fn http() {
         .transact(
             ADMIN.clone(),
             Transaction {
-                inputs: vec![
-                    TransactionInput {
-                        transaction: Box::default(),
-                        index: 0,
-                    },
-                    TransactionInput {
-                        transaction: Box::default(),
-                        index: 0,
-                    },
-                ],
+                inputs: vec![TransactionInput::genesis(0), TransactionInput::genesis(0)],
                 outputs: outputs.clone(),
                 events: events.clone(),
                 proof: proof.clone(),
@@ -434,10 +425,7 @@ async fn http() {
     assert_eq!(err.to_string(), "duplicate input");
 
     let tx = Transaction {
-        inputs: vec![TransactionInput {
-            transaction: Box::default(),
-            index: 0,
-        }],
+        inputs: vec![TransactionInput::genesis(0)],
         outputs: outputs.clone(),
         events,
         proof,
@@ -500,15 +488,20 @@ async fn http() {
         .expect_err("spent inputs must be rejected");
     assert_eq!(err.to_string(), "input not found");
 
+    let req = http::Request::builder()
+        .uri(format!("http://{addr}/rpc"))
+        .body(Full::default())
+        .unwrap();
+    let (parts, body) = http_request(&http, req).await.unwrap();
+    assert_eq!(parts.status, StatusCode::OK);
+    assert_eq!(
+        parts.headers.get(CONTENT_TYPE).unwrap(),
+        "text/plain; charset=UTF-8"
+    );
+    assert_eq!(body, include_str!("../wit/ledger.wit"));
+
     let mut rx = client
-        .call_utxo_method(
-            &TransactionInput {
-                transaction: Box::default(),
-                index: 1,
-            },
-            "get-chips",
-            &[],
-        )
+        .call_utxo_method(&TransactionInput::genesis(1), "get-chips", &[])
         .await
         .expect("genesis output must remain callable");
     let mut buf = Vec::default();
@@ -516,14 +509,7 @@ async fn http() {
     assert_eq!(buf, [42]);
 
     let mut rx = client
-        .call_utxo_method(
-            &TransactionInput {
-                transaction: encode_digest(&tx_digest).into(),
-                index: 0,
-            },
-            "get-chips",
-            &[],
-        )
+        .call_utxo_method(&TransactionInput::new(tx_digest, 0), "get-chips", &[])
         .await
         .expect("transaction output must be callable");
     let mut buf = Vec::default();
@@ -531,10 +517,7 @@ async fn http() {
     assert_eq!(buf, [42]);
 
     let tx = Transaction {
-        inputs: vec![TransactionInput {
-            transaction: Box::default(),
-            index: 1,
-        }],
+        inputs: vec![TransactionInput::genesis(1)],
         outputs: outputs.clone(),
         events: Vec::default(),
         proof: Box::default(),
@@ -566,6 +549,47 @@ impl Client for NoopClient {
     async fn get_input_utxo(&self, _: &TransactionInput) -> anyhow::Result<TransactionOutput> {
         bail!("unexpected UTXO lookup")
     }
+}
+
+/// Serve a ledger with `genesis` outputs and the admin account funded.
+async fn serve(
+    genesis: impl Into<Box<[TransactionOutput]>>,
+) -> (
+    starstream_ledger::client::http::Client<HttpConnector>,
+    Arc<tokio::sync::Notify>,
+    tokio::task::JoinHandle<()>,
+) {
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::server::configure_wasmtime(&mut engine_config);
+    let engine = wasmtime::Engine::new(&engine_config).unwrap();
+    let ledger = Ledger::new(
+        engine,
+        128,
+        1_000_000,
+        NETWORK,
+        ADMIN.verifying_key(),
+        genesis,
+        CardanoCtx::default(),
+    );
+    let ledger = Arc::new(ledger);
+    let addr = free_tcp_addr().await.unwrap();
+    let (ledger, shutdown) = ledger
+        .handle_http(addr, Duration::from_secs(30))
+        .await
+        .unwrap();
+    let ledger = tokio::spawn(ledger);
+
+    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
+    let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
+    let client = ClientBuilder::new(http, HttpConnector::new(), api_base)
+        .network(NETWORK)
+        .build();
+    client
+        .fund(ADMIN.clone(), 1, &ADMIN.verifying_key(), 1 << 20)
+        .await
+        .unwrap();
+
+    (client, shutdown, ledger)
 }
 
 #[tokio::test]
@@ -630,45 +654,13 @@ script fn create() {
     )
     .await
     .unwrap();
-
-    let mut engine_config = wasmtime::Config::default();
-    starstream_ledger::server::configure_wasmtime(&mut engine_config);
-    let engine = wasmtime::Engine::new(&engine_config).unwrap();
-    let ledger = Ledger::new(
-        engine,
-        128,
-        1_000_000,
-        NETWORK,
-        ADMIN.verifying_key(),
-        tx.outputs,
-        CardanoCtx::default(),
-    );
-    let ledger = Arc::new(ledger);
-    let addr = free_tcp_addr().await.unwrap();
-    let (ledger, shutdown) = ledger
-        .handle_http(addr, Duration::from_secs(30))
-        .await
-        .unwrap();
-    let ledger = tokio::spawn(ledger);
-
-    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
-    let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http, HttpConnector::new(), api_base)
-        .network(NETWORK)
-        .build();
-    client
-        .fund(ADMIN.clone(), 1, &ADMIN.verifying_key(), 1 << 20)
-        .await
-        .unwrap();
+    let (client, shutdown, ledger) = serve(tx.outputs).await;
     client
         .publish_contract(ADMIN.clone(), 2, wasm)
         .await
         .unwrap();
 
-    let input = TransactionInput {
-        transaction: Box::default(),
-        index: 0,
-    };
+    let input = TransactionInput::genesis(0);
     let mut rx = client.call_utxo_method(&input, "spin", &[]).await.unwrap();
     let mut buf = Vec::default();
     let err = rx
@@ -781,4 +773,118 @@ async fn stalled_connections_are_closed() {
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked")
+}
+
+#[tokio::test]
+async fn rpc_get_utxo_wit() {
+    let wasm = common::runtime::compile_contract(
+        r#"
+utxo Counter {
+    storage {
+        let mut count: i64;
+    }
+
+    main fn new() {
+        yield();
+    }
+
+    pub fn get() -> i64 {
+        count
+    }
+
+    pub fn set(index: Option<i64>, transaction: Result<(i64, bool), u8>) { }
+}
+"#,
+    )
+    .unwrap();
+    let digest: [u8; 32] = Sha256::digest(&wasm).into();
+    let output = TransactionOutput {
+        contract: encode_digest(&digest).into(),
+        instance: "counter".into(),
+        methods: Default::default(),
+        storage: Box::default(),
+        state: Vec::default(),
+    };
+    let (client, shutdown, ledger) = serve([output]).await;
+    client
+        .publish_contract(ADMIN.clone(), 2, wasm)
+        .await
+        .unwrap();
+
+    let wit = client
+        .get_utxo_wit(&TransactionInput::genesis(0), None)
+        .await
+        .unwrap();
+    shutdown.notify_one();
+    ledger.await.expect("ledger task panicked");
+
+    assert_eq!(
+        str::from_utf8(&wit).unwrap(),
+        r#"package starstream:ledger;
+
+interface utxo {
+  get: func(transaction: option<string>, index: u32) -> s64;
+
+  set: func(transaction: option<string>, index: u32, arg-index: option<s64>, arg-transaction: result<tuple<s64, bool>, u8>);
+}
+
+"#
+    );
+}
+
+#[tokio::test]
+async fn publish_unsupported_utxo_method() {
+    let wasm = common::runtime::compile_contract(
+        r#"
+utxo Counter {
+    storage {
+        let mut count: i64;
+    }
+
+    main fn new() {
+        yield();
+    }
+
+    pub fn link(other: Utxo) { }
+}
+"#,
+    )
+    .unwrap();
+    let (client, shutdown, ledger) = serve([]).await;
+
+    let err = client
+        .publish_contract(ADMIN.clone(), 2, wasm)
+        .await
+        .expect_err("publishing a UTXO method taking a UTXO must fail");
+    shutdown.notify_one();
+    ledger.await.expect("ledger task panicked");
+
+    assert_eq!(
+        err.to_string(),
+        "failed to build contract WIT: parameter `other` of method `link` of UTXO instance `counter` has an unsupported type"
+    );
+}
+
+#[tokio::test]
+async fn publish_package_cycle() {
+    let wasm = wat::parse_str(
+        r#"
+(component
+  (import "a:x/l" (instance $l (export "t" (type (sub resource)))))
+  (alias export $l "t" (type $t))
+  (import "b:y/k" (instance $k (export "t" (type (eq $t)))))
+  (alias export $k "t" (type $kt))
+  (import "a:x/i" (instance (export "u" (type (eq $kt)))))
+)
+"#,
+    )
+    .unwrap();
+    let (client, shutdown, ledger) = serve([]).await;
+
+    client
+        .publish_contract(ADMIN.clone(), 2, wasm)
+        .await
+        .unwrap();
+    shutdown.notify_one();
+    ledger.await.expect("ledger task panicked");
 }

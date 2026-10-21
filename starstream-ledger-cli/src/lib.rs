@@ -21,7 +21,7 @@ use starstream_ledger::client::http::ClientBuilder;
 use starstream_ledger::client::runtime::UtxoCtx;
 use starstream_ledger::client::runtime::{Client, Ctx, call_coordination_script, compile_contract};
 use starstream_ledger::{
-    CardanoCtx, Transaction, TransactionInput, TransactionOutput, encode_digest,
+    APPLICATION_WASM, CardanoCtx, Transaction, TransactionInput, TransactionOutput, encode_digest,
 };
 use starstream_runtime::Utxo;
 use tokio::fs;
@@ -226,17 +226,32 @@ enum TransactionCommand {
     },
 }
 
+#[derive(Debug, clap::Args)]
+struct UtxoArgs {
+    /// Digest of the transaction that produced the UTXO, either as multibase multihash
+    /// or `sha256:HEX`, defaults to the genesis block.
+    #[arg(long, value_name = "DIGEST", value_parser = parse_digest)]
+    transaction: Option<[u8; 32]>,
+
+    /// Index of the UTXO in the transaction outputs.
+    index: u32,
+}
+
+impl From<UtxoArgs> for TransactionInput {
+    fn from(UtxoArgs { transaction, index }: UtxoArgs) -> Self {
+        match transaction {
+            Some(transaction) => Self::new(transaction, index),
+            None => Self::genesis(index),
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 enum UtxoCommand {
     /// Call a method of a UTXO on the ledger, discarding the resulting state.
     Call {
-        /// Digest of the transaction that produced the UTXO, either as multibase multihash
-        /// or `sha256:HEX`, defaults to the genesis block.
-        #[arg(long, value_name = "DIGEST", value_parser = parse_digest)]
-        transaction: Option<[u8; 32]>,
-
-        /// Index of the UTXO in the transaction outputs.
-        index: u32,
+        #[command(flatten)]
+        utxo: UtxoArgs,
 
         /// Method to call.
         method: Box<str>,
@@ -244,14 +259,11 @@ enum UtxoCommand {
         /// WAVE-encoded method arguments.
         args: Vec<Box<str>>,
     },
-}
-
-fn decode_component(wasm: &[u8]) -> anyhow::Result<(wit_parser::Resolve, wit_parser::WorldId)> {
-    let wasm = wit_parser::decoding::decode(wasm).context("failed to decode Wasm")?;
-    let wit_parser::decoding::DecodedWasm::Component(resolve, world) = wasm else {
-        bail!("Wasm is not a component")
-    };
-    Ok((resolve, world))
+    /// Print the WIT of a UTXO's methods, in the shape `utxo call` invokes them.
+    Wit {
+        #[command(flatten)]
+        utxo: UtxoArgs,
+    },
 }
 
 /// Encode WAVE-encoded `args` as parameters of type `ty`.
@@ -319,14 +331,12 @@ fn parse_input(s: &str) -> anyhow::Result<TransactionInput> {
     let (transaction, index) = s
         .rsplit_once(':')
         .context("input must be formatted as `[TRANSACTION]:INDEX`")?;
-    let transaction = if transaction.is_empty() {
-        Box::default()
-    } else {
-        let digest = parse_digest(transaction).context("transaction digest is not valid")?;
-        encode_digest(&digest).into()
-    };
     let index = index.parse().context("input index is not valid")?;
-    Ok(TransactionInput { transaction, index })
+    if transaction.is_empty() {
+        return Ok(TransactionInput::genesis(index));
+    }
+    let transaction = parse_digest(transaction).context("transaction digest is not valid")?;
+    Ok(TransactionInput::new(transaction, index))
 }
 
 fn parse_verifying_key(s: &str) -> anyhow::Result<VerifyingKey> {
@@ -571,50 +581,23 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 .await
                 .context("failed to write transaction to stdout")
         }
-        Command::Utxo(UtxoCommand::Call {
-            transaction,
-            index,
-            method,
-            args,
-        }) => {
-            let transaction = if let Some(transaction) = transaction {
-                encode_digest(&transaction).into()
-            } else {
-                Box::default()
+        Command::Utxo(UtxoCommand::Call { utxo, method, args }) => {
+            let input = TransactionInput::from(utxo);
+            let wasm = client.get_utxo_wit(&input, Some(APPLICATION_WASM)).await?;
+            let wasm = wit_parser::decoding::decode(&wasm).context("failed to decode UTXO WIT")?;
+            let wit_parser::decoding::DecodedWasm::WitPackage(resolve, pkg) = wasm else {
+                bail!("UTXO WIT is not a WIT package")
             };
-            let input = TransactionInput { transaction, index };
-            let TransactionOutput {
-                contract, instance, ..
-            } = client.get_input_utxo(&input).await?;
-            let digest = starstream_ledger::parse_digest(&contract)
-                .with_context(|| format!("failed to parse `{contract}` as multibase multihash"))?;
-            let wasm = client.get_contract(digest).await?;
-            let wasm = wasm.context("contract not found")?;
-            let (resolve, world) = decode_component(&wasm)?;
-            let world = &resolve.worlds[world];
-            let ty = world
-                .exports
-                .iter()
-                .find_map(|(name, item)| {
-                    let wit_parser::WorldKey::Name(name) = name else {
-                        return None;
-                    };
-                    let wit_parser::WorldItem::Interface { id, .. } = item else {
-                        return None;
-                    };
-                    if name == instance.as_ref() {
-                        Some(id)
-                    } else {
-                        None
-                    }
-                })
-                .with_context(|| format!("UTXO instance `{instance}` not found"))?;
-            let ty = resolve.interfaces[*ty]
+            let utxo = resolve.packages[pkg]
+                .interfaces
+                .get("utxo")
+                .context("`utxo` interface not found")?;
+            let ty = resolve.interfaces[*utxo]
                 .functions
-                .get(&format!("[method]utxo.{method}"))
+                .get(&*method)
                 .with_context(|| format!("method `{method}` not found"))?;
             let ty = wit_parser::Function {
-                params: ty.params.iter().skip(1).cloned().collect(),
+                params: ty.params.iter().skip(2).cloned().collect(),
                 ..ty.clone()
             };
             let ty = wasm_wave::value::resolve_wit_func_type(&resolve, &ty)
@@ -622,6 +605,14 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let args = encode_args(&ty, args)?;
             let rx = client.call_utxo_method(&input, &method, &args).await?;
             write_results(&ty, rx).await
+        }
+        Command::Utxo(UtxoCommand::Wit { utxo }) => {
+            let input = TransactionInput::from(utxo);
+            let wit = client.get_utxo_wit(&input, None).await?;
+            stdout()
+                .write_all(&wit)
+                .await
+                .context("failed to write WIT to stdout")
         }
     }
 }

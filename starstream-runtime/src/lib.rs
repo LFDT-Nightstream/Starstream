@@ -1354,9 +1354,14 @@ impl<T: Host> Contract<T> {
         let engine = self.pre.engine();
         self.ty.exports(engine).filter_map(
             move |(name, types::ComponentExtern { ty, .. })| match ty {
-                types::ComponentItem::ComponentInstance(ty)
-                    if ty.get_export(engine, "utxo").is_some() =>
-                {
+                types::ComponentItem::ComponentInstance(ty) => {
+                    let Some(types::ComponentExtern {
+                        ty: types::ComponentItem::Resource(..),
+                        ..
+                    }) = ty.get_export(engine, "utxo")
+                    else {
+                        return None;
+                    };
                     Some((name, self.get_utxo_typed(name, ty)))
                 }
                 _ => None,
@@ -1536,9 +1541,14 @@ impl<T: Host> Contract<T> {
         let engine = self.pre.engine();
         self.ty.exports(engine).filter_map(
             move |(name, types::ComponentExtern { ty, .. })| match ty {
-                types::ComponentItem::ComponentInstance(ty)
-                    if ty.get_export(engine, "token").is_some() =>
-                {
+                types::ComponentItem::ComponentInstance(ty) => {
+                    let Some(types::ComponentExtern {
+                        ty: types::ComponentItem::Resource(..),
+                        ..
+                    }) = ty.get_export(engine, "token")
+                    else {
+                        return None;
+                    };
                     Some((name, self.get_token_typed(name, ty)))
                 }
                 _ => None,

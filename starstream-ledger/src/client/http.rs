@@ -104,6 +104,19 @@ pub fn build_transaction_request(
     build_envelope_request(base, envelope)
 }
 
+fn build_get_request(
+    uri: String,
+    accept: Option<MediaType>,
+) -> anyhow::Result<http::Request<Full<Bytes>>> {
+    let req = Request::builder().method(Method::GET).uri(uri);
+    let req = if let Some(accept) = accept {
+        req.header(ACCEPT, accept.to_string())
+    } else {
+        req
+    };
+    req.body(Full::default()).context("failed to build request")
+}
+
 /// Build a contract get request.
 pub fn build_contract_get_request(
     base: &Uri,
@@ -112,13 +125,7 @@ pub fn build_contract_get_request(
 ) -> anyhow::Result<http::Request<Full<Bytes>>> {
     let digest = encode_digest(digest);
     let uri = endpoint_uri(base, format!("contracts/{digest}"))?;
-    let req = Request::builder().method(Method::GET).uri(uri);
-    let req = if let Some(accept) = accept {
-        req.header(ACCEPT, accept.to_string())
-    } else {
-        req
-    };
-    req.body(Full::default()).context("failed to build request")
+    build_get_request(uri, accept)
 }
 
 /// Build a transaction get request.
@@ -129,13 +136,23 @@ pub fn build_transaction_get_request(
 ) -> anyhow::Result<http::Request<Full<Bytes>>> {
     let digest = encode_digest(digest);
     let uri = endpoint_uri(base, format!("transactions/{digest}"))?;
-    let req = Request::builder().method(Method::GET).uri(uri);
-    let req = if let Some(accept) = accept {
-        req.header(ACCEPT, accept.to_string())
-    } else {
-        req
-    };
-    req.body(Full::default()).context("failed to build request")
+    build_get_request(uri, accept)
+}
+
+/// Build a request for the WIT of the UTXO created by the transaction output `input`.
+pub fn build_utxo_wit_request(
+    base: &Uri,
+    TransactionInput { transaction, index }: &TransactionInput,
+    accept: Option<MediaType>,
+) -> anyhow::Result<http::Request<Full<Bytes>>> {
+    let mut query = form_urlencoded::Serializer::new(String::new());
+    if !transaction.is_empty() {
+        query.append_pair("transaction", transaction);
+    }
+    query.append_pair("index", &index.to_string());
+    let query = query.finish();
+    let uri = endpoint_uri(base, format!("rpc?{query}"))?;
+    build_get_request(uri, accept)
 }
 
 #[derive(Clone)]
@@ -363,6 +380,21 @@ where
             .await?;
         drop(tx);
         Ok(rx)
+    }
+
+    /// Get the WIT of the UTXO created by the transaction output `input`,
+    /// describing its methods as `call_utxo_method` invokes them,
+    /// as WIT text or, if `accept` is `application/wasm`, encoded as Wasm.
+    #[instrument(skip_all)]
+    pub async fn get_utxo_wit(
+        &self,
+        input: &TransactionInput,
+        accept: Option<MediaType<'_>>,
+    ) -> anyhow::Result<Bytes> {
+        let req = build_utxo_wit_request(&self.api_base, input, accept)?;
+        let (http::response::Parts { status, .. }, body) = self.request(req).await?;
+        ensure!(status.is_success(), "{}", String::from_utf8_lossy(&body));
+        Ok(body)
     }
 
     #[instrument(skip_all)]
