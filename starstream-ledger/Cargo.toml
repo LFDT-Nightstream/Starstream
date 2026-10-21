@@ -24,7 +24,6 @@ server = [
     "dep:tower-http",
     "dep:wit-component",
     "dep:wit-parser",
-    "dep:wrpc-pack",
     "hyper-util/server",
     "hyper-util/server-graceful",
     "hyper-util/tokio",
@@ -75,7 +74,6 @@ wit-bindgen-wrpc = { workspace = true }
 wit-component = { workspace = true, optional = true }
 wit-parser = { workspace = true, optional = true }
 wrpc-http = { workspace = true, optional = true }
-wrpc-pack = { workspace = true, optional = true }
 wrpc-transport = { workspace = true }
 
 [build-dependencies]
