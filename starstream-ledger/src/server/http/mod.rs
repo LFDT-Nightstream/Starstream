@@ -7,11 +7,13 @@ use core::task::{Poll, ready};
 use core::time::Duration;
 
 use std::collections::{HashMap, HashSet, hash_map};
+use std::error::Error as _;
 use std::sync::Arc;
 
 use anyhow::Context as _;
 use bytes::{Buf, BufMut as _, Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
+use futures::TryStreamExt as _;
 use headers_accept::Accept;
 use headers_core::Header as _;
 use http::header::{
@@ -20,7 +22,7 @@ use http::header::{
 use http_body::Body as _;
 use http_body_util::BodyExt as _;
 use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
@@ -28,7 +30,10 @@ use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
+use tokio_io_timeout::TimeoutStream;
 use tokio_util::codec::Encoder as _;
+use tokio_util::io::StreamReader;
+use tower_http::timeout::{TimeoutBody, TimeoutError};
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
 use wasm_tokio::cm::AsyncReadValue as _;
 use wasm_tokio::{AsyncReadCore as _, AsyncReadLeb128 as _, CoreNameDecoder};
@@ -140,6 +145,14 @@ fn is_connection_error(err: &std::io::Error) -> bool {
             | std::io::ErrorKind::ConnectionAborted
             | std::io::ErrorKind::ConnectionReset
     )
+}
+
+fn is_timeout(err: &hyper::Error) -> bool {
+    err.is_timeout()
+        || err
+            .source()
+            .and_then(|err| err.downcast_ref::<std::io::Error>())
+            .is_some_and(|err| err.kind() == std::io::ErrorKind::TimedOut)
 }
 
 impl Ledger {
@@ -464,16 +477,20 @@ impl Ledger {
     async fn handle_envelope_post(
         &self,
         body: hyper::body::Incoming,
+        io_timeout: Duration,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, EnvelopePostError> {
         if body.size_hint().lower() > MAX_ENVELOPE_SIZE as u64 {
             return Err(EnvelopePostError::BodyTooLarge(MAX_ENVELOPE_SIZE));
         }
+        let body = TimeoutBody::new(io_timeout, body);
         let body = http_body_util::Limited::new(body, MAX_ENVELOPE_SIZE)
             .collect()
             .await
             .map_err(|err| {
                 if err.is::<http_body_util::LengthLimitError>() {
                     EnvelopePostError::BodyTooLarge(MAX_ENVELOPE_SIZE)
+                } else if err.is::<TimeoutError>() {
+                    EnvelopePostError::BodyTimeout
                 } else {
                     EnvelopePostError::Body(err)
                 }
@@ -506,6 +523,7 @@ impl Ledger {
         &self,
         headers: http::HeaderMap,
         body: hyper::body::Incoming,
+        io_timeout: Duration,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcPostError> {
         fn get_by_digest<'a, T>(
             vs: &'a HashMap<[u8; 32], T>,
@@ -526,7 +544,7 @@ impl Ledger {
         let content_type = content_type.essence();
         if content_type == APPLICATION_COSE {
             return self
-                .handle_envelope_post(body)
+                .handle_envelope_post(body, io_timeout)
                 .await
                 .map_err(RpcPostError::Envelope);
         }
@@ -535,7 +553,15 @@ impl Ledger {
                 content_type.to_string().into(),
             ));
         }
-        let mut body = wrpc_http::data_reader_from_incoming(body);
+        let body = TimeoutBody::new(io_timeout, body).into_data_stream();
+        let body = body.map_err(|err| {
+            if err.is::<TimeoutError>() {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, err)
+            } else {
+                std::io::Error::other(err)
+            }
+        });
+        let mut body = StreamReader::new(Box::pin(body));
         let wrpc_transport::frame::Header { instance, name } =
             wrpc_transport::frame::Header::read(&mut body)
                 .await
@@ -756,6 +782,12 @@ impl Ledger {
 
     /// Bind `address` and return the future serving the ledger HTTP API.
     ///
+    /// At most `max_requests` connections are served at once, and a connection
+    /// is closed if it does not send a complete request head within
+    /// `io_timeout` of opening or of finishing its previous response, if it
+    /// sends no chunk of a request body for `io_timeout`, or if a response
+    /// write to it makes no progress for `io_timeout`.
+    ///
     /// Calling [`Notify::notify_one`] on the returned handle shuts the server
     /// down; [`Notify::notify_waiters`] is lost if it races the first poll of
     /// the future.
@@ -763,6 +795,7 @@ impl Ledger {
     pub async fn handle_http(
         self: Arc<Self>,
         address: SocketAddr,
+        io_timeout: Duration,
     ) -> anyhow::Result<(impl Future<Output = ()> + use<>, Arc<Notify>)> {
         let sock = bind_tcp(address)?;
         let sock = sock
@@ -859,7 +892,7 @@ impl Ledger {
                     }
 
                     ("POST", Some("rpc"), None, ..) => {
-                        match ledger.handle_rpc_post(headers, body).await {
+                        match ledger.handle_rpc_post(headers, body, io_timeout).await {
                             Ok(res) => Ok(res),
                             Err(err) => {
                                 build_text_response(err.http_status_code(), err.to_string())
@@ -878,7 +911,8 @@ impl Ledger {
             }
         });
         let shutdown = Arc::new(Notify::new());
-        let srv = hyper_util::server::conn::auto::Builder::<TokioExecutor>::default();
+        let mut srv = hyper::server::conn::http1::Builder::new();
+        srv.timer(TokioTimer::new()).header_read_timeout(io_timeout);
         let max_connections = self.max_requests as usize;
         Ok((
             {
@@ -910,12 +944,19 @@ impl Ledger {
                         {
                             Some(Ok((stream, addr))) => {
                                 info!(?addr, "accepted TCP connection");
-                                let conn = srv.serve_connection(TokioIo::new(stream), svc.clone());
-                                let conn = graceful.watch(conn.into_owned());
+                                let mut stream = TimeoutStream::new(stream);
+                                stream.set_write_timeout(Some(io_timeout));
+                                let conn = srv
+                                    .serve_connection(TokioIo::new(Box::pin(stream)), svc.clone());
+                                let conn = graceful.watch(conn);
                                 tasks.spawn(
                                     async move {
                                         if let Err(err) = conn.await {
-                                            warn!(?err, "failed to serve HTTP connection");
+                                            if is_timeout(&err) {
+                                                debug!(?err, "closed stalled HTTP connection");
+                                            } else {
+                                                warn!(?err, "failed to serve HTTP connection");
+                                            }
                                         }
                                     }
                                     .in_current_span(),

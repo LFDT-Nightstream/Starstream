@@ -2,6 +2,7 @@
 
 use core::iter::zip;
 use core::pin::pin;
+use core::time::Duration;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,7 +14,7 @@ use clap::{Parser, Subcommand};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::Uri;
 use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::TokioExecutor;
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::http::ClientBuilder;
@@ -48,6 +49,10 @@ pub struct Args {
     /// Network identifier the transaction is bound to.
     #[arg(long, global = true, default_value = "dev")]
     network: Box<str>,
+
+    /// Time an idle connection to the node is kept open for reuse, in seconds.
+    #[arg(long, global = true, value_name = "SECONDS", default_value_t = 15)]
+    pool_idle_timeout: u64,
 
     #[command(subcommand)]
     command: Command,
@@ -341,10 +346,13 @@ async fn exec(args: Args) -> anyhow::Result<()> {
     let Args {
         url,
         network,
+        pool_idle_timeout,
         command,
     } = args;
 
-    let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
+    let mut http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
+    http.pool_timer(TokioTimer::new())
+        .pool_idle_timeout(Duration::from_secs(pool_idle_timeout));
     let client = ClientBuilder::new(http, HttpConnector::new(), url)
         .network(network.as_ref())
         .build();

@@ -178,6 +178,8 @@ impl TransactionPostError {
 pub enum EnvelopePostError {
     #[error("body exceeds {0}-byte limit")]
     BodyTooLarge(usize),
+    #[error("timed out reading body")]
+    BodyTimeout,
     #[error(transparent)]
     Body(Box<dyn std::error::Error + Send + Sync>),
     #[error("unexpected network `{got}`, expected `{expected}`")]
@@ -197,6 +199,7 @@ impl EnvelopePostError {
         match self {
             Self::Body(..) | Self::Network { .. } => http::StatusCode::BAD_REQUEST,
             Self::BodyTooLarge(..) => http::StatusCode::PAYLOAD_TOO_LARGE,
+            Self::BodyTimeout => http::StatusCode::REQUEST_TIMEOUT,
             Self::Envelope(err) => err.http_status_code(),
             Self::Fund(err) => err.http_status_code(),
             Self::Publish(err) => err.http_status_code(),
@@ -277,6 +280,12 @@ impl RpcPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
             Self::Envelope(err) => err.http_status_code(),
+            Self::Header(wrpc_transport::frame::HeaderReadError::IO(err))
+            | Self::ParameterDecoding(err)
+                if err.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                http::StatusCode::REQUEST_TIMEOUT
+            }
             Self::UnsupportedContentType(..) | Self::ContentTypeMissing => {
                 http::StatusCode::UNSUPPORTED_MEDIA_TYPE
             }
