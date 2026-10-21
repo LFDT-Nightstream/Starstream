@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use starstream_types::IntWidth;
-use wasm_encoder::{BlockType, FuncType, ValType};
+use wasm_encoder::{BlockType, FuncType, InstructionSink, ValType};
 
 use crate::{Compiler, StFunction};
 
@@ -10,6 +10,8 @@ use crate::{Compiler, StFunction};
 pub struct Intrinsics {
     /// Overflow-checked arithmetic, by operation and width.
     checked: HashMap<(CheckedOp, IntWidth), u32>,
+    /// Signed floored division and remainder, keyed by whether they're 64-bit.
+    floored: HashMap<(FlooredOp, bool), u32>,
 }
 
 /// An integer operation that traps when its result doesn't fit its type.
@@ -18,12 +20,48 @@ pub enum CheckedOp {
     Add,
     Sub,
     Mul,
-    /// Signed 8- and 16-bit division only: `MIN / -1` fits in the `i32`
-    /// they're computed in. Wider types trap natively.
+    /// Signed 8- and 16-bit floored division only: `MIN / -1` fits in the
+    /// `i32` they're computed in. Wider types trap natively.
     Div,
 }
 
+/// A signed division operation, rounding the quotient toward negative
+/// infinity as the spec requires, so the remainder has the divisor's sign.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FlooredOp {
+    Div,
+    Rem,
+}
+
 impl Compiler {
+    /// Get or create the function that computes `op` on two signed `width`
+    /// integers. Division by zero and 32- and 64-bit `MIN / -1` trap natively;
+    /// 8- and 16-bit `MIN / -1` returns out of range, see [`CheckedOp::Div`].
+    /// Returns the function index.
+    pub fn get_or_create_floored(&mut self, op: FlooredOp, width: IntWidth) -> u32 {
+        assert!(width.is_signed(), "unsigned division isn't floored");
+        let wide = width.is_64bit();
+        if let Some(&idx) = self.intrinsics.floored.get(&(op, wide)) {
+            return idx;
+        }
+
+        let ty = if wide { ValType::I64 } else { ValType::I32 };
+        let mut code = match op {
+            FlooredOp::Div => wasm_encoder::Function::new_with_locals_types([]),
+            // 0-1 are params, 2 is the truncated remainder.
+            FlooredOp::Rem => wasm_encoder::Function::new_with_locals_types([ty]),
+        };
+        let mut sink = code.instructions();
+        match op {
+            FlooredOp::Div => floored_div(&mut sink, wide),
+            FlooredOp::Rem => floored_rem(&mut sink, wide),
+        }
+        sink.end();
+        let idx = self.add_function(&FuncType::new([ty, ty], [ty]), code.into_raw_body());
+        self.intrinsics.floored.insert((op, wide), idx);
+        idx
+    }
+
     /// Get or create the function that computes `op` on two `width` integers,
     /// trapping when the result doesn't fit in `width`.
     /// Returns the function index.
@@ -334,16 +372,21 @@ fn checked_sub32(op: CheckedOp, width: IntWidth) -> wasm_encoder::Function {
     let mut code = wasm_encoder::Function::new_with_locals_types([ValType::I32]);
     let result = 2;
     let mut sink = code.instructions();
-    sink.local_get(0).local_get(1);
     match op {
-        CheckedOp::Add => sink.i32_add(),
-        CheckedOp::Sub => sink.i32_sub(),
-        CheckedOp::Mul => sink.i32_mul(),
+        CheckedOp::Add => {
+            sink.local_get(0).local_get(1).i32_add();
+        }
+        CheckedOp::Sub => {
+            sink.local_get(0).local_get(1).i32_sub();
+        }
+        CheckedOp::Mul => {
+            sink.local_get(0).local_get(1).i32_mul();
+        }
         CheckedOp::Div => {
             assert!(width.is_signed(), "unsigned division can't overflow");
-            sink.i32_div_s()
+            floored_div(&mut sink, false);
         }
-    };
+    }
     sink.local_tee(result); //  [result]
     sink.local_get(result);
     match width {
@@ -357,4 +400,64 @@ fn checked_sub32(op: CheckedOp, width: IntWidth) -> wasm_encoder::Function {
     sink.if_(BlockType::Empty).unreachable().end(); //  [result]
     sink.end();
     code
+}
+
+/// Push the floored quotient of params 0 and 1, as the interpreter's
+/// `div_floor` computes it: the truncated quotient, minus one when there's a
+/// remainder and the operands' signs differ.
+fn floored_div(sink: &mut InstructionSink<'_>, wide: bool) {
+    if wide {
+        sink.local_get(0).local_get(1).i64_div_s(); //  [q]
+        sink.local_get(0)
+            .local_get(1)
+            .i64_rem_s()
+            .i64_const(0)
+            .i64_ne(); //  [q, r!=0]
+        sink.local_get(0)
+            .local_get(1)
+            .i64_xor()
+            .i64_const(0)
+            .i64_lt_s(); //  [q, r!=0, (x^y)<0]
+        sink.i32_and().i64_extend_i32_u().i64_sub(); //  [floored q]
+    } else {
+        sink.local_get(0).local_get(1).i32_div_s(); //  [q]
+        sink.local_get(0)
+            .local_get(1)
+            .i32_rem_s()
+            .i32_const(0)
+            .i32_ne(); //  [q, r!=0]
+        sink.local_get(0)
+            .local_get(1)
+            .i32_xor()
+            .i32_const(0)
+            .i32_lt_s(); //  [q, r!=0, (x^y)<0]
+        sink.i32_and().i32_sub(); //  [floored q]
+    }
+}
+
+/// Push the floored remainder of params 0 and 1, using local 2: the truncated
+/// remainder, plus the divisor when it's nonzero and their signs differ.
+fn floored_rem(sink: &mut InstructionSink<'_>, wide: bool) {
+    let r = 2;
+    if wide {
+        sink.local_get(0).local_get(1).i64_rem_s().local_tee(r); //  [r]
+        sink.local_get(1).i64_const(0); //  [r, y, 0]
+        sink.local_get(r).i64_const(0).i64_ne(); //  [r, y, 0, r!=0]
+        sink.local_get(r)
+            .local_get(1)
+            .i64_xor()
+            .i64_const(0)
+            .i64_lt_s(); //  [.., r!=0, (r^y)<0]
+        sink.i32_and().select().i64_add(); //  [floored r]
+    } else {
+        sink.local_get(0).local_get(1).i32_rem_s().local_tee(r); //  [r]
+        sink.local_get(1).i32_const(0); //  [r, y, 0]
+        sink.local_get(r).i32_const(0).i32_ne(); //  [r, y, 0, r!=0]
+        sink.local_get(r)
+            .local_get(1)
+            .i32_xor()
+            .i32_const(0)
+            .i32_lt_s(); //  [.., r!=0, (r^y)<0]
+        sink.i32_and().select().i32_add(); //  [floored r]
+    }
 }

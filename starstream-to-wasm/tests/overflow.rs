@@ -1188,10 +1188,17 @@ fn int_val(ty: &str, value: i128) -> Val {
     }
 }
 
-/// Compile `add`, `sub`, `mul` and `div` on `ty`, plus `neg` for signed types.
+/// Compile `add`, `sub`, `mul`, `div` and `rem` on `ty`, plus `neg` for signed
+/// types.
 fn compile_arithmetic(ty: &str, options: CompileOptions) -> Vec<u8> {
     let mut source = String::new();
-    for (name, op) in [("add", "+"), ("sub", "-"), ("mul", "*"), ("div", "/")] {
+    for (name, op) in [
+        ("add", "+"),
+        ("sub", "-"),
+        ("mul", "*"),
+        ("div", "/"),
+        ("rem", "%"),
+    ] {
         source.push_str(&format!(
             "script fn {name}(x: {ty}, y: {ty}) -> {ty} {{\n    x {op} y\n}}\n"
         ));
@@ -1279,6 +1286,47 @@ fn test_unchecked_arithmetic_wraps_for_every_width() {
             if matches!(ty, "i8" | "i16") {
                 check("div", &[min, -1], min);
             }
+            // Wrapping doesn't change flooring.
+            check("div", &[-3, 16], -1);
+            check("rem", &[-3, 16], 13);
         }
+    }
+}
+
+// ============================================================================
+// Floored division and remainder
+// ============================================================================
+
+#[test]
+fn test_signed_division_is_floored_for_every_width() {
+    for (ty, min, _) in INT_TYPES.into_iter().filter(|(ty, ..)| ty.starts_with('i')) {
+        let wasm = compile_arithmetic(ty, CompileOptions::default());
+        let check = |func_name, args: &[i128], expected| {
+            assert_int_call(&wasm, ty, func_name, args, Some(expected))
+        };
+
+        // `(x, y, x / y, x % y)`: the spec's table, then exact division and an
+        // odd dividend at the bottom of the range.
+        for (x, y, quotient, remainder) in [
+            (3, 16, 0, 3),
+            (-3, 16, -1, 13),
+            (3, -16, -1, -13),
+            (-3, -16, 0, -3),
+            (-6, 3, -2, 0),
+            (min + 1, 2, min / 2, 1),
+        ] {
+            check("div", &[x, y], quotient);
+            check("rem", &[x, y], remainder);
+        }
+        check("rem", &[min, -1], 0);
+    }
+}
+
+#[test]
+fn test_unsigned_division_truncates() {
+    for (ty, _, max) in INT_TYPES.into_iter().filter(|(ty, ..)| ty.starts_with('u')) {
+        let wasm = compile_arithmetic(ty, CompileOptions::default());
+        assert_int_call(&wasm, ty, "div", &[max, 16], Some(max / 16));
+        assert_int_call(&wasm, ty, "rem", &[max, 16], Some(max % 16));
     }
 }
