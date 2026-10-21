@@ -33,6 +33,7 @@ use crate::component_abi::{
 };
 use crate::component_encoder::TypeBuilder;
 use crate::decision_tree::{Ctor, DecisionTree, Matrix, Pat, Row};
+use crate::intrinsics::CheckedOp;
 use crate::ir::{ControlFlowGraph, Out};
 use crate::stackifier::stackify;
 
@@ -2848,13 +2849,11 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int(w), Type::Int(_)) => {
-                        if w.is_64bit() {
-                            if self.options.check_overflows {
-                                let checked_sum = self.get_or_create_i64_add_checked();
-                                func.instructions(bb).call(checked_sum);
-                            } else {
-                                func.instructions(bb).i64_add();
-                            }
+                        if self.options.check_overflows {
+                            let checked_sum = self.get_or_create_checked(CheckedOp::Add, *w);
+                            func.instructions(bb).call(checked_sum);
+                        } else if w.is_64bit() {
+                            func.instructions(bb).i64_add();
                         } else {
                             func.instructions(bb).i32_add();
                             self.emit_truncate(func, bb, *w);
@@ -2877,13 +2876,11 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int(w), Type::Int(_)) => {
-                        if w.is_64bit() {
-                            if self.options.check_overflows {
-                                let checked_sub = self.get_or_create_i64_sub_checked();
-                                func.instructions(bb).call(checked_sub);
-                            } else {
-                                func.instructions(bb).i64_sub();
-                            }
+                        if self.options.check_overflows {
+                            let checked_sub = self.get_or_create_checked(CheckedOp::Sub, *w);
+                            func.instructions(bb).call(checked_sub);
+                        } else if w.is_64bit() {
+                            func.instructions(bb).i64_sub();
                         } else {
                             func.instructions(bb).i32_sub();
                             self.emit_truncate(func, bb, *w);
@@ -2906,13 +2903,11 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int(w), Type::Int(_)) => {
-                        if w.is_64bit() {
-                            if self.options.check_overflows {
-                                let checked_mul = self.get_or_create_i64_mul_checked();
-                                func.instructions(bb).call(checked_mul);
-                            } else {
-                                func.instructions(bb).i64_mul();
-                            }
+                        if self.options.check_overflows {
+                            let checked_mul = self.get_or_create_checked(CheckedOp::Mul, *w);
+                            func.instructions(bb).call(checked_mul);
+                        } else if w.is_64bit() {
+                            func.instructions(bb).i64_mul();
                         } else {
                             func.instructions(bb).i32_mul();
                             self.emit_truncate(func, bb, *w);
@@ -2940,6 +2935,15 @@ impl Compiler {
                                 func.instructions(bb).i64_div_s();
                             } else {
                                 func.instructions(bb).i64_div_u();
+                            }
+                        } else if w.is_signed() && w.is_sub32() {
+                            // `MIN / -1` fits in i32, so it doesn't trap natively.
+                            if self.options.check_overflows {
+                                let checked_div = self.get_or_create_checked(CheckedOp::Div, *w);
+                                func.instructions(bb).call(checked_div);
+                            } else {
+                                func.instructions(bb).i32_div_s();
+                                self.emit_truncate(func, bb, *w);
                             }
                         } else if w.is_signed() {
                             func.instructions(bb).i32_div_s();
@@ -2986,19 +2990,24 @@ impl Compiler {
                 op: UnaryOp::Negate,
                 expr: inner,
             } => {
-                // `-x` compiles to `0 - x`.
+                // `-x` compiles to `0 - x`, so `-MIN` overflows like `0 - MIN`.
                 match &inner.node.ty {
-                    Type::Int(w) if w.is_64bit() => {
-                        func.instructions(bb).i64_const(0);
-                        self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)?;
-                        func.instructions(bb).i64_sub();
-                        Ok(())
-                    }
                     Type::Int(w) => {
-                        func.instructions(bb).i32_const(0);
+                        if w.is_64bit() {
+                            func.instructions(bb).i64_const(0);
+                        } else {
+                            func.instructions(bb).i32_const(0);
+                        }
                         self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)?;
-                        func.instructions(bb).i32_sub();
-                        self.emit_truncate(func, bb, *w);
+                        if self.options.check_overflows {
+                            let checked_sub = self.get_or_create_checked(CheckedOp::Sub, *w);
+                            func.instructions(bb).call(checked_sub);
+                        } else if w.is_64bit() {
+                            func.instructions(bb).i64_sub();
+                        } else {
+                            func.instructions(bb).i32_sub();
+                            self.emit_truncate(func, bb, *w);
+                        }
                         Ok(())
                     }
                     lhs => Err(self.push_error(span, format!("TODO: Negate({lhs:?})"))),

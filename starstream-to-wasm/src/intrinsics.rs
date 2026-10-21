@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use starstream_types::IntWidth;
 use wasm_encoder::{BlockType, FuncType, ValType};
 
@@ -9,9 +11,52 @@ pub struct Intrinsics {
     i64_add_checked: Option<u32>,
     i64_sub_checked: Option<u32>,
     i64_mul_checked: Option<u32>,
+    /// Overflow-checked arithmetic for the other integer widths.
+    checked: HashMap<(CheckedOp, IntWidth), u32>,
+}
+
+/// An integer operation that traps when its result doesn't fit its type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CheckedOp {
+    Add,
+    Sub,
+    Mul,
+    /// Signed 8- and 16-bit division only: `MIN / -1` fits in the `i32`
+    /// they're computed in. Wider types trap natively.
+    Div,
 }
 
 impl Compiler {
+    /// Get or create the function that computes `op` on two `width` integers,
+    /// trapping when the result doesn't fit in `width`.
+    /// Returns the function index.
+    pub fn get_or_create_checked(&mut self, op: CheckedOp, width: IntWidth) -> u32 {
+        match (op, width) {
+            (CheckedOp::Add, IntWidth::I64) => return self.get_or_create_i64_add_checked(),
+            (CheckedOp::Sub, IntWidth::I64) => return self.get_or_create_i64_sub_checked(),
+            (CheckedOp::Mul, IntWidth::I64) => return self.get_or_create_i64_mul_checked(),
+            _ => {}
+        }
+        if let Some(&idx) = self.intrinsics.checked.get(&(op, width)) {
+            return idx;
+        }
+
+        let code = match width {
+            IntWidth::U64 => checked_u64(op),
+            IntWidth::I32 | IntWidth::U32 => checked_32(op, width.is_signed()),
+            IntWidth::I8 | IntWidth::I16 | IntWidth::U8 | IntWidth::U16 => checked_sub32(op, width),
+            IntWidth::I64 => unreachable!("{op:?} on i64 is handled above"),
+        };
+        let ty = if width.is_64bit() {
+            ValType::I64
+        } else {
+            ValType::I32
+        };
+        let idx = self.add_function(&FuncType::new([ty, ty], [ty]), code.into_raw_body());
+        self.intrinsics.checked.insert((op, width), idx);
+        idx
+    }
+
     /// Get or create the `__starstream_i64_add_checked` function for overflow-checked addition.
     /// Returns the function index.
     pub fn get_or_create_i64_add_checked(&mut self) -> u32 {
@@ -225,4 +270,117 @@ impl Compiler {
             _ => {} // i32, u32, i64, u64 don't need truncation
         }
     }
+}
+
+/// Unsigned 64-bit arithmetic that traps on overflow or underflow.
+fn checked_u64(op: CheckedOp) -> wasm_encoder::Function {
+    // 0-1 are params, 2 is the result.
+    let mut code = wasm_encoder::Function::new_with_locals_types([ValType::I64]);
+    let result = 2;
+    let mut sink = code.instructions();
+    match op {
+        CheckedOp::Add => {
+            // Overflow iff the sum wrapped around below x.
+            sink.local_get(0).local_get(1).i64_add().local_tee(result); //  [sum]
+            sink.local_get(result).local_get(0).i64_lt_u(); //  [sum, sum<x]
+        }
+        CheckedOp::Sub => {
+            // Underflow iff y > x.
+            sink.local_get(0).local_get(1).i64_sub().local_tee(result); //  [diff]
+            sink.local_get(0).local_get(1).i64_lt_u(); //  [diff, x<y]
+        }
+        CheckedOp::Mul => {
+            // Overflow iff y != 0 and product / y != x.
+            sink.local_get(0).local_get(1).i64_mul().local_tee(result); //  [product]
+            sink.local_get(1).i64_eqz(); //  [product, y==0]
+            sink.if_(BlockType::Result(ValType::I32));
+            sink.i32_const(0);
+            sink.else_();
+            sink.local_get(result)
+                .local_get(1)
+                .i64_div_u()
+                .local_get(0)
+                .i64_ne();
+            sink.end(); //  [product, (product/y)!=x]
+        }
+        CheckedOp::Div => unreachable!("unsigned division can't overflow"),
+    }
+    sink.if_(BlockType::Empty).unreachable().end(); //  [result]
+    sink.end();
+    code
+}
+
+/// 32-bit arithmetic computed exactly in i64, trapping when the result doesn't
+/// fit back in 32 bits.
+fn checked_32(op: CheckedOp, signed: bool) -> wasm_encoder::Function {
+    // 0-1 are params, 2 is the 64-bit result.
+    let mut code = wasm_encoder::Function::new_with_locals_types([ValType::I64]);
+    let wide = 2;
+    let mut sink = code.instructions();
+    for param in [0, 1] {
+        sink.local_get(param);
+        if signed {
+            sink.i64_extend_i32_s();
+        } else {
+            sink.i64_extend_i32_u();
+        }
+    }
+    match op {
+        CheckedOp::Add => sink.i64_add(),
+        CheckedOp::Sub => sink.i64_sub(),
+        CheckedOp::Mul => sink.i64_mul(),
+        CheckedOp::Div => unreachable!("32-bit division traps natively on overflow"),
+    };
+    sink.local_tee(wide); //  [wide]
+    if signed {
+        // Doesn't fit iff sign-extending its low half changes it.
+        sink.local_get(wide)
+            .i32_wrap_i64()
+            .i64_extend_i32_s()
+            .local_get(wide)
+            .i64_ne();
+    } else {
+        // Doesn't fit iff its high half is nonzero.
+        sink.local_get(wide)
+            .i64_const(32)
+            .i64_shr_u()
+            .i64_const(0)
+            .i64_ne();
+    }
+    sink.if_(BlockType::Empty).unreachable().end(); //  [wide]
+    sink.i32_wrap_i64();
+    sink.end();
+    code
+}
+
+/// 8- and 16-bit arithmetic computed exactly in i32, trapping when normalizing
+/// the result to `width` would change it.
+fn checked_sub32(op: CheckedOp, width: IntWidth) -> wasm_encoder::Function {
+    // 0-1 are params, 2 is the result.
+    let mut code = wasm_encoder::Function::new_with_locals_types([ValType::I32]);
+    let result = 2;
+    let mut sink = code.instructions();
+    sink.local_get(0).local_get(1);
+    match op {
+        CheckedOp::Add => sink.i32_add(),
+        CheckedOp::Sub => sink.i32_sub(),
+        CheckedOp::Mul => sink.i32_mul(),
+        CheckedOp::Div => {
+            assert!(width.is_signed(), "unsigned division can't overflow");
+            sink.i32_div_s()
+        }
+    };
+    sink.local_tee(result); //  [result]
+    sink.local_get(result);
+    match width {
+        IntWidth::I8 => sink.i32_extend8_s(),
+        IntWidth::I16 => sink.i32_extend16_s(),
+        IntWidth::U8 => sink.i32_const(0xFF).i32_and(),
+        IntWidth::U16 => sink.i32_const(0xFFFF).i32_and(),
+        _ => unreachable!("{width:?} isn't narrower than 32 bits"),
+    };
+    sink.local_get(result).i32_ne(); //  [result, normalized!=result]
+    sink.if_(BlockType::Empty).unreachable().end(); //  [result]
+    sink.end();
+    code
 }
