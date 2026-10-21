@@ -375,8 +375,12 @@ fn format_media_types(available: &[MediaType<'_>]) -> String {
 
 #[derive(Debug, Error)]
 pub enum AcceptHeaderError {
-    #[error("failed to decode `Accept` header: {0}")]
-    Decoding(headers_core::Error),
+    #[error("malformed `Accept` header")]
+    Malformed,
+    #[error("invalid `Accept` quality value `{0}`")]
+    Quality(String),
+    #[error("`Accept` media range has more than one weight")]
+    QualityDuplicate,
     #[error("no acceptable media type, available: {}", format_media_types(.0))]
     NotAcceptable(&'static [MediaType<'static>]),
 }
@@ -384,7 +388,9 @@ pub enum AcceptHeaderError {
 impl AcceptHeaderError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::Decoding(..) => http::StatusCode::BAD_REQUEST,
+            Self::Malformed | Self::Quality(..) | Self::QualityDuplicate => {
+                http::StatusCode::BAD_REQUEST
+            }
             Self::NotAcceptable(..) => http::StatusCode::NOT_ACCEPTABLE,
         }
     }

@@ -1538,25 +1538,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "headers-accept"
-version = "0.3.0"
-source = "git+https://github.com/maxcountryman/headers-accept?rev=e5a875f2504267f2fa4913e595e4299a76365db8#e5a875f2504267f2fa4913e595e4299a76365db8"
-dependencies = [
- "headers-core",
- "http",
- "mediatype",
-]
-
-[[package]]
-name = "headers-core"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54b4a22553d4242c49fddb9ba998a99962b5cc6f22cb5a3482bec22522403ce4"
-dependencies = [
- "http",
-]
-
-[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3585,8 +3566,6 @@ dependencies = [
  "ed25519-dalek",
  "form_urlencoded",
  "futures",
- "headers-accept",
- "headers-core",
  "hex",
  "http",
  "http-body",
