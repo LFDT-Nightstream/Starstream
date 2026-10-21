@@ -12,6 +12,7 @@ miette.workspace = true
 sha2.workspace = true
 starstream-compiler.workspace = true
 starstream-types.workspace = true
+starstream-wasm-opt.workspace = true
 thiserror.workspace = true
 wac-graph = "0.11.0"
 wasm-encoder = { workspace = true, features = ["component-model"] }

@@ -429,10 +429,30 @@ impl Compiler {
             name: Cow::Borrowed("component-type"),
             data: Cow::Borrowed(&component),
         });
+        let wasm = module.finish();
+
+        // Codegen must only emit what the prover can trace. Anything else is a
+        // compiler bug, and an unprovable contract must not get published.
+        if let Err(error) = starstream_wasm_opt::validate(&wasm) {
+            self.errors.push(CompileError {
+                message: format!(
+                    "internal compiler error: the generated Wasm cannot be proven: {error}"
+                ),
+                span: DUMMY_SPAN,
+                module: self.module,
+            });
+            return CompileResult {
+                errors: self.errors,
+                wasm: None,
+                binary_wit: None,
+                mermaid: Vec::new(),
+                libraries: Vec::new(),
+            };
+        }
 
         CompileResult {
             errors: self.errors,
-            wasm: Some(module.finish()),
+            wasm: Some(wasm),
             binary_wit: Some(component),
             mermaid: self.mermaid,
             libraries: self.libraries,
