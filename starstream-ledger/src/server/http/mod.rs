@@ -14,8 +14,6 @@ use anyhow::Context as _;
 use bytes::{Buf, BufMut as _, Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
 use futures::TryStreamExt as _;
-use headers_accept::Accept;
-use headers_core::Header as _;
 use http::header::{
     ACCEPT, ALLOW, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, VARY, X_CONTENT_TYPE_OPTIONS,
 };
@@ -56,6 +54,7 @@ use crate::{
     TransactionInput, TransactionOutput, encode_digest, parse_digest,
 };
 
+mod accept;
 mod error;
 use error::*;
 
@@ -87,19 +86,6 @@ fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     sock.bind(address)
         .with_context(|| format!("failed to bind on `{address}`"))?;
     Ok(sock)
-}
-
-fn negotiate_accept(
-    headers: &http::HeaderMap,
-    available: &'static [MediaType<'static>],
-) -> Option<Result<&'static MediaType<'static>, AcceptHeaderError>> {
-    headers.contains_key(ACCEPT).then(|| {
-        let accept = Accept::decode(&mut headers.get_all(ACCEPT).iter())
-            .map_err(AcceptHeaderError::Decoding)?;
-        accept
-            .negotiate(available)
-            .ok_or(AcceptHeaderError::NotAcceptable(available))
-    })
 }
 
 fn build_text_response<T>(
@@ -173,9 +159,8 @@ impl Ledger {
 
         let digest = parse_digest(digest).map_err(ContractGetError::DigestParsing)?;
 
-        let accept = negotiate_accept(&headers, AVAILABLE_TYPES)
-            .transpose()
-            .map_err(ContractGetError::AcceptHeader)?;
+        let accept =
+            accept::negotiate(&headers, AVAILABLE_TYPES).map_err(ContractGetError::AcceptHeader)?;
 
         let contracts = self.contracts.read().await;
         let contract = contracts
@@ -185,7 +170,7 @@ impl Ledger {
         let res = http::Response::builder()
             .header(VARY, ACCEPT.as_str())
             .header(X_CONTENT_TYPE_OPTIONS, "nosniff");
-        if accept == Some(&APPLICATION_WASM) {
+        if accept == &APPLICATION_WASM {
             res.header(CONTENT_TYPE, APPLICATION_WASM.to_string())
                 .header(CONTENT_LENGTH, contract.wasm.len())
                 .body(if HEAD {
@@ -321,9 +306,7 @@ impl Ledger {
 
         let digest = parse_digest(digest).map_err(TransactionGetError::DigestParsing)?;
 
-        if let Some(Err(err)) = negotiate_accept(&headers, AVAILABLE_TYPES) {
-            return Err(TransactionGetError::AcceptHeader(err));
-        }
+        accept::negotiate(&headers, AVAILABLE_TYPES).map_err(TransactionGetError::AcceptHeader)?;
 
         let txs = self.transactions.read().await;
         let tx = txs
@@ -509,9 +492,8 @@ impl Ledger {
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcGetError> {
         const AVAILABLE_TYPES: &[MediaType] = &[TEXT_PLAIN_UTF_8, APPLICATION_WASM];
 
-        let accept = negotiate_accept(&headers, AVAILABLE_TYPES)
-            .transpose()
-            .map_err(RpcGetError::AcceptHeader)?;
+        let accept =
+            accept::negotiate(&headers, AVAILABLE_TYPES).map_err(RpcGetError::AcceptHeader)?;
 
         let mut transaction = None;
         let mut index = None;
@@ -536,14 +518,18 @@ impl Ledger {
                 name => return Err(RpcGetError::UnknownQueryParameter(name.into())),
             }
         }
-        let wasm = accept == Some(&APPLICATION_WASM);
         let (content_type, body) = match (transaction, index) {
-            (None, None) if wasm => (APPLICATION_WASM, Bytes::from_static(wit::LEDGER_WASM)),
-            (None, None) => (
-                TEXT_PLAIN_UTF_8,
-                Bytes::from_static(wit::LEDGER_WIT.as_bytes()),
-            ),
             (Some(..), None) => return Err(RpcGetError::UtxoIndexMissing),
+            (None, None) => {
+                if accept == &APPLICATION_WASM {
+                    (APPLICATION_WASM, Bytes::from_static(wit::LEDGER_WASM))
+                } else {
+                    (
+                        TEXT_PLAIN_UTF_8,
+                        Bytes::from_static(wit::LEDGER_WIT.as_bytes()),
+                    )
+                }
+            }
             (transaction, Some(index)) => {
                 let utxo = self
                     .get_utxo(transaction, index)
@@ -558,7 +544,7 @@ impl Ledger {
                 let Some((text, utxo_wasm)) = contract.utxo_wits.get(&utxo.instance) else {
                     return Err(RpcGetError::UtxoInstanceNotFound(utxo.instance.clone()));
                 };
-                if wasm {
+                if accept == &APPLICATION_WASM {
                     (APPLICATION_WASM, utxo_wasm.clone())
                 } else {
                     (TEXT_PLAIN_UTF_8, text.clone())

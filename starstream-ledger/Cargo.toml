@@ -18,8 +18,6 @@ client = [
 ]
 server = [
     "dep:anyhow",
-    "dep:headers-accept",
-    "dep:headers-core",
     "dep:http-body",
     "dep:hyper",
     "dep:tokio-io-timeout",
@@ -39,8 +37,6 @@ coset = { workspace = true, features = ["std"] }
 ed25519-dalek = { workspace = true, features = ["fast", "std", "zeroize"] }
 form_urlencoded = { workspace = true, features = ["std"] }
 futures = { workspace = true }
-headers-accept = { workspace = true, optional = true }
-headers-core = { workspace = true, optional = true }
 hex = { workspace = true, features = ["std"] }
 http = { workspace = true, features = ["std"] }
 http-body = { workspace = true, optional = true }
