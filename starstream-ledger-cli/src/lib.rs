@@ -26,6 +26,7 @@ use starstream_ledger::{
 use starstream_runtime::Utxo;
 use tokio::fs;
 use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
+use tokio::try_join;
 use tokio_util::codec::Encoder as _;
 use tracing::{info, warn};
 use wasm_wave::wasm::WasmFunc as _;
@@ -46,10 +47,6 @@ pub struct Args {
     )]
     url: Uri,
 
-    /// Network identifier the transaction is bound to.
-    #[arg(long, global = true, default_value = "dev")]
-    network: Box<str>,
-
     /// Time an idle connection to the node is kept open for reuse, in seconds.
     #[arg(long, global = true, value_name = "SECONDS", default_value_t = 15)]
     pool_idle_timeout: u64,
@@ -63,6 +60,10 @@ enum Command {
     /// Manage accounts.
     #[command(subcommand)]
     Account(AccountCommand),
+
+    /// Query the ledger admin.
+    #[command(subcommand)]
+    Admin(AdminCommand),
 
     /// Query ledger blocks.
     #[command(subcommand)]
@@ -85,6 +86,10 @@ enum Command {
     #[command(subcommand)]
     Key(KeyCommand),
 
+    /// Query the ledger network.
+    #[command(subcommand)]
+    Network(NetworkCommand),
+
     /// Inspect transactions.
     #[command(subcommand)]
     Transaction(TransactionCommand),
@@ -94,24 +99,27 @@ enum Command {
     Utxo(UtxoCommand),
 }
 
-/// Arguments common to every signed transaction.
-#[derive(Debug, clap::Args)]
-struct SigningArgs {
-    /// Path to a file containing the hex-encoded Ed25519 signing key.
-    #[arg(long, value_name = "PATH")]
-    key: PathBuf,
-
-    /// Transaction nonce.
-    #[arg(long)]
-    nonce: u64,
-}
-
 #[derive(Debug, Subcommand)]
 enum AccountCommand {
+    /// Get the balance of an account.
+    Balance {
+        /// Hex-encoded Ed25519 public key of the account.
+        #[arg(value_parser = parse_verifying_key)]
+        account: VerifyingKey,
+    },
     /// Fund an account with a credit signed by the admin key.
     Fund {
-        #[command(flatten)]
-        signing: SigningArgs,
+        /// Path to a file containing the hex-encoded Ed25519 admin signing key.
+        #[arg(long, value_name = "PATH")]
+        key: PathBuf,
+
+        /// Network identifier the envelope is bound to, defaults to the one reported by the ledger.
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Admin nonce, defaults to the one following the last nonce used by the admin key.
+        #[arg(long)]
+        nonce: Option<u64>,
 
         /// Hex-encoded Ed25519 public key of the account to fund.
         #[arg(value_parser = parse_verifying_key)]
@@ -120,10 +128,27 @@ enum AccountCommand {
         /// Amount to credit the account with.
         amount: u64,
     },
+    /// Get the last nonce used by an account to publish contracts.
+    Nonce {
+        /// Hex-encoded Ed25519 public key of the account.
+        #[arg(value_parser = parse_verifying_key)]
+        account: VerifyingKey,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AdminCommand {
+    /// Get the last nonce used by the admin key to fund accounts.
+    Nonce,
 }
 
 #[derive(Debug, Subcommand)]
 enum BlockCommand {
+    /// Print the hex-encoded envelopes of a ledger block, one per line.
+    Get {
+        /// Height of the block.
+        height: u64,
+    },
     /// Get the height of the latest ledger block.
     Height,
 }
@@ -133,8 +158,17 @@ enum BlockCommand {
 enum ContractCommand {
     /// Sign and publish a contract.
     Publish {
-        #[command(flatten)]
-        signing: SigningArgs,
+        /// Path to a file containing the hex-encoded Ed25519 signing key.
+        #[arg(long, value_name = "PATH")]
+        key: PathBuf,
+
+        /// Network identifier the envelope is bound to, defaults to the one reported by the ledger.
+        #[arg(long)]
+        network: Option<String>,
+
+        /// Publish nonce, defaults to the one following the last nonce used by the key.
+        #[arg(long)]
+        nonce: Option<u64>,
 
         /// Path to the contract.
         wasm: PathBuf,
@@ -149,8 +183,17 @@ enum ScriptCommand {
     /// Call a coordination script exported by a published contract and submit the resulting transaction.
     Call {
         /// Path to a file containing the hex-encoded Ed25519 signing key.
-        #[arg(long, value_name = "PATH", required_unless_present = "simulate")]
+        #[arg(
+            long,
+            value_name = "PATH",
+            required_unless_present = "simulate",
+            conflicts_with = "simulate"
+        )]
         key: Option<PathBuf>,
+
+        /// Network identifier the envelope is bound to, defaults to the one reported by the ledger.
+        #[arg(long, conflicts_with = "simulate")]
+        network: Option<String>,
 
         /// Simulate the call instead of submitting the transaction.
         #[arg(long)]
@@ -209,6 +252,12 @@ impl<T: Client> Client for ImportClient<'_, T> {
 enum KeyCommand {
     /// Generate a new Ed25519 key pair.
     Generate,
+}
+
+#[derive(Debug, Subcommand)]
+enum NetworkCommand {
+    /// Get the name of the network the ledger accepts envelopes for.
+    Name,
 }
 
 #[derive(Debug, Subcommand)]
@@ -352,10 +401,19 @@ impl Args {
     }
 }
 
+async fn resolve_network(
+    client: &starstream_ledger::client::http::Client<HttpConnector>,
+    network: Option<String>,
+) -> anyhow::Result<String> {
+    match network {
+        Some(network) => Ok(network),
+        None => client.get_network().await,
+    }
+}
+
 async fn exec(args: Args) -> anyhow::Result<()> {
     let Args {
         url,
-        network,
         pool_idle_timeout,
         command,
     } = args;
@@ -363,17 +421,66 @@ async fn exec(args: Args) -> anyhow::Result<()> {
     let mut http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     http.pool_timer(TokioTimer::new())
         .pool_idle_timeout(Duration::from_secs(pool_idle_timeout));
-    let client = ClientBuilder::new(http, HttpConnector::new(), url)
-        .network(network.as_ref())
-        .build();
+    let client = ClientBuilder::new(http, HttpConnector::new(), url).build();
     match command {
+        Command::Account(AccountCommand::Balance { account }) => {
+            let balance = client.get_account_balance(&account).await?;
+            let balance = balance.with_context(|| {
+                format!("account `{}` not found", hex::encode(account.as_bytes()))
+            })?;
+            stdout()
+                .write_all(format!("{balance}\n").as_bytes())
+                .await
+                .context("failed to write balance to stdout")
+        }
         Command::Account(AccountCommand::Fund {
-            signing: SigningArgs { key, nonce },
+            key,
+            network,
+            nonce,
             account,
             amount,
         }) => {
             let key = read_signing_key(&key).await?;
-            client.fund(key, nonce, &account, amount).await
+            let (network, nonce) = try_join!(resolve_network(&client, network), async {
+                match nonce {
+                    Some(nonce) => Ok(nonce),
+                    None => {
+                        let nonce = client.get_admin_nonce().await?;
+                        nonce.checked_add(1).context("admin nonce exhausted")
+                    }
+                }
+            })?;
+            client.fund(key, &network, nonce, &account, amount).await
+        }
+        Command::Account(AccountCommand::Nonce { account }) => {
+            let nonce = client.get_account_nonce(&account).await?;
+            let nonce = nonce.with_context(|| {
+                format!("account `{}` not found", hex::encode(account.as_bytes()))
+            })?;
+            stdout()
+                .write_all(format!("{nonce}\n").as_bytes())
+                .await
+                .context("failed to write nonce to stdout")
+        }
+        Command::Admin(AdminCommand::Nonce) => {
+            let nonce = client.get_admin_nonce().await?;
+            stdout()
+                .write_all(format!("{nonce}\n").as_bytes())
+                .await
+                .context("failed to write nonce to stdout")
+        }
+        Command::Block(BlockCommand::Get { height }) => {
+            let envelopes = client.get_block(height).await?;
+            let envelopes = envelopes.with_context(|| format!("block {height} not found"))?;
+            let mut out = String::default();
+            for envelope in envelopes {
+                out.push_str(&hex::encode(envelope));
+                out.push('\n');
+            }
+            stdout()
+                .write_all(out.as_bytes())
+                .await
+                .context("failed to write envelopes to stdout")
         }
         Command::Block(BlockCommand::Height) => {
             let height = client.block_height().await?;
@@ -403,14 +510,29 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 .context("failed to write genesis to stdout")
         }
         Command::Contract(ContractCommand::Publish {
-            signing: SigningArgs { key, nonce },
+            key,
+            network,
+            nonce,
             wasm,
         }) => {
             let key = read_signing_key(&key).await?;
             let wasm = fs::read(&wasm)
                 .await
                 .with_context(|| format!("failed to read `{}`", wasm.display()))?;
-            let digest = client.publish_contract(key, nonce, wasm).await?;
+            let (network, nonce) = try_join!(resolve_network(&client, network), async {
+                match nonce {
+                    Some(nonce) => Ok(nonce),
+                    None => {
+                        let account = key.verifying_key();
+                        let nonce = client.get_account_nonce(&account).await?;
+                        let nonce = nonce.with_context(|| {
+                            format!("account `{}` not found", hex::encode(account.as_bytes()))
+                        })?;
+                        nonce.checked_add(1).context("account nonce exhausted")
+                    }
+                }
+            })?;
+            let digest = client.publish_contract(key, &network, nonce, wasm).await?;
             stdout()
                 .write_all(format!("{}\n", encode_digest(&digest)).as_bytes())
                 .await
@@ -418,6 +540,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         }
         Command::Contract(ContractCommand::Script(ScriptCommand::Call {
             key,
+            network,
             simulate,
             output_transaction,
             imports,
@@ -541,7 +664,8 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                     .with_context(|| format!("failed to write `{}`", path.display()))?;
             }
             if let Some(key) = key {
-                let digest = client.transact(key, tx).await?;
+                let network = resolve_network(&client, network).await?;
+                let digest = client.transact(key, &network, tx).await?;
                 info!(digest = %encode_digest(&digest), "submitted transaction");
             }
             results.push('\n');
@@ -560,6 +684,13 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 .write_all(format!("{}\n", hex::encode(key.to_bytes())).as_bytes())
                 .await
                 .context("failed to write signing key to stdout")
+        }
+        Command::Network(NetworkCommand::Name) => {
+            let name = client.get_network().await?;
+            stdout()
+                .write_all(format!("{name}\n").as_bytes())
+                .await
+                .context("failed to write network name to stdout")
         }
         Command::Transaction(TransactionCommand::Get { digest }) => {
             let tx = client.get_transaction(digest).await?;

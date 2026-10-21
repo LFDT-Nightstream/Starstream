@@ -41,8 +41,8 @@ interface types {
     }
 
     variant get-error {
-        invalid-digest(string),
         not-found,
+        malformed(string),
     }
 
     record transaction {
@@ -53,8 +53,20 @@ interface types {
     }
 }
 
+interface admin {
+    get-nonce: func() -> u64;
+}
+
+interface account {
+    use types.{get-error};
+
+    get-balance: func(key: list<u8>) -> result<u64, get-error>;
+    get-nonce: func(key: list<u8>) -> result<u64, get-error>;
+}
+
 interface block {
     get-height: func() -> u64;
+    get-block: func(height: u64) -> option<list<list<u8>>>;
 }
 
 interface contract {
@@ -77,9 +89,16 @@ interface genesis {
     get-outputs: func() -> list<transaction-output>;
 }
 
+interface network {
+    get-name: func() -> string;
+}
+
 world client {
+    import admin;
+    import account;
     import block;
     import contract;
     import transaction;
     import genesis;
+    import network;
 }

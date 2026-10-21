@@ -17,12 +17,12 @@ use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use sha2::{Digest as _, Sha256};
-use starstream_ledger::client::build_publish_envelope;
 use starstream_ledger::client::http::{
     ClientBuilder, build_contract_get_request, build_contract_publish_request, build_fund_request,
     build_transaction_get_request,
 };
 use starstream_ledger::client::runtime::{Client, call_coordination_script, compile_contract};
+use starstream_ledger::client::{build_fund_envelope, build_publish_envelope};
 use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::LEDGER_BLOCK_INSTANCE;
 use starstream_ledger::wrpc::codec::ValEncoder;
@@ -175,13 +175,32 @@ async fn http() {
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http.clone(), HttpConnector::new(), api_base.clone())
-        .network(NETWORK)
-        .build();
+    let client = ClientBuilder::new(http.clone(), HttpConnector::new(), api_base.clone()).build();
     let http = http.build_http();
 
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 0);
+
+    let name = client.get_network().await.unwrap();
+    assert_eq!(name, NETWORK);
+
+    let nonce = client.get_admin_nonce().await.unwrap();
+    assert_eq!(nonce, 0);
+    let balance = client
+        .get_account_balance(&ADMIN.verifying_key())
+        .await
+        .unwrap();
+    assert_eq!(balance, None);
+    let nonce = client
+        .get_account_nonce(&ADMIN.verifying_key())
+        .await
+        .unwrap();
+    assert_eq!(nonce, None);
+
+    let block = client.get_block(0).await.unwrap();
+    assert_eq!(block, None);
+    let block = client.get_block(1).await.unwrap();
+    assert_eq!(block, None);
 
     let outputs = client.get_genesis().await.unwrap();
     assert_eq!(outputs, genesis);
@@ -231,12 +250,44 @@ async fn http() {
     let balance = score_publish_cost.saturating_sub(1000);
 
     client
-        .fund(ADMIN.clone(), 1, &ADMIN.verifying_key(), balance as _)
+        .fund(
+            ADMIN.clone(),
+            NETWORK,
+            1,
+            &ADMIN.verifying_key(),
+            balance as _,
+        )
         .await
         .unwrap();
 
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 1);
+
+    let nonce = client.get_admin_nonce().await.unwrap();
+    assert_eq!(nonce, 1);
+    let got = client
+        .get_account_balance(&ADMIN.verifying_key())
+        .await
+        .unwrap();
+    assert_eq!(got, Some(balance as _));
+    let nonce = client
+        .get_account_nonce(&ADMIN.verifying_key())
+        .await
+        .unwrap();
+    assert_eq!(nonce, Some(0));
+
+    let fund_envelope = build_fund_envelope(
+        ADMIN.clone(),
+        NETWORK,
+        starstream_ledger::Fund {
+            nonce: 1,
+            account: ADMIN.verifying_key().to_bytes(),
+            amount: balance as _,
+        },
+    )
+    .unwrap();
+    let block = client.get_block(1).await.unwrap();
+    assert_eq!(block, Some(vec![Bytes::from(fund_envelope)]));
 
     let req = build_fund_request(
         &api_base,
@@ -275,6 +326,7 @@ async fn http() {
     client
         .fund(
             ADMIN.clone(),
+            NETWORK,
             2,
             &ADMIN.verifying_key(),
             (score_publish_cost - balance) as _,
@@ -298,7 +350,7 @@ async fn http() {
     assert!(body.starts_with("invalid Wasm: "), "{body}");
 
     let digest = client
-        .publish_contract(ADMIN.clone(), 2, SCORE_WASM.clone())
+        .publish_contract(ADMIN.clone(), NETWORK, 2, SCORE_WASM.clone())
         .await
         .unwrap();
     assert_eq!(digest, *SCORE_WASM_DIGEST);
@@ -343,6 +395,24 @@ async fn http() {
 
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 3);
+
+    let nonce = client.get_admin_nonce().await.unwrap();
+    assert_eq!(nonce, 2);
+    let balance = client
+        .get_account_balance(&ADMIN.verifying_key())
+        .await
+        .unwrap();
+    assert_eq!(balance, Some(0));
+    let nonce = client
+        .get_account_nonce(&ADMIN.verifying_key())
+        .await
+        .unwrap();
+    assert_eq!(nonce, Some(2));
+
+    let block = client.get_block(3).await.unwrap();
+    assert_eq!(block, Some(vec![Bytes::from(score_publish_envelope)]));
+    let block = client.get_block(4).await.unwrap();
+    assert_eq!(block, None);
 
     let score_contract = compile_contract(
         &client,
@@ -400,6 +470,7 @@ async fn http() {
     client
         .transact(
             ADMIN.clone(),
+            NETWORK,
             Transaction {
                 inputs,
                 outputs: outputs.clone(),
@@ -413,6 +484,7 @@ async fn http() {
     let err = client
         .transact(
             ADMIN.clone(),
+            NETWORK,
             Transaction {
                 inputs: vec![TransactionInput::genesis(0), TransactionInput::genesis(0)],
                 outputs: outputs.clone(),
@@ -432,7 +504,10 @@ async fn http() {
     };
     let tx_cbor = minicbor::to_vec(&tx).unwrap();
     let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
-    let digest = client.transact(ADMIN.clone(), tx.clone()).await.unwrap();
+    let digest = client
+        .transact(ADMIN.clone(), NETWORK, tx.clone())
+        .await
+        .unwrap();
     assert_eq!(digest, tx_digest);
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 4);
@@ -479,6 +554,7 @@ async fn http() {
     let err = client
         .transact(
             ADMIN.clone(),
+            NETWORK,
             Transaction {
                 outputs: Vec::default(),
                 ..tx
@@ -581,11 +657,9 @@ async fn serve(
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http, HttpConnector::new(), api_base)
-        .network(NETWORK)
-        .build();
+    let client = ClientBuilder::new(http, HttpConnector::new(), api_base).build();
     client
-        .fund(ADMIN.clone(), 1, &ADMIN.verifying_key(), 1 << 20)
+        .fund(ADMIN.clone(), NETWORK, 1, &ADMIN.verifying_key(), 1 << 20)
         .await
         .unwrap();
 
@@ -656,7 +730,7 @@ script fn create() {
     .unwrap();
     let (client, shutdown, ledger) = serve(tx.outputs).await;
     client
-        .publish_contract(ADMIN.clone(), 2, wasm)
+        .publish_contract(ADMIN.clone(), NETWORK, 2, wasm)
         .await
         .unwrap();
 
@@ -721,9 +795,7 @@ async fn stalled_connections_are_closed() {
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http, HttpConnector::new(), api_base)
-        .network(NETWORK)
-        .build();
+    let client = ClientBuilder::new(http, HttpConnector::new(), api_base).build();
     let height = tokio::time::timeout(Duration::from_secs(10), client.block_height())
         .await
         .expect("idle connection must be closed")
@@ -807,7 +879,7 @@ utxo Counter {
     };
     let (client, shutdown, ledger) = serve([output]).await;
     client
-        .publish_contract(ADMIN.clone(), 2, wasm)
+        .publish_contract(ADMIN.clone(), NETWORK, 2, wasm)
         .await
         .unwrap();
 
@@ -853,7 +925,7 @@ utxo Counter {
     let (client, shutdown, ledger) = serve([]).await;
 
     let err = client
-        .publish_contract(ADMIN.clone(), 2, wasm)
+        .publish_contract(ADMIN.clone(), NETWORK, 2, wasm)
         .await
         .expect_err("publishing a UTXO method taking a UTXO must fail");
     shutdown.notify_one();
@@ -882,7 +954,7 @@ async fn publish_package_cycle() {
     let (client, shutdown, ledger) = serve([]).await;
 
     client
-        .publish_contract(ADMIN.clone(), 2, wasm)
+        .publish_contract(ADMIN.clone(), NETWORK, 2, wasm)
         .await
         .unwrap();
     shutdown.notify_one();
