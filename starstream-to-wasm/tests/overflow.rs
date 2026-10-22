@@ -1,8 +1,14 @@
 use starstream_compiler::TypecheckOptions;
-use wasmtime::{Config, Engine, Linker, Module, Store};
+use starstream_to_wasm::CompileOptions;
+use wasmtime::{Config, Engine, Linker, Module, Store, Val};
 
 /// Helper to compile a Starstream program
 fn compile_program(source: &str) -> Vec<u8> {
+    compile_program_with(source, CompileOptions::default())
+}
+
+/// Helper to compile a Starstream program with non-default options
+fn compile_program_with(source: &str, options: CompileOptions) -> Vec<u8> {
     let parse_output = starstream_compiler::parse_program(source);
     let (program, errors) = parse_output.into_output_errors();
     assert!(errors.is_empty(), "Parse errors: {errors:?}");
@@ -16,9 +22,9 @@ fn compile_program(source: &str) -> Vec<u8> {
     )
     .expect("Typecheck failed");
 
-    let compile_result = starstream_to_wasm::compile(&success.program);
+    let compile_result = options.compile(&success.program);
     assert!(
-        errors.is_empty(),
+        compile_result.errors.is_empty(),
         "Compile errors: {:?}",
         compile_result.errors
     );
@@ -26,8 +32,8 @@ fn compile_program(source: &str) -> Vec<u8> {
     compile_result.wasm.expect("No WASM generated")
 }
 
-/// Helper to execute WASM and check if it traps
-fn execute_wasm(wasm: &[u8], func_name: &str, params: &[i64]) -> Result<Vec<i64>, String> {
+/// Helper to call an exported function, returning the trap message if it traps
+fn call(wasm: &[u8], func_name: &str, params: &[Val], results: &mut [Val]) -> Result<(), String> {
     let mut config = Config::new();
     config.wasm_component_model(false);
     let engine = Engine::new(&config).unwrap();
@@ -42,16 +48,16 @@ fn execute_wasm(wasm: &[u8], func_name: &str, params: &[i64]) -> Result<Vec<i64>
         .get_func(&mut store, func_name)
         .unwrap_or_else(|| panic!("Function {func_name} not found"));
 
-    let mut results = vec![wasmtime::Val::I64(0)];
-    let params: Vec<wasmtime::Val> = params.iter().map(|&p| wasmtime::Val::I64(p)).collect();
+    func.call(&mut store, params, results)
+        .map_err(|e| format!("{e}"))
+}
 
-    match func.call(&mut store, &params, &mut results) {
-        Ok(()) => {
-            let result: Vec<i64> = results.iter().map(|v| v.i64().unwrap()).collect();
-            Ok(result)
-        }
-        Err(e) => Err(format!("{e}")),
-    }
+/// Helper to execute WASM and check if it traps
+fn execute_wasm(wasm: &[u8], func_name: &str, params: &[i64]) -> Result<Vec<i64>, String> {
+    let mut results = vec![Val::I64(0)];
+    let params: Vec<Val> = params.iter().map(|&p| Val::I64(p)).collect();
+    call(wasm, func_name, &params, &mut results)?;
+    Ok(results.iter().map(|v| v.i64().unwrap()).collect())
 }
 
 // ============================================================================
@@ -1154,4 +1160,125 @@ script fn test_mul(x: i64, y: i64) -> i64 {
     let result = execute_wasm(&wasm, "test-mul", &[i64::MIN, 0]);
     assert!(result.is_ok(), "Should not overflow with zero");
     assert_eq!(result.unwrap()[0], 0);
+}
+
+// ============================================================================
+// Every integer width
+// ============================================================================
+
+/// `(type, MIN, MAX)` for every integer type.
+const INT_TYPES: [(&str, i128, i128); 8] = [
+    ("i8", i8::MIN as i128, i8::MAX as i128),
+    ("i16", i16::MIN as i128, i16::MAX as i128),
+    ("i32", i32::MIN as i128, i32::MAX as i128),
+    ("i64", i64::MIN as i128, i64::MAX as i128),
+    ("u8", 0, u8::MAX as i128),
+    ("u16", 0, u16::MAX as i128),
+    ("u32", 0, u32::MAX as i128),
+    ("u64", 0, u64::MAX as i128),
+];
+
+/// The core Wasm value of a `ty` integer: an `i64` for 64-bit types, otherwise
+/// an `i32`, sign-extended for signed types.
+fn int_val(ty: &str, value: i128) -> Val {
+    if ty.ends_with("64") {
+        Val::I64(value as i64)
+    } else {
+        Val::I32(value as i32)
+    }
+}
+
+/// Compile `add`, `sub`, `mul` and `div` on `ty`, plus `neg` for signed types.
+fn compile_arithmetic(ty: &str, options: CompileOptions) -> Vec<u8> {
+    let mut source = String::new();
+    for (name, op) in [("add", "+"), ("sub", "-"), ("mul", "*"), ("div", "/")] {
+        source.push_str(&format!(
+            "script fn {name}(x: {ty}, y: {ty}) -> {ty} {{\n    x {op} y\n}}\n"
+        ));
+    }
+    if ty.starts_with('i') {
+        source.push_str(&format!("script fn neg(x: {ty}) -> {ty} {{\n    -x\n}}\n"));
+    }
+    compile_program_with(&source, options)
+}
+
+/// Call `func_name` on `ty` arguments: `Some(result)` must come back, `None`
+/// means it must trap.
+fn assert_int_call(wasm: &[u8], ty: &str, func_name: &str, args: &[i128], expected: Option<i128>) {
+    let params: Vec<Val> = args.iter().map(|&arg| int_val(ty, arg)).collect();
+    let mut results = [int_val(ty, 0)];
+    let result = call(wasm, func_name, &params, &mut results);
+    let call = format!("{func_name}{args:?} on {ty}");
+    match expected {
+        Some(value) => {
+            assert!(result.is_ok(), "{call} trapped: {result:?}");
+            let (actual, expected) = match (&results[0], int_val(ty, value)) {
+                (Val::I32(actual), Val::I32(expected)) => (i64::from(*actual), i64::from(expected)),
+                (Val::I64(actual), Val::I64(expected)) => (*actual, expected),
+                other => panic!("{call}: mismatched result types {other:?}"),
+            };
+            assert_eq!(actual, expected, "{call}");
+        }
+        None => assert!(result.is_err(), "{call} should trap"),
+    }
+}
+
+#[test]
+fn test_overflow_traps_for_every_width() {
+    for (ty, min, max) in INT_TYPES {
+        let wasm = compile_arithmetic(ty, CompileOptions::default());
+        let check = |func_name, args: &[i128], expected| {
+            assert_int_call(&wasm, ty, func_name, args, expected)
+        };
+
+        check("add", &[max, 1], None);
+        check("add", &[max - 1, 1], Some(max));
+        check("mul", &[max, 2], None);
+        check("mul", &[max, 1], Some(max));
+        check("div", &[max, 1], Some(max));
+
+        if ty.starts_with('i') {
+            check("add", &[min, -1], None);
+            check("add", &[min + 1, -1], Some(min));
+            check("sub", &[min, 1], None);
+            check("sub", &[max, -1], None);
+            check("sub", &[min + 1, 1], Some(min));
+            check("mul", &[min, -1], None);
+            check("mul", &[-1, max], Some(min + 1));
+            check("div", &[min, -1], None);
+            check("div", &[min, 1], Some(min));
+            check("neg", &[min], None);
+            check("neg", &[max], Some(-max));
+        } else {
+            let half = 1i128 << (ty[1..].parse::<u32>().unwrap() / 2);
+            check("sub", &[0, 1], None);
+            check("sub", &[max, max], Some(0));
+            check("mul", &[half, half], None);
+            check("mul", &[half - 1, half + 1], Some(max));
+        }
+    }
+}
+
+#[test]
+fn test_unchecked_arithmetic_wraps_for_every_width() {
+    let options = CompileOptions {
+        check_overflows: false,
+        ..CompileOptions::default()
+    };
+    for (ty, min, max) in INT_TYPES {
+        let wasm = compile_arithmetic(ty, options.clone());
+        let check = |func_name, args: &[i128], expected| {
+            assert_int_call(&wasm, ty, func_name, args, Some(expected))
+        };
+
+        check("add", &[max, 1], min);
+        check("sub", &[min, 1], max);
+        if ty.starts_with('i') {
+            check("neg", &[min], min);
+            // 32- and 64-bit `MIN / -1` traps natively.
+            if matches!(ty, "i8" | "i16") {
+                check("div", &[min, -1], min);
+            }
+        }
+    }
 }
