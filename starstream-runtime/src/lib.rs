@@ -375,10 +375,6 @@ fn link_effect_function<T: Host>(
             Box::new(async move {
                 let stack = store.as_context_mut().data_mut().core().effect_stack.clone();
                 debug!(abi = ?abi_name, effect = ?name, ?params, stack_len = ?stack.len(), hash = ?hash, "raise_effect");
-                if stack.is_empty() {
-                    bail!("effect handler stack is empty");
-                }
-
                 for (i, frame) in stack.iter().enumerate().rev() {
                     let instance = frame.instance;
                     if frame.effects_handled.contains(&hash) {

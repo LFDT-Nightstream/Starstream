@@ -219,59 +219,60 @@ TypedProgram {
 (module
   (type (;0;) (func (param i32)))
   (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
-  (type (;2;) (func (param i32 i64 i64 i64 i64)))
-  (type (;3;) (func))
-  (type (;4;) (func (param i32) (result i32)))
-  (type (;5;) (func (result i32)))
-  (type (;6;) (func (param i32 i32) (result i32)))
-  (type (;7;) (func (param i64 i64 i64 i64)))
+  (type (;2;) (func))
+  (type (;3;) (func (param i64 i64 i64 i64)))
+  (type (;4;) (func (param i32 i64 i64 i64 i64)))
+  (type (;5;) (func (param i32) (result i32)))
+  (type (;6;) (func (result i32)))
+  (type (;7;) (func (param i32 i32) (result i32)))
   (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
-  (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;3;) (type 0)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;4;) (type 0)))
-  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;5;) (type 2)))
-  (import "starstream:events/foo-abi" "hello-event" (func (;6;) (type 3)))
-  (import "starstream:self/my-utxo" "[resource-drop]utxo" (func (;7;) (type 0)))
-  (import "[export]my-utxo" "[resource-new]utxo" (func (;8;) (type 4)))
-  (import "[export]my-utxo" "[resource-drop]utxo" (func (;9;) (type 0)))
-  (import "starstream:self/my-utxo" "[static]utxo.hello-utxo" (func (;10;) (type 5)))
+  (import "starstream:std/builtin" "push-effect-handler-frame" (func (;3;) (type 2)))
+  (import "starstream:std/builtin" "add-effect-handler" (func (;4;) (type 3)))
+  (import "starstream:std/builtin" "pop-effect-handler-frame" (func (;5;) (type 2)))
+  (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;6;) (type 0)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;7;) (type 0)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;8;) (type 4)))
+  (import "starstream:events/foo-abi" "hello-event" (func (;9;) (type 2)))
+  (import "starstream:self/my-utxo" "[resource-drop]utxo" (func (;10;) (type 0)))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;11;) (type 5)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;12;) (type 0)))
+  (import "starstream:self/my-utxo" "[static]utxo.hello-utxo" (func (;13;) (type 6)))
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
-  (export "my-utxo#[static]utxo.hello-utxo" (func 12))
-  (export "my-utxo#get-storage" (func 13))
-  (export "my-utxo#set-storage" (func 14))
-  (export "starstream:meta/effect-handler#assert-effect-not-handled" (func 15))
-  (func (;11;) (type 3)
-    (call 4
+  (export "my-utxo#[static]utxo.hello-utxo" (func 15))
+  (export "my-utxo#get-storage" (func 16))
+  (export "my-utxo#set-storage" (func 17))
+  (func (;14;) (type 2)
+    (call 7
       (global.get 1))
     (unreachable)
   )
-  (func (;12;) (type 4) (param i32) (result i32)
+  (func (;15;) (type 5) (param i32) (result i32)
     (local i32)
     (local.set 1
-      (call 8
+      (call 11
         (i32.const 0)))
     (global.set 1
       (local.get 0))
-    (call 6)
-    (call 3
+    (call 9)
+    (call 6
       (local.get 0))
     (local.get 1)
   )
-  (func (;13;) (type 4) (param i32) (result i32)
+  (func (;16;) (type 5) (param i32) (result i32)
     (global.get 0)
   )
-  (func (;14;) (type 6) (param i32 i32) (result i32)
+  (func (;17;) (type 7) (param i32 i32) (result i32)
     (global.set 1
       (local.get 0))
     (global.set 0
       (local.get 1))
     (return
-      (call 8
+      (call 11
         (i32.const 0)))
   )
-  (func (;15;) (type 7) (param i64 i64 i64 i64))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -290,6 +291,12 @@ TypedProgram {
                   (export (;5;) "token" (type (sub resource)))
                   (type (;6;) (borrow 5))
                   (type (;7;) (own 5))
+                  (type (;8;) (func))
+                  (export (;1;) "push-effect-handler-frame" (func (type 8)))
+                  (type (;9;) (func (param "hash" 3)))
+                  (export (;2;) "add-effect-handler" (func (type 9)))
+                  (type (;10;) (func))
+                  (export (;3;) "pop-effect-handler-frame" (func (type 10)))
                 )
               )
               (import "starstream:std/builtin" (instance (;0;) (type 0)))
@@ -359,14 +366,6 @@ TypedProgram {
                 )
               )
               (export (;4;) "my-utxo" (instance (type 20)))
-              (type (;21;)
-                (instance
-                  (type (;0;) (tuple u64 u64 u64 u64))
-                  (type (;1;) (func (param "id" 0)))
-                  (export (;0;) "assert-effect-not-handled" (func (type 1)))
-                )
-              )
-              (export (;5;) "starstream:meta/effect-handler" (instance (type 21)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -404,7 +403,6 @@ world root {
 
     set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
   }
-  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -413,6 +411,12 @@ package starstream:std {
     }
 
     resource token;
+
+    push-effect-handler-frame: func();
+
+    add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
+
+    pop-effect-handler-frame: func();
   }
   interface utxo-context {
     resource utxo-context {
@@ -435,12 +439,5 @@ package starstream:self {
     resource utxo {
       hello-utxo: static func() -> utxo;
     }
-  }
-}
-
-
-package starstream:meta {
-  interface effect-handler {
-    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }

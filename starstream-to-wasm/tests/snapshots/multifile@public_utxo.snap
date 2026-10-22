@@ -55,7 +55,6 @@ world root {
 
     set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
   }
-  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -64,6 +63,12 @@ package starstream:std {
     }
 
     resource token;
+
+    push-effect-handler-frame: func();
+
+    add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
+
+    pop-effect-handler-frame: func();
   }
   interface utxo-context {
     resource utxo-context {
@@ -87,13 +92,6 @@ package starstream:self {
       new: static func() -> utxo;
       value: func() -> s64;
     }
-  }
-}
-
-
-package starstream:meta {
-  interface effect-handler {
-    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
   }
 }
 

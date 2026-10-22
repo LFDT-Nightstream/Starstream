@@ -30,7 +30,6 @@ world root {
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
 
   export run: func() -> s64;
-  export starstream:meta/effect-handler;
 }
 package starstream:std {
   interface builtin {
@@ -39,12 +38,11 @@ package starstream:std {
     }
 
     resource token;
-  }
-}
 
+    push-effect-handler-frame: func();
 
-package starstream:meta {
-  interface effect-handler {
-    assert-effect-not-handled: func(id: tuple<u64, u64, u64, u64>);
+    add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
+
+    pop-effect-handler-frame: func();
   }
 }
