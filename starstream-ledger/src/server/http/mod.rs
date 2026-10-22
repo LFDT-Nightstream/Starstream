@@ -1,6 +1,5 @@
 use core::future::poll_fn;
 use core::iter::zip;
-use core::net::SocketAddr;
 use core::pin::pin;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::task::{Poll, ready};
@@ -10,7 +9,6 @@ use std::collections::{HashMap, HashSet, hash_map};
 use std::error::Error as _;
 use std::sync::Arc;
 
-use anyhow::Context as _;
 use bytes::{Buf, BufMut as _, Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
 use futures::TryStreamExt as _;
@@ -24,7 +22,7 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
-use tokio::net::TcpSocket;
+use tokio::net::TcpListener;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
@@ -66,27 +64,6 @@ const TEXT_PLAIN_UTF_8: MediaType = MediaType::from_parts(
     None,
     &[(mediatype::names::CHARSET, mediatype::values::UTF_8)],
 );
-
-fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
-    debug!("binding TCP socket");
-    let sock = match address {
-        SocketAddr::V4(..) => TcpSocket::new_v4(),
-        SocketAddr::V6(..) => TcpSocket::new_v6(),
-    }
-    .context("failed to create HTTP TCP socket")?;
-    // Conditionally enable `SO_REUSEADDR` depending on the current
-    // platform. On Unix we want this to be able to rebind an address in
-    // the `TIME_WAIT` state which can happen then a server is killed with
-    // active TCP connections and then restarted. On Windows though if
-    // `SO_REUSEADDR` is specified then it enables multiple applications to
-    // bind the port at the same time which is not something we want. Hence
-    // this is conditionally set based on the platform (and deviates from
-    // Tokio's default from always-on).
-    sock.set_reuseaddr(!cfg!(windows))?;
-    sock.bind(address)
-        .with_context(|| format!("failed to bind on `{address}`"))?;
-    Ok(sock)
-}
 
 fn build_text_response<T>(
     code: http::StatusCode,
@@ -893,7 +870,7 @@ impl Ledger {
             .map_err(RpcPostError::Http)
     }
 
-    /// Bind `address` and return the future serving the ledger HTTP API.
+    /// Return the future serving the ledger HTTP API on `listener`.
     ///
     /// At most `max_requests` connections are served at once, and a connection
     /// is closed if it does not send a complete request head within
@@ -905,16 +882,11 @@ impl Ledger {
     /// down; [`Notify::notify_waiters`] is lost if it races the first poll of
     /// the future.
     #[instrument(skip_all)]
-    pub async fn handle_http(
+    pub fn handle_http(
         self: Arc<Self>,
-        address: SocketAddr,
+        listener: TcpListener,
         io_timeout: Duration,
-    ) -> anyhow::Result<(impl Future<Output = ()> + use<>, Arc<Notify>)> {
-        let sock = bind_tcp(address)?;
-        let sock = sock
-            .listen(self.max_requests)
-            .context("failed to listen on TCP socket")?;
-
+    ) -> (impl Future<Output = ()> + use<>, Arc<Notify>) {
         let ledger = self.clone();
         let svc = service_fn(move |req: http::Request<hyper::body::Incoming>| {
             let ledger = ledger.clone();
@@ -1041,7 +1013,7 @@ impl Ledger {
         let mut srv = hyper::server::conn::http1::Builder::new();
         srv.timer(TokioTimer::new()).header_read_timeout(io_timeout);
         let max_connections = self.max_requests as usize;
-        Ok((
+        (
             {
                 let shutdown = Arc::clone(&shutdown).notified_owned();
                 async move {
@@ -1062,7 +1034,7 @@ impl Ledger {
                                 // `poll_join_next` above.
                                 Poll::Pending if tasks.len() >= max_connections => Poll::Pending,
                                 Poll::Pending => {
-                                    let res = ready!(sock.poll_accept(cx));
+                                    let res = ready!(listener.poll_accept(cx));
                                     Poll::Ready(Some(res))
                                 }
                             }
@@ -1109,6 +1081,6 @@ impl Ledger {
                 .in_current_span()
             },
             shutdown,
-        ))
+        )
     }
 }

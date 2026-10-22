@@ -90,10 +90,12 @@ pub static REQUIRE_HASH_PREIMAGE_WASM_DIGEST: LazyLock<[u8; 32]> =
 pub static REQUIRE_HASH_PREIMAGE_CREATE_METHODS: LazyLock<BTreeSet<(u64, u64, u64, u64)>> =
     LazyLock::new(|| hash_methods(["consume"]));
 
-pub async fn free_tcp_addr() -> anyhow::Result<SocketAddr> {
+pub async fn bind_tcp_listener() -> anyhow::Result<(TcpListener, SocketAddr)> {
     let lis = TcpListener::bind((Ipv6Addr::LOCALHOST, 0))
         .await
         .context("failed to bind TCP listener")?;
-    lis.local_addr()
-        .context("failed to get TCP listener local address")
+    let addr = lis
+        .local_addr()
+        .context("failed to get TCP listener local address")?;
+    Ok((lis, addr))
 }
