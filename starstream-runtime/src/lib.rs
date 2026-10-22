@@ -152,10 +152,6 @@ pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'stati
 
     fn core(&mut self) -> &mut HostCore;
 
-    fn instance_stack(&mut self) -> &mut Vec<Instance> {
-        &mut self.core().instance_stack
-    }
-
     fn call_utxo_main(
         store: StoreContextMut<Self>,
         instance_name: Arc<str>,
@@ -279,13 +275,19 @@ async fn call_func<T: Host>(
     store
         .as_context_mut()
         .data_mut()
-        .instance_stack()
+        .core()
+        .instance_stack
         .push(*instance);
     let result = f
         .call_async(&mut store, params.as_ref(), results.as_mut())
         .await
         .context("failed to call function");
-    store.as_context_mut().data_mut().instance_stack().pop();
+    store
+        .as_context_mut()
+        .data_mut()
+        .core()
+        .instance_stack
+        .pop();
     result
 }
 
@@ -354,7 +356,7 @@ fn link_effect_function<T: Host>(
             let abi_name = Arc::clone(&abi_name);
             let name = Arc::clone(&name);
             Box::new(async move {
-                let stack = store.as_context_mut().data_mut().instance_stack().clone();
+                let stack = store.as_context_mut().data_mut().core().instance_stack.clone();
                 debug!(abi = ?abi_name, effect = ?name, ?params, stack_len = ?stack.len(), "raise_effect");
                 if stack.is_empty() {
                     bail!("effect handler stack is empty");
