@@ -170,7 +170,8 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
         .replacen(
             "(import \"starstream:utxo/score-progress\" (instance",
             &format!(
-                "(import \"starstream:utxo/score-progress\" (external-id \"{digest}\") (instance"
+                "(import \"starstream:utxo/score-progress\" (external-id \"{}\") (instance",
+                digest.to_uppercase()
             ),
             1,
         );

@@ -312,7 +312,9 @@ impl Ledger {
         let digest = transaction
             .digest()
             .map_err(TransactionPostError::CborEncoding)?;
-        let crate::Transaction { inputs, .. } = &transaction;
+        let crate::Transaction {
+            inputs, outputs, ..
+        } = &transaction;
         if inputs.is_empty() {
             return Err(TransactionPostError::InputsEmpty);
         }
@@ -323,13 +325,28 @@ impl Ledger {
             let transaction = if transaction.is_empty() {
                 None
             } else {
-                let transaction = parse_digest(transaction).map_err(|err| {
+                let digest = parse_digest(transaction).map_err(|err| {
                     TransactionPostError::InputTransactionDigestParsing(transaction.clone(), err)
                 })?;
-                Some(transaction)
+                if encode_digest(&digest) != **transaction {
+                    return Err(TransactionPostError::InputTransactionDigestNotCanonical(
+                        transaction.clone(),
+                    ));
+                }
+                Some(digest)
             };
             if !resolved_inputs.insert((transaction, index)) {
                 return Err(TransactionPostError::InputDuplicate);
+            }
+        }
+        for output in outputs {
+            let digest = parse_digest(&output.contract).map_err(|err| {
+                TransactionPostError::OutputContractDigestParsing(output.contract.clone(), err)
+            })?;
+            if encode_digest(&digest) != *output.contract {
+                return Err(TransactionPostError::OutputContractDigestNotCanonical(
+                    output.contract.clone(),
+                ));
             }
         }
         let transaction = bindings::starstream::ledger::types::Transaction::from(transaction);

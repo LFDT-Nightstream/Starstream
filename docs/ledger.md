@@ -165,7 +165,9 @@ as `sha256:HEX`.
   Wasm, transactions by that of the CBOR-encoded transaction message,
   independent of who signed it. Digests are written as a [multibase]
   sha2-256 [multihash], canonically in base32-lower (`b` followed by 55
-  lowercase alphanumeric characters).
+  lowercase alphanumeric characters). Lookups accept any base, but
+  transactions must use the canonical form for their input transactions
+  and output contracts.
 - **Accounts.** An Ed25519 public key with a balance and a nonce, created
   and credited only by the admin. Publishing costs one unit per envelope
   byte.

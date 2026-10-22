@@ -381,7 +381,7 @@ pub async fn call_coordination_script(
                 .with_context(|| format!("`{external_id}` import not found"))?;
             let (wizer_cx, ..) = wizer.instrument_component(wasm)?;
             let wasm = wizer.snapshot_component(&wizer_cx, &mut instance).await?;
-            (external_id.into(), wasm)
+            (encode_digest(&digest).into(), wasm)
         } else {
             let (wizer_cx, ..) = wizer.instrument_component(wasm)?;
             let wasm = wizer.snapshot_component(&wizer_cx, &mut instance).await?;
