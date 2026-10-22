@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use starstream_runtime::{
-    Contract, CoordinationScriptExport, Host, MethodExport, StarstreamCtx, StorageExport, Utxo,
-    UtxoExport, UtxoMainExport, get_coordination_script_instance_import, utxo_imports,
+    Contract, CoordinationScriptExport, Host, MethodExport, StorageExport, Utxo, UtxoExport,
+    UtxoMainExport, get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val};
