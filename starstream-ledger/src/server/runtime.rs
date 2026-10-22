@@ -3,8 +3,8 @@ use core::pin::Pin;
 use std::sync::Arc;
 
 use starstream_runtime::bindings::starstream;
-use starstream_runtime::{Token, Utxo, UtxoExport};
-use wasmtime::component::{Instance, Resource, ResourceTable, Val, types};
+use starstream_runtime::{HostCore, Token, Utxo, UtxoExport};
+use wasmtime::component::{Resource, Val, types};
 use wasmtime::{StoreContextMut, bail};
 
 use crate::server::{Ctx, UtxoCtx};
@@ -22,8 +22,8 @@ impl starstream::std::cardano::Host for Ctx {
 impl starstream_runtime::Host for Ctx {
     type UtxoContext = Arc<UtxoCtx>;
 
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
+    fn core(&mut self) -> &mut HostCore {
+        &mut self.core
     }
 
     async fn call_utxo_main(
@@ -42,11 +42,11 @@ impl starstream_runtime::Host for Ctx {
     }
 
     fn has_method(
-        store: StoreContextMut<Self>,
+        mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<bool> {
-        let Ctx { table, .. } = store.data();
+        let table = store.data_mut().table();
         let utxo = table.get(&utxo)?;
         Ok(utxo.context().methods.contains(&hash))
     }
@@ -92,9 +92,5 @@ impl starstream_runtime::Host for Ctx {
         params: &[Val],
     ) -> wasmtime::Result<()> {
         bail!("attempted to emit event `{abi_name}` `{name}` with `{params:?}`")
-    }
-
-    fn instance_stack(&mut self) -> &mut Vec<Instance> {
-        &mut self.stack
     }
 }

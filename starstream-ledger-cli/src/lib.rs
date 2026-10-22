@@ -643,6 +643,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                         .context("result resource is not a UTXO")?;
                     let utxo: &Utxo<Arc<std::sync::Mutex<UtxoCtx>>> = store
                         .data()
+                        .core
                         .table
                         .get(&utxo)
                         .context("result UTXO not found")?;

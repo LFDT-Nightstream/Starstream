@@ -7,10 +7,12 @@ use std::sync::{Arc, Mutex};
 
 use clap::Args;
 use sha2::{Digest as _, Sha256};
-use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
+use starstream_runtime::{
+    Contract, ContractLookup, Host, HostCore, Token, Utxo, UtxoExport, bindings,
+};
 use tokio::fs;
 use tracing::{debug, info, instrument};
-use wasmtime::component::{Component, Instance, Resource, ResourceTable, Val, types};
+use wasmtime::component::{Component, Resource, Val, types};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, Store, StoreContextMut, bail, ensure};
 
@@ -33,9 +35,8 @@ pub struct Run {
 
 #[derive(Default)]
 pub(crate) struct Ctx {
-    table: ResourceTable,
+    core: HostCore,
     outputs: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
-    stack: Vec<Instance>,
 }
 
 #[derive(Debug, Default)]
@@ -69,8 +70,8 @@ impl bindings::starstream::std::cardano::Host for Ctx {
 impl Host for Ctx {
     type UtxoContext = Arc<Mutex<UtxoCtx>>;
 
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
+    fn core(&mut self) -> &mut HostCore {
+        &mut self.core
     }
 
     #[instrument(level = "trace", skip_all, ret)]
@@ -96,11 +97,11 @@ impl Host for Ctx {
 
     #[instrument(level = "debug", skip(store, utxo), ret)]
     fn has_method(
-        store: StoreContextMut<Self>,
+        mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<bool> {
-        let Ctx { table, .. } = store.data();
+        let table = store.data_mut().table();
         let utxo = table.get(&utxo)?;
         Ok(utxo.context().lock().unwrap().methods.contains(&hash))
     }
@@ -110,7 +111,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
+        let table = store.data_mut().table();
         table.delete(utxo)?;
         Ok(())
     }
@@ -121,7 +122,7 @@ impl Host for Ctx {
         cx: Resource<Self::UtxoContext>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
+        let table = store.data_mut().table();
         let cx = table.get_mut(&cx)?;
         cx.lock().unwrap().methods.insert(hash);
         Ok(())
@@ -132,7 +133,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
+        let table = store.data_mut().table();
         let cx = table.get_mut(&cx)?;
         cx.lock().unwrap().methods.clear();
         Ok(())
@@ -143,7 +144,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
+        let table = store.data_mut().table();
         table.delete(cx)?;
         Ok(())
     }
@@ -153,7 +154,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         token: Resource<Token>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
+        let table = store.data_mut().table();
         table.delete(token)?;
         Ok(())
     }
@@ -171,10 +172,6 @@ impl Host for Ctx {
             .context("failed to encode parameters")?;
         info!(abi = ?abi_name, event = ?name, params);
         Ok(())
-    }
-
-    fn instance_stack(&mut self) -> &mut Vec<Instance> {
-        &mut self.stack
     }
 }
 
@@ -240,6 +237,7 @@ pub async fn call(
                 .context("result resource is not a UTXO")?;
             let utxo: &Utxo<Arc<Mutex<UtxoCtx>>> = store
                 .data()
+                .core
                 .table
                 .get(&utxo)
                 .context("result UTXO not found")?;

@@ -140,12 +140,25 @@ pub trait ContractLookup<T> {
     fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>>;
 }
 
+/// Runtime-internal data structures which all implementors of `Host` must include.
+#[derive(Default, Debug)]
+pub struct HostCore {
+    pub table: ResourceTable,
+    pub instance_stack: Vec<Instance>,
+}
+
 pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
     type UtxoContext: Clone + Send;
 
-    fn table(&mut self) -> &mut ResourceTable;
+    fn core(&mut self) -> &mut HostCore;
 
-    fn instance_stack(&mut self) -> &mut Vec<Instance>;
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.core().table
+    }
+
+    fn instance_stack(&mut self) -> &mut Vec<Instance> {
+        &mut self.core().instance_stack
+    }
 
     fn call_utxo_main(
         store: StoreContextMut<Self>,

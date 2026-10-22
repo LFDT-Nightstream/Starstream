@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use starstream_runtime::{
-    Contract, CoordinationScriptExport, Host, MethodExport, StorageExport, Utxo, UtxoExport,
-    UtxoMainExport, get_coordination_script_instance_import, utxo_imports,
+    Contract, CoordinationScriptExport, Host, HostCore, MethodExport, StorageExport, Utxo,
+    UtxoExport, UtxoMainExport, get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val};
@@ -234,7 +234,10 @@ async fn assert_call_method(
     let mut store = wasmtime::Store::new(
         store.engine(),
         Ctx {
-            table,
+            core: HostCore {
+                table,
+                ..Default::default()
+            },
             ..Default::default()
         },
     );
@@ -268,10 +271,12 @@ async fn assert_call_method(
         .context("failed to drop loaded UTXO")?;
 
     let Ctx {
-        mut table,
+        core: HostCore {
+            mut table,
+            instance_stack,
+        },
         events,
         outputs,
-        stack,
     } = store.into_data();
     assert!(outputs.is_empty());
     assert_eq!(events, expected_events);
@@ -288,7 +293,7 @@ async fn assert_call_method(
         .unwrap();
     assert_eq!(methods, []);
     assert_eq!(dropped, expected_drop);
-    assert!(stack.is_empty());
+    assert!(instance_stack.is_empty());
     Ok(())
 }
 
@@ -460,7 +465,10 @@ async fn load() -> wasmtime::Result<()> {
     let mut store = wasmtime::Store::new(
         &ENGINE,
         Ctx {
-            table,
+            core: HostCore {
+                table,
+                ..Default::default()
+            },
             ..Default::default()
         },
     );
@@ -625,10 +633,12 @@ async fn load() -> wasmtime::Result<()> {
     utxo.drop(&mut store).await.context("failed to drop UTXO")?;
 
     let Ctx {
-        table,
+        core: HostCore {
+            table,
+            instance_stack,
+        },
         events,
         outputs,
-        stack,
     } = store.into_data();
     assert!(outputs.is_empty());
     assert!(table.is_empty());
@@ -646,7 +656,7 @@ async fn load() -> wasmtime::Result<()> {
         .unwrap();
     assert_eq!(methods, []);
     assert!(dropped);
-    assert!(stack.is_empty());
+    assert!(instance_stack.is_empty());
     Ok(())
 }
 

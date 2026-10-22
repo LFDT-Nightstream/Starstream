@@ -3,7 +3,7 @@ pub mod common;
 use std::sync::LazyLock;
 
 use starstream_runtime::{
-    Contract, CoordinationScriptExport, Host, StorageExport, Token, TokenBurnExport,
+    Contract, CoordinationScriptExport, Host, HostCore, StorageExport, Token, TokenBurnExport,
     TokenMintExport, get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span};
@@ -145,15 +145,17 @@ async fn my_mint() -> wasmtime::Result<()> {
     assert_eq!(results, [Val::U64(1)]);
 
     let Ctx {
-        table,
+        core: HostCore {
+            table,
+            instance_stack,
+        },
         events,
         outputs,
-        stack,
     } = store.into_data();
     assert!(table.is_empty());
     assert_eq!(events, [test_event(1)]);
     assert!(outputs.is_empty());
-    assert!(stack.is_empty());
+    assert!(instance_stack.is_empty());
     Ok(())
 }
 
@@ -187,15 +189,17 @@ async fn load() -> wasmtime::Result<()> {
     assert_eq!(results, [Val::U64(42)]);
 
     let Ctx {
-        table,
+        core: HostCore {
+            table,
+            instance_stack,
+        },
         events,
         outputs,
-        stack,
     } = store.into_data();
     assert!(table.is_empty());
     assert_eq!(events, [test_event(42)]);
     assert!(outputs.is_empty());
-    assert!(stack.is_empty());
+    assert!(instance_stack.is_empty());
     Ok(())
 }
 
@@ -214,10 +218,12 @@ async fn call_token_mint() -> wasmtime::Result<()> {
         .context("failed to call `call-token-mint` coordination script")?;
 
     let Ctx {
-        table,
+        core: HostCore {
+            table,
+            instance_stack,
+        },
         events,
         outputs,
-        stack,
     } = store.into_data();
     assert!(table.is_empty());
     assert_eq!(
@@ -225,6 +231,6 @@ async fn call_token_mint() -> wasmtime::Result<()> {
         [test_event(10), test_event(1), test_event(20), test_event(1)]
     );
     assert!(outputs.is_empty());
-    assert!(stack.is_empty());
+    assert!(instance_stack.is_empty());
     Ok(())
 }

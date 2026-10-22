@@ -24,6 +24,7 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
+use starstream_runtime::HostCore;
 use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
@@ -841,7 +842,10 @@ impl Ledger {
                     .map_err(RpcPostError::ResourceTable)?;
 
                 let ctx = Ctx {
-                    table,
+                    core: HostCore {
+                        table,
+                        ..Default::default()
+                    },
                     cardano: self.cardano,
                     ..Default::default()
                 };
