@@ -25,10 +25,10 @@ use starstream_compiler::{
     ModuleGraph, ModuleGraphError, ModuleId, TypedModuleGraph, typecheck_modules,
 };
 use starstream_runtime::{
-    Contract, ContractLookup, Host, HostCore, Token, Utxo, UtxoExport, bindings,
+    Contract, ContractLookup, Host, StarstreamCtx, Token, Utxo, UtxoExport, bindings,
 };
 use starstream_types::{FileSystem, MemoryFs};
-use wasmtime::component::{Component, Resource, Type, Val, types};
+use wasmtime::component::{Component, Resource, ResourceTable, Type, Val, types};
 use wasmtime::error::Context as _;
 use wasmtime::{StoreContextMut, bail, format_err};
 use wit_component::DecodedWasm;
@@ -90,7 +90,8 @@ fn lock(cx: &Mutex<UtxoCtx>) -> wasmtime::Result<MutexGuard<'_, UtxoCtx>> {
 /// [`flush_events`] afterwards.
 #[derive(Default)]
 struct Ctx {
-    core: HostCore,
+    table: ResourceTable,
+    starstream: StarstreamCtx,
     cardano: CardanoCtx,
     events: Vec<Value>,
 }
@@ -108,8 +109,12 @@ impl bindings::starstream::std::cardano::Host for Ctx {
 impl Host for Ctx {
     type UtxoContext = Arc<Mutex<UtxoCtx>>;
 
-    fn core(&mut self) -> &mut HostCore {
-        &mut self.core
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+
+    fn starstream(&mut self) -> &mut StarstreamCtx {
+        &mut self.starstream
     }
 
     async fn call_utxo_main(
@@ -132,7 +137,7 @@ impl Host for Ctx {
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: MethodHash,
     ) -> wasmtime::Result<bool> {
-        let utxo = store.data().core.table.get(&utxo)?;
+        let utxo = store.data().table.get(&utxo)?;
         let cx = lock(utxo.context())?;
         Ok(cx.methods.contains(&hash))
     }
@@ -141,7 +146,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
     ) -> wasmtime::Result<()> {
-        store.data_mut().core.table.delete(utxo)?;
+        store.data_mut().table.delete(utxo)?;
         Ok(())
     }
 
@@ -150,7 +155,7 @@ impl Host for Ctx {
         cx: Resource<Self::UtxoContext>,
         hash: MethodHash,
     ) -> wasmtime::Result<()> {
-        let cx = store.data_mut().core.table.get(&cx)?;
+        let cx = store.data_mut().table.get(&cx)?;
         lock(cx)?.methods.push(hash);
         Ok(())
     }
@@ -159,7 +164,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let cx = store.data_mut().core.table.get(&cx)?;
+        let cx = store.data_mut().table.get(&cx)?;
         lock(cx)?.methods.clear();
         Ok(())
     }
@@ -168,7 +173,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        store.data_mut().core.table.delete(cx)?;
+        store.data_mut().table.delete(cx)?;
         Ok(())
     }
 
@@ -176,7 +181,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         token: Resource<Token>,
     ) -> wasmtime::Result<()> {
-        store.data_mut().core.table.delete(token)?;
+        store.data_mut().table.delete(token)?;
         Ok(())
     }
 
@@ -524,7 +529,7 @@ fn handle_construct(input_len: usize) -> wasmtime::Result<u32> {
             },
         );
         let cx = Arc::new(Mutex::new(UtxoCtx::default()));
-        let cx_res = store.data_mut().core.table.push(Arc::clone(&cx))?;
+        let cx_res = store.data_mut().table.push(Arc::clone(&cx))?;
         let cx_res = cx_res.try_into_resource_any(&mut store)?;
         let mut full = Vec::with_capacity(params.len() + 1);
         full.push(Val::Resource(cx_res));

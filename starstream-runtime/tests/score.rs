@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use starstream_runtime::{
-    Contract, CoordinationScriptExport, Host, HostCore, MethodExport, StorageExport, Utxo,
+    Contract, CoordinationScriptExport, Host, MethodExport, StarstreamCtx, StorageExport, Utxo,
     UtxoExport, UtxoMainExport, get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span, instrument};
@@ -234,10 +234,7 @@ async fn assert_call_method(
     let mut store = wasmtime::Store::new(
         store.engine(),
         Ctx {
-            core: HostCore {
-                table,
-                ..Default::default()
-            },
+            table,
             ..Default::default()
         },
     );
@@ -271,10 +268,8 @@ async fn assert_call_method(
         .context("failed to drop loaded UTXO")?;
 
     let Ctx {
-        core: HostCore {
-            mut table,
-            instance_stack,
-        },
+        mut table,
+        starstream,
         events,
         outputs,
     } = store.into_data();
@@ -293,7 +288,8 @@ async fn assert_call_method(
         .unwrap();
     assert_eq!(methods, []);
     assert_eq!(dropped, expected_drop);
-    assert!(instance_stack.is_empty());
+    assert!(starstream.instance_stack.is_empty());
+    assert!(starstream.effect_stack.is_empty());
     Ok(())
 }
 
@@ -465,10 +461,7 @@ async fn load() -> wasmtime::Result<()> {
     let mut store = wasmtime::Store::new(
         &ENGINE,
         Ctx {
-            core: HostCore {
-                table,
-                ..Default::default()
-            },
+            table,
             ..Default::default()
         },
     );
@@ -633,10 +626,8 @@ async fn load() -> wasmtime::Result<()> {
     utxo.drop(&mut store).await.context("failed to drop UTXO")?;
 
     let Ctx {
-        core: HostCore {
-            table,
-            instance_stack,
-        },
+        table,
+        starstream,
         events,
         outputs,
     } = store.into_data();
@@ -656,7 +647,8 @@ async fn load() -> wasmtime::Result<()> {
         .unwrap();
     assert_eq!(methods, []);
     assert!(dropped);
-    assert!(instance_stack.is_empty());
+    assert!(starstream.instance_stack.is_empty());
+    assert!(starstream.effect_stack.is_empty());
     Ok(())
 }
 

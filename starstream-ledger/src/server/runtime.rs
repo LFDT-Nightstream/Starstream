@@ -3,8 +3,8 @@ use core::pin::Pin;
 use std::sync::Arc;
 
 use starstream_runtime::bindings::starstream;
-use starstream_runtime::{HostCore, Token, Utxo, UtxoExport};
-use wasmtime::component::{Resource, Val, types};
+use starstream_runtime::{StarstreamCtx, Token, Utxo, UtxoExport};
+use wasmtime::component::{Resource, ResourceTable, Val, types};
 use wasmtime::{StoreContextMut, bail};
 
 use crate::server::{Ctx, UtxoCtx};
@@ -22,8 +22,12 @@ impl starstream::std::cardano::Host for Ctx {
 impl starstream_runtime::Host for Ctx {
     type UtxoContext = Arc<UtxoCtx>;
 
-    fn core(&mut self) -> &mut HostCore {
-        &mut self.core
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+
+    fn starstream(&mut self) -> &mut StarstreamCtx {
+        &mut self.starstream
     }
 
     async fn call_utxo_main(
@@ -46,7 +50,7 @@ impl starstream_runtime::Host for Ctx {
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<bool> {
-        let utxo = store.data_mut().core.table.get(&utxo)?;
+        let utxo = store.data_mut().table.get(&utxo)?;
         Ok(utxo.context().methods.contains(&hash))
     }
 

@@ -143,8 +143,7 @@ pub trait ContractLookup<T> {
 
 /// Runtime-internal data structures which all implementors of `Host` must include.
 #[derive(Default, Debug)]
-pub struct HostCore {
-    pub table: ResourceTable,
+pub struct StarstreamCtx {
     pub instance_stack: Vec<Instance>,
     pub effect_stack: Vec<EffectStackFrame>,
 }
@@ -159,7 +158,9 @@ pub struct EffectStackFrame {
 pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
     type UtxoContext: Clone + Send;
 
-    fn core(&mut self) -> &mut HostCore;
+    fn table(&mut self) -> &mut ResourceTable;
+
+    fn starstream(&mut self) -> &mut StarstreamCtx;
 
     fn call_utxo_main(
         store: StoreContextMut<Self>,
@@ -284,7 +285,7 @@ async fn call_func<T: Host>(
     store
         .as_context_mut()
         .data_mut()
-        .core()
+        .starstream()
         .instance_stack
         .push(*instance);
     let result = f
@@ -294,7 +295,7 @@ async fn call_func<T: Host>(
     store
         .as_context_mut()
         .data_mut()
-        .core()
+        .starstream()
         .instance_stack
         .pop();
     result
@@ -374,7 +375,7 @@ fn link_effect_function<T: Host>(
             let abi_name = Arc::clone(&abi_name);
             let name = Arc::clone(&name);
             Box::new(async move {
-                let stack = store.as_context_mut().data_mut().core().effect_stack.clone();
+                let stack = store.as_context_mut().data_mut().starstream().effect_stack.clone();
                 debug!(abi = ?abi_name, effect = ?name, ?params, stack_len = ?stack.len(), hash = ?hash, "raise_effect");
                 for (i, frame) in stack.iter().enumerate().rev() {
                     let instance = frame.instance;
@@ -393,11 +394,11 @@ fn link_effect_function<T: Host>(
                         let mut handler_result = Val::U8(0);
 
                         // Truncate stack, call handler, then restore stack.
-                        store.as_context_mut().data_mut().core().effect_stack = stack[..i].to_vec();
+                        store.as_context_mut().data_mut().starstream().effect_stack = stack[..i].to_vec();
                         let mut params_with_id = vec![Val::U32(frame.id)];
                         params_with_id.extend_from_slice(params);
                         let call_result = handler.call_async(&mut store, &params_with_id, std::slice::from_mut(&mut handler_result)).await;
-                        store.as_context_mut().data_mut().core().effect_stack = stack.to_vec();
+                        store.as_context_mut().data_mut().starstream().effect_stack = stack.to_vec();
                         () = call_result?;
 
                         debug!(result = ?handler_result);
@@ -471,8 +472,7 @@ fn link_utxo_downcast<T: Host>(
     linker.func_wrap("downcast", move |mut store, (utxo,)| {
         let utxo = store
             .data_mut()
-            .core()
-            .table
+            .table()
             .get::<Utxo<T::UtxoContext>>(&utxo)?;
         if !Component::same(&utxo.component, &component) {
             return Ok((None,));
@@ -481,7 +481,7 @@ fn link_utxo_downcast<T: Host>(
             return Ok((None,));
         }
         let utxo = utxo.clone();
-        let utxo = store.data_mut().core().table.push(utxo)?;
+        let utxo = store.data_mut().table().push(utxo)?;
         Ok((Some(utxo),))
     })
 }
@@ -492,11 +492,10 @@ fn link_utxo_upcast<T: Host>(linker: &mut LinkerInstance<T>) -> wasmtime::Result
     linker.func_wrap("upcast", move |mut store, (utxo,)| {
         let utxo = store
             .data_mut()
-            .core()
-            .table
+            .table()
             .get::<Utxo<T::UtxoContext>>(&utxo)
             .cloned()?;
-        let utxo = store.data_mut().core().table.push(utxo)?;
+        let utxo = store.data_mut().table().push(utxo)?;
         Ok((utxo,))
     })
 }
@@ -547,7 +546,7 @@ fn link_typed_utxo_main<T: Host>(
                 export,
                 move |mut store, cx| {
                     Box::pin(async move {
-                        let cx_res = store.data_mut().core().table.push(cx.clone())?;
+                        let cx_res = store.data_mut().table().push(cx.clone())?;
                         let cx_res = cx_res.try_into_resource_any(&mut store)?;
                         params[0] = Val::Resource(cx_res);
                         instance
@@ -557,7 +556,7 @@ fn link_typed_utxo_main<T: Host>(
                 },
             )
             .await?;
-            let utxo = store.data_mut().core().table.push(utxo)?;
+            let utxo = store.data_mut().table().push(utxo)?;
             let utxo = utxo.try_into_resource_any(store.as_context_mut())?;
             results[0] = Val::Resource(utxo);
             Ok(())
@@ -589,7 +588,7 @@ fn link_typed_utxo_method<T: Host>(
                     instance_idx,
                     resource,
                     ..
-                } = store.data_mut().core().table.get(&utxo)?;
+                } = store.data_mut().table().get(&utxo)?;
                 let idx = instance
                     .get_export_index(&mut store, Some(&instance_idx), name.as_ref())
                     .with_context(|| format!("`{name}` export was not found"))?;
@@ -695,8 +694,7 @@ fn link_typed_utxo_instance<T: Host>(
                     |mut store, rep| {
                         store
                             .data_mut()
-                            .core()
-                            .table
+                            .table()
                             .delete::<Utxo<T::UtxoContext>>(Resource::new_own(rep))?;
                         Ok(())
                     },
@@ -733,7 +731,7 @@ fn link_dynamic_utxo_function<T: Host>(
                 instance_idx,
                 resource,
                 ..
-            } = store.data_mut().core().table.get(&utxo)?;
+            } = store.data_mut().table().get(&utxo)?;
             let idx = instance
                 .get_export_index(&mut store, Some(&instance_idx), &export_name)
                 .context("method export index not found")?;
@@ -804,7 +802,7 @@ fn link_typed_token_mint<T: Host>(
                 .context("contract was not initialized")?;
             let instance = contract.instantiate(&mut store).await?;
             let token = instance.construct_token(&mut store, idx, params).await?;
-            let token = store.data_mut().core().table.push(token)?;
+            let token = store.data_mut().table().push(token)?;
             let token = token.try_into_resource_any(store.as_context_mut())?;
             results[0] = Val::Resource(token);
             Ok(())
@@ -830,7 +828,7 @@ fn link_typed_token_burn<T: Host>(
                 bail!("first parameter is not a resource")
             };
             let token = token.try_into_resource::<Token>(&mut store)?;
-            let Token { instance, resource } = store.data_mut().core().table.delete(token)?;
+            let Token { instance, resource } = store.data_mut().table().delete(token)?;
             let params = {
                 let mut ps = Vec::with_capacity(params.len());
                 ps.push(Val::Resource(resource));
@@ -1199,22 +1197,26 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
 
     // Effect handling.
     linker.func_wrap("push-effect-handler-frame", |mut store, (id,): (u32,)| {
-        let Some(instance) = store.data_mut().core().instance_stack.last() else {
+        let Some(instance) = store.data_mut().starstream().instance_stack.last() else {
             bail!("no current instance on stack to associate with push-effect-handler-frame");
         };
         let instance = instance.clone();
-        store.data_mut().core().effect_stack.push(EffectStackFrame {
-            instance,
-            id,
-            effects_handled: Default::default(),
-        });
+        store
+            .data_mut()
+            .starstream()
+            .effect_stack
+            .push(EffectStackFrame {
+                instance,
+                id,
+                effects_handled: Default::default(),
+            });
         Ok(())
     })?;
     linker.func_wrap(
         "add-effect-handler",
         |mut store, (hash,): ((u64, u64, u64, u64),)| {
             let hash = [hash.0, hash.1, hash.2, hash.3];
-            let Some(last) = store.data_mut().core().effect_stack.last_mut() else {
+            let Some(last) = store.data_mut().starstream().effect_stack.last_mut() else {
                 bail!("no effect handler frame on stack");
             };
             last.effects_handled.insert(hash);
@@ -1223,7 +1225,7 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
     )?;
     linker.func_wrap("pop-effect-handler-frame", |mut store, ()| {
         // It might be nice to enforce matching Instance here, but it doesn't impl PartialEq.
-        let Some(_) = store.data_mut().core().effect_stack.pop() else {
+        let Some(_) = store.data_mut().starstream().effect_stack.pop() else {
             bail!("no effect handler frame on stack");
         };
         Ok(())

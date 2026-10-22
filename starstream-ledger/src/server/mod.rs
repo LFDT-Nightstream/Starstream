@@ -8,12 +8,12 @@ use std::sync::Arc;
 use bytes::{Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
 use starstream_runtime::{
-    CoordinationScriptImport, HostCore, UtxoImport, get_coordination_script_instance_import,
+    CoordinationScriptImport, StarstreamCtx, UtxoImport, get_coordination_script_instance_import,
     utxo_imports,
 };
 use tokio::sync::{RwLock, Semaphore};
 use tracing::error;
-use wasmtime::component::Component;
+use wasmtime::component::{Component, ResourceTable};
 use wasmtime::error::Context as _;
 
 use crate::wrpc::bindings;
@@ -52,7 +52,8 @@ struct AdminAccount {
 
 #[derive(Debug, Default)]
 struct Ctx {
-    core: HostCore,
+    table: ResourceTable,
+    starstream: StarstreamCtx,
     cardano: CardanoCtx,
 }
 
