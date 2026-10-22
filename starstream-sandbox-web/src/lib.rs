@@ -183,6 +183,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         abi_name: &Arc<str>,
         name: &Arc<str>,
+        _ty: types::ComponentFunc,
         params: &[Val],
     ) -> wasmtime::Result<()> {
         let params: Vec<Value> = params

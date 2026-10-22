@@ -11,7 +11,13 @@ use starstream::ledger::types;
 
 impl From<DigestParseError> for types::GetError {
     fn from(err: DigestParseError) -> Self {
-        Self::InvalidDigest(err.to_string())
+        Self::Malformed(err.to_string())
+    }
+}
+
+impl From<ed25519_dalek::SignatureError> for types::GetError {
+    fn from(err: ed25519_dalek::SignatureError) -> Self {
+        Self::Malformed(err.to_string())
     }
 }
 

@@ -58,6 +58,8 @@ pub enum PublishPostError {
     SignerCount(usize),
     #[error("invalid Wasm: {0}")]
     Wasm(wasmparser::BinaryReaderError),
+    #[error("failed to build contract WIT: {0:#}")]
+    Wit(anyhow::Error),
     #[error("contract `{}` already exists", encode_digest(.0))]
     AlreadyExists([u8; 32]),
     #[error("account ID `{}` not found", hex::encode(.0))]
@@ -73,7 +75,7 @@ pub enum PublishPostError {
 impl PublishPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::SignerCount(..) | Self::Wasm(..) => http::StatusCode::BAD_REQUEST,
+            Self::SignerCount(..) | Self::Wasm(..) | Self::Wit(..) => http::StatusCode::BAD_REQUEST,
             Self::AlreadyExists(..) | Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::AccountNotFound(..) | Self::InsufficientBalance { .. } => {
                 http::StatusCode::PAYMENT_REQUIRED
@@ -178,6 +180,8 @@ impl TransactionPostError {
 pub enum EnvelopePostError {
     #[error("body exceeds {0}-byte limit")]
     BodyTooLarge(usize),
+    #[error("timed out reading body")]
+    BodyTimeout,
     #[error(transparent)]
     Body(Box<dyn std::error::Error + Send + Sync>),
     #[error("unexpected network `{got}`, expected `{expected}`")]
@@ -197,6 +201,7 @@ impl EnvelopePostError {
         match self {
             Self::Body(..) | Self::Network { .. } => http::StatusCode::BAD_REQUEST,
             Self::BodyTooLarge(..) => http::StatusCode::PAYLOAD_TOO_LARGE,
+            Self::BodyTimeout => http::StatusCode::REQUEST_TIMEOUT,
             Self::Envelope(err) => err.http_status_code(),
             Self::Fund(err) => err.http_status_code(),
             Self::Publish(err) => err.http_status_code(),
@@ -252,8 +257,8 @@ pub enum RpcPostError {
     ParameterDecoding(std::io::Error),
     #[error("runtime failed: {0:#}")]
     Runtime(wasmtime::Error),
-    #[error("execution ran out of fuel")]
-    OutOfFuel,
+    #[error("execution trapped: {0}")]
+    Trap(wasmtime::Trap),
     #[error("resource table error: {0}")]
     ResourceTable(wasmtime::component::ResourceTableError),
     #[error("failed to encode result: {0}")]
@@ -268,15 +273,21 @@ pub enum RpcPostError {
 
 impl RpcPostError {
     pub(super) fn execution(err: wasmtime::Error) -> Self {
-        match err.downcast_ref() {
-            Some(wasmtime::Trap::OutOfFuel) => Self::OutOfFuel,
-            _ => Self::Runtime(err),
+        match err.downcast() {
+            Ok(trap) => Self::Trap(trap),
+            Err(err) => Self::Runtime(err),
         }
     }
 
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
             Self::Envelope(err) => err.http_status_code(),
+            Self::Header(wrpc_transport::frame::HeaderReadError::IO(err))
+            | Self::ParameterDecoding(err)
+                if err.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                http::StatusCode::REQUEST_TIMEOUT
+            }
             Self::UnsupportedContentType(..) | Self::ContentTypeMissing => {
                 http::StatusCode::UNSUPPORTED_MEDIA_TYPE
             }
@@ -293,7 +304,7 @@ impl RpcPostError {
             | Self::ContractNotFound
             | Self::UtxoInstanceNotFound { .. }
             | Self::UtxoMethodNotFound { .. } => http::StatusCode::NOT_FOUND,
-            Self::OutOfFuel => http::StatusCode::UNPROCESSABLE_ENTITY,
+            Self::Trap(..) => http::StatusCode::UNPROCESSABLE_ENTITY,
             Self::ContractDigestParsing(..)
             | Self::StateMerge(..)
             | Self::StorageDecoding(..)
@@ -302,6 +313,54 @@ impl RpcPostError {
             | Self::CallResultEncoding(..)
             | Self::FrameEncoding(..)
             | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum RpcGetError {
+    #[error(transparent)]
+    AcceptHeader(AcceptHeaderError),
+    #[error("unknown query parameter `{0}`, expected `index` and optionally `transaction`")]
+    UnknownQueryParameter(Box<str>),
+    #[error("query parameter `{0}` specified more than once")]
+    DuplicateQueryParameter(Box<str>),
+    #[error("`index` query parameter missing")]
+    UtxoIndexMissing,
+    #[error("failed to parse transaction digest: {0}")]
+    TransactionDigestParsing(DigestParseError),
+    #[error("failed to parse UTXO index: {0}")]
+    UtxoIndexParsing(core::num::ParseIntError),
+    #[error("UTXO index does not fit in usize")]
+    UtxoIndexOverflow,
+    #[error("UTXO not found")]
+    UtxoNotFound,
+    #[error("failed to parse contract digest: {0}")]
+    ContractDigestParsing(DigestParseError),
+    #[error("contract not found")]
+    ContractNotFound,
+    #[error("UTXO instance `{0}` not found")]
+    UtxoInstanceNotFound(Box<str>),
+    #[error(transparent)]
+    Http(http::Error),
+}
+
+impl RpcGetError {
+    pub fn http_status_code(&self) -> http::StatusCode {
+        match self {
+            Self::AcceptHeader(err) => err.http_status_code(),
+            Self::UnknownQueryParameter(..)
+            | Self::DuplicateQueryParameter(..)
+            | Self::UtxoIndexMissing
+            | Self::TransactionDigestParsing(..)
+            | Self::UtxoIndexParsing(..)
+            | Self::UtxoIndexOverflow => http::StatusCode::BAD_REQUEST,
+            Self::UtxoNotFound | Self::ContractNotFound | Self::UtxoInstanceNotFound(..) => {
+                http::StatusCode::NOT_FOUND
+            }
+            Self::ContractDigestParsing(..) | Self::Http(..) => {
+                http::StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }
@@ -316,8 +375,12 @@ fn format_media_types(available: &[MediaType<'_>]) -> String {
 
 #[derive(Debug, Error)]
 pub enum AcceptHeaderError {
-    #[error("failed to decode `Accept` header: {0}")]
-    Decoding(headers_core::Error),
+    #[error("malformed `Accept` header")]
+    Malformed,
+    #[error("invalid `Accept` quality value `{0}`")]
+    Quality(String),
+    #[error("`Accept` media range has more than one weight")]
+    QualityDuplicate,
     #[error("no acceptable media type, available: {}", format_media_types(.0))]
     NotAcceptable(&'static [MediaType<'static>]),
 }
@@ -325,7 +388,9 @@ pub enum AcceptHeaderError {
 impl AcceptHeaderError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::Decoding(..) => http::StatusCode::BAD_REQUEST,
+            Self::Malformed | Self::Quality(..) | Self::QualityDuplicate => {
+                http::StatusCode::BAD_REQUEST
+            }
             Self::NotAcceptable(..) => http::StatusCode::NOT_ACCEPTABLE,
         }
     }

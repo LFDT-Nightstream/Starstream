@@ -332,7 +332,7 @@ impl Compiler {
         if self.bump_ptr > 0 {
             const PAGE_SIZE: u32 = 64 * 1024;
             self.memory.memory(MemoryType {
-                minimum: std::cmp::min(u64::from(self.bump_ptr.div_ceil(PAGE_SIZE)), 1),
+                minimum: std::cmp::max(u64::from(self.bump_ptr.div_ceil(PAGE_SIZE)), 1),
                 maximum: None,
                 memory64: false,
                 shared: false,

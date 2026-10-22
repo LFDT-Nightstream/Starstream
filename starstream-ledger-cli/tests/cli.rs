@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use std::ffi::OsStr;
 use std::process::{Output, Stdio};
 use std::sync::Arc;
@@ -69,23 +71,6 @@ async fn cli() {
     starstream_ledger::server::configure_wasmtime(&mut engine_config);
     let engine = wasmtime::Engine::new(&engine_config).unwrap();
 
-    let ledger = Ledger::new(
-        engine,
-        128,
-        u64::MAX,
-        NETWORK,
-        ADMIN.verifying_key(),
-        [],
-        CardanoCtx::default(),
-    );
-    let ledger = Arc::new(ledger);
-    let addr = free_tcp_addr().await.unwrap();
-    let (ledger, shutdown) = ledger
-        .handle_http(addr)
-        .await
-        .expect("failed to handle HTTP");
-    let ledger = tokio::spawn(ledger);
-
     let score_wasm = NamedTempFile::new().unwrap();
     fs::write(&score_wasm, &*SCORE_WASM)
         .await
@@ -101,13 +86,9 @@ async fn cli() {
 
     let tx_file = NamedTempFile::new().unwrap();
     let stdout = run_cli([
-        "--url",
-        &format!("http://{addr}"),
         "contract",
         "script",
         "call",
-        "--network",
-        NETWORK,
         "--simulate",
         "--output-transaction",
         &tx_file.path().to_string_lossy(),
@@ -128,6 +109,23 @@ async fn cli() {
     let shown: toml::Value = toml::from_slice(&stdout).expect("failed to decode transaction TOML");
     assert_eq!(shown, toml::Value::try_from(&tx).unwrap());
 
+    let ledger = Ledger::new(
+        engine,
+        128,
+        u64::MAX,
+        NETWORK,
+        ADMIN.verifying_key(),
+        tx.outputs,
+        CardanoCtx::default(),
+    );
+    let ledger = Arc::new(ledger);
+    let addr = free_tcp_addr().await.unwrap();
+    let (ledger, shutdown) = ledger
+        .handle_http(addr, Duration::from_secs(30))
+        .await
+        .expect("failed to handle HTTP");
+    let ledger = tokio::spawn(ledger);
+
     let publish_envelope = build_publish_envelope(
         account.clone(),
         NETWORK,
@@ -144,6 +142,11 @@ async fn cli() {
         .unwrap();
     assert_eq!(stdout, b"0\n");
 
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "network", "name"])
+        .await
+        .unwrap();
+    assert_eq!(stdout, format!("{NETWORK}\n").as_bytes());
+
     let stdout = run_cli([
         "--url",
         &format!("http://{addr}"),
@@ -151,16 +154,39 @@ async fn cli() {
         "fund",
         "--key",
         &admin_file.path().to_string_lossy(),
-        "--network",
-        NETWORK,
-        "--nonce",
-        "1",
         &hex::encode(account.verifying_key().to_bytes()),
         &publish_cost.to_string(),
     ])
     .await
     .unwrap();
     assert_eq!(stdout, b"");
+
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "admin", "nonce"])
+        .await
+        .unwrap();
+    assert_eq!(stdout, b"1\n");
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "account",
+        "balance",
+        &hex::encode(account.verifying_key().to_bytes()),
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, format!("{publish_cost}\n").as_bytes());
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "account",
+        "nonce",
+        &hex::encode(account.verifying_key().to_bytes()),
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"0\n");
 
     let stdout = run_cli([
         "--url",
@@ -169,20 +195,46 @@ async fn cli() {
         "publish",
         "--key",
         &account_file.path().to_string_lossy(),
-        "--network",
-        NETWORK,
-        "--nonce",
-        "1",
         &score_wasm.path().to_string_lossy(),
     ])
     .await
     .unwrap();
     assert_eq!(stdout, format!("{score_digest}\n").as_bytes());
 
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "account",
+        "nonce",
+        &hex::encode(account.verifying_key().to_bytes()),
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"1\n");
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "account",
+        "balance",
+        &hex::encode(account.verifying_key().to_bytes()),
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"0\n");
+
     let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "height"])
         .await
         .unwrap();
     assert_eq!(stdout, b"2\n");
+
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "block", "get", "2"])
+        .await
+        .unwrap();
+    assert_eq!(
+        stdout,
+        format!("{}\n", hex::encode(&publish_envelope)).as_bytes()
+    );
 
     let tx_file = NamedTempFile::new().unwrap();
     let stdout = run_cli([
@@ -191,8 +243,6 @@ async fn cli() {
         "contract",
         "script",
         "call",
-        "--network",
-        NETWORK,
         "--simulate",
         "--output-transaction",
         &tx_file.path().to_string_lossy(),
@@ -204,6 +254,42 @@ async fn cli() {
     assert_eq!(stdout, b"()\n");
     let tx = fs::read(&tx_file).await.unwrap();
     assert_score_transaction(&tx, score_digest);
+
+    let stdout = run_cli(["--url", &format!("http://{addr}"), "utxo", "wit", "0"])
+        .await
+        .unwrap();
+    assert_eq!(
+        str::from_utf8(&stdout).unwrap(),
+        r#"package starstream:ledger;
+
+interface utxo {
+  get-chips: func(transaction: option<string>, index: u32) -> u64;
+
+  get-mult: func(transaction: option<string>, index: u32) -> u64;
+
+  plus-chips: func(transaction: option<string>, index: u32, arg-chips2: u64);
+
+  plus-mult: func(transaction: option<string>, index: u32, arg-mult2: u64);
+
+  mult-mult: func(transaction: option<string>, index: u32, arg-mult-pct: u64);
+
+  finish: func(transaction: option<string>, index: u32);
+}
+
+"#
+    );
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "utxo",
+        "call",
+        "0",
+        "get-chips",
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"(42)\n");
 
     let require_hash_preimage_wasm = NamedTempFile::new().unwrap();
     fs::write(&require_hash_preimage_wasm, &*REQUIRE_HASH_PREIMAGE_WASM)
@@ -221,8 +307,6 @@ async fn cli() {
         "contract",
         "script",
         "call",
-        "--network",
-        NETWORK,
         "--simulate",
         &format!(
             "sha256:{}",

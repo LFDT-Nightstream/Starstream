@@ -30,7 +30,6 @@ http = { workspace = true, features = ["std"] }
 hyper-util = { workspace = true, features = [
     "client-legacy",
     "http1",
-    "http2",
     "tokio",
 ] }
 minicbor = { workspace = true, features = ["std"] }

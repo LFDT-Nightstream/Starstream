@@ -193,6 +193,7 @@ pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'stati
         store: StoreContextMut<Self>,
         abi_name: &Arc<str>,
         name: &Arc<str>,
+        ty: types::ComponentFunc,
         params: &[Val],
     ) -> wasmtime::Result<()>;
 }
@@ -290,8 +291,8 @@ fn link_event_function<T: Host>(
     let abi_name = Arc::<str>::from(abi_name);
     let name = Arc::<str>::from(name);
     ensure!(ty.results().len() == 0);
-    linker.func_new(&Arc::clone(&name), move |store, _ty, params, _results| {
-        T::emit_event(store, &abi_name, &name, params)
+    linker.func_new(&Arc::clone(&name), move |store, ty, params, _results| {
+        T::emit_event(store, &abi_name, &name, ty, params)
     })
 }
 
@@ -1384,9 +1385,14 @@ impl<T: Host> Contract<T> {
         let engine = self.pre.engine();
         self.ty.exports(engine).filter_map(
             move |(name, types::ComponentExtern { ty, .. })| match ty {
-                types::ComponentItem::ComponentInstance(ty)
-                    if ty.get_export(engine, "utxo").is_some() =>
-                {
+                types::ComponentItem::ComponentInstance(ty) => {
+                    let Some(types::ComponentExtern {
+                        ty: types::ComponentItem::Resource(..),
+                        ..
+                    }) = ty.get_export(engine, "utxo")
+                    else {
+                        return None;
+                    };
                     Some((name, self.get_utxo_typed(name, ty)))
                 }
                 _ => None,
@@ -1566,9 +1572,14 @@ impl<T: Host> Contract<T> {
         let engine = self.pre.engine();
         self.ty.exports(engine).filter_map(
             move |(name, types::ComponentExtern { ty, .. })| match ty {
-                types::ComponentItem::ComponentInstance(ty)
-                    if ty.get_export(engine, "token").is_some() =>
-                {
+                types::ComponentItem::ComponentInstance(ty) => {
+                    let Some(types::ComponentExtern {
+                        ty: types::ComponentItem::Resource(..),
+                        ..
+                    }) = ty.get_export(engine, "token")
+                    else {
+                        return None;
+                    };
                     Some((name, self.get_token_typed(name, ty)))
                 }
                 _ => None,

@@ -22,7 +22,7 @@ use starstream_runtime::{
     Contract, ContractLookup, Host, StorageExport, Token, Utxo, UtxoExport, bindings,
 };
 use starstream_to_wasm::compile;
-use wasmtime::component::{Component, Instance, Resource, ResourceTable, Val};
+use wasmtime::component::{Component, Instance, Resource, ResourceTable, Val, types};
 use wasmtime::{AsContextMut, Engine, Store, StoreContextMut, bail};
 
 pub const MINIMAL_METHOD_CALL: &str = r#"
@@ -279,6 +279,7 @@ impl Host for Ctx {
         _store: StoreContextMut<Self>,
         _abi_name: &Arc<str>,
         _name: &Arc<str>,
+        _ty: types::ComponentFunc,
         _params: &[Val],
     ) -> wasmtime::Result<()> {
         Ok(())
@@ -307,6 +308,8 @@ pub struct TracedInstance {
 }
 
 pub struct TracedExecution {
+    /// The componentized contract that ran.
+    pub wasm: Vec<u8>,
     pub templates: ComponentTemplates,
     pub artifacts: Arc<neo_wasm::WasmProgramArtifacts>,
     pub instances: Vec<TracedInstance>,
@@ -479,6 +482,7 @@ pub async fn trace_coordination_script(
     }
 
     Ok(TracedExecution {
+        wasm,
         templates,
         artifacts,
         instances,

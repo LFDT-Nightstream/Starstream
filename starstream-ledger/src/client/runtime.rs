@@ -1,3 +1,4 @@
+use core::iter::zip;
 use core::mem;
 use core::ops::Deref;
 use core::pin::Pin;
@@ -19,7 +20,7 @@ use starstream_runtime::{
 };
 use tokio_util::codec::Encoder as _;
 use tracing::error;
-use wasmtime::component::{Component, Instance, Resource, ResourceTable, Type, Val};
+use wasmtime::component::{Component, Instance, Resource, ResourceTable, Type, Val, types};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, Engine, Store, StoreContextMut, bail, ensure, format_err};
 use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
@@ -590,15 +591,20 @@ impl starstream_runtime::Host for Ctx {
         mut store: StoreContextMut<Self>,
         abi_name: &Arc<str>,
         name: &Arc<str>,
+        ty: types::ComponentFunc,
         params: &[Val],
     ) -> wasmtime::Result<()> {
+        let mut buf = BytesMut::new();
+        for (v, (.., ty)) in zip(params, ty.params()) {
+            ValEncoder::new(&ty)
+                .encode(v, &mut buf)
+                .context("failed to encode event parameter")?;
+        }
         let Ctx { events, .. } = store.data_mut();
-        // TODO: Encode params
-        let params = format!("{params:?}").into_bytes();
         events.push(TransactionEvent {
             abi_name: abi_name.as_ref().into(),
             name: name.as_ref().into(),
-            params: params.into(),
+            params: buf.to_vec().into(),
         });
         Ok(())
     }

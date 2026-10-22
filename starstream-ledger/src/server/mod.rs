@@ -20,6 +20,7 @@ use crate::{Block, CardanoCtx, TransactionOutput, parse_digest};
 
 mod http;
 mod runtime;
+mod wit;
 
 /// Configure `engine_config` for the engine of a [Ledger].
 pub fn configure_wasmtime(engine_config: &mut wasmtime::Config) -> &mut wasmtime::Config {
@@ -63,6 +64,7 @@ struct UtxoCtx {
 struct Contract {
     wasm: Bytes,
     envelope: Bytes,
+    utxo_wits: HashMap<Box<str>, (Bytes, Bytes)>,
 }
 
 #[derive(Clone, Debug)]

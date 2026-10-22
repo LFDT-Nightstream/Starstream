@@ -7,20 +7,20 @@ use core::task::{Poll, ready};
 use core::time::Duration;
 
 use std::collections::{HashMap, HashSet, hash_map};
+use std::error::Error as _;
 use std::sync::Arc;
 
 use anyhow::Context as _;
 use bytes::{Buf, BufMut as _, Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
-use headers_accept::Accept;
-use headers_core::Header as _;
+use futures::TryStreamExt as _;
 use http::header::{
     ACCEPT, ALLOW, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, VARY, X_CONTENT_TYPE_OPTIONS,
 };
 use http_body::Body as _;
 use http_body_util::BodyExt as _;
 use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
@@ -28,32 +28,44 @@ use tokio::net::TcpSocket;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
+use tokio_io_timeout::TimeoutStream;
 use tokio_util::codec::Encoder as _;
+use tokio_util::io::StreamReader;
+use tower_http::timeout::{TimeoutBody, TimeoutError};
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
-use wasm_tokio::cm::AsyncReadValue as _;
-use wasm_tokio::{AsyncReadCore as _, AsyncReadLeb128 as _, CoreNameDecoder};
+use wasm_tokio::cm::{AsyncReadValue as _, U64Codec};
+use wasm_tokio::{AsyncReadCore as _, AsyncReadLeb128 as _, CoreNameDecoder, CoreVecDecoderBytes};
 use wasmparser::WasmFeatures;
 use wasmtime::component::{ResourceTable, Type, Val};
 
 use crate::cose::read_envelope;
 use crate::runtime::apply_state;
-use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx};
+use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx, wit};
 use crate::wrpc::bindings;
 use crate::wrpc::bindings::starstream::ledger::types::GetError;
 use crate::wrpc::codec::{ValEncoder, read_value};
 use crate::wrpc::{
-    LEDGER_BLOCK_INSTANCE, LEDGER_CONTRACT_INSTANCE, LEDGER_GENESIS_INSTANCE,
+    LEDGER_ACCOUNT_INSTANCE, LEDGER_ADMIN_INSTANCE, LEDGER_BLOCK_INSTANCE,
+    LEDGER_CONTRACT_INSTANCE, LEDGER_GENESIS_INSTANCE, LEDGER_NETWORK_INSTANCE,
     LEDGER_TRANSACTION_INSTANCE, LEDGER_UTXO_INSTANCE, ensure_eof, flatten_stream, read_params,
 };
 use crate::{
     APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Action, Block, Fund, Message, Publish,
-    TransactionInput, encode_digest, parse_digest,
+    TransactionInput, TransactionOutput, encode_digest, parse_digest,
 };
 
+mod accept;
 mod error;
 use error::*;
 
 const MAX_ENVELOPE_SIZE: usize = 1 << 24;
+
+const TEXT_PLAIN_UTF_8: MediaType = MediaType::from_parts(
+    mediatype::names::TEXT,
+    mediatype::names::PLAIN,
+    None,
+    &[(mediatype::names::CHARSET, mediatype::values::UTF_8)],
+);
 
 fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     debug!("binding TCP socket");
@@ -76,19 +88,6 @@ fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     Ok(sock)
 }
 
-fn negotiate_accept(
-    headers: &http::HeaderMap,
-    available: &'static [MediaType<'static>],
-) -> Option<Result<&'static MediaType<'static>, AcceptHeaderError>> {
-    headers.contains_key(ACCEPT).then(|| {
-        let accept = Accept::decode(&mut headers.get_all(ACCEPT).iter())
-            .map_err(AcceptHeaderError::Decoding)?;
-        accept
-            .negotiate(available)
-            .ok_or(AcceptHeaderError::NotAcceptable(available))
-    })
-}
-
 fn build_text_response<T>(
     code: http::StatusCode,
     body: impl Into<T>,
@@ -98,7 +97,7 @@ where
 {
     http::Response::builder()
         .status(code)
-        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(CONTENT_TYPE, TEXT_PLAIN_UTF_8.to_string())
         .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
         .body(http_body_util::Full::new(body.into()))
 }
@@ -110,7 +109,7 @@ fn build_method_not_allowed(
 ) -> http::Result<http::Response<http_body_util::Full<Bytes>>> {
     http::Response::builder()
         .status(http::StatusCode::METHOD_NOT_ALLOWED)
-        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(CONTENT_TYPE, TEXT_PLAIN_UTF_8.to_string())
         .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(ALLOW, allow)
         .body(http_body_util::Full::new(
@@ -142,8 +141,16 @@ fn is_connection_error(err: &std::io::Error) -> bool {
     )
 }
 
+fn is_timeout(err: &hyper::Error) -> bool {
+    err.is_timeout()
+        || err
+            .source()
+            .and_then(|err| err.downcast_ref::<std::io::Error>())
+            .is_some_and(|err| err.kind() == std::io::ErrorKind::TimedOut)
+}
+
 impl Ledger {
-    async fn handle_contract_get(
+    async fn handle_contract_get<const HEAD: bool>(
         &self,
         headers: http::HeaderMap,
         digest: &str,
@@ -152,9 +159,8 @@ impl Ledger {
 
         let digest = parse_digest(digest).map_err(ContractGetError::DigestParsing)?;
 
-        let accept = negotiate_accept(&headers, AVAILABLE_TYPES)
-            .transpose()
-            .map_err(ContractGetError::AcceptHeader)?;
+        let accept =
+            accept::negotiate(&headers, AVAILABLE_TYPES).map_err(ContractGetError::AcceptHeader)?;
 
         let contracts = self.contracts.read().await;
         let contract = contracts
@@ -164,45 +170,23 @@ impl Ledger {
         let res = http::Response::builder()
             .header(VARY, ACCEPT.as_str())
             .header(X_CONTENT_TYPE_OPTIONS, "nosniff");
-        if accept == Some(&APPLICATION_WASM) {
-            res.header(CONTENT_TYPE, APPLICATION_WASM.to_string())
-                .body(http_body_util::Full::new(contract.wasm.clone()))
-        } else {
-            res.header(CONTENT_TYPE, APPLICATION_COSE.to_string())
-                .body(http_body_util::Full::new(contract.envelope.clone()))
-        }
-        .map_err(ContractGetError::Http)
-    }
-
-    async fn handle_contract_head(
-        &self,
-        headers: http::HeaderMap,
-        digest: &str,
-    ) -> Result<http::Response<http_body_util::Full<Bytes>>, ContractGetError> {
-        const AVAILABLE_TYPES: &[MediaType] = &[APPLICATION_COSE, APPLICATION_WASM];
-
-        let digest = parse_digest(digest).map_err(ContractGetError::DigestParsing)?;
-
-        let accept = negotiate_accept(&headers, AVAILABLE_TYPES)
-            .transpose()
-            .map_err(ContractGetError::AcceptHeader)?;
-
-        let contracts = self.contracts.read().await;
-        let contract = contracts
-            .get(&digest)
-            .ok_or(ContractGetError::ContractNotFound)?;
-
-        let res = http::Response::builder()
-            .header(VARY, ACCEPT.as_str())
-            .header(X_CONTENT_TYPE_OPTIONS, "nosniff");
-        if accept == Some(&APPLICATION_WASM) {
+        if accept == &APPLICATION_WASM {
             res.header(CONTENT_TYPE, APPLICATION_WASM.to_string())
                 .header(CONTENT_LENGTH, contract.wasm.len())
+                .body(if HEAD {
+                    http_body_util::Full::default()
+                } else {
+                    http_body_util::Full::new(contract.wasm.clone())
+                })
         } else {
             res.header(CONTENT_TYPE, APPLICATION_COSE.to_string())
                 .header(CONTENT_LENGTH, contract.envelope.len())
+                .body(if HEAD {
+                    http_body_util::Full::default()
+                } else {
+                    http_body_util::Full::new(contract.envelope.clone())
+                })
         }
-        .body(http_body_util::Full::default())
         .map_err(ContractGetError::Http)
     }
 
@@ -215,11 +199,12 @@ impl Ledger {
         let [account] = signers[..] else {
             return Err(PublishPostError::SignerCount(signers.len()));
         };
-        wasmparser::Validator::new_with_features(
+        let types = wasmparser::Validator::new_with_features(
             WasmFeatures::default() | WasmFeatures::CM_IMPLEMENTS,
         )
         .validate_all(&wasm)
         .map_err(PublishPostError::Wasm)?;
+        let utxo_wits = wit::utxo_wits(&wasm, &types).map_err(PublishPostError::Wit)?;
 
         let digest: [u8; 32] = Sha256::digest(&wasm).into();
         let mut contracts = self.contracts.write().await;
@@ -252,6 +237,7 @@ impl Ledger {
         entry.insert(Arc::new(Contract {
             wasm: wasm.into(),
             envelope: envelope.clone(),
+            utxo_wits,
         }));
         {
             let mut blocks = self.blocks.write().await;
@@ -262,7 +248,7 @@ impl Ledger {
         let digest = encode_digest(&digest);
         http::Response::builder()
             .status(http::StatusCode::CREATED)
-            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .header(CONTENT_TYPE, TEXT_PLAIN_UTF_8.to_string())
             .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
             .header(LOCATION, format!("/contracts/{digest}"))
             .body(http_body_util::Full::new(digest.into()))
@@ -311,7 +297,7 @@ impl Ledger {
         build_text_response(http::StatusCode::OK, "").map_err(FundPostError::Http)
     }
 
-    async fn handle_transaction_get(
+    async fn handle_transaction_get<const HEAD: bool>(
         &self,
         headers: http::HeaderMap,
         digest: &str,
@@ -320,9 +306,7 @@ impl Ledger {
 
         let digest = parse_digest(digest).map_err(TransactionGetError::DigestParsing)?;
 
-        if let Some(Err(err)) = negotiate_accept(&headers, AVAILABLE_TYPES) {
-            return Err(TransactionGetError::AcceptHeader(err));
-        }
+        accept::negotiate(&headers, AVAILABLE_TYPES).map_err(TransactionGetError::AcceptHeader)?;
 
         let txs = self.transactions.read().await;
         let tx = txs
@@ -332,35 +316,13 @@ impl Ledger {
         http::Response::builder()
             .header(VARY, ACCEPT.as_str())
             .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
-            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
-            .body(http_body_util::Full::new(tx.envelope.clone()))
-            .map_err(TransactionGetError::Http)
-    }
-
-    async fn handle_transaction_head(
-        &self,
-        headers: http::HeaderMap,
-        digest: &str,
-    ) -> Result<http::Response<http_body_util::Full<Bytes>>, TransactionGetError> {
-        const AVAILABLE_TYPES: &[MediaType] = &[APPLICATION_COSE];
-
-        let digest = parse_digest(digest).map_err(TransactionGetError::DigestParsing)?;
-
-        if let Some(Err(err)) = negotiate_accept(&headers, AVAILABLE_TYPES) {
-            return Err(TransactionGetError::AcceptHeader(err));
-        }
-
-        let txs = self.transactions.read().await;
-        let tx = txs
-            .get(&digest)
-            .ok_or(TransactionGetError::TransactionNotFound)?;
-
-        http::Response::builder()
-            .header(VARY, ACCEPT.as_str())
-            .header(CONTENT_TYPE, APPLICATION_COSE.to_string())
-            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
             .header(CONTENT_LENGTH, tx.envelope.len())
-            .body(http_body_util::Full::default())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .body(if HEAD {
+                http_body_util::Full::default()
+            } else {
+                http_body_util::Full::new(tx.envelope.clone())
+            })
             .map_err(TransactionGetError::Http)
     }
 
@@ -454,7 +416,7 @@ impl Ledger {
         let digest = encode_digest(&digest);
         http::Response::builder()
             .status(http::StatusCode::CREATED)
-            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .header(CONTENT_TYPE, TEXT_PLAIN_UTF_8.to_string())
             .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
             .header(LOCATION, format!("/transactions/{digest}"))
             .body(http_body_util::Full::new(digest.into()))
@@ -464,16 +426,20 @@ impl Ledger {
     async fn handle_envelope_post(
         &self,
         body: hyper::body::Incoming,
+        io_timeout: Duration,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, EnvelopePostError> {
         if body.size_hint().lower() > MAX_ENVELOPE_SIZE as u64 {
             return Err(EnvelopePostError::BodyTooLarge(MAX_ENVELOPE_SIZE));
         }
+        let body = TimeoutBody::new(io_timeout, body);
         let body = http_body_util::Limited::new(body, MAX_ENVELOPE_SIZE)
             .collect()
             .await
             .map_err(|err| {
                 if err.is::<http_body_util::LengthLimitError>() {
                     EnvelopePostError::BodyTooLarge(MAX_ENVELOPE_SIZE)
+                } else if err.is::<TimeoutError>() {
+                    EnvelopePostError::BodyTimeout
                 } else {
                     EnvelopePostError::Body(err)
                 }
@@ -502,10 +468,108 @@ impl Ledger {
         }
     }
 
+    async fn get_utxo(
+        &self,
+        transaction: Option<[u8; 32]>,
+        index: usize,
+    ) -> Option<Arc<TransactionOutput>> {
+        if let Some(transaction) = transaction {
+            let txs = self.transactions.read().await;
+            let Transaction { outputs, .. } = txs.get(&transaction)?;
+            let utxo = outputs.get(index)?;
+            utxo.as_ref().map(Arc::clone)
+        } else {
+            let outputs = self.genesis.outputs.read().await;
+            let utxo = outputs.get(index)?;
+            utxo.as_ref().map(Arc::clone)
+        }
+    }
+
+    async fn handle_rpc_get<const HEAD: bool>(
+        &self,
+        headers: http::HeaderMap,
+        query: Option<&str>,
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcGetError> {
+        const AVAILABLE_TYPES: &[MediaType] = &[TEXT_PLAIN_UTF_8, APPLICATION_WASM];
+
+        let accept =
+            accept::negotiate(&headers, AVAILABLE_TYPES).map_err(RpcGetError::AcceptHeader)?;
+
+        let mut transaction = None;
+        let mut index = None;
+        for (name, value) in form_urlencoded::parse(query.unwrap_or_default().as_bytes()) {
+            match &*name {
+                "transaction" if transaction.is_some() => {
+                    return Err(RpcGetError::DuplicateQueryParameter(name.into()));
+                }
+                "transaction" => {
+                    let digest =
+                        parse_digest(&value).map_err(RpcGetError::TransactionDigestParsing)?;
+                    transaction = Some(digest);
+                }
+                "index" if index.is_some() => {
+                    return Err(RpcGetError::DuplicateQueryParameter(name.into()));
+                }
+                "index" => {
+                    let i: u32 = value.parse().map_err(RpcGetError::UtxoIndexParsing)?;
+                    let i = usize::try_from(i).map_err(|_| RpcGetError::UtxoIndexOverflow)?;
+                    index = Some(i);
+                }
+                name => return Err(RpcGetError::UnknownQueryParameter(name.into())),
+            }
+        }
+        let (content_type, body) = match (transaction, index) {
+            (Some(..), None) => return Err(RpcGetError::UtxoIndexMissing),
+            (None, None) => {
+                if accept == &APPLICATION_WASM {
+                    (APPLICATION_WASM, Bytes::from_static(wit::LEDGER_WASM))
+                } else {
+                    (
+                        TEXT_PLAIN_UTF_8,
+                        Bytes::from_static(wit::LEDGER_WIT.as_bytes()),
+                    )
+                }
+            }
+            (transaction, Some(index)) => {
+                let utxo = self
+                    .get_utxo(transaction, index)
+                    .await
+                    .ok_or(RpcGetError::UtxoNotFound)?;
+                let contract =
+                    parse_digest(&utxo.contract).map_err(RpcGetError::ContractDigestParsing)?;
+                let contracts = self.contracts.read().await;
+                let contract = contracts
+                    .get(&contract)
+                    .ok_or(RpcGetError::ContractNotFound)?;
+                let Some((text, utxo_wasm)) = contract.utxo_wits.get(&utxo.instance) else {
+                    return Err(RpcGetError::UtxoInstanceNotFound(utxo.instance.clone()));
+                };
+                if accept == &APPLICATION_WASM {
+                    (APPLICATION_WASM, utxo_wasm.clone())
+                } else {
+                    (TEXT_PLAIN_UTF_8, text.clone())
+                }
+            }
+        };
+
+        http::Response::builder()
+            .header(VARY, ACCEPT.as_str())
+            .header(CONTENT_TYPE, content_type.to_string())
+            .header(CONTENT_LENGTH, body.len())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .body(if HEAD {
+                http_body_util::Full::default()
+            } else {
+                http_body_util::Full::new(body)
+            })
+            .map_err(RpcGetError::Http)
+    }
+
     async fn handle_rpc_post(
         &self,
         headers: http::HeaderMap,
         body: hyper::body::Incoming,
+        io_timeout: Duration,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcPostError> {
         fn get_by_digest<'a, T>(
             vs: &'a HashMap<[u8; 32], T>,
@@ -513,6 +577,14 @@ impl Ledger {
         ) -> Result<&'a T, GetError> {
             let digest = parse_digest(digest)?;
             vs.get(&digest).ok_or(GetError::NotFound)
+        }
+
+        fn get_by_key<'a, T>(
+            vs: &'a HashMap<VerifyingKey, T>,
+            key: &[u8],
+        ) -> Result<&'a T, GetError> {
+            let key = VerifyingKey::try_from(key)?;
+            vs.get(&key).ok_or(GetError::NotFound)
         }
 
         let content_type = headers
@@ -526,7 +598,7 @@ impl Ledger {
         let content_type = content_type.essence();
         if content_type == APPLICATION_COSE {
             return self
-                .handle_envelope_post(body)
+                .handle_envelope_post(body, io_timeout)
                 .await
                 .map_err(RpcPostError::Envelope);
         }
@@ -535,7 +607,15 @@ impl Ledger {
                 content_type.to_string().into(),
             ));
         }
-        let mut body = wrpc_http::data_reader_from_incoming(body);
+        let body = TimeoutBody::new(io_timeout, body).into_data_stream();
+        let body = body.map_err(|err| {
+            if err.is::<TimeoutError>() {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, err)
+            } else {
+                std::io::Error::other(err)
+            }
+        });
+        let mut body = StreamReader::new(Box::pin(body));
         let wrpc_transport::frame::Header { instance, name } =
             wrpc_transport::frame::Header::read(&mut body)
                 .await
@@ -543,6 +623,35 @@ impl Ledger {
         let mut body = flatten_stream(body);
         let mut data = BytesMut::new();
         match (instance.as_str(), name.as_str()) {
+            (LEDGER_ADMIN_INSTANCE, "get-nonce") => {
+                ensure_eof(body)
+                    .await
+                    .map_err(RpcPostError::ParameterDecoding)?;
+                let nonce = self.admin.last_nonce.load(Ordering::Relaxed);
+                wrpc_pack::pack(nonce, &mut data).map_err(RpcPostError::ResultEncoding)?;
+            }
+            (LEDGER_ACCOUNT_INSTANCE, "get-balance") => {
+                let key = read_params(body, <CoreVecDecoderBytes>::default())
+                    .await
+                    .map_err(RpcPostError::ParameterDecoding)?;
+                let balance = {
+                    let accounts = self.accounts.read().await;
+                    get_by_key(&accounts, &key)
+                        .map(|account| account.balance.load(Ordering::Relaxed))
+                };
+                wrpc_pack::pack(balance, &mut data).map_err(RpcPostError::ResultEncoding)?;
+            }
+            (LEDGER_ACCOUNT_INSTANCE, "get-nonce") => {
+                let key = read_params(body, <CoreVecDecoderBytes>::default())
+                    .await
+                    .map_err(RpcPostError::ParameterDecoding)?;
+                let nonce = {
+                    let accounts = self.accounts.read().await;
+                    get_by_key(&accounts, &key)
+                        .map(|account| account.last_nonce.load(Ordering::Relaxed))
+                };
+                wrpc_pack::pack(nonce, &mut data).map_err(RpcPostError::ResultEncoding)?;
+            }
             (LEDGER_BLOCK_INSTANCE, "get-height") => {
                 ensure_eof(body)
                     .await
@@ -552,43 +661,73 @@ impl Ledger {
                     .map_err(|err| RpcPostError::ResultEncoding(std::io::Error::other(err)))?;
                 wrpc_pack::pack(height, &mut data).map_err(RpcPostError::ResultEncoding)?;
             }
+            (LEDGER_BLOCK_INSTANCE, "get-block") => {
+                let height = read_params(body, U64Codec)
+                    .await
+                    .map_err(RpcPostError::ParameterDecoding)?;
+                let envelopes = {
+                    let blocks = self.blocks.read().await;
+                    usize::try_from(height)
+                        .ok()
+                        .and_then(|height| height.checked_sub(1))
+                        .and_then(|i| blocks.get(i))
+                        .map(|block| {
+                            block
+                                .actions
+                                .iter()
+                                .map(|action| match action {
+                                    Action::UploadContract(envelope)
+                                    | Action::FundAccount(envelope)
+                                    | Action::Transaction(envelope) => envelope.clone(),
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                };
+                wrpc_pack::pack(envelopes, &mut data).map_err(RpcPostError::ResultEncoding)?;
+            }
             (LEDGER_CONTRACT_INSTANCE, "get-envelope") => {
                 let digest = read_params(body, <CoreNameDecoder>::default())
                     .await
                     .map_err(RpcPostError::ParameterDecoding)?;
-                let contracts = self.contracts.read().await;
-                let envelope =
-                    get_by_digest(&contracts, &digest).map(|contract| &contract.envelope);
+                let envelope = {
+                    let contracts = self.contracts.read().await;
+                    get_by_digest(&contracts, &digest).map(|contract| contract.envelope.clone())
+                };
                 wrpc_pack::pack(envelope, &mut data).map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_CONTRACT_INSTANCE, "get-wasm") => {
                 let digest = read_params(body, <CoreNameDecoder>::default())
                     .await
                     .map_err(RpcPostError::ParameterDecoding)?;
-                let contracts = self.contracts.read().await;
-                let wasm = get_by_digest(&contracts, &digest).map(|contract| &contract.wasm);
+                let wasm = {
+                    let contracts = self.contracts.read().await;
+                    get_by_digest(&contracts, &digest).map(|contract| contract.wasm.clone())
+                };
                 wrpc_pack::pack(wasm, &mut data).map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_TRANSACTION_INSTANCE, "get-envelope") => {
                 let digest = read_params(body, <CoreNameDecoder>::default())
                     .await
                     .map_err(RpcPostError::ParameterDecoding)?;
-                let txs = self.transactions.read().await;
-                let envelope =
-                    get_by_digest(&txs, &digest).map(|Transaction { envelope, .. }| envelope);
+                let envelope = {
+                    let txs = self.transactions.read().await;
+                    get_by_digest(&txs, &digest).map(|tx| tx.envelope.clone())
+                };
                 wrpc_pack::pack(envelope, &mut data).map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_TRANSACTION_INSTANCE, "get-transaction") => {
                 let digest = read_params(body, <CoreNameDecoder>::default())
                     .await
                     .map_err(RpcPostError::ParameterDecoding)?;
-                let txs = self.transactions.read().await;
-                let tx = get_by_digest(&txs, &digest).map(|Transaction { encoded, .. }| encoded);
+                let tx = {
+                    let txs = self.transactions.read().await;
+                    get_by_digest(&txs, &digest).map(|tx| tx.encoded.clone())
+                };
                 match tx {
                     Ok(tx) => {
                         // `result::ok` discriminant followed by the stored wRPC-encoded `transaction`
                         data.put_u8(0);
-                        data.extend_from_slice(tx);
+                        data.extend_from_slice(&tx);
                     }
                     Err(err) => wrpc_pack::pack(Err::<(), _>(err), &mut data)
                         .map_err(RpcPostError::ResultEncoding)?,
@@ -599,6 +738,12 @@ impl Ledger {
                     .await
                     .map_err(RpcPostError::ParameterDecoding)?;
                 data.extend_from_slice(&self.genesis.encoded);
+            }
+            (LEDGER_NETWORK_INSTANCE, "get-name") => {
+                ensure_eof(body)
+                    .await
+                    .map_err(RpcPostError::ParameterDecoding)?;
+                wrpc_pack::pack(&*self.network, &mut data).map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_UTXO_INSTANCE, _) => {
                 let tx = if body
@@ -622,17 +767,10 @@ impl Ledger {
                     .map_err(RpcPostError::ParameterDecoding)?;
                 let index = usize::try_from(index).map_err(|_| RpcPostError::UtxoIndexOverflow)?;
 
-                let utxo = if let Some(transaction) = tx {
-                    let txs = self.transactions.read().await;
-                    let Transaction { outputs, .. } =
-                        txs.get(&transaction).ok_or(RpcPostError::UtxoNotFound)?;
-                    outputs.get(index).cloned()
-                } else {
-                    let outputs = self.genesis.outputs.read().await;
-                    outputs.get(index).cloned()
-                };
-                let utxo = utxo.ok_or(RpcPostError::UtxoNotFound)?;
-                let utxo = utxo.as_deref().ok_or(RpcPostError::UtxoNotFound)?;
+                let utxo = self
+                    .get_utxo(tx, index)
+                    .await
+                    .ok_or(RpcPostError::UtxoNotFound)?;
                 let contract =
                     parse_digest(&utxo.contract).map_err(RpcPostError::ContractDigestParsing)?;
                 let wasm = {
@@ -640,8 +778,9 @@ impl Ledger {
                     let contract = contracts
                         .get(&contract)
                         .ok_or(RpcPostError::ContractNotFound)?;
-                    apply_state(&contract.wasm, &utxo.state).map_err(RpcPostError::StateMerge)?
+                    contract.wasm.clone()
                 };
+                let wasm = apply_state(&wasm, &utxo.state).map_err(RpcPostError::StateMerge)?;
 
                 // TODO: Insert traps in place of all coordination script imports
 
@@ -757,6 +896,12 @@ impl Ledger {
 
     /// Bind `address` and return the future serving the ledger HTTP API.
     ///
+    /// At most `max_requests` connections are served at once, and a connection
+    /// is closed if it does not send a complete request head within
+    /// `io_timeout` of opening or of finishing its previous response, if it
+    /// sends no chunk of a request body for `io_timeout`, or if a response
+    /// write to it makes no progress for `io_timeout`.
+    ///
     /// Calling [`Notify::notify_one`] on the returned handle shuts the server
     /// down; [`Notify::notify_waiters`] is lost if it races the first poll of
     /// the future.
@@ -764,6 +909,7 @@ impl Ledger {
     pub async fn handle_http(
         self: Arc<Self>,
         address: SocketAddr,
+        io_timeout: Duration,
     ) -> anyhow::Result<(impl Future<Output = ()> + use<>, Arc<Notify>)> {
         let sock = bind_tcp(address)?;
         let sock = sock
@@ -824,14 +970,14 @@ impl Ledger {
                     path.next(),
                 ) {
                     ("GET", Some("contracts"), Some(digest), None, ..) => match ledger
-                        .handle_contract_get(headers, digest)
+                        .handle_contract_get::<false>(headers, digest)
                         .await
                     {
                         Ok(res) => Ok(res),
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
                     ("HEAD", Some("contracts"), Some(digest), None, ..) => match ledger
-                        .handle_contract_head(headers, digest)
+                        .handle_contract_get::<true>(headers, digest)
                         .await
                     {
                         Ok(res) => Ok(res),
@@ -842,14 +988,14 @@ impl Ledger {
                     }
 
                     ("GET", Some("transactions"), Some(digest), None, ..) => match ledger
-                        .handle_transaction_get(headers, digest)
+                        .handle_transaction_get::<false>(headers, digest)
                         .await
                     {
                         Ok(res) => Ok(res),
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
                     ("HEAD", Some("transactions"), Some(digest), None, ..) => match ledger
-                        .handle_transaction_head(headers, digest)
+                        .handle_transaction_get::<true>(headers, digest)
                         .await
                     {
                         Ok(res) => Ok(res),
@@ -860,15 +1006,29 @@ impl Ledger {
                     }
 
                     ("POST", Some("rpc"), None, ..) => {
-                        match ledger.handle_rpc_post(headers, body).await {
+                        match ledger.handle_rpc_post(headers, body, io_timeout).await {
                             Ok(res) => Ok(res),
                             Err(err) => {
                                 build_text_response(err.http_status_code(), err.to_string())
                             }
                         }
                     }
+                    ("GET", Some("rpc"), None, ..) => match ledger
+                        .handle_rpc_get::<false>(headers, pq.query())
+                        .await
+                    {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    },
+                    ("HEAD", Some("rpc"), None, ..) => match ledger
+                        .handle_rpc_get::<true>(headers, pq.query())
+                        .await
+                    {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    },
                     (_, Some("rpc"), None, ..) => {
-                        build_method_not_allowed("POST", &method, pq.path())
+                        build_method_not_allowed("GET, HEAD, POST", &method, pq.path())
                     }
 
                     _ => build_text_response(
@@ -879,7 +1039,8 @@ impl Ledger {
             }
         });
         let shutdown = Arc::new(Notify::new());
-        let srv = hyper_util::server::conn::auto::Builder::<TokioExecutor>::default();
+        let mut srv = hyper::server::conn::http1::Builder::new();
+        srv.timer(TokioTimer::new()).header_read_timeout(io_timeout);
         let max_connections = self.max_requests as usize;
         Ok((
             {
@@ -911,12 +1072,19 @@ impl Ledger {
                         {
                             Some(Ok((stream, addr))) => {
                                 info!(?addr, "accepted TCP connection");
-                                let conn = srv.serve_connection(TokioIo::new(stream), svc.clone());
-                                let conn = graceful.watch(conn.into_owned());
+                                let mut stream = TimeoutStream::new(stream);
+                                stream.set_write_timeout(Some(io_timeout));
+                                let conn = srv
+                                    .serve_connection(TokioIo::new(Box::pin(stream)), svc.clone());
+                                let conn = graceful.watch(conn);
                                 tasks.spawn(
                                     async move {
                                         if let Err(err) = conn.await {
-                                            warn!(?err, "failed to serve HTTP connection");
+                                            if is_timeout(&err) {
+                                                debug!(?err, "closed stalled HTTP connection");
+                                            } else {
+                                                warn!(?err, "failed to serve HTTP connection");
+                                            }
                                         }
                                     }
                                     .in_current_span(),

@@ -11,18 +11,21 @@ license.workspace = true
 default = ["client", "server"]
 client = [
     "dep:wasmtime-wizer",
+    "dep:wrpc-http",
     "hyper-util/client",
     "hyper-util/client-legacy",
     "wrpc-http/client-legacy",
 ]
 server = [
-    "dep:headers-accept",
-    "dep:headers-core",
+    "dep:anyhow",
     "dep:http-body",
     "dep:hyper",
+    "dep:tokio-io-timeout",
+    "dep:tower-http",
+    "dep:wit-component",
+    "dep:wit-parser",
     "dep:wrpc-pack",
     "hyper-util/server",
-    "hyper-util/server-auto",
     "hyper-util/server-graceful",
     "hyper-util/tokio",
 ]
@@ -32,15 +35,14 @@ anyhow = { workspace = true }
 bytes = { workspace = true }
 coset = { workspace = true, features = ["std"] }
 ed25519-dalek = { workspace = true, features = ["fast", "std", "zeroize"] }
+form_urlencoded = { workspace = true, features = ["std"] }
 futures = { workspace = true }
-headers-accept = { workspace = true, optional = true }
-headers-core = { workspace = true, optional = true }
 hex = { workspace = true, features = ["std"] }
 http = { workspace = true, features = ["std"] }
 http-body = { workspace = true, optional = true }
 http-body-util = { workspace = true }
-hyper = { workspace = true, optional = true, features = ["server"] }
-hyper-util = { workspace = true, features = ["http1", "http2"] }
+hyper = { workspace = true, optional = true, features = ["http1", "server"] }
+hyper-util = { workspace = true, features = ["http1"] }
 mediatype = { workspace = true }
 minicbor = { workspace = true, features = ["derive", "std"] }
 multibase = { workspace = true, features = ["std"] }
@@ -51,7 +53,9 @@ starstream-proving-runtime = { workspace = true }
 starstream-runtime = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
-tokio-util = { workspace = true, features = ["codec"] }
+tokio-io-timeout = { workspace = true, optional = true }
+tokio-util = { workspace = true, features = ["codec", "io"] }
+tower-http = { workspace = true, optional = true, features = ["timeout"] }
 tracing = { workspace = true, features = ["attributes"] }
 wasm-tokio = { workspace = true }
 wasm-encoder = { workspace = true, features = ["wasmparser"] }
@@ -68,9 +72,16 @@ wasmtime-wizer = { workspace = true, optional = true, features = [
     "wasmtime",
 ] }
 wit-bindgen-wrpc = { workspace = true }
-wrpc-http = { workspace = true }
+wit-component = { workspace = true, optional = true }
+wit-parser = { workspace = true, optional = true }
+wrpc-http = { workspace = true, optional = true }
 wrpc-pack = { workspace = true, optional = true }
 wrpc-transport = { workspace = true }
+
+[build-dependencies]
+anyhow = { workspace = true, optional = true }
+wit-component = { workspace = true, optional = true }
+wit-parser = { workspace = true, optional = true }
 
 [dev-dependencies]
 starstream-compiler = { workspace = true }

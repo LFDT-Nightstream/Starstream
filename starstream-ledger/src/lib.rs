@@ -84,6 +84,22 @@ pub struct TransactionInput {
     pub index: u32,
 }
 
+impl TransactionInput {
+    pub fn genesis(index: u32) -> Self {
+        Self {
+            transaction: Box::default(),
+            index,
+        }
+    }
+
+    pub fn new(transaction: [u8; 32], index: u32) -> Self {
+        Self {
+            transaction: encode_digest(&transaction).into(),
+            index,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
 pub struct TransactionOutput {
     #[n(0)]
