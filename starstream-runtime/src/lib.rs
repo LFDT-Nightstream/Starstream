@@ -152,10 +152,6 @@ pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'stati
 
     fn core(&mut self) -> &mut HostCore;
 
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.core().table
-    }
-
     fn instance_stack(&mut self) -> &mut Vec<Instance> {
         &mut self.core().instance_stack
     }
@@ -466,7 +462,8 @@ fn link_utxo_downcast<T: Host>(
     linker.func_wrap("downcast", move |mut store, (utxo,)| {
         let utxo = store
             .data_mut()
-            .table()
+            .core()
+            .table
             .get::<Utxo<T::UtxoContext>>(&utxo)?;
         if !Component::same(&utxo.component, &component) {
             return Ok((None,));
@@ -475,7 +472,7 @@ fn link_utxo_downcast<T: Host>(
             return Ok((None,));
         }
         let utxo = utxo.clone();
-        let utxo = store.data_mut().table().push(utxo)?;
+        let utxo = store.data_mut().core().table.push(utxo)?;
         Ok((Some(utxo),))
     })
 }
@@ -486,10 +483,11 @@ fn link_utxo_upcast<T: Host>(linker: &mut LinkerInstance<T>) -> wasmtime::Result
     linker.func_wrap("upcast", move |mut store, (utxo,)| {
         let utxo = store
             .data_mut()
-            .table()
+            .core()
+            .table
             .get::<Utxo<T::UtxoContext>>(&utxo)
             .cloned()?;
-        let utxo = store.data_mut().table().push(utxo)?;
+        let utxo = store.data_mut().core().table.push(utxo)?;
         Ok((utxo,))
     })
 }
@@ -540,7 +538,7 @@ fn link_typed_utxo_main<T: Host>(
                 export,
                 move |mut store, cx| {
                     Box::pin(async move {
-                        let cx_res = store.data_mut().table().push(cx.clone())?;
+                        let cx_res = store.data_mut().core().table.push(cx.clone())?;
                         let cx_res = cx_res.try_into_resource_any(&mut store)?;
                         params[0] = Val::Resource(cx_res);
                         instance
@@ -550,7 +548,7 @@ fn link_typed_utxo_main<T: Host>(
                 },
             )
             .await?;
-            let utxo = store.data_mut().table().push(utxo)?;
+            let utxo = store.data_mut().core().table.push(utxo)?;
             let utxo = utxo.try_into_resource_any(store.as_context_mut())?;
             results[0] = Val::Resource(utxo);
             Ok(())
@@ -582,7 +580,7 @@ fn link_typed_utxo_method<T: Host>(
                     instance_idx,
                     resource,
                     ..
-                } = store.data_mut().table().get(&utxo)?;
+                } = store.data_mut().core().table.get(&utxo)?;
                 let idx = instance
                     .get_export_index(&mut store, Some(&instance_idx), name.as_ref())
                     .with_context(|| format!("`{name}` export was not found"))?;
@@ -688,7 +686,8 @@ fn link_typed_utxo_instance<T: Host>(
                     |mut store, rep| {
                         store
                             .data_mut()
-                            .table()
+                            .core()
+                            .table
                             .delete::<Utxo<T::UtxoContext>>(Resource::new_own(rep))?;
                         Ok(())
                     },
@@ -725,7 +724,7 @@ fn link_dynamic_utxo_function<T: Host>(
                 instance_idx,
                 resource,
                 ..
-            } = store.data_mut().table().get(&utxo)?;
+            } = store.data_mut().core().table.get(&utxo)?;
             let idx = instance
                 .get_export_index(&mut store, Some(&instance_idx), &export_name)
                 .context("method export index not found")?;
@@ -796,7 +795,7 @@ fn link_typed_token_mint<T: Host>(
                 .context("contract was not initialized")?;
             let instance = contract.instantiate(&mut store).await?;
             let token = instance.construct_token(&mut store, idx, params).await?;
-            let token = store.data_mut().table().push(token)?;
+            let token = store.data_mut().core().table.push(token)?;
             let token = token.try_into_resource_any(store.as_context_mut())?;
             results[0] = Val::Resource(token);
             Ok(())
@@ -822,7 +821,7 @@ fn link_typed_token_burn<T: Host>(
                 bail!("first parameter is not a resource")
             };
             let token = token.try_into_resource::<Token>(&mut store)?;
-            let Token { instance, resource } = store.data_mut().table().delete(token)?;
+            let Token { instance, resource } = store.data_mut().core().table.delete(token)?;
             let params = {
                 let mut ps = Vec::with_capacity(params.len());
                 ps.push(Val::Resource(resource));

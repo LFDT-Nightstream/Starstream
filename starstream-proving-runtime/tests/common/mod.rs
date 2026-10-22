@@ -22,7 +22,7 @@ use starstream_runtime::{
     Contract, ContractLookup, Host, HostCore, StorageExport, Token, Utxo, UtxoExport, bindings,
 };
 use starstream_to_wasm::compile;
-use wasmtime::component::{Component, Instance, Resource, ResourceTable, Val, types};
+use wasmtime::component::{Component, Resource, Val, types};
 use wasmtime::{AsContextMut, Engine, Store, StoreContextMut, bail};
 
 pub const MINIMAL_METHOD_CALL: &str = r#"

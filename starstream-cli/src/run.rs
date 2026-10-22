@@ -101,8 +101,7 @@ impl Host for Ctx {
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<bool> {
-        let table = store.data_mut().table();
-        let utxo = table.get(&utxo)?;
+        let utxo = store.data_mut().core.table.get(&utxo)?;
         Ok(utxo.context().lock().unwrap().methods.contains(&hash))
     }
 
@@ -111,8 +110,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
     ) -> wasmtime::Result<()> {
-        let table = store.data_mut().table();
-        table.delete(utxo)?;
+        store.data_mut().core.table.delete(utxo)?;
         Ok(())
     }
 
@@ -122,8 +120,7 @@ impl Host for Ctx {
         cx: Resource<Self::UtxoContext>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<()> {
-        let table = store.data_mut().table();
-        let cx = table.get_mut(&cx)?;
+        let cx = store.data_mut().core.table.get_mut(&cx)?;
         cx.lock().unwrap().methods.insert(hash);
         Ok(())
     }
@@ -133,8 +130,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let table = store.data_mut().table();
-        let cx = table.get_mut(&cx)?;
+        let cx = store.data_mut().core.table.get_mut(&cx)?;
         cx.lock().unwrap().methods.clear();
         Ok(())
     }
@@ -144,8 +140,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let table = store.data_mut().table();
-        table.delete(cx)?;
+        store.data_mut().core.table.delete(cx)?;
         Ok(())
     }
 
@@ -154,8 +149,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         token: Resource<Token>,
     ) -> wasmtime::Result<()> {
-        let table = store.data_mut().table();
-        table.delete(token)?;
+        store.data_mut().core.table.delete(token)?;
         Ok(())
     }
 

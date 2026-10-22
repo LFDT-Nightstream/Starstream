@@ -537,8 +537,7 @@ impl starstream_runtime::Host for Ctx {
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<bool> {
-        let table = store.data_mut().table();
-        let utxo = table.get(&utxo)?;
+        let utxo = store.data_mut().core.table.get(&utxo)?;
         let cx = lock(utxo.context())?;
         Ok(cx.methods.contains(&hash))
     }
@@ -547,8 +546,7 @@ impl starstream_runtime::Host for Ctx {
         mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
     ) -> wasmtime::Result<()> {
-        let table = store.data_mut().table();
-        table.delete(utxo)?;
+        store.data_mut().core.table.delete(utxo)?;
         Ok(())
     }
 
@@ -557,8 +555,7 @@ impl starstream_runtime::Host for Ctx {
         cx: Resource<Self::UtxoContext>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<()> {
-        let table = store.data_mut().table();
-        let cx = table.get_mut(&cx)?;
+        let cx = store.data_mut().core.table.get_mut(&cx)?;
         let mut cx = lock(cx)?;
         cx.methods.insert(hash);
         Ok(())
@@ -568,8 +565,7 @@ impl starstream_runtime::Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let table = store.data_mut().table();
-        let cx = table.get_mut(&cx)?;
+        let cx = store.data_mut().core.table.get_mut(&cx)?;
         let mut cx = lock(cx)?;
         cx.methods.clear();
         Ok(())
@@ -579,8 +575,7 @@ impl starstream_runtime::Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let table = store.data_mut().table();
-        let cx = table.delete(cx)?;
+        let cx = store.data_mut().core.table.delete(cx)?;
         let mut cx = lock(&cx)?;
         cx.dropped = true;
         Ok(())

@@ -46,8 +46,7 @@ impl starstream_runtime::Host for Ctx {
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<bool> {
-        let table = store.data_mut().table();
-        let utxo = table.get(&utxo)?;
+        let utxo = store.data_mut().core.table.get(&utxo)?;
         Ok(utxo.context().methods.contains(&hash))
     }
 
