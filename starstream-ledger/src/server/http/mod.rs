@@ -1,6 +1,5 @@
 use core::future::poll_fn;
 use core::iter::zip;
-use core::net::SocketAddr;
 use core::pin::pin;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::task::{Poll, ready};
@@ -10,12 +9,14 @@ use std::collections::{HashMap, HashSet, hash_map};
 use std::error::Error as _;
 use std::sync::Arc;
 
-use anyhow::Context as _;
 use bytes::{Buf, BufMut as _, Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
-use futures::TryStreamExt as _;
+use futures::{TryFutureExt as _, TryStreamExt as _};
+use http::HeaderValue;
 use http::header::{
-    ACCEPT, ALLOW, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, VARY, X_CONTENT_TYPE_OPTIONS,
+    ACCEPT, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
+    ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_EXPOSE_HEADERS, ACCESS_CONTROL_MAX_AGE, ALLOW,
+    CONTENT_LENGTH, CONTENT_TYPE, LOCATION, VARY, X_CONTENT_TYPE_OPTIONS,
 };
 use http_body::Body as _;
 use http_body_util::BodyExt as _;
@@ -24,7 +25,7 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
-use tokio::net::TcpSocket;
+use tokio::net::TcpListener;
 use tokio::sync::{Notify, TryAcquireError};
 use tokio::task::JoinSet;
 use tokio::time::sleep;
@@ -67,27 +68,6 @@ const TEXT_PLAIN_UTF_8: MediaType = MediaType::from_parts(
     &[(mediatype::names::CHARSET, mediatype::values::UTF_8)],
 );
 
-fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
-    debug!("binding TCP socket");
-    let sock = match address {
-        SocketAddr::V4(..) => TcpSocket::new_v4(),
-        SocketAddr::V6(..) => TcpSocket::new_v6(),
-    }
-    .context("failed to create HTTP TCP socket")?;
-    // Conditionally enable `SO_REUSEADDR` depending on the current
-    // platform. On Unix we want this to be able to rebind an address in
-    // the `TIME_WAIT` state which can happen then a server is killed with
-    // active TCP connections and then restarted. On Windows though if
-    // `SO_REUSEADDR` is specified then it enables multiple applications to
-    // bind the port at the same time which is not something we want. Hence
-    // this is conditionally set based on the platform (and deviates from
-    // Tokio's default from always-on).
-    sock.set_reuseaddr(!cfg!(windows))?;
-    sock.bind(address)
-        .with_context(|| format!("failed to bind on `{address}`"))?;
-    Ok(sock)
-}
-
 fn build_text_response<T>(
     code: http::StatusCode,
     body: impl Into<T>,
@@ -102,19 +82,32 @@ where
         .body(http_body_util::Full::new(body.into()))
 }
 
-fn build_method_not_allowed(
+fn build_options_or_method_not_allowed(
     allow: &'static str,
     method: &http::Method,
     path: &str,
 ) -> http::Result<http::Response<http_body_util::Full<Bytes>>> {
-    http::Response::builder()
-        .status(http::StatusCode::METHOD_NOT_ALLOWED)
-        .header(CONTENT_TYPE, TEXT_PLAIN_UTF_8.to_string())
-        .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
-        .header(ALLOW, allow)
-        .body(http_body_util::Full::new(
-            format!("method `{method}` not allowed for path `{path}`").into(),
-        ))
+    let res = http::Response::builder().header(ALLOW, allow);
+    if method == http::Method::OPTIONS {
+        res.header(ACCESS_CONTROL_ALLOW_METHODS, allow)
+            .header(ACCESS_CONTROL_ALLOW_HEADERS, "*")
+            .header(ACCESS_CONTROL_MAX_AGE, "86400")
+            .body(http_body_util::Full::default())
+    } else {
+        res.status(http::StatusCode::METHOD_NOT_ALLOWED)
+            .header(CONTENT_TYPE, TEXT_PLAIN_UTF_8.to_string())
+            .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .body(http_body_util::Full::new(
+                format!("method `{method}` not allowed for path `{path}`").into(),
+            ))
+    }
+}
+
+fn allow_cross_origin<T>(mut res: http::Response<T>) -> http::Response<T> {
+    let headers = res.headers_mut();
+    headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+    headers.insert(ACCESS_CONTROL_EXPOSE_HEADERS, HeaderValue::from_static("*"));
+    res
 }
 
 /// Attempt to update the stored nonce.
@@ -335,7 +328,9 @@ impl Ledger {
         let digest = transaction
             .digest()
             .map_err(TransactionPostError::CborEncoding)?;
-        let crate::Transaction { inputs, .. } = &transaction;
+        let crate::Transaction {
+            inputs, outputs, ..
+        } = &transaction;
         if inputs.is_empty() {
             return Err(TransactionPostError::InputsEmpty);
         }
@@ -346,13 +341,28 @@ impl Ledger {
             let transaction = if transaction.is_empty() {
                 None
             } else {
-                let transaction = parse_digest(transaction).map_err(|err| {
+                let digest = parse_digest(transaction).map_err(|err| {
                     TransactionPostError::InputTransactionDigestParsing(transaction.clone(), err)
                 })?;
-                Some(transaction)
+                if encode_digest(&digest) != **transaction {
+                    return Err(TransactionPostError::InputTransactionDigestNotCanonical(
+                        transaction.clone(),
+                    ));
+                }
+                Some(digest)
             };
             if !resolved_inputs.insert((transaction, index)) {
                 return Err(TransactionPostError::InputDuplicate);
+            }
+        }
+        for output in outputs {
+            let digest = parse_digest(&output.contract).map_err(|err| {
+                TransactionPostError::OutputContractDigestParsing(output.contract.clone(), err)
+            })?;
+            if encode_digest(&digest) != *output.contract {
+                return Err(TransactionPostError::OutputContractDigestNotCanonical(
+                    output.contract.clone(),
+                ));
             }
         }
         let transaction = bindings::starstream::ledger::types::Transaction::from(transaction);
@@ -894,7 +904,7 @@ impl Ledger {
             .map_err(RpcPostError::Http)
     }
 
-    /// Bind `address` and return the future serving the ledger HTTP API.
+    /// Return the future serving the ledger HTTP API on `listener`.
     ///
     /// At most `max_requests` connections are served at once, and a connection
     /// is closed if it does not send a complete request head within
@@ -906,16 +916,11 @@ impl Ledger {
     /// down; [`Notify::notify_waiters`] is lost if it races the first poll of
     /// the future.
     #[instrument(skip_all)]
-    pub async fn handle_http(
+    pub fn handle_http(
         self: Arc<Self>,
-        address: SocketAddr,
+        listener: TcpListener,
         io_timeout: Duration,
-    ) -> anyhow::Result<(impl Future<Output = ()> + use<>, Arc<Notify>)> {
-        let sock = bind_tcp(address)?;
-        let sock = sock
-            .listen(self.max_requests)
-            .context("failed to listen on TCP socket")?;
-
+    ) -> (impl Future<Output = ()> + use<>, Arc<Notify>) {
         let ledger = self.clone();
         let svc = service_fn(move |req: http::Request<hyper::body::Incoming>| {
             let ledger = ledger.clone();
@@ -984,7 +989,11 @@ impl Ledger {
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
                     (_, Some("contracts"), Some(..), None, ..) => {
-                        build_method_not_allowed("GET, HEAD", &method, pq.path())
+                        build_options_or_method_not_allowed(
+                            "GET, HEAD, OPTIONS",
+                            &method,
+                            pq.path(),
+                        )
                     }
 
                     ("GET", Some("transactions"), Some(digest), None, ..) => match ledger
@@ -1002,7 +1011,11 @@ impl Ledger {
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
                     (_, Some("transactions"), Some(..), None, ..) => {
-                        build_method_not_allowed("GET, HEAD", &method, pq.path())
+                        build_options_or_method_not_allowed(
+                            "GET, HEAD, OPTIONS",
+                            &method,
+                            pq.path(),
+                        )
                     }
 
                     ("POST", Some("rpc"), None, ..) => {
@@ -1027,9 +1040,11 @@ impl Ledger {
                         Ok(res) => Ok(res),
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     },
-                    (_, Some("rpc"), None, ..) => {
-                        build_method_not_allowed("GET, HEAD, POST", &method, pq.path())
-                    }
+                    (_, Some("rpc"), None, ..) => build_options_or_method_not_allowed(
+                        "GET, HEAD, OPTIONS, POST",
+                        &method,
+                        pq.path(),
+                    ),
 
                     _ => build_text_response(
                         http::StatusCode::NOT_FOUND,
@@ -1037,12 +1052,13 @@ impl Ledger {
                     ),
                 }
             }
+            .map_ok(allow_cross_origin)
         });
         let shutdown = Arc::new(Notify::new());
         let mut srv = hyper::server::conn::http1::Builder::new();
         srv.timer(TokioTimer::new()).header_read_timeout(io_timeout);
         let max_connections = self.max_requests as usize;
-        Ok((
+        (
             {
                 let shutdown = Arc::clone(&shutdown).notified_owned();
                 async move {
@@ -1063,7 +1079,7 @@ impl Ledger {
                                 // `poll_join_next` above.
                                 Poll::Pending if tasks.len() >= max_connections => Poll::Pending,
                                 Poll::Pending => {
-                                    let res = ready!(sock.poll_accept(cx));
+                                    let res = ready!(listener.poll_accept(cx));
                                     Poll::Ready(Some(res))
                                 }
                             }
@@ -1110,6 +1126,6 @@ impl Ledger {
                 .in_current_span()
             },
             shutdown,
-        ))
+        )
     }
 }

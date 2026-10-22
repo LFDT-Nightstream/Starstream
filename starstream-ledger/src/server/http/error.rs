@@ -155,6 +155,12 @@ pub enum TransactionPostError {
     InputUnauthorized,
     #[error("transaction input index does not fit in usize")]
     InputIndexOverflow,
+    #[error("failed to parse output contract digest `{0}`: {1}")]
+    OutputContractDigestParsing(Box<str>, DigestParseError),
+    #[error("input transaction digest `{0}` is not in canonical base32-lower form")]
+    InputTransactionDigestNotCanonical(Box<str>),
+    #[error("output contract digest `{0}` is not in canonical base32-lower form")]
+    OutputContractDigestNotCanonical(Box<str>),
     #[error(transparent)]
     Http(http::Error),
 }
@@ -165,7 +171,10 @@ impl TransactionPostError {
             Self::InputsEmpty
             | Self::InputDuplicate
             | Self::InputTransactionDigestParsing(..)
-            | Self::InputIndexOverflow => http::StatusCode::BAD_REQUEST,
+            | Self::InputIndexOverflow
+            | Self::OutputContractDigestParsing(..)
+            | Self::InputTransactionDigestNotCanonical(..)
+            | Self::OutputContractDigestNotCanonical(..) => http::StatusCode::BAD_REQUEST,
             Self::AlreadyExists(..) => http::StatusCode::CONFLICT,
             Self::InputNotFound => http::StatusCode::NOT_FOUND,
             Self::InputUnauthorized => http::StatusCode::FORBIDDEN,

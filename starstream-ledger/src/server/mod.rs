@@ -17,7 +17,7 @@ use wasmtime::component::{Component, ResourceTable};
 use wasmtime::error::Context as _;
 
 use crate::wrpc::bindings;
-use crate::{Block, CardanoCtx, TransactionOutput, parse_digest};
+use crate::{Block, CardanoCtx, TransactionOutput, encode_digest, parse_digest};
 
 mod http;
 mod runtime;
@@ -101,6 +101,8 @@ impl Ledger {
     ///
     /// Each UTXO method call over `/rpc` runs with `fuel` units of fuel.
     /// `engine` must be configured with [`configure_wasmtime`].
+    ///
+    /// Panics if a genesis output contract digest is not in canonical form.
     pub fn new(
         engine: wasmtime::Engine,
         max_requests: u32,
@@ -117,8 +119,18 @@ impl Ledger {
             key: admin,
             last_nonce: AtomicU64::default(),
         };
+        let genesis = genesis.into();
+        for output in &genesis {
+            let digest = parse_digest(&output.contract)
+                .expect("failed to parse genesis output contract digest");
+            assert_eq!(
+                encode_digest(&digest),
+                *output.contract,
+                "genesis output contract digest is not canonical"
+            );
+        }
         let genesis: Vec<bindings::starstream::ledger::types::TransactionOutput> =
-            genesis.into().into_iter().map(Into::into).collect();
+            genesis.into_iter().map(Into::into).collect();
         let mut encoded = BytesMut::new();
         wrpc_pack::pack(&genesis, &mut encoded).expect("failed to encode genesis");
         let outputs = genesis

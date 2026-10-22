@@ -1139,9 +1139,9 @@ TypedProgram {
   (type (;3;) (func))
   (type (;4;) (func (param i32) (result i32)))
   (type (;5;) (func (result i32)))
-  (type (;6;) (func (param i32) (result i32 i32)))
-  (type (;7;) (func (param i32 i32) (result i32 i32)))
-  (type (;8;) (func (param i32 i32) (result i32)))
+  (type (;6;) (func (param i32 i32) (result i32)))
+  (type (;7;) (func (param i32) (result i32 i32)))
+  (type (;8;) (func (param i32 i32) (result i32 i32)))
   (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
   (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
   (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
@@ -1152,11 +1152,11 @@ TypedProgram {
   (import "starstream:effects/foo" "complex" (func (;7;) (type 4)))
   (import "starstream:events/foo" "log" (func (;8;) (type 0)))
   (memory (;0;) 1)
-  (export "main" (func 12))
-  (export "test4" (func 13))
+  (export "main" (func 13))
   (export "test5" (func 14))
-  (export "starstream:effect-handler/foo#basic" (func 15))
-  (export "starstream:effect-handler/foo#complex" (func 17))
+  (export "test6" (func 15))
+  (export "starstream:effect-handler/foo#basic" (func 16))
+  (export "starstream:effect-handler/foo#complex" (func 18))
   (export "memory" (memory 0))
   (func (;9;) (type 3)
     (call 6)
@@ -1169,13 +1169,31 @@ TypedProgram {
     (call 8
       (i32.const 1))
   )
-  (func (;11;) (type 6) (param i32) (result i32 i32)
+  (func (;11;) (type 6) (param i32 i32) (result i32)
+    (local i64)
+    (i32.wrap_i64
+      (local.tee 2
+        (i64.mul
+          (i64.extend_i32_u
+            (local.get 0))
+          (i64.extend_i32_u
+            (local.get 1))))
+      (if ;; label = @1
+        (i64.ne
+          (i64.shr_u
+            (local.get 2)
+            (i64.const 32))
+          (i64.const 0))
+        (then
+          (unreachable))))
+  )
+  (func (;12;) (type 7) (param i32) (result i32 i32)
     (i32.const 1)
-    (i32.mul
+    (call 11
       (local.get 0)
       (i32.const 13))
   )
-  (func (;12;) (type 3)
+  (func (;13;) (type 3)
     (call 3
       (i32.const 1))
     (call 4
@@ -1191,13 +1209,13 @@ TypedProgram {
     (call 9)
     (call 5)
   )
-  (func (;13;) (type 3)
-    (call 12)
-  )
   (func (;14;) (type 3)
+    (call 13)
+  )
+  (func (;15;) (type 3)
     (call 6)
   )
-  (func (;15;) (type 4) (param i32) (result i32)
+  (func (;16;) (type 4) (param i32) (result i32)
     (block ;; label = @1
       (br_if 0 (;@1;)
         (i32.ne
@@ -1206,21 +1224,21 @@ TypedProgram {
       (return_call 10))
     (i32.const 0)
   )
-  (func (;16;) (type 7) (param i32 i32) (result i32 i32)
+  (func (;17;) (type 8) (param i32 i32) (result i32 i32)
     (block ;; label = @1
       (br_if 0 (;@1;)
         (i32.ne
           (local.get 0)
           (i32.const 1)))
-      (return_call 11
+      (return_call 12
         (local.get 1)))
     (i32.const 0)
     (i32.const 0)
   )
-  (func (;17;) (type 8) (param i32 i32) (result i32)
+  (func (;18;) (type 6) (param i32 i32) (result i32)
     (local i32 i32 i32)
     (i32.const 4)
-    (call 16
+    (call 17
       (local.get 0)
       (local.get 1))
     (local.set 4)
@@ -1288,9 +1306,9 @@ TypedProgram {
               (type (;11;) (func))
               (export (;0;) "main" (func (type 11)))
               (type (;12;) (func))
-              (export (;1;) "test4" (external-id "starstream:test:Test") (func (type 12)))
+              (export (;1;) "test5" (external-id "starstream:test:Test") (func (type 12)))
               (type (;13;) (func))
-              (export (;2;) "test5" (external-id "starstream:test:Unhandled") (func (type 13)))
+              (export (;2;) "test6" (external-id "starstream:test:Unhandled") (func (type 13)))
               (type (;14;)
                 (instance
                   (type (;0;) (func (param "frame-id" u32) (result u8)))
@@ -1322,9 +1340,9 @@ world root {
 
   export main: func();
   @external-id("starstream:test:Test")
-  export test4: func();
-  @external-id("starstream:test:Unhandled")
   export test5: func();
+  @external-id("starstream:test:Unhandled")
+  export test6: func();
   export starstream:effect-handler/foo;
 }
 package starstream:std {
@@ -1396,5 +1414,5 @@ panic: call_coordination_script: failed to call function
 
 Caused by:
     0: error while executing at wasm backtrace:
-    0:    0x462 - <unknown>!<wasm function 14>
+    0:    0x47f - <unknown>!<wasm function 15>
     1: effect not handled: foo::basic[]
