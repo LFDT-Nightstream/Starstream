@@ -8,7 +8,7 @@ use starstream_runtime::{
     Contract, ContractLookup, Host, HostCore, Token, Utxo, UtxoExport, bindings,
 };
 use tracing::instrument;
-use wasmtime::component::{Instance, Resource, ResourceTable, Val, types};
+use wasmtime::component::{Resource, Val, types};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, StoreContextMut, bail, ensure, format_err};
 

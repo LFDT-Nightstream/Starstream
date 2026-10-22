@@ -284,7 +284,7 @@ async fn call_func<T: Host>(
         .as_context_mut()
         .data_mut()
         .instance_stack()
-        .push(instance.clone());
+        .push(*instance);
     let result = f
         .call_async(&mut store, params.as_ref(), results.as_mut())
         .await
@@ -392,7 +392,7 @@ fn link_effect_function<T: Host>(
                                 return Err(wasmtime::Error::msg("invalid effect handler status code"));
                             }
                         };
-                    } else if let Some(interface) = instance.get_export_index(store.as_context_mut(), None, &format!("starstream:meta/effect-handler"))
+                    } else if let Some(interface) = instance.get_export_index(store.as_context_mut(), None, "starstream:meta/effect-handler")
                         && let Some(idx) = instance.get_export_index(store.as_context_mut(), Some(&interface), "assert-effect-not-handled")
                         && let Some(assert_effect_not_handled) = instance.get_func(store.as_context_mut(), idx)
                     {

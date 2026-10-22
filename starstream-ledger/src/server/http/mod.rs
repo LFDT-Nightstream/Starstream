@@ -847,7 +847,6 @@ impl Ledger {
                         ..Default::default()
                     },
                     cardano: self.cardano,
-                    ..Default::default()
                 };
                 let mut store = wasmtime::Store::new(&self.engine, ctx);
                 store.set_fuel(self.fuel).map_err(RpcPostError::Runtime)?;
