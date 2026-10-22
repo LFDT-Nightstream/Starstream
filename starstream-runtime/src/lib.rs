@@ -1,5 +1,6 @@
 use core::pin::Pin;
 
+use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
 use sha2::Digest;
@@ -145,6 +146,13 @@ pub trait ContractLookup<T> {
 pub struct HostCore {
     pub table: ResourceTable,
     pub instance_stack: Vec<Instance>,
+    pub effect_stack: Vec<EffectStackFrame>,
+}
+
+#[derive(Debug)]
+pub struct EffectStackFrame {
+    pub instance: Instance,
+    pub handles: HashSet<[u64; 4]>,
 }
 
 pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
@@ -1174,6 +1182,7 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
         .instance("starstream:std/builtin")
         .context("failed to instantiate `starstream:std/builtin` in the linker")?;
 
+    // `resource utxo`
     linker.resource(
         "utxo",
         ResourceType::host::<Utxo<T::UtxoContext>>(),
@@ -1184,9 +1193,42 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
         Ok((ret,))
     })?;
 
+    // `resource token`
     linker.resource("token", ResourceType::host::<Token>(), |store, cx| {
         T::drop_token(store, Resource::new_own(cx))
     })?;
+
+    // Effect handling.
+    linker.func_wrap("push-effect-handler-frame", |mut store, ()| {
+        let Some(instance) = store.data_mut().core().instance_stack.last() else {
+            bail!("no current instance on stack to associate with push-effect-handler-frame");
+        };
+        let instance = instance.clone();
+        store.data_mut().core().effect_stack.push(EffectStackFrame {
+            instance,
+            handles: Default::default(),
+        });
+        Ok(())
+    })?;
+    linker.func_wrap(
+        "add-effect-handler",
+        |mut store, (hash,): ((u64, u64, u64, u64),)| {
+            let hash = [hash.0, hash.1, hash.2, hash.3];
+            let Some(last) = store.data_mut().core().effect_stack.last_mut() else {
+                bail!("no effect handler frame on stack");
+            };
+            last.handles.insert(hash);
+            Ok(())
+        },
+    )?;
+    linker.func_wrap("pop-effect-handler-frame", |mut store, ()| {
+        // It might be nice to enforce matching Instance here, but it doesn't impl PartialEq.
+        let Some(_) = store.data_mut().core().effect_stack.pop() else {
+            bail!("no effect handler frame on stack");
+        };
+        Ok(())
+    })?;
+
     Ok(())
 }
 
