@@ -165,7 +165,9 @@ as `sha256:HEX`.
   Wasm, transactions by that of the CBOR-encoded transaction message,
   independent of who signed it. Digests are written as a [multibase]
   sha2-256 [multihash], canonically in base32-lower (`b` followed by 55
-  lowercase alphanumeric characters).
+  lowercase alphanumeric characters). Lookups accept any base, but
+  transactions must use the canonical form for their input transactions
+  and output contracts.
 - **Accounts.** An Ed25519 public key with a balance and a nonce, created
   and credited only by the admin. Publishing costs one unit per envelope
   byte.
@@ -182,6 +184,13 @@ as `sha256:HEX`.
   height `0` is genesis, whose outputs are queried separately.
 
 ## HTTP API
+
+CORS is permissive: any origin and request header other than
+`Authorization` is allowed and all response headers are exposed, so
+browser pages on any origin can use the API. `OPTIONS` on the paths
+below answers with the methods each one allows, and preflights may be
+cached for a day. Requests carry no credentials; writes are authorized by
+their signed envelopes.
 
 ### `POST /rpc`
 
