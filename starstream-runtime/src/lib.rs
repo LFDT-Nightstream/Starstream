@@ -1197,10 +1197,9 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
 
     // Effect handling.
     linker.func_wrap("push-effect-handler-frame", |mut store, (id,): (u32,)| {
-        let Some(instance) = store.data_mut().starstream().instance_stack.last() else {
+        let Some(&instance) = store.data_mut().starstream().instance_stack.last() else {
             bail!("no current instance on stack to associate with push-effect-handler-frame");
         };
-        let instance = instance.clone();
         store
             .data_mut()
             .starstream()
