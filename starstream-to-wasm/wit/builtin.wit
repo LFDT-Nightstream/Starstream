@@ -12,7 +12,7 @@ interface builtin {
     resource token {}
 
     /// Announce control flow entering a new effect-handling `try` block.
-    push-effect-handler-frame: func();
+    push-effect-handler-frame: func(frame-id: u32);
     /// Announce an effect handler for the current `try` block.
     add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
     /// Announce control flow passing the end of `try` block.

@@ -94,9 +94,16 @@ impl Compiler {
         self.resource_drop_fns.push((token_resource, token_drop));
 
         // Effect handling.
-        self.builtins.push_effect_handler_frame =
-            Some(self.import_function(module, "push-effect-handler-frame", &FuncType::new([], [])));
-        builtin.export_fn_2("push-effect-handler-frame", [], None);
+        self.builtins.push_effect_handler_frame = Some(self.import_function(
+            module,
+            "push-effect-handler-frame",
+            &FuncType::new([ValType::I32], []),
+        ));
+        builtin.export_fn_2(
+            "push-effect-handler-frame",
+            [("frame-id", Rc::new(ComponentAbiType::U32))],
+            None,
+        );
 
         self.builtins.add_effect_handler = Some(self.import_function(
             module,

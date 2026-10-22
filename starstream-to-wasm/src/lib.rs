@@ -268,7 +268,6 @@ struct Compiler {
     context_local: Option<u32>,
     current_resource: Option<ResourceContext>,
 
-    handler_global: Option<u32>,
     handler_id: i32,
 }
 
@@ -1590,6 +1589,7 @@ impl Compiler {
         // Compile exportable handler function that dispatches to individual handler.
         let mut locals = HashMap::<String, Var>::new();
         let mut params = Vec::with_capacity(16);
+        params.push(ValType::I32);
         for p in &effect.ty.params {
             locals.insert(
                 p.name.name.clone(),
@@ -1602,6 +1602,8 @@ impl Compiler {
         _ = self.star_to_core_types(effect.ty.name_span, &mut results, &effect.ty.result);
 
         let mut sig = self.star_to_component_signature(None, &effect.ty.params, &effect.ty.result);
+        sig.params
+            .insert(0, ("frame-id".to_owned(), Rc::new(ComponentAbiType::U32)));
         sig.result = Some(match sig.result {
             Some(rest) => Rc::new(ComponentAbiType::Tuple {
                 fields: vec![Rc::new(ComponentAbiType::U8), rest],
@@ -1612,16 +1614,15 @@ impl Compiler {
         let func_ty = FuncType::new(params.iter().copied(), results.iter().copied());
         let mut func = Function::new([]);
 
-        let handler_global = self.handler_global.unwrap();
         for handler in effect.handlers {
-            // Check if handler global matches this id.
+            // Check if frame-id argument matches this id.
             func.instructions().block(BlockType::Empty);
             func.instructions()
-                .global_get(handler_global)
+                .local_get(0)
                 .i32_const(handler.handler_id)
                 .i32_ne()
                 .br_if(0);
-            for i in 0..u32::try_from(params.len()).unwrap() {
+            for i in 1..u32::try_from(params.len()).unwrap() {
                 func.instructions().local_get(i);
             }
             func.instructions().return_call(handler.func);
@@ -2525,28 +2526,12 @@ impl Compiler {
                     break;
                 }
                 TypedStatement::TryWith { subject, effects } => {
-                    // Create current-effect-handler global if needed
-                    let handler_global;
-                    if let Some(h) = self.handler_global {
-                        handler_global = h;
-                    } else {
-                        handler_global = self.add_globals([ValType::I32], "handler");
-                        self.handler_global = Some(handler_global);
-                    };
-
-                    // Surround try{} block with setting and restoring the handler global
-                    // and with pushing/popping the effect stack.
+                    // Surround try{} block with pushing/popping the effect stack.
                     self.handler_id += 1;
                     let handler_id = self.handler_id;
-                    let previous_handler_local = func.add_locals([ValType::I32]);
-                    // Set handler global.
-                    func.instructions(bb)
-                        .global_get(handler_global)
-                        .local_set(previous_handler_local)
-                        .i32_const(handler_id)
-                        .global_set(handler_global);
                     // Push effect handler stack frame.
                     func.instructions(bb)
+                        .i32_const(handler_id)
                         .call(self.builtins.push_effect_handler_frame.unwrap());
                     // Emit handler functions and corresponding `add-effect-handler` calls.
                     for handler in effects {
@@ -2561,10 +2546,6 @@ impl Compiler {
                     }
                     // try{} contents.
                     self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
-                    // Unset handler global.
-                    func.instructions(bb)
-                        .local_get(previous_handler_local)
-                        .global_set(handler_global);
                     // Pop effect handler stack frame.
                     func.instructions(bb)
                         .call(self.builtins.pop_effect_handler_frame.unwrap());

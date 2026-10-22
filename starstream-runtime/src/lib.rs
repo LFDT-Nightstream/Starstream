@@ -152,6 +152,7 @@ pub struct HostCore {
 #[derive(Debug, Clone)]
 pub struct EffectStackFrame {
     pub instance: Instance,
+    pub id: u32,
     pub effects_handled: HashSet<[u64; 4]>,
 }
 
@@ -388,12 +389,14 @@ fn link_effect_function<T: Host>(
                             bail!("instance has no export for declared effect handler (handler not a function)");
                         };
 
-                        debug!(frame = ?i, handler = ?handler);
+                        debug!(frame = ?i, id = ?frame.id, handler = ?handler);
                         let mut handler_result = Val::U8(0);
 
                         // Truncate stack, call handler, then restore stack.
                         store.as_context_mut().data_mut().core().effect_stack = stack[..i].to_vec();
-                        let call_result = handler.call_async(&mut store, params, std::slice::from_mut(&mut handler_result)).await;
+                        let mut params_with_id = vec![Val::U32(frame.id)];
+                        params_with_id.extend_from_slice(params);
+                        let call_result = handler.call_async(&mut store, &params_with_id, std::slice::from_mut(&mut handler_result)).await;
                         store.as_context_mut().data_mut().core().effect_stack = stack.to_vec();
                         () = call_result?;
 
@@ -1195,13 +1198,14 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
     })?;
 
     // Effect handling.
-    linker.func_wrap("push-effect-handler-frame", |mut store, ()| {
+    linker.func_wrap("push-effect-handler-frame", |mut store, (id,): (u32,)| {
         let Some(instance) = store.data_mut().core().instance_stack.last() else {
             bail!("no current instance on stack to associate with push-effect-handler-frame");
         };
         let instance = instance.clone();
         store.data_mut().core().effect_stack.push(EffectStackFrame {
             instance,
+            id,
             effects_handled: Default::default(),
         });
         Ok(())
