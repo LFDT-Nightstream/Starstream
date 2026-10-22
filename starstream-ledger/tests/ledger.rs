@@ -11,7 +11,11 @@ use anyhow::{Context as _, bail};
 use bytes::{Bytes, BytesMut};
 use coset::{CoseSign1Builder, HeaderBuilder, TaggedCborSerializable as _, iana};
 use ed25519_dalek::Signer as _;
-use http::header::{CONTENT_LENGTH, CONTENT_TYPE, VARY, X_CONTENT_TYPE_OPTIONS};
+use http::header::{
+    ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
+    ACCESS_CONTROL_MAX_AGE, ACCESS_CONTROL_REQUEST_HEADERS, ACCESS_CONTROL_REQUEST_METHOD, ALLOW,
+    CONTENT_LENGTH, CONTENT_TYPE, ORIGIN, VARY, X_CONTENT_TYPE_OPTIONS,
+};
 use http::{Method, StatusCode, Uri};
 use http_body_util::{BodyExt as _, Full};
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -174,6 +178,25 @@ async fn http() {
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
     let client = ClientBuilder::new(http.clone(), HttpConnector::new(), api_base.clone()).build();
     let http = http.build_http();
+
+    let req = http::Request::builder()
+        .method(Method::OPTIONS)
+        .uri(format!("http://{addr}/rpc"))
+        .header(ORIGIN, "http://example.com")
+        .header(ACCESS_CONTROL_REQUEST_METHOD, "POST")
+        .header(ACCESS_CONTROL_REQUEST_HEADERS, "content-type")
+        .body(Full::default())
+        .unwrap();
+    let (parts, ..) = http_request(&http, req).await.unwrap();
+    assert_eq!(parts.status, StatusCode::OK);
+    assert_eq!(parts.headers[ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+    assert_eq!(parts.headers[ALLOW], "GET, HEAD, OPTIONS, POST");
+    assert_eq!(
+        parts.headers[ACCESS_CONTROL_ALLOW_METHODS],
+        "GET, HEAD, OPTIONS, POST"
+    );
+    assert_eq!(parts.headers[ACCESS_CONTROL_ALLOW_HEADERS], "*");
+    assert_eq!(parts.headers[ACCESS_CONTROL_MAX_AGE], "86400");
 
     let height = client.block_height().await.unwrap();
     assert_eq!(height, 0);

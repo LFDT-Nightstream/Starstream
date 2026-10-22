@@ -185,6 +185,13 @@ as `sha256:HEX`.
 
 ## HTTP API
 
+CORS is permissive: any origin and request header other than
+`Authorization` is allowed and all response headers are exposed, so
+browser pages on any origin can use the API. `OPTIONS` on the paths
+below answers with the methods each one allows, and preflights may be
+cached for a day. Requests carry no credentials; writes are authorized by
+their signed envelopes.
+
 ### `POST /rpc`
 
 Dispatched on `Content-Type`: `application/cose` submits an
