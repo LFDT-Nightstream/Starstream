@@ -149,10 +149,10 @@ pub struct HostCore {
     pub effect_stack: Vec<EffectStackFrame>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EffectStackFrame {
     pub instance: Instance,
-    pub handles: HashSet<[u64; 4]>,
+    pub effects_handled: HashSet<[u64; 4]>,
 }
 
 pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
@@ -361,23 +361,46 @@ fn link_effect_function<T: Host>(
     linker.func_new_async(
         &Arc::clone(&name),
         move |mut store, _ty, params, results| {
+            let identity = format!("{abi_name}#{name}");
+            let digest = sha2::Sha256::digest(&identity);
+            let hash = [
+                u64::from_le_bytes(<[u8; 8]>::try_from(&digest[0..8]).unwrap()),
+                u64::from_le_bytes(<[u8; 8]>::try_from(&digest[8..16]).unwrap()),
+                u64::from_le_bytes(<[u8; 8]>::try_from(&digest[16..24]).unwrap()),
+                u64::from_le_bytes(<[u8; 8]>::try_from(&digest[24..32]).unwrap()),
+            ];
+
             let abi_name = Arc::clone(&abi_name);
             let name = Arc::clone(&name);
             Box::new(async move {
-                let stack = store.as_context_mut().data_mut().core().instance_stack.clone();
-                debug!(abi = ?abi_name, effect = ?name, ?params, stack_len = ?stack.len(), "raise_effect");
+                let stack = store.as_context_mut().data_mut().core().effect_stack.clone();
+                debug!(abi = ?abi_name, effect = ?name, ?params, stack_len = ?stack.len(), hash = ?hash, "raise_effect");
                 if stack.is_empty() {
                     bail!("effect handler stack is empty");
                 }
 
-                for (i, instance) in stack.into_iter().rev().enumerate() {
-                    if let Some(interface) = instance.get_export_index(store.as_context_mut(), None, &format!("starstream:effect-handler/{abi_name}"))
-                        && let Some(idx) = instance.get_export_index(store.as_context_mut(), Some(&interface), &name)
-                        && let Some(handler) = instance.get_func(store.as_context_mut(), idx)
-                    {
+                for (i, frame) in stack.iter().enumerate().rev() {
+                    let instance = frame.instance;
+                    if frame.effects_handled.contains(&hash) {
+                        let Some(interface) = instance.get_export_index(store.as_context_mut(), None, &format!("starstream:effect-handler/{abi_name}")) else {
+                            bail!("instance has no export for declared effect handler (missing interface)");
+                        };
+                        let Some(idx) = instance.get_export_index(store.as_context_mut(), Some(&interface), &name) else {
+                            bail!("instance has no export for declared effect handler (missing handler)");
+                        };
+                        let Some(handler) = instance.get_func(store.as_context_mut(), idx) else {
+                            bail!("instance has no export for declared effect handler (handler not a function)");
+                        };
+
                         debug!(frame = ?i, handler = ?handler);
                         let mut handler_result = Val::U8(0);
-                        handler.call_async(&mut store, params, std::slice::from_mut(&mut handler_result)).await?;
+
+                        // Truncate stack, call handler, then restore stack.
+                        store.as_context_mut().data_mut().core().effect_stack = stack[..i].to_vec();
+                        let call_result = handler.call_async(&mut store, params, std::slice::from_mut(&mut handler_result)).await;
+                        store.as_context_mut().data_mut().core().effect_stack = stack.to_vec();
+                        () = call_result?;
+
                         debug!(result = ?handler_result);
                         match handler_result {
                             Val::U8(0) => continue,
@@ -398,29 +421,6 @@ fn link_effect_function<T: Host>(
                                 return Err(wasmtime::Error::msg("invalid effect handler status code"));
                             }
                         };
-                    } else if let Some(interface) = instance.get_export_index(store.as_context_mut(), None, "starstream:meta/effect-handler")
-                        && let Some(idx) = instance.get_export_index(store.as_context_mut(), Some(&interface), "assert-effect-not-handled")
-                        && let Some(assert_effect_not_handled) = instance.get_func(store.as_context_mut(), idx)
-                    {
-                        let identity = format!("{abi_name}#{name}");
-                        let digest = sha2::Sha256::digest(&identity);
-                        let mut hash = vec![Val::U64(0); 4];
-                        for (param, chunk) in hash.iter_mut().zip(digest.chunks_exact(8)) {
-                            *param = Val::U64(u64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
-                        }
-                        debug!(
-                            frame = ?i,
-                            assert_effect_not_handled = ?assert_effect_not_handled,
-                            identity = identity,
-                            hash = ?hash,
-                        );
-                        assert_effect_not_handled
-                            .call_async(&mut store, &[Val::Tuple(hash)], &mut [])
-                            .await
-                            .with_context(|| format!("assert-effect-not-handled failed for {abi_name}::{name}{params:?}"))?;
-                    } else {
-                        // Will cause proving to fail, but just warn here for now.
-                        warn!(frame = ?i, "missing assert-effect-not-handled");
                     }
                 }
                 bail!("effect not handled: {abi_name}::{name}{params:?}")
@@ -1206,7 +1206,7 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
         let instance = instance.clone();
         store.data_mut().core().effect_stack.push(EffectStackFrame {
             instance,
-            handles: Default::default(),
+            effects_handled: Default::default(),
         });
         Ok(())
     })?;
@@ -1217,7 +1217,7 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
             let Some(last) = store.data_mut().core().effect_stack.last_mut() else {
                 bail!("no effect handler frame on stack");
             };
-            last.handles.insert(hash);
+            last.effects_handled.insert(hash);
             Ok(())
         },
     )?;

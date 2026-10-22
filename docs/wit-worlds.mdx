@@ -156,7 +156,13 @@ world root {
 
 ### Exporting effect handlers
 
-To catch effects, export `starstream:effect-handler/<abi-name>#<effect-name>`.
+To catch effects:
+
+1. Call `starstream:std/builtin#push-effect-handler-frame`.
+2. For each handled effect ID, call `starstream:std/builtin#add-effect-handler`
+    and export `starstream:effect-handler/<abi-name>#<effect-name>` (see below).
+3. At the end of the `try` block, call `starstream:std/builtin#pop-effect-handler-frame`.
+
 When the effect is raised, the module stack will be searched for matching handlers.
 The effect handler function must return one of two types:
 
@@ -177,12 +183,6 @@ world root {
     export starstream:effect-handler/my-abi;
 }
 ```
-
-Also, contracts should export a
-`starstream:meta/effect-handler#assert-effect-not-handled` function with the
-signature `func(id: tuple<u64, u64, u64, u64>)`. The input is the SHA-256 hash
-of the ABI name followed by `#` followed by the effect name. The function
-should trap if an `effect-handler` for this effect exists, or do nothing and return otherwise.
 
 ### ABI methods
 

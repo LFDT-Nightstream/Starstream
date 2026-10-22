@@ -1,7 +1,7 @@
 //! Compiler from Starstream DSL to core WebAssembly with component-types section.
 #![allow(clippy::too_many_arguments)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
@@ -311,16 +311,13 @@ impl Compiler {
 
         // Create root effect handler functions which dispatch to children.
         let mut ifaces = Default::default();
-        let mut id_set = Default::default();
         for (_, effect) in std::mem::take(&mut self.effect_handlers) {
             self.module = effect.module;
-            self.finish_effect_handler(effect, &mut ifaces, &mut id_set);
+            self.finish_effect_handler(effect, &mut ifaces);
         }
         for (iface_name, iface) in ifaces {
             self.world_type.export_interface(&iface_name, &iface);
         }
-        // Unconditionally emit `assert-effect-not-handled` to simplify proving.
-        self.finish_assert_effect_not_handled(&id_set);
 
         // Flush function codes into the code section.
         for each in self.code_bytes {
@@ -1525,7 +1522,11 @@ impl Compiler {
         );
     }
 
-    fn visit_effect_handler(&mut self, handler_id: i32, handler: &TypedEffectHandler) {
+    fn visit_effect_handler(
+        &mut self,
+        handler_id: i32,
+        handler: &TypedEffectHandler,
+    ) -> Result<[i64; 4]> {
         let span = handler.effect.last().unwrap().span;
 
         // Build an internal function for the body of this specific handler.
@@ -1567,39 +1568,24 @@ impl Compiler {
 
         // Push that handler to the list of handlers for this effect.
         let Some(StaticFunction::Named(id)) = handler.ty.callee else {
-            self.push_error(span, "effect handler name cannot be a function pointer");
-            return;
+            return Err(self.push_error(span, "effect handler name cannot be a function pointer"));
         };
         let Some(effect) = self.effect_handlers.get_mut(&id) else {
-            self.push_error(span, "effect handler unknown");
-            return;
+            return Err(self.push_error(span, "effect handler unknown"));
         };
         effect.handlers.push(EffectHandler { handler_id, func });
+
+        Ok(effect.identity())
     }
 
     fn finish_effect_handler(
         &mut self,
         effect: Effect,
         ifaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
-        id_set: &mut BTreeSet<[i64; 4]>,
     ) {
         if effect.handlers.is_empty() {
             return;
         }
-
-        // Update ID set
-        let identity = format!("{}#{}", effect.abi_name, effect.effect_name);
-        let digest = sha2::Sha256::digest(&identity);
-        let mut chunks = digest
-            .chunks_exact(8)
-            .map(|c| i64::from_le_bytes(<[u8; 8]>::try_from(c).unwrap()));
-        let id = [
-            chunks.next().unwrap(),
-            chunks.next().unwrap(),
-            chunks.next().unwrap(),
-            chunks.next().unwrap(),
-        ];
-        id_set.insert(id);
 
         // Compile exportable handler function that dispatches to individual handler.
         let mut locals = HashMap::<String, Var>::new();
@@ -1661,46 +1647,6 @@ impl Compiler {
                 .entry(iface_name)
                 .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
                 .export_fn(&effect.effect_name, &sig);
-        }
-    }
-
-    fn finish_assert_effect_not_handled(&mut self, id_set: &BTreeSet<[i64; 4]>) {
-        let u64_ty = Rc::new(ComponentAbiType::U64);
-        let tuple = Rc::new(ComponentAbiType::Tuple {
-            fields: vec![u64_ty; 4],
-        });
-        let sig = ComponentAbiFunctionSignature {
-            params: vec![("id".to_string(), tuple)],
-            result: None,
-        };
-        let func_ty = FuncType::new([ValType::I64, ValType::I64, ValType::I64, ValType::I64], []);
-        let mut func = Function::new([]);
-        for id in id_set {
-            func.instructions().block(BlockType::Empty);
-            for (i, &v) in id.iter().enumerate() {
-                func.instructions()
-                    .local_get(i as u32)
-                    .i64_const(v)
-                    .i64_ne()
-                    .br_if(0);
-            }
-            func.instructions().unreachable();
-            func.instructions().end();
-        }
-        func.instructions().end();
-
-        let func = self.add_function(&func_ty, func.into_raw_body());
-        if let Some(func_idx) =
-            self.make_component_export_wrapper_fn(DUMMY_SPAN, &sig, func, &func_ty, Vec::new())
-        {
-            self.export_core_fn(
-                "starstream:meta/effect-handler#assert-effect-not-handled",
-                func_idx,
-            );
-            let mut iface = TypeBuilder::new_interface(&self.world_type);
-            iface.export_fn("assert-effect-not-handled", &sig);
-            self.world_type
-                .export_interface("starstream:meta/effect-handler", &iface);
         }
     }
 
@@ -2589,23 +2535,39 @@ impl Compiler {
                     };
 
                     // Surround try{} block with setting and restoring the handler global
+                    // and with pushing/popping the effect stack.
                     self.handler_id += 1;
                     let handler_id = self.handler_id;
                     let previous_handler_local = func.add_locals([ValType::I32]);
+                    // Set handler global.
                     func.instructions(bb)
                         .global_get(handler_global)
                         .local_set(previous_handler_local)
                         .i32_const(handler_id)
                         .global_set(handler_global);
+                    // Push effect handler stack frame.
+                    func.instructions(bb)
+                        .call(self.builtins.push_effect_handler_frame.unwrap());
+                    // Emit handler functions and corresponding `add-effect-handler` calls.
+                    for handler in effects {
+                        if let Ok(id) = self.visit_effect_handler(handler_id, handler) {
+                            func.instructions(bb)
+                                .i64_const(id[0])
+                                .i64_const(id[1])
+                                .i64_const(id[2])
+                                .i64_const(id[3])
+                                .call(self.builtins.add_effect_handler.unwrap());
+                        }
+                    }
+                    // try{} contents.
                     self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
+                    // Unset handler global.
                     func.instructions(bb)
                         .local_get(previous_handler_local)
                         .global_set(handler_global);
-
-                    // Emit handler segments
-                    for handler in effects {
-                        self.visit_effect_handler(handler_id, handler);
-                    }
+                    // Pop effect handler stack frame.
+                    func.instructions(bb)
+                        .call(self.builtins.pop_effect_handler_frame.unwrap());
                 }
             }
         }
@@ -4550,6 +4512,22 @@ impl Compiler {
         }
         result.extend_from_slice(&col_locals[column + 1..]);
         result
+    }
+}
+
+impl Effect {
+    fn identity(&self) -> [i64; 4] {
+        let identity = format!("{}#{}", self.abi_name, self.effect_name);
+        let digest = sha2::Sha256::digest(&identity);
+        let mut chunks = digest
+            .chunks_exact(8)
+            .map(|c| i64::from_le_bytes(<[u8; 8]>::try_from(c).unwrap()));
+        [
+            chunks.next().unwrap(),
+            chunks.next().unwrap(),
+            chunks.next().unwrap(),
+            chunks.next().unwrap(),
+        ]
     }
 }
 
