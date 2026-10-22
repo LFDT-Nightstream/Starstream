@@ -28,6 +28,7 @@ starstream-ledger = { workspace = true, features = ["client", "server"] }
 tokio = { workspace = true, features = [
     "fs",
     "macros",
+    "net",
     "rt-multi-thread",
     "signal",
     "time",

@@ -166,11 +166,8 @@ async fn http() {
         CardanoCtx::default(),
     );
     let ledger = Arc::new(ledger);
-    let addr = free_tcp_addr().await.unwrap();
-    let (ledger, shutdown) = ledger
-        .handle_http(addr, Duration::from_secs(30))
-        .await
-        .unwrap();
+    let (lis, addr) = bind_tcp_listener().await.unwrap();
+    let (ledger, shutdown) = ledger.handle_http(lis, Duration::from_secs(30));
     let ledger = tokio::spawn(ledger);
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
@@ -648,11 +645,8 @@ async fn serve(
         CardanoCtx::default(),
     );
     let ledger = Arc::new(ledger);
-    let addr = free_tcp_addr().await.unwrap();
-    let (ledger, shutdown) = ledger
-        .handle_http(addr, Duration::from_secs(30))
-        .await
-        .unwrap();
+    let (lis, addr) = bind_tcp_listener().await.unwrap();
+    let (ledger, shutdown) = ledger.handle_http(lis, Duration::from_secs(30));
     let ledger = tokio::spawn(ledger);
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
@@ -784,11 +778,8 @@ async fn stalled_connections_are_closed() {
         CardanoCtx::default(),
     );
     let ledger = Arc::new(ledger);
-    let addr = free_tcp_addr().await.unwrap();
-    let (ledger, shutdown) = ledger
-        .handle_http(addr, Duration::from_millis(100))
-        .await
-        .unwrap();
+    let (lis, addr) = bind_tcp_listener().await.unwrap();
+    let (ledger, shutdown) = ledger.handle_http(lis, Duration::from_millis(100));
     let ledger = tokio::spawn(ledger);
 
     let mut idle = tokio::net::TcpStream::connect(addr).await.unwrap();

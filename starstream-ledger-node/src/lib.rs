@@ -22,9 +22,10 @@ use starstream_ledger::{
     CardanoCtx, TransactionInput, TransactionOutput, encode_digest, parse_digest,
 };
 use tokio::fs;
+use tokio::net::TcpSocket;
 use tokio::signal;
 use tokio::time::timeout;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use wasmtime::Store;
 use wasmtime::component::Val;
 use wasmtime_wizer::Wizer;
@@ -95,6 +96,27 @@ struct GenesisScript {
 struct Genesis {
     #[serde(default)]
     scripts: Vec<GenesisScript>,
+}
+
+fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
+    debug!("binding TCP socket");
+    let sock = match address {
+        SocketAddr::V4(..) => TcpSocket::new_v4(),
+        SocketAddr::V6(..) => TcpSocket::new_v6(),
+    }
+    .context("failed to create HTTP TCP socket")?;
+    // Conditionally enable `SO_REUSEADDR` depending on the current
+    // platform. On Unix we want this to be able to rebind an address in
+    // the `TIME_WAIT` state which can happen then a server is killed with
+    // active TCP connections and then restarted. On Windows though if
+    // `SO_REUSEADDR` is specified then it enables multiple applications to
+    // bind the port at the same time which is not something we want. Hence
+    // this is conditionally set based on the platform (and deviates from
+    // Tokio's default from always-on).
+    sock.set_reuseaddr(!cfg!(windows))?;
+    sock.bind(address)
+        .with_context(|| format!("failed to bind on `{address}`"))?;
+    Ok(sock)
 }
 
 struct GenesisClient<'a>(&'a HashMap<[u8; 32], Bytes>);
@@ -266,7 +288,14 @@ async fn exec(args: Args) -> anyhow::Result<()> {
     let ledger = Ledger::new(engine, max_requests, fuel, network, admin, genesis, cardano);
     let ledger = Arc::new(ledger);
 
-    let (http, http_shutdown) = ledger.handle_http(addr, io_timeout).await?;
+    let listener = bind_tcp(addr)?;
+    let listener = listener
+        .listen(max_requests)
+        .context("failed to listen on TCP socket")?;
+    let addr = listener
+        .local_addr()
+        .context("failed to get TCP listener local address")?;
+    let (http, http_shutdown) = ledger.handle_http(listener, io_timeout);
     let http = tokio::spawn(http);
     let mut http = pin!(http);
 
