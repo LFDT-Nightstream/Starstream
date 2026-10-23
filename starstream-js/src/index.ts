@@ -1,44 +1,150 @@
 // JS bindings to the Starstream runtime.
 
+import type { Type } from "@bytecodealliance/wrpc";
+
 // ----------------------------------------------------------------------------
 // Ledgers
 
-export interface UploadContractOptions {}
-export interface PostTransactionOptions {}
-
-export interface Ledger {
-  /** Look up a Utxo on the ledger by ID. */
-  getUtxo(id: string): Promise<Utxo>;
-  /** Look up a Utxo on the ledger by ID, and cast it to a specific type. Throws on type mismatch. */
-  getUtxo<T extends Utxo>(id: string, type: UtxoConstructor<T>): Promise<T>;
-
-  /** Fetch an abstract contract from the ledger by ID. */
-  getContract(id: string): Promise<Contract>;
-  /** Fetch a typed contract from the ledger by ID. Throws on type mismatch. */
-  getContract<T extends Contract>(
-    id: string,
-    type: ContractConstructor<T>,
-  ): Promise<T>;
-  /** Upload a contract to the ledger. Fast and cheap if it has already been uploaded. */
-  uploadContract(
-    contract: Contract,
-    options?: UploadContractOptions,
-  ): Promise<void>;
-
-  postTransaction(
-    proof: Proof,
-    options?: PostTransactionOptions,
-  ): Promise<Transaction>;
+/** Ed25519 account signing ledger envelopes. */
+export interface Account {
+  /** Raw 32-byte Ed25519 public key identifying the account. */
+  readonly publicKey: Uint8Array;
+  /** Sign `message` with the account's Ed25519 secret key. */
+  sign(message: Uint8Array): Promise<Uint8Array>;
 }
 
-// TODO: class RpcLedger { constructor(url: string); }
+export interface Ledger {
+  /** Get the name of the ledger network. */
+  getNetworkName(): Promise<string>;
 
+  /** Get the height of the latest ledger block. */
+  getBlockHeight(): Promise<bigint>;
+  /** Get the signed envelopes of the block at `height`, if any. Genesis, at height 0, has none. */
+  getBlock(height: bigint): Promise<Uint8Array[] | undefined>;
+
+  /** Get the last nonce the ledger admin used for funding. */
+  getAdminNonce(): Promise<bigint>;
+  /** Get the balance of the account with the Ed25519 public key `key`, if it exists. */
+  getAccountBalance(key: Uint8Array): Promise<bigint | undefined>;
+  /** Get the last nonce the account `key` used to publish contracts, if it exists. */
+  getAccountNonce(key: Uint8Array): Promise<bigint | undefined>;
+
+  /** Get the Wasm of the published contract with `digest`, if any. */
+  getContractWasm(digest: string): Promise<Uint8Array<ArrayBuffer> | undefined>;
+  /** Get the signed envelope the contract with `digest` was published in, if any. */
+  getContractEnvelope(digest: string): Promise<Uint8Array | undefined>;
+
+  /** Get the transaction with `digest`, if any. */
+  getTransaction(digest: string): Promise<Transaction | undefined>;
+  /** Get the signed envelope the transaction with `digest` was submitted in, if any. */
+  getTransactionEnvelope(digest: string): Promise<Uint8Array | undefined>;
+
+  /** Get the outputs of the genesis block. */
+  getGenesisOutputs(): Promise<TransactionOutput[]>;
+  /** Get the output referenced by `output`, if any, whether or not it has been spent. */
+  getOutput(output: TransactionInput): Promise<TransactionOutput | undefined>;
+
+  /**
+   * Call the method `name` of the UTXO created by `output` with `args` of
+   * `ty.params`, discarding the resulting state, and return its result of
+   * `ty.result`.
+   */
+  callUtxoMethod(
+    output: TransactionInput,
+    name: string,
+    ty: FuncType,
+    args: unknown[],
+  ): Promise<unknown>;
+
+  /**
+   * Credit `account` with `amount`, signed by the ledger `admin`.
+   * `nonce` must be greater than the last nonce `admin` used for funding.
+   */
+  fund(
+    admin: Account,
+    nonce: bigint,
+    account: Uint8Array,
+    amount: bigint,
+  ): Promise<void>;
+  /**
+   * Publish the contract `wasm`, signed and paid for by `account`, and return
+   * its digest. `nonce` must be greater than the last nonce of `account`.
+   * Republishing a contract fails with `409 Conflict`.
+   */
+  publishContract(
+    account: Account,
+    nonce: bigint,
+    wasm: Uint8Array,
+  ): Promise<string>;
+  /**
+   * Submit `transaction` signed by `signer` and return its digest.
+   * Spending genesis outputs requires the admin signature.
+   * Resubmitting a transaction fails with `409 Conflict`.
+   */
+  postTransaction(signer: Account, transaction: Transaction): Promise<string>;
+}
+
+export { RpcLedger } from "./ledger_rpc.ts";
 export { InMemoryLedger } from "./ledger_memory.ts";
+export { t, type Type } from "@bytecodealliance/wrpc";
+
+/** Parameter and result types of a function. */
+export interface FuncType {
+  params?: Type[];
+  result?: Type;
+}
 
 // ----------------------------------------------------------------------------
 // Transactions
 
-export class Transaction {}
+/** Reference to a transaction output. An empty `transaction` refers to a genesis output. */
+export interface TransactionInput {
+  transaction: string;
+  index: number;
+}
+
+export type GlobalValue =
+  | { tag: "i32"; val: number }
+  | { tag: "i64"; val: bigint }
+  | { tag: "f32"; val: number }
+  | { tag: "f64"; val: bigint }
+  | { tag: "v128"; val: [bigint, bigint] };
+
+export interface DataState {
+  memoryIndex: number;
+  offset: number;
+  data: Uint8Array;
+}
+
+export interface ModuleState {
+  memories: bigint[];
+  globals: GlobalValue[];
+  data: DataState[];
+}
+
+export interface TransactionOutput {
+  contract: string;
+  instance: string;
+  methods: [bigint, bigint, bigint, bigint][];
+  storage: Uint8Array;
+  state: ModuleState[];
+}
+
+export interface TransactionEvent {
+  abiName: string;
+  name: string;
+  params: Uint8Array;
+}
+
+export interface Transaction {
+  inputs: TransactionInput[];
+  outputs: TransactionOutput[];
+  events: TransactionEvent[];
+  proof: Uint8Array;
+}
+
+import { digest } from "./digest.ts";
+export { digest };
 
 // ----------------------------------------------------------------------------
 // Contracts
@@ -47,14 +153,14 @@ type ContractConstructor<T> = new (wasm: Uint8Array<ArrayBuffer>) => T;
 
 /** Starstream contract Wasm file loaded in memory. */
 export class Contract {
+  private readonly wasm: Uint8Array<ArrayBuffer>;
   private readonly module: Promise<WebAssembly.Module>;
-  private readonly id: Promise<ArrayBuffer>;
 
   /** Load a contract from a Wasm module directly. */
   constructor(wasm: Uint8Array<ArrayBuffer>) {
     // TODO: use our Wasmtime variant as a library rather than browser's Wasm implementation
+    this.wasm = wasm;
     this.module = WebAssembly.compile(wasm);
-    this.id = crypto.subtle.digest("sha-256", wasm);
   }
 
   /** Load a contract from a file path (Node only). */
@@ -64,9 +170,9 @@ export class Contract {
     return new this(buffer);
   }
 
-  // sha-256 of wasm
+  /** Get the ledger digest of the contract Wasm. */
   async getId(): Promise<string> {
-    return uint8ArrayToHexString(new Uint8Array(await this.id));
+    return digest(this.wasm);
   }
 
   downcast<T extends Contract>(type: ContractConstructor<T>): T {
@@ -218,12 +324,3 @@ export function prove<TReturn>(trace: Trace<TReturn>): Promise<Proof> {
 
 import * as std from "./std.ts";
 export { std };
-
-// ----------------------------------------------------------------------------
-// Private utilities
-
-function uint8ArrayToHexString(uint8Array: Uint8Array): string {
-  return Array.prototype.map
-    .call(uint8Array, (byte) => ("0" + byte.toString(16)).slice(-2))
-    .join("");
-}
