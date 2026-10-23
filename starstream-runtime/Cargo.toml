@@ -12,6 +12,7 @@ wasmtime-custom-fiber = ["wasmtime/custom-fiber"]
 wasmtime-custom-virtual-memory = ["wasmtime/custom-virtual-memory"]
 
 [dependencies]
+sha2.workspace = true
 tracing = { workspace = true, features = ["attributes"] }
 wasmtime = { workspace = true, features = [
     "anyhow",

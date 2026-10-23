@@ -19,7 +19,7 @@ use starstream_proving_runtime::{
     register_tracing_component,
 };
 use starstream_runtime::{
-    Contract, ContractLookup, Host, StorageExport, Token, Utxo, UtxoExport, bindings,
+    Contract, ContractLookup, Host, StarstreamCtx, StorageExport, Token, Utxo, UtxoExport, bindings,
 };
 use starstream_to_wasm::compile;
 use wasmtime::component::{Component, Resource, ResourceTable, Val, types};
@@ -179,8 +179,10 @@ pub struct UtxoCtx {
     pub methods: Vec<(u64, u64, u64, u64)>,
 }
 
+#[derive(Default)]
 pub struct Ctx {
     table: ResourceTable,
+    starstream: StarstreamCtx,
     traces: neo_wasm::WasmtimeTraceRegistry,
     /// Every UTXO constructed during the script, in allocation order.
     created: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
@@ -201,6 +203,10 @@ impl Host for Ctx {
 
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
+    }
+
+    fn starstream(&mut self) -> &mut StarstreamCtx {
+        &mut self.starstream
     }
 
     async fn call_utxo_main(
@@ -396,11 +402,7 @@ pub async fn trace_coordination_script(
     );
     let export = contract.get_coordination_script(script)?;
 
-    let ctx = Ctx {
-        table: ResourceTable::default(),
-        traces: neo_wasm::WasmtimeTraceRegistry::default(),
-        created: Vec::new(),
-    };
+    let ctx = Ctx::default();
 
     let mut store = Store::new(&engine, ctx);
     register_tracing_component(store.data_mut(), &wasm, &templates.bindings)?;

@@ -8,7 +8,8 @@ use std::sync::Arc;
 use bytes::{Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
 use starstream_runtime::{
-    CoordinationScriptImport, UtxoImport, get_coordination_script_instance_import, utxo_imports,
+    CoordinationScriptImport, StarstreamCtx, UtxoImport, get_coordination_script_instance_import,
+    utxo_imports,
 };
 use tokio::sync::{RwLock, Semaphore};
 use tracing::error;
@@ -52,6 +53,7 @@ struct AdminAccount {
 #[derive(Debug, Default)]
 struct Ctx {
     table: ResourceTable,
+    starstream: StarstreamCtx,
     cardano: CardanoCtx,
 }
 

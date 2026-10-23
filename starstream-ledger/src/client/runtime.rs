@@ -15,8 +15,8 @@ use starstream_proving_runtime::{
 };
 use starstream_runtime::bindings::starstream;
 use starstream_runtime::{
-    CoordinationScriptExport, CoordinationScriptImport, Token, Utxo, UtxoExport, UtxoImport,
-    get_coordination_script_instance_import, utxo_imports,
+    CoordinationScriptExport, CoordinationScriptImport, StarstreamCtx, Token, Utxo, UtxoExport,
+    UtxoImport, get_coordination_script_instance_import, utxo_imports,
 };
 use tokio_util::codec::Encoder as _;
 use tracing::error;
@@ -458,6 +458,7 @@ pub async fn call_coordination_script(
 #[derive(Debug, Default)]
 pub struct Ctx {
     pub table: ResourceTable,
+    pub starstream: StarstreamCtx,
     pub events: Vec<TransactionEvent>,
     pub outputs: Vec<starstream_runtime::Utxo<<Self as starstream_runtime::Host>::UtxoContext>>,
     pub traces: WasmtimeTraceRegistry,
@@ -504,6 +505,10 @@ impl starstream_runtime::Host for Ctx {
         &mut self.table
     }
 
+    fn starstream(&mut self) -> &mut StarstreamCtx {
+        &mut self.starstream
+    }
+
     async fn call_utxo_main(
         mut store: StoreContextMut<'_, Self>,
         instance_name: Arc<str>,
@@ -529,12 +534,11 @@ impl starstream_runtime::Host for Ctx {
     }
 
     fn has_method(
-        store: StoreContextMut<Self>,
+        mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<bool> {
-        let Ctx { table, .. } = store.data();
-        let utxo = table.get(&utxo)?;
+        let utxo = store.data_mut().table.get(&utxo)?;
         let cx = lock(utxo.context())?;
         Ok(cx.methods.contains(&hash))
     }
@@ -543,8 +547,7 @@ impl starstream_runtime::Host for Ctx {
         mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        table.delete(utxo)?;
+        store.data_mut().table.delete(utxo)?;
         Ok(())
     }
 
@@ -553,8 +556,7 @@ impl starstream_runtime::Host for Ctx {
         cx: Resource<Self::UtxoContext>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.get_mut(&cx)?;
+        let cx = store.data_mut().table.get_mut(&cx)?;
         let mut cx = lock(cx)?;
         cx.methods.insert(hash);
         Ok(())
@@ -564,8 +566,7 @@ impl starstream_runtime::Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.get_mut(&cx)?;
+        let cx = store.data_mut().table.get_mut(&cx)?;
         let mut cx = lock(cx)?;
         cx.methods.clear();
         Ok(())
@@ -575,8 +576,7 @@ impl starstream_runtime::Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.delete(cx)?;
+        let cx = store.data_mut().table.delete(cx)?;
         let mut cx = lock(&cx)?;
         cx.dropped = true;
         Ok(())

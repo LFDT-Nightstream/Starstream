@@ -190,7 +190,7 @@ impl From<ProgressStorage> for Vec<(String, Val)> {
 }
 
 async fn get_progress_storage<T>(
-    store: &mut Store<impl Send + 'static>,
+    store: &mut Store<impl Host + 'static>,
     utxo: &Utxo<T>,
     storage: &StorageExport,
 ) -> wasmtime::Result<ProgressStorage> {
@@ -235,8 +235,7 @@ async fn assert_call_method(
         store.engine(),
         Ctx {
             table,
-            events: Vec::default(),
-            outputs: Vec::default(),
+            ..Default::default()
         },
     );
     let utxo_cx_rep = utxo_cx_res.rep();
@@ -270,6 +269,7 @@ async fn assert_call_method(
 
     let Ctx {
         mut table,
+        starstream,
         events,
         outputs,
     } = store.into_data();
@@ -288,6 +288,8 @@ async fn assert_call_method(
         .unwrap();
     assert_eq!(methods, []);
     assert_eq!(dropped, expected_drop);
+    assert!(starstream.instance_stack.is_empty());
+    assert!(starstream.effect_stack.is_empty());
     Ok(())
 }
 
@@ -460,8 +462,7 @@ async fn load() -> wasmtime::Result<()> {
         &ENGINE,
         Ctx {
             table,
-            events: Vec::default(),
-            outputs: Vec::default(),
+            ..Default::default()
         },
     );
     let utxo_cx_res = utxo_cx_res.try_into_resource_any(&mut store)?;
@@ -626,6 +627,7 @@ async fn load() -> wasmtime::Result<()> {
 
     let Ctx {
         table,
+        starstream,
         events,
         outputs,
     } = store.into_data();
@@ -645,19 +647,14 @@ async fn load() -> wasmtime::Result<()> {
         .unwrap();
     assert_eq!(methods, []);
     assert!(dropped);
+    assert!(starstream.instance_stack.is_empty());
+    assert!(starstream.effect_stack.is_empty());
     Ok(())
 }
 
 #[test_log::test(tokio::test)]
 async fn example() -> wasmtime::Result<()> {
-    let mut store = wasmtime::Store::new(
-        &ENGINE,
-        Ctx {
-            table: ResourceTable::default(),
-            events: Vec::default(),
-            outputs: Vec::default(),
-        },
-    );
+    let mut store = wasmtime::Store::new(&ENGINE, Ctx::default());
     let instance = CONTRACT
         .instantiate(&mut store)
         .await

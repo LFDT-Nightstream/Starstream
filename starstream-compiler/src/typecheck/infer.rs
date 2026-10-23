@@ -2569,9 +2569,9 @@ impl Inferencer {
                     let (block, trace) = self.infer_block(env, &handler.body, ctx, false)?;
                     children.extend(trace);
                     let (_, unit_trace) = self.unify(
-                        &Type::Unit,
+                        &func.result,
                         block.ty(),
-                        ctx.return_span,
+                        func.name_span,
                         block.tail_span(),
                         TypeErrorKind::GeneralMismatch {
                             expected: Type::Unit,

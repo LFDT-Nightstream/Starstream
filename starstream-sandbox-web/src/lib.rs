@@ -24,7 +24,9 @@ use sha2::{Digest, Sha256};
 use starstream_compiler::{
     ModuleGraph, ModuleGraphError, ModuleId, TypedModuleGraph, typecheck_modules,
 };
-use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
+use starstream_runtime::{
+    Contract, ContractLookup, Host, StarstreamCtx, Token, Utxo, UtxoExport, bindings,
+};
 use starstream_types::{FileSystem, MemoryFs};
 use wasmtime::component::{Component, Resource, ResourceTable, Type, Val, types};
 use wasmtime::error::Context as _;
@@ -89,6 +91,7 @@ fn lock(cx: &Mutex<UtxoCtx>) -> wasmtime::Result<MutexGuard<'_, UtxoCtx>> {
 #[derive(Default)]
 struct Ctx {
     table: ResourceTable,
+    starstream: StarstreamCtx,
     cardano: CardanoCtx,
     events: Vec<Value>,
 }
@@ -108,6 +111,10 @@ impl Host for Ctx {
 
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
+    }
+
+    fn starstream(&mut self) -> &mut StarstreamCtx {
+        &mut self.starstream
     }
 
     async fn call_utxo_main(

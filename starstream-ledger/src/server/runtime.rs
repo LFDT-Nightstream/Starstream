@@ -3,7 +3,7 @@ use core::pin::Pin;
 use std::sync::Arc;
 
 use starstream_runtime::bindings::starstream;
-use starstream_runtime::{Token, Utxo, UtxoExport};
+use starstream_runtime::{StarstreamCtx, Token, Utxo, UtxoExport};
 use wasmtime::component::{Resource, ResourceTable, Val, types};
 use wasmtime::{StoreContextMut, bail};
 
@@ -26,6 +26,10 @@ impl starstream_runtime::Host for Ctx {
         &mut self.table
     }
 
+    fn starstream(&mut self) -> &mut StarstreamCtx {
+        &mut self.starstream
+    }
+
     async fn call_utxo_main(
         _store: StoreContextMut<'_, Self>,
         instance_name: Arc<str>,
@@ -42,12 +46,11 @@ impl starstream_runtime::Host for Ctx {
     }
 
     fn has_method(
-        store: StoreContextMut<Self>,
+        mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<bool> {
-        let Ctx { table, .. } = store.data();
-        let utxo = table.get(&utxo)?;
+        let utxo = store.data_mut().table.get(&utxo)?;
         Ok(utxo.context().methods.contains(&hash))
     }
 

@@ -1,8 +1,10 @@
 use core::pin::Pin;
 
+use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 
-use tracing::{debug, instrument};
+use sha2::Digest;
+use tracing::{debug, instrument, warn};
 use wasmtime::component::{
     Component, ComponentExportIndex, ExportLookup, Func, HasSelf, Instance, InstancePre, Linker,
     LinkerInstance, Resource, ResourceAny, ResourceTable, ResourceType, Type, Val, types,
@@ -139,10 +141,26 @@ pub trait ContractLookup<T> {
     fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>>;
 }
 
+/// Runtime-internal data structures which all implementors of `Host` must include.
+#[derive(Default, Debug)]
+pub struct StarstreamCtx {
+    pub instance_stack: Vec<Instance>,
+    pub effect_stack: Vec<EffectStackFrame>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EffectStackFrame {
+    pub instance: Instance,
+    pub id: u32,
+    pub effects_handled: HashSet<[u64; 4]>,
+}
+
 pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
     type UtxoContext: Clone + Send;
 
     fn table(&mut self) -> &mut ResourceTable;
+
+    fn starstream(&mut self) -> &mut StarstreamCtx;
 
     fn call_utxo_main(
         store: StoreContextMut<Self>,
@@ -256,17 +274,31 @@ fn get_func(
 }
 
 #[instrument(level = "trace", skip_all, ret)]
-async fn call_func(
-    mut store: impl AsContextMut<Data: Send>,
+async fn call_func<T: Host>(
+    mut store: impl AsContextMut<Data = T>,
     instance: &Instance,
     name: impl ExportLookup,
     params: impl AsRef<[Val]>,
     mut results: impl AsMut<[Val]>,
 ) -> wasmtime::Result<()> {
     let f = get_func(store.as_context_mut(), instance, name)?;
-    f.call_async(store, params.as_ref(), results.as_mut())
+    store
+        .as_context_mut()
+        .data_mut()
+        .starstream()
+        .instance_stack
+        .push(*instance);
+    let result = f
+        .call_async(&mut store, params.as_ref(), results.as_mut())
         .await
-        .context("failed to call function")
+        .context("failed to call function");
+    store
+        .as_context_mut()
+        .data_mut()
+        .starstream()
+        .instance_stack
+        .pop();
+    result
 }
 
 /// Link ABI event [`types::ComponentFunc`] in a [`LinkerInstance`]
@@ -322,60 +354,76 @@ fn link_event_instance<T: Host>(
 #[instrument(level = "trace", skip_all)]
 fn link_effect_function<T: Host>(
     linker: &mut LinkerInstance<T>,
-    ty: types::ComponentFunc,
+    _ty: types::ComponentFunc,
     abi_name: &str,
     name: &str,
 ) -> wasmtime::Result<()> {
     let abi_name = Arc::<str>::from(abi_name);
     let name = Arc::<str>::from(name);
-    ensure!(ty.results().len() == 0);
     linker.func_new_async(
         &Arc::clone(&name),
-        move |mut store, _ty, params, _results| {
+        move |mut store, _ty, params, results| {
+            let identity = format!("{abi_name}#{name}");
+            let digest = sha2::Sha256::digest(&identity);
+            let hash = [
+                u64::from_le_bytes(<[u8; 8]>::try_from(&digest[0..8]).unwrap()),
+                u64::from_le_bytes(<[u8; 8]>::try_from(&digest[8..16]).unwrap()),
+                u64::from_le_bytes(<[u8; 8]>::try_from(&digest[16..24]).unwrap()),
+                u64::from_le_bytes(<[u8; 8]>::try_from(&digest[24..32]).unwrap()),
+            ];
+
             let abi_name = Arc::clone(&abi_name);
             let name = Arc::clone(&name);
             Box::new(async move {
-                debug!(abi = ?abi_name, effect = ?name, ?params, "raise_effect");
+                let stack = store.as_context_mut().data_mut().starstream().effect_stack.clone();
+                debug!(abi = ?abi_name, effect = ?name, ?params, stack_len = ?stack.len(), hash = ?hash, "raise_effect");
+                for (i, frame) in stack.iter().enumerate().rev() {
+                    let instance = frame.instance;
+                    if frame.effects_handled.contains(&hash) {
+                        let Some(interface) = instance.get_export_index(store.as_context_mut(), None, &format!("starstream:effect-handler/{abi_name}")) else {
+                            bail!("instance has no export for declared effect handler (missing interface)");
+                        };
+                        let Some(idx) = instance.get_export_index(store.as_context_mut(), Some(&interface), &name) else {
+                            bail!("instance has no export for declared effect handler (missing handler)");
+                        };
 
-                let frames: Vec<_> = store.debug_exit_frames().collect();
-                assert!(
-                    !frames.is_empty(),
-                    "`debug_exit_frames()` was empty, must use `Config::guest_debug(true)`"
-                );
+                        debug!(frame = ?i, id = ?frame.id, handler = ?idx);
+                        let mut handler_result = Val::U8(0);
 
-                let core_name = format!("starstream:effect-handler/{abi_name}#{name}");
-                // FrameHandle is invalidated as soon as guest execution resumes.
-                // Resolve every dispatcher to a stable Func before calling any
-                // handler so an unhandled inner frame can continue outward.
-                let mut handlers = Vec::new();
-                for each in frames {
-                    debug!(pc = ?each.wasm_function_index_and_pc(&mut store));
-                    if let Ok(instance) = each.instance(&mut store)
-                        && let Some(handler) = instance.get_func(&mut store, &core_name)
-                    {
-                        handlers.push(handler);
+                        // Truncate stack, call handler, then restore stack.
+                        store.as_context_mut().data_mut().starstream().effect_stack = stack[..i].to_vec();
+                        let mut params_with_id = vec![Val::U32(frame.id)];
+                        params_with_id.extend_from_slice(params);
+                        // Use call_func to also push the handler to the `instance_stack` in case of `try` within `with`.
+                        let call_result = call_func(store.as_context_mut(), &instance, idx, &params_with_id, std::slice::from_mut(&mut handler_result)).await;
+                        store.as_context_mut().data_mut().starstream().effect_stack = stack.to_vec();
+                        () = call_result?;
+
+                        debug!(result = ?handler_result);
+                        match handler_result {
+                            Val::U8(0) => continue,
+                            Val::U8(1) => return Ok(()),
+                            Val::Tuple(mut tuple) => match tuple[0] {
+                                Val::U8(0) => continue,
+                                Val::U8(1) => {
+                                    for (out, val) in results.iter_mut().zip(tuple.drain(1..)) {
+                                        *out = val;
+                                    }
+                                    return Ok(());
+                                }
+                                _ => {
+                                    return Err(wasmtime::Error::msg("invalid effect handler status code"));
+                                }
+                            }
+                            _ => {
+                                return Err(wasmtime::Error::msg("invalid effect handler status code"));
+                            }
+                        };
                     }
                 }
-                for handler in handlers {
-                    debug!(handler = ?handler);
-                    let mut results = [wasmtime::Val::I32(0)];
-                    handler
-                        .call_async(&mut store, &[], &mut results[..])
-                        .await?;
-                    debug!(results = ?results);
-                    match results[0] {
-                        wasmtime::Val::I32(0) => continue,
-                        wasmtime::Val::I32(1) => {
-                            break;
-                        }
-                        _ => {
-                            return Err(wasmtime::Error::msg("invalid effect handler status code"));
-                        }
-                    };
-                }
-                Ok(())
+                bail!("effect not handled: {abi_name}::{name}{params:?}")
             })
-        },
+        }
     )
 }
 
@@ -1129,6 +1177,7 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
         .instance("starstream:std/builtin")
         .context("failed to instantiate `starstream:std/builtin` in the linker")?;
 
+    // `resource utxo`
     linker.resource(
         "utxo",
         ResourceType::host::<Utxo<T::UtxoContext>>(),
@@ -1139,9 +1188,46 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
         Ok((ret,))
     })?;
 
+    // `resource token`
     linker.resource("token", ResourceType::host::<Token>(), |store, cx| {
         T::drop_token(store, Resource::new_own(cx))
     })?;
+
+    // Effect handling.
+    linker.func_wrap("push-effect-handler-frame", |mut store, (id,): (u32,)| {
+        let Some(&instance) = store.data_mut().starstream().instance_stack.last() else {
+            bail!("no current instance on stack to associate with push-effect-handler-frame");
+        };
+        store
+            .data_mut()
+            .starstream()
+            .effect_stack
+            .push(EffectStackFrame {
+                instance,
+                id,
+                effects_handled: Default::default(),
+            });
+        Ok(())
+    })?;
+    linker.func_wrap(
+        "add-effect-handler",
+        |mut store, (hash,): ((u64, u64, u64, u64),)| {
+            let hash = [hash.0, hash.1, hash.2, hash.3];
+            let Some(last) = store.data_mut().starstream().effect_stack.last_mut() else {
+                bail!("no effect handler frame on stack");
+            };
+            last.effects_handled.insert(hash);
+            Ok(())
+        },
+    )?;
+    linker.func_wrap("pop-effect-handler-frame", |mut store, ()| {
+        // It might be nice to enforce matching Instance here, but it doesn't impl PartialEq.
+        let Some(_) = store.data_mut().starstream().effect_stack.pop() else {
+            bail!("no effect handler frame on stack");
+        };
+        Ok(())
+    })?;
+
     Ok(())
 }
 
@@ -1882,7 +1968,7 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     async fn call_constructor(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<ResourceAny> {
@@ -1897,7 +1983,7 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     async fn construct_utxo<T>(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         instance_idx: ComponentExportIndex,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
@@ -1916,7 +2002,7 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     pub async fn call_utxo_main<T>(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         UtxoExport { instance_idx, .. }: &UtxoExport,
         UtxoMainExport { idx, .. }: &UtxoMainExport,
         cx: T,
@@ -1929,7 +2015,7 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     pub async fn load_utxo<T>(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         UtxoExport { instance_idx, .. }: &UtxoExport,
         StorageExport { set, .. }: &StorageExport,
         cx: T,
@@ -1942,7 +2028,7 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     async fn construct_token(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Token> {
@@ -1956,7 +2042,7 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     pub async fn call_token_mint(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         TokenMintExport { idx, .. }: &TokenMintExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Token> {
@@ -1966,7 +2052,7 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     pub async fn load_token(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         StorageExport { set, .. }: &StorageExport,
         fields: impl Into<Vec<(String, Val)>>,
     ) -> wasmtime::Result<Token> {
@@ -1977,7 +2063,7 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     pub async fn get_coordination_script(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         CoordinationScriptExport { idx, .. }: &CoordinationScriptExport,
     ) -> wasmtime::Result<Func> {
         get_func(store, &self.instance, idx)
@@ -1986,7 +2072,7 @@ impl ContractInstance {
     #[instrument(level = "trace", skip_all)]
     pub async fn call_coordination_script(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         CoordinationScriptExport { idx, .. }: &CoordinationScriptExport,
         params: impl AsRef<[Val]>,
         results: impl AsMut<[Val]>,
@@ -2148,7 +2234,7 @@ impl<T> Utxo<T> {
     #[instrument(level = "trace", skip_all)]
     pub async fn call_method(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         MethodExport { idx, .. }: &MethodExport,
         params: impl AsRef<[Val]>,
         results: impl AsMut<[Val]>,
@@ -2191,7 +2277,7 @@ impl Token {
     #[instrument(level = "trace", skip_all)]
     pub async fn call_burn(
         self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         TokenBurnExport { idx, .. }: &TokenBurnExport,
         results: impl AsMut<[Val]>,
     ) -> wasmtime::Result<()> {
@@ -2208,7 +2294,7 @@ impl Token {
     #[instrument(level = "trace", skip_all)]
     pub async fn call_attach(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         TokenExport { attach, .. }: &TokenExport,
         utxo: ResourceAny,
     ) -> wasmtime::Result<()> {
@@ -2225,7 +2311,7 @@ impl Token {
     #[instrument(level = "trace", skip_all)]
     pub async fn call_detach(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
         TokenExport { detach, .. }: &TokenExport,
         utxo: ResourceAny,
     ) -> wasmtime::Result<()> {
@@ -2257,7 +2343,7 @@ impl Storage {
     #[instrument(level = "trace", skip_all)]
     pub async fn call_get(
         &self,
-        store: impl AsContextMut<Data: Send>,
+        store: impl AsContextMut<Data: Host>,
     ) -> wasmtime::Result<Vec<(String, Val)>> {
         let mut results = [Val::Bool(false); 1];
         call_func(

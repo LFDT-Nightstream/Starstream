@@ -26,13 +26,17 @@ pub struct Builtins {
     pub utxo_context_drop: Option<u32>,
     pub resume: Option<u32>,
     pub implements_method: Option<u32>,
+
+    pub push_effect_handler_frame: Option<u32>,
+    pub add_effect_handler: Option<u32>,
+    pub pop_effect_handler_frame: Option<u32>,
 }
 
 impl Compiler {
     /// Implicit `starstream:std/builtin` import.
     pub fn import_builtin(&mut self) {
-        let name = "starstream:std/builtin";
-        if self.world_type.has_imported(name) {
+        let module = "starstream:std/builtin";
+        if self.world_type.has_imported(module) {
             return;
         }
         let mut builtin = TypeBuilder::new_interface(&self.world_type);
@@ -45,13 +49,13 @@ impl Compiler {
         self.star_to_component
             .insert(Type::UtxoAny, utxo_type.clone());
         let utxo_drop = self.import_function(
-            name,
+            module,
             "[resource-drop]utxo",
             &FuncType::new([ValType::I32], []),
         );
         self.resource_drop_fns.push((utxo_resource, utxo_drop));
         self.builtins.has_method = Some(self.import_function(
-            name,
+            module,
             "[method]utxo.has-method",
             &FuncType::new(
                 [
@@ -65,12 +69,12 @@ impl Compiler {
             ),
         ));
         let u64_ty = Rc::new(ComponentAbiType::U64);
-        let tuple = Rc::new(ComponentAbiType::Tuple {
+        let u64_4tuple = Rc::new(ComponentAbiType::Tuple {
             fields: vec![u64_ty; 4],
         });
         builtin.export_fn_2(
             "[method]utxo.has-method",
-            [("self", utxo_type.clone()), ("hash", tuple)],
+            [("self", utxo_type.clone()), ("hash", u64_4tuple.clone())],
             Some(&Rc::new(ComponentAbiType::Bool)),
         );
 
@@ -83,13 +87,36 @@ impl Compiler {
             }),
         );
         let token_drop = self.import_function(
-            name,
+            module,
             "[resource-drop]token",
             &FuncType::new([ValType::I32], []),
         );
         self.resource_drop_fns.push((token_resource, token_drop));
 
-        self.world_type.import_interface(name, &builtin);
+        // Effect handling.
+        self.builtins.push_effect_handler_frame = Some(self.import_function(
+            module,
+            "push-effect-handler-frame",
+            &FuncType::new([ValType::I32], []),
+        ));
+        builtin.export_fn_2(
+            "push-effect-handler-frame",
+            [("frame-id", Rc::new(ComponentAbiType::U32))],
+            None,
+        );
+
+        self.builtins.add_effect_handler = Some(self.import_function(
+            module,
+            "add-effect-handler",
+            &FuncType::new([ValType::I64; 4], []),
+        ));
+        builtin.export_fn_2("add-effect-handler", [("hash", u64_4tuple.clone())], None);
+
+        self.builtins.pop_effect_handler_frame =
+            Some(self.import_function(module, "pop-effect-handler-frame", &FuncType::new([], [])));
+        builtin.export_fn_2("pop-effect-handler-frame", [], None);
+
+        self.world_type.import_interface(module, &builtin);
     }
 
     /// Implicit `starstream:std/utxo-context` import.
