@@ -386,18 +386,16 @@ fn link_effect_function<T: Host>(
                         let Some(idx) = instance.get_export_index(store.as_context_mut(), Some(&interface), &name) else {
                             bail!("instance has no export for declared effect handler (missing handler)");
                         };
-                        let Some(handler) = instance.get_func(store.as_context_mut(), idx) else {
-                            bail!("instance has no export for declared effect handler (handler not a function)");
-                        };
 
-                        debug!(frame = ?i, id = ?frame.id, handler = ?handler);
+                        debug!(frame = ?i, id = ?frame.id, handler = ?idx);
                         let mut handler_result = Val::U8(0);
 
                         // Truncate stack, call handler, then restore stack.
                         store.as_context_mut().data_mut().starstream().effect_stack = stack[..i].to_vec();
                         let mut params_with_id = vec![Val::U32(frame.id)];
                         params_with_id.extend_from_slice(params);
-                        let call_result = handler.call_async(&mut store, &params_with_id, std::slice::from_mut(&mut handler_result)).await;
+                        // Use call_func to also push the handler to the `instance_stack` in case of `try` within `with`.
+                        let call_result = call_func(store.as_context_mut(), &instance, idx, &params_with_id, std::slice::from_mut(&mut handler_result)).await;
                         store.as_context_mut().data_mut().starstream().effect_stack = stack.to_vec();
                         () = call_result?;
 
