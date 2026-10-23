@@ -367,7 +367,8 @@ impl Ledger {
         }
         let transaction = bindings::starstream::ledger::types::Transaction::from(transaction);
         let mut encoded = BytesMut::new();
-        wrpc_pack::pack(&transaction, &mut encoded).map_err(TransactionPostError::WrpcEncoding)?;
+        wrpc_transport::pack_ready(&transaction, &mut encoded)
+            .map_err(TransactionPostError::WrpcEncoding)?;
 
         let mut txs = self.transactions.write().await;
         if txs.contains_key(&digest) {
@@ -638,7 +639,8 @@ impl Ledger {
                     .await
                     .map_err(RpcPostError::ParameterDecoding)?;
                 let nonce = self.admin.last_nonce.load(Ordering::Relaxed);
-                wrpc_pack::pack(nonce, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                wrpc_transport::pack_ready(nonce, &mut data)
+                    .map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_ACCOUNT_INSTANCE, "get-balance") => {
                 let key = read_params(body, <CoreVecDecoderBytes>::default())
@@ -649,7 +651,8 @@ impl Ledger {
                     get_by_key(&accounts, &key)
                         .map(|account| account.balance.load(Ordering::Relaxed))
                 };
-                wrpc_pack::pack(balance, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                wrpc_transport::pack_ready(balance, &mut data)
+                    .map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_ACCOUNT_INSTANCE, "get-nonce") => {
                 let key = read_params(body, <CoreVecDecoderBytes>::default())
@@ -660,7 +663,8 @@ impl Ledger {
                     get_by_key(&accounts, &key)
                         .map(|account| account.last_nonce.load(Ordering::Relaxed))
                 };
-                wrpc_pack::pack(nonce, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                wrpc_transport::pack_ready(nonce, &mut data)
+                    .map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_BLOCK_INSTANCE, "get-height") => {
                 ensure_eof(body)
@@ -669,7 +673,8 @@ impl Ledger {
                 let height = self.blocks.read().await.len();
                 let height = u64::try_from(height)
                     .map_err(|err| RpcPostError::ResultEncoding(std::io::Error::other(err)))?;
-                wrpc_pack::pack(height, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                wrpc_transport::pack_ready(height, &mut data)
+                    .map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_BLOCK_INSTANCE, "get-block") => {
                 let height = read_params(body, U64Codec)
@@ -693,7 +698,8 @@ impl Ledger {
                                 .collect::<Vec<_>>()
                         })
                 };
-                wrpc_pack::pack(envelopes, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                wrpc_transport::pack_ready(envelopes, &mut data)
+                    .map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_CONTRACT_INSTANCE, "get-envelope") => {
                 let digest = read_params(body, <CoreNameDecoder>::default())
@@ -703,7 +709,8 @@ impl Ledger {
                     let contracts = self.contracts.read().await;
                     get_by_digest(&contracts, &digest).map(|contract| contract.envelope.clone())
                 };
-                wrpc_pack::pack(envelope, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                wrpc_transport::pack_ready(envelope, &mut data)
+                    .map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_CONTRACT_INSTANCE, "get-wasm") => {
                 let digest = read_params(body, <CoreNameDecoder>::default())
@@ -713,7 +720,8 @@ impl Ledger {
                     let contracts = self.contracts.read().await;
                     get_by_digest(&contracts, &digest).map(|contract| contract.wasm.clone())
                 };
-                wrpc_pack::pack(wasm, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                wrpc_transport::pack_ready(wasm, &mut data)
+                    .map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_TRANSACTION_INSTANCE, "get-envelope") => {
                 let digest = read_params(body, <CoreNameDecoder>::default())
@@ -723,7 +731,8 @@ impl Ledger {
                     let txs = self.transactions.read().await;
                     get_by_digest(&txs, &digest).map(|tx| tx.envelope.clone())
                 };
-                wrpc_pack::pack(envelope, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                wrpc_transport::pack_ready(envelope, &mut data)
+                    .map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_TRANSACTION_INSTANCE, "get-transaction") => {
                 let digest = read_params(body, <CoreNameDecoder>::default())
@@ -739,7 +748,7 @@ impl Ledger {
                         data.put_u8(0);
                         data.extend_from_slice(&tx);
                     }
-                    Err(err) => wrpc_pack::pack(Err::<(), _>(err), &mut data)
+                    Err(err) => wrpc_transport::pack_ready(Err::<(), _>(err), &mut data)
                         .map_err(RpcPostError::ResultEncoding)?,
                 }
             }
@@ -753,7 +762,8 @@ impl Ledger {
                 ensure_eof(body)
                     .await
                     .map_err(RpcPostError::ParameterDecoding)?;
-                wrpc_pack::pack(&*self.network, &mut data).map_err(RpcPostError::ResultEncoding)?;
+                wrpc_transport::pack_ready(&*self.network, &mut data)
+                    .map_err(RpcPostError::ResultEncoding)?;
             }
             (LEDGER_UTXO_INSTANCE, _) => {
                 let tx = if body

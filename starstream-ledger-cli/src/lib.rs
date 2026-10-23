@@ -329,7 +329,7 @@ fn encode_args(
             .with_context(|| format!("missing value for parameter `{name}`"))?;
         let v = wasm_wave::from_str::<wasm_wave::value::Value>(&ty, &v)
             .with_context(|| format!("failed to parse value for parameter `{name}`"))?;
-        wrpc_wave::WaveEncoder::new(&ty)
+        wrpc_wave::ValueEncoder::new(&ty)
             .encode(&v, &mut buf)
             .with_context(|| format!("failed to encode value of parameter `{name}`"))?;
     }
@@ -343,7 +343,7 @@ async fn write_results(
 ) -> anyhow::Result<()> {
     let mut results = pin!(results);
     if let Some(ty) = wasm_wave::value::Type::tuple(ty.results().collect::<Box<_>>()) {
-        let v = wrpc_wave::read_value(&mut results, &ty)
+        let v = wrpc_wave::read_value::<wasm_wave::value::Value, _>(&mut results, &ty)
             .await
             .context("failed to read result tuple")?;
         let mut s = wasm_wave::to_string(&v).context("failed to encode result tuple")?;

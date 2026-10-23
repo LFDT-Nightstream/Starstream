@@ -130,7 +130,7 @@ impl Ledger {
         let genesis: Vec<bindings::starstream::ledger::types::TransactionOutput> =
             genesis.into_iter().map(Into::into).collect();
         let mut encoded = BytesMut::new();
-        wrpc_pack::pack(&genesis, &mut encoded).expect("failed to encode genesis");
+        wrpc_transport::pack_ready(&genesis, &mut encoded).expect("failed to encode genesis");
         let outputs = genesis
             .into_iter()
             .map(|utxo| Some(Arc::new(utxo.into())))

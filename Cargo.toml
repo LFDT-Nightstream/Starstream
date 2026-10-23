@@ -88,13 +88,12 @@ wasmparser = "0.254.0"
 wasmtime = { version = "49", default-features = false }
 wasmtime-wizer = { version = "49", default-features = false }
 wit-bindgen = "0.51.0"
-wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
+wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94", default-features = false }
 wit-component = "0.258.0"
 wit-parser = { version = "0.258.0", default-features = false }
-wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
-wrpc-pack = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
-wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
-wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "bd1bcf7c599e79655f99dd8070ecd1dac4565978", default-features = false }
+wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94", default-features = false }
+wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94", default-features = false }
+wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
 
 neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e0dbc0078651a306bd347e19a92c1d38bf358c10" }

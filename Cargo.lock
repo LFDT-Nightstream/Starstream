@@ -930,7 +930,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.9",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -1941,6 +1941,16 @@ name = "leb128-tokio"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1411e775c0f76d980266d80374665fc9c3c50cb75b1897ecce8170cdd27f435"
+dependencies = [
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "leb128-tokio"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ea7a96024f819c643b967fc71d687b590765a7b2bd057c3678eb53a89a3d606"
 dependencies = [
  "tokio",
  "tokio-util",
@@ -3590,7 +3600,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "wasm-encoder 0.254.2",
- "wasm-tokio",
+ "wasm-tokio 0.7.0",
  "wasmparser 0.254.2",
  "wasmprinter 0.254.2",
  "wasmtime",
@@ -3600,7 +3610,6 @@ dependencies = [
  "wit-component 0.258.3",
  "wit-parser 0.258.3",
  "wrpc-http",
- "wrpc-pack",
  "wrpc-transport",
 ]
 
@@ -4346,6 +4355,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "utf8-tokio"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4650ffa6701dc8e4a1290f18ca044339c16a174cd7d2d7940356e9ea6d8ae9f6"
+dependencies = [
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4584,11 +4603,23 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44af5abbb5bbba6903c16c26c57d58ccd4ffe56b8e0cbb65536ace3d6ac7ab9f"
 dependencies = [
- "leb128-tokio",
+ "leb128-tokio 0.1.8",
+ "tokio",
+ "tokio-util",
+ "utf8-tokio 0.2.1",
+]
+
+[[package]]
+name = "wasm-tokio"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fb9b13cba5c249c31ed7359766184bc5c969a77885a470c19ef879223d6a279"
+dependencies = [
+ "leb128-tokio 0.2.1",
  "tokio",
  "tokio-util",
  "tracing",
- "utf8-tokio",
+ "utf8-tokio 0.3.0",
 ]
 
 [[package]]
@@ -5092,7 +5123,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc"
 version = "0.11.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94#a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94"
 dependencies = [
  "anyhow",
  "bitflags 2.13.2",
@@ -5101,7 +5132,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "wasm-tokio",
+ "wasm-tokio 0.8.1",
  "wit-bindgen-wrpc-rust-macro",
  "wrpc-transport",
 ]
@@ -5109,7 +5140,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc-rust"
 version = "0.11.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94#a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94"
 dependencies = [
  "anyhow",
  "heck",
@@ -5122,7 +5153,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc-rust-macro"
 version = "0.11.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94#a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94"
 dependencies = [
  "anyhow",
  "prettyplease",
@@ -5236,7 +5267,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 [[package]]
 name = "wrpc-http"
 version = "0.1.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94#a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5256,27 +5287,15 @@ dependencies = [
 [[package]]
 name = "wrpc-introspect"
 version = "0.7.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94#a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94"
 dependencies = [
  "wit-parser 0.253.0",
 ]
 
 [[package]]
-name = "wrpc-pack"
-version = "0.4.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
-dependencies = [
- "anyhow",
- "bytes",
- "tokio",
- "tokio-util",
- "wrpc-transport",
-]
-
-[[package]]
 name = "wrpc-transport"
 version = "0.29.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94#a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5287,20 +5306,20 @@ dependencies = [
  "tokio-util",
  "tracing",
  "wasi 0.14.7+wasi-0.2.4",
- "wasm-tokio",
+ "wasm-tokio 0.8.1",
 ]
 
 [[package]]
 name = "wrpc-wave"
-version = "0.2.0"
-source = "git+https://github.com/bytecodealliance/wrpc?rev=bd1bcf7c599e79655f99dd8070ecd1dac4565978#bd1bcf7c599e79655f99dd8070ecd1dac4565978"
+version = "0.1.0"
+source = "git+https://github.com/bytecodealliance/wrpc?rev=a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94#a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94"
 dependencies = [
  "anyhow",
  "bytes",
  "tokio",
  "tokio-util",
  "tracing",
- "wasm-tokio",
+ "wasm-tokio 0.8.1",
  "wasm-wave",
  "wrpc-transport",
 ]
