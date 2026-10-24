@@ -27,7 +27,7 @@ impl<T: Print> Print for CustomPrinter<T> {
     fn print_custom_section(
         &mut self,
         name: &str,
-        _binary_offset: usize,
+        _binary_offset: u64,
         data: &[u8],
     ) -> std::io::Result<bool> {
         if name == "component-type" {
@@ -144,10 +144,10 @@ fn inputs() {
                 writeln!(output, "{program:#?}\n").unwrap();
 
                 let formatted_source =
-                    starstream_compiler::formatter::program(&program, &source, &comments)
+                    starstream_compiler::formatter::program(program, &source, &comments)
                         .expect("formatter error");
                 assert!(
-                    &*source == formatted_source,
+                    *source == formatted_source,
                     "Formatted source differs from original, replace with:\n----\n{formatted_source}\n----"
                 );
 
@@ -201,7 +201,7 @@ fn inputs() {
                             wasmprinter::Config::new()
                                 .fold_instructions(true)
                                 .print(
-                                    &wasm,
+                                    wasm,
                                     &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut *output)),
                                 )
                                 .unwrap();
@@ -281,7 +281,7 @@ fn multifile() {
                                 print_diagnostic(output, graph.source(module), error);
                             }
 
-                            if let Some(_) = &compile_result.wasm {
+                            if compile_result.wasm.is_some() {
                                 let component_wasm = compile_result.to_component().unwrap();
                                 writeln!(output, "{}", wit(&component_wasm)).unwrap();
 
