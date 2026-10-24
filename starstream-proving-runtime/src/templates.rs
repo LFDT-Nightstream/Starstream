@@ -1010,8 +1010,14 @@ pub(crate) fn first_core_module(wasm: &[u8]) -> Result<&[u8], TemplateBuildError
             unchecked_range, ..
         } = payload?
         {
+            let (Ok(start), Ok(end)) = (
+                usize::try_from(unchecked_range.start),
+                usize::try_from(unchecked_range.end),
+            ) else {
+                return Err(TemplateBuildError::InvalidCoreModuleRange(unchecked_range));
+            };
             return wasm
-                .get(unchecked_range.clone())
+                .get(start..end)
                 .ok_or(TemplateBuildError::InvalidCoreModuleRange(unchecked_range));
         }
     }
@@ -1149,7 +1155,7 @@ pub enum TemplateBuildError {
     MissingCoreModule,
 
     #[error("embedded core module range {0:?} is outside the component")]
-    InvalidCoreModuleRange(std::ops::Range<usize>),
+    InvalidCoreModuleRange(std::ops::Range<u64>),
 
     #[error("core type {0} is not a function type")]
     UnsupportedCoreType(usize),
@@ -1285,6 +1291,9 @@ pub enum TemplateBuildError {
 
     #[error("invalid component host-event bindings: {0}")]
     InvalidHostEventBindings(#[from] neo_wasm::WasmBuildError),
+
+    #[error("failed to extract core Wasm program artifacts: {0}")]
+    ProgramExtraction(#[from] neo_wasm::WasmProgramError),
 
     #[error(
         "plain function export `{name}` is not classified; add a coordination-script allowlist \

@@ -3564,7 +3564,7 @@ impl Compiler {
                         // Enum tuple variant constructor.
                         // TODO: maybe de-inline this?
                         let Type::Enum(_) = &expr.ty else {
-                            panic!("EnumConstructor type should be Enum, got {:?}", &expr.ty);
+                            panic!("EnumConstructor type should be Enum, got {:?}", expr.ty);
                         };
 
                         let mut dest_types = Vec::new();

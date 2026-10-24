@@ -23,7 +23,7 @@ members = [
 version = "0.0.0"
 authors = []
 edition = "2024"
-rust-version = "1.96.0"
+rust-version = "1.97.0"
 repository = "https://github.com/LFDT-Nightstream/Starstream"
 license = "MIT/Apache-2.0"
 
@@ -34,7 +34,7 @@ bytes = { version = "1", default-features = false }
 chumsky = "0.11.1"
 clap = { version = "4.6.1", default-features = false }
 coset = { version = "0.3", default-features = false }
-cranelift-codegen = { version = "0.136", default-features = false }
+cranelift-codegen = { version = "0.137", default-features = false }
 ed25519-dalek = { version = "2", default-features = false }
 form_urlencoded = { version = "1", default-features = false }
 futures = { version = "0.3", default-features = false }
@@ -79,30 +79,30 @@ tower-lsp-server = { version = "0.22.1", default-features = false, features = [
 tracing = { version = "0.1.44", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false }
 wasm-bindgen = "0.2.128"
-wasm-encoder = "0.254.0"
-wasm-tokio = { version = "0.7", default-features = false }
-wasm-wave = { version = "0.258.0", default-features = false }
-wasmprinter = "0.254.0"
-wat = "1.258.0"
-wasmparser = "0.254.0"
-wasmtime = { version = "49", default-features = false }
-wasmtime-wizer = { version = "49", default-features = false }
+wasm-encoder = "0.261.0"
+wasm-tokio = { version = "0.8", default-features = false }
+wasm-wave = { version = "0.261.0", default-features = false }
+wasmprinter = "0.261.0"
+wat = "1.261.0"
+wasmparser = "0.261.0"
+wasmtime = { version = "50", default-features = false }
+wasmtime-wizer = { version = "50", default-features = false }
 wit-bindgen = "0.51.0"
-wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", rev = "a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94", default-features = false }
-wit-component = "0.258.0"
-wit-parser = { version = "0.258.0", default-features = false }
-wrpc-http = { git = "https://github.com/bytecodealliance/wrpc", rev = "a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94", default-features = false }
-wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", rev = "a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94", default-features = false }
-wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "a1ad72eaae362760b6d02d3b2e0ce01b68ed7a94", default-features = false }
+wit-bindgen-wrpc = { version = "0.12", default-features = false }
+wit-component = "0.261.0"
+wit-parser = { version = "0.261.0", default-features = false }
+wrpc-http = { version = "0.1", default-features = false }
+wrpc-transport = { version = "0.30", default-features = false }
+wrpc-wave = { version = "0.1", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
 
-neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e0dbc0078651a306bd347e19a92c1d38bf358c10" }
-neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e0dbc0078651a306bd347e19a92c1d38bf358c10" }
-neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e0dbc0078651a306bd347e19a92c1d38bf358c10" }
-neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e0dbc0078651a306bd347e19a92c1d38bf358c10" }
-neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e0dbc0078651a306bd347e19a92c1d38bf358c10" }
-neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e0dbc0078651a306bd347e19a92c1d38bf358c10" }
-neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "e0dbc0078651a306bd347e19a92c1d38bf358c10" }
+neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
+neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
+neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
+neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
+neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
+neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
+neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
 
 [profile.dev.package]
 insta.opt-level = 3
