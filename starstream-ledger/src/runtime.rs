@@ -1,3 +1,4 @@
+use core::ops::Range;
 use core::slice;
 
 use anyhow::{Context as _, bail, ensure};
@@ -60,13 +61,21 @@ pub fn parse_state(wasm: &[u8]) -> impl Iterator<Item = anyhow::Result<ModuleSta
             Ok(Payload::ModuleSection {
                 parser,
                 unchecked_range,
-            }) => Some(parse_module_section(parser, &wasm[unchecked_range])),
+            }) => Some(parse_module_section(parser, wasm, unchecked_range)),
             Err(err) => Some(Err(err.into())),
             _ => None,
         })
 }
 
-fn parse_module_section(parser: wasmparser::Parser, wasm: &[u8]) -> anyhow::Result<ModuleState> {
+fn parse_module_section(
+    parser: wasmparser::Parser,
+    wasm: &[u8],
+    range: Range<u64>,
+) -> anyhow::Result<ModuleState> {
+    let start =
+        usize::try_from(range.start).context("module section start does not fit in usize")?;
+    let end = usize::try_from(range.end).context("module section end does not fit in usize")?;
+    let wasm = &wasm[start..end];
     let mut state = ModuleState::default();
     for payload in parser.parse_all(wasm) {
         let payload = payload?;

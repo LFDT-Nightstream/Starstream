@@ -169,7 +169,7 @@ pub fn utxo_wits(wasm: &[u8], types: &Types) -> anyhow::Result<HashMap<Box<str>,
         () = printer
             .print(&resolve, pkg, &[])
             .with_context(|| format!("failed to print WIT of instance `{instance}`"))?;
-        let wasm = wit_component::encode(&resolve, pkg)
+        let wasm = wit_component::encode(&resolve, pkg, false)
             .with_context(|| format!("failed to encode WIT of instance `{instance}`"))?;
         wits.insert(
             instance.into(),

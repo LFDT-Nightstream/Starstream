@@ -222,7 +222,7 @@ fn function_names(component: &[u8]) -> BTreeMap<u32, String> {
         .find_map(|payload| match payload.expect("valid component") {
             Payload::ModuleSection {
                 unchecked_range, ..
-            } => Some(&component[unchecked_range]),
+            } => Some(&component[unchecked_range.start as usize..unchecked_range.end as usize]),
             _ => None,
         })
         .expect("component embeds a core module");

@@ -310,9 +310,9 @@ TypedProgram {
   (type (;0;) (func (param i32)))
   (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
   (type (;2;) (func))
-  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0)))
-  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1)))
-  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0) (param i32)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1) (param i32 i64 i64 i64 i64) (result i32)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0) (param i32)))
   (export "main" (func 3))
   (func (;3;) (type 2)
     (block ;; label = @1
