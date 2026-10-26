@@ -29,7 +29,7 @@ fn compile_contract(entry: &Path) -> Vec<u8> {
 }
 
 fn print_wit(wasm: &[u8]) -> String {
-    let decoded = wit_component::decode(&wasm).expect("decode");
+    let decoded = wit_component::decode(wasm).expect("decode");
     let mut printer = wit_component::WitPrinter::default();
     let ids: Vec<_> = decoded
         .resolve()
