@@ -43,19 +43,27 @@ pub struct StarError<T> {
 
 #[derive(Default, Clone)]
 struct StarErrorCore {
-    code: Option<String>,
     severity: Option<Severity>,
-    help: Option<String>,
+    code: Option<String>,
     url: Option<String>,
-    source_code: Option<Arc<dyn SourceCode>>,
-    labels: Vec<LabeledSpan>,
     cause: Option<Arc<dyn Diagnostic + Send + Sync>>,
+    labels: Vec<LabeledSpan>,
+    help: Option<String>,
     related: Vec<Arc<dyn Diagnostic + Send + Sync>>,
+    source_code: Option<Arc<dyn SourceCode>>,
 }
 
-// impl<T> From<T> for StarError<T>
+// Could `impl<T> From<T> for StarError<T>` for [unspanned], but it would make
+// `From` non-unique, requiring type annotations at `?` use.
 
 impl<T> StarError<T> {
+    pub fn unspanned(kind: T) -> Self {
+        StarError {
+            kind: Box::new(kind),
+            core: Box::new(StarErrorCore::default()),
+        }
+    }
+
     pub fn new(kind: T, span: Span) -> Self {
         StarError {
             kind: Box::new(kind),

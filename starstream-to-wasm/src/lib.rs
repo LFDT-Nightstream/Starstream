@@ -269,7 +269,6 @@ struct Compiler {
     context_local: Option<u32>,
     current_resource: Option<ResourceContext>,
 
-    handler_global: Option<u32>,
     handler_id: i32,
 }
 
@@ -288,8 +287,12 @@ struct Effect {
     abi_name: String,
     effect_name: String,
     ty: Arc<FunctionType>,
-    /// (handler_id, function_idx)
-    handlers: Vec<(i32, u32)>,
+    handlers: Vec<EffectHandler>,
+}
+
+struct EffectHandler {
+    handler_id: i32,
+    func: u32,
 }
 
 impl Compiler {
@@ -307,9 +310,13 @@ impl Compiler {
         // committing constants to the memory/data section.
 
         // Create root effect handler functions which dispatch to children.
+        let mut ifaces = Default::default();
         for (_, effect) in std::mem::take(&mut self.effect_handlers) {
             self.module = effect.module;
-            self.finish_effect_handler(effect);
+            self.finish_effect_handler(effect, &mut ifaces);
+        }
+        for (iface_name, iface) in ifaces {
+            self.world_type.export_interface(&iface_name, &iface);
         }
 
         // Flush function codes into the code section.
@@ -1515,7 +1522,11 @@ impl Compiler {
         );
     }
 
-    fn visit_effect_handler(&mut self, handler_id: i32, handler: &TypedEffectHandler) {
+    fn visit_effect_handler(
+        &mut self,
+        handler_id: i32,
+        handler: &TypedEffectHandler,
+    ) -> Result<[i64; 4]> {
         let span = handler.effect.last().unwrap().span;
 
         // Build an internal function for the body of this specific handler.
@@ -1537,13 +1548,13 @@ impl Compiler {
         let bb_orig = func.cfg.add_block();
         func.cfg.seal(bb_orig, BlockType::Empty);
         let mut bb = bb_orig;
+        func.instructions(&bb).i32_const(EFFECT_STATUS_RESUME);
 
         // TODO: allow access to parent scope's globals (ex. utxo storage).
         // TODO: allow access to parent scope's locals (spilled to globals?).
         let parent = &() as &dyn Locals;
         _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &handler.body);
         if bb != usize::MAX {
-            func.instructions(&bb).i32_const(EFFECT_STATUS_RESUME);
             self.visit_return(&mut func, &bb);
             func.cfg.fill(bb, Out::Return);
         }
@@ -1553,27 +1564,33 @@ impl Compiler {
             let name = handler.effect.last().unwrap().to_string();
             self.mermaid.push((name, func.cfg.to_mermaid().to_string()));
         }
-        let idx: u32 = self.add_function(&stackified.ty, stackified.code);
+        let func: u32 = self.add_function(&stackified.ty, stackified.code);
 
         // Push that handler to the list of handlers for this effect.
         let Some(StaticFunction::Named(id)) = handler.ty.callee else {
-            self.push_error(span, "effect handler name cannot be a function pointer");
-            return;
+            return Err(self.push_error(span, "effect handler name cannot be a function pointer"));
         };
         let Some(effect) = self.effect_handlers.get_mut(&id) else {
-            self.push_error(span, "effect handler unknown");
-            return;
+            return Err(self.push_error(span, "effect handler unknown"));
         };
-        effect.handlers.push((handler_id, idx));
+        effect.handlers.push(EffectHandler { handler_id, func });
+
+        Ok(effect.identity())
     }
 
-    fn finish_effect_handler(&mut self, effect: Effect) {
+    fn finish_effect_handler(
+        &mut self,
+        effect: Effect,
+        ifaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
+    ) {
         if effect.handlers.is_empty() {
             return;
         }
 
+        // Compile exportable handler function that dispatches to individual handler.
         let mut locals = HashMap::<String, Var>::new();
         let mut params = Vec::with_capacity(16);
+        params.push(ValType::I32);
         for p in &effect.ty.params {
             locals.insert(
                 p.name.name.clone(),
@@ -1586,6 +1603,8 @@ impl Compiler {
         _ = self.star_to_core_types(effect.ty.name_span, &mut results, &effect.ty.result);
 
         let mut sig = self.star_to_component_signature(None, &effect.ty.params, &effect.ty.result);
+        sig.params
+            .insert(0, ("frame-id".to_owned(), Rc::new(ComponentAbiType::U32)));
         sig.result = Some(match sig.result {
             Some(rest) => Rc::new(ComponentAbiType::Tuple {
                 fields: vec![Rc::new(ComponentAbiType::U8), rest],
@@ -1593,20 +1612,21 @@ impl Compiler {
             None => Rc::new(ComponentAbiType::U8),
         });
 
-        let func_ty = FuncType::new(params, results.iter().copied());
+        let func_ty = FuncType::new(params.iter().copied(), results.iter().copied());
         let mut func = Function::new([]);
 
-        let handler_global = self.handler_global.unwrap();
-        for (handler_id, handler_function) in effect.handlers {
-            // Check if handler global matches this id.
+        for handler in effect.handlers {
+            // Check if frame-id argument matches this id.
             func.instructions().block(BlockType::Empty);
             func.instructions()
-                .global_get(handler_global)
-                .i32_const(handler_id)
+                .local_get(0)
+                .i32_const(handler.handler_id)
                 .i32_ne()
                 .br_if(0);
-            // TODO: forward parameters.
-            func.instructions().return_call(handler_function);
+            for i in 1..u32::try_from(params.len()).unwrap() {
+                func.instructions().local_get(i);
+            }
+            func.instructions().return_call(handler.func);
             func.instructions().end();
         }
         func.instructions().i32_const(EFFECT_STATUS_KEEP_SEARCHING);
@@ -1623,12 +1643,12 @@ impl Compiler {
             &func_ty,
             Vec::new(),
         ) {
-            // TODO: handle multiple effects for the same ABI.
             let iface_name = format!("starstream:effect-handler/{}", effect.abi_name);
-            let mut iface = TypeBuilder::new_interface(&self.world_type);
             self.export_core_fn(&format!("{}#{}", iface_name, effect.effect_name), func_idx);
-            iface.export_fn(&effect.effect_name, &sig);
-            self.world_type.export_interface(&iface_name, &iface);
+            ifaces
+                .entry(iface_name)
+                .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
+                .export_fn(&effect.effect_name, &sig);
         }
     }
 
@@ -2507,33 +2527,29 @@ impl Compiler {
                     break;
                 }
                 TypedStatement::TryWith { subject, effects } => {
-                    // Create current-effect-handler global if needed
-                    let handler_global;
-                    if let Some(h) = self.handler_global {
-                        handler_global = h;
-                    } else {
-                        handler_global = self.add_globals([ValType::I32], "handler");
-                        self.handler_global = Some(handler_global);
-                    };
-
-                    // Surround try{} block with setting and restoring the handler global
+                    // Surround try{} block with pushing/popping the effect stack.
                     self.handler_id += 1;
                     let handler_id = self.handler_id;
-                    let previous_handler_local = func.add_locals([ValType::I32]);
+                    // Push effect handler stack frame.
                     func.instructions(bb)
-                        .global_get(handler_global)
-                        .local_set(previous_handler_local)
                         .i32_const(handler_id)
-                        .global_set(handler_global);
-                    self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
-                    func.instructions(bb)
-                        .local_get(previous_handler_local)
-                        .global_set(handler_global);
-
-                    // Emit handler segments
+                        .call(self.builtins.push_effect_handler_frame.unwrap());
+                    // Emit handler functions and corresponding `add-effect-handler` calls.
                     for handler in effects {
-                        self.visit_effect_handler(handler_id, handler);
+                        if let Ok(id) = self.visit_effect_handler(handler_id, handler) {
+                            func.instructions(bb)
+                                .i64_const(id[0])
+                                .i64_const(id[1])
+                                .i64_const(id[2])
+                                .i64_const(id[3])
+                                .call(self.builtins.add_effect_handler.unwrap());
+                        }
                     }
+                    // try{} contents.
+                    self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
+                    // Pop effect handler stack frame.
+                    func.instructions(bb)
+                        .call(self.builtins.pop_effect_handler_frame.unwrap());
                 }
             }
         }
@@ -4486,6 +4502,22 @@ impl Compiler {
         }
         result.extend_from_slice(&col_locals[column + 1..]);
         result
+    }
+}
+
+impl Effect {
+    fn identity(&self) -> [i64; 4] {
+        let identity = format!("{}#{}", self.abi_name, self.effect_name);
+        let digest = sha2::Sha256::digest(&identity);
+        let mut chunks = digest
+            .chunks_exact(8)
+            .map(|c| i64::from_le_bytes(<[u8; 8]>::try_from(c).unwrap()));
+        [
+            chunks.next().unwrap(),
+            chunks.next().unwrap(),
+            chunks.next().unwrap(),
+            chunks.next().unwrap(),
+        ]
     }
 }
 

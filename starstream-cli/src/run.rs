@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 
 use clap::Args;
 use sha2::{Digest as _, Sha256};
-use starstream_runtime::{Contract, ContractLookup, Host, Token, Utxo, UtxoExport, bindings};
+use starstream_runtime::{
+    Contract, ContractLookup, Host, StarstreamCtx, Token, Utxo, UtxoExport, bindings,
+};
 use tokio::fs;
 use tracing::{debug, info, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val, types};
@@ -31,8 +33,10 @@ pub struct Run {
     imports: Vec<PathBuf>,
 }
 
+#[derive(Default)]
 pub(crate) struct Ctx {
     table: ResourceTable,
+    starstream: StarstreamCtx,
     outputs: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
 }
 
@@ -71,6 +75,10 @@ impl Host for Ctx {
         &mut self.table
     }
 
+    fn starstream(&mut self) -> &mut StarstreamCtx {
+        &mut self.starstream
+    }
+
     #[instrument(level = "trace", skip_all, ret)]
     async fn call_utxo_main(
         mut store: StoreContextMut<'_, Self>,
@@ -94,12 +102,11 @@ impl Host for Ctx {
 
     #[instrument(level = "debug", skip(store, utxo), ret)]
     fn has_method(
-        store: StoreContextMut<Self>,
+        mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<bool> {
-        let Ctx { table, .. } = store.data();
-        let utxo = table.get(&utxo)?;
+        let utxo = store.data_mut().table.get(&utxo)?;
         Ok(utxo.context().lock().unwrap().methods.contains(&hash))
     }
 
@@ -108,8 +115,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         utxo: Resource<Utxo<Self::UtxoContext>>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        table.delete(utxo)?;
+        store.data_mut().table.delete(utxo)?;
         Ok(())
     }
 
@@ -119,8 +125,7 @@ impl Host for Ctx {
         cx: Resource<Self::UtxoContext>,
         hash: (u64, u64, u64, u64),
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.get_mut(&cx)?;
+        let cx = store.data_mut().table.get_mut(&cx)?;
         cx.lock().unwrap().methods.insert(hash);
         Ok(())
     }
@@ -130,8 +135,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        let cx = table.get_mut(&cx)?;
+        let cx = store.data_mut().table.get_mut(&cx)?;
         cx.lock().unwrap().methods.clear();
         Ok(())
     }
@@ -141,8 +145,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         cx: Resource<Self::UtxoContext>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        table.delete(cx)?;
+        store.data_mut().table.delete(cx)?;
         Ok(())
     }
 
@@ -151,8 +154,7 @@ impl Host for Ctx {
         mut store: StoreContextMut<Self>,
         token: Resource<Token>,
     ) -> wasmtime::Result<()> {
-        let Ctx { table, .. } = store.data_mut();
-        table.delete(token)?;
+        store.data_mut().table.delete(token)?;
         Ok(())
     }
 
@@ -207,13 +209,7 @@ pub async fn call(
     script: &str,
     args: &mut dyn ExactSizeIterator<Item = &str>,
 ) -> wasmtime::Result<String> {
-    let mut store = Store::new(
-        engine,
-        Ctx {
-            table: ResourceTable::default(),
-            outputs: Vec::default(),
-        },
-    );
+    let mut store = Store::new(engine, Ctx::default());
     let script = contract.get_coordination_script(script)?;
     let contract = contract.instantiate(&mut store).await?;
     let params_ty = script.ty().params();
@@ -280,6 +276,6 @@ async fn exec(
 
 impl Run {
     pub async fn exec(self) -> miette::Result<()> {
-        exec(self).await.map_err(|err| miette::miette!("{err}"))
+        exec(self).await.map_err(crate::wasmtime_error_to_report)
     }
 }

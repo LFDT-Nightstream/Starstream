@@ -39,5 +39,11 @@ package starstream:std {
     }
 
     resource token;
+
+    push-effect-handler-frame: func(frame-id: u32);
+
+    add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
+
+    pop-effect-handler-frame: func();
   }
 }

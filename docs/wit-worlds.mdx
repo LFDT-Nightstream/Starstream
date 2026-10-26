@@ -156,8 +156,15 @@ world root {
 
 ### Exporting effect handlers
 
-To catch effects, export `starstream:effect-handler/<abi-name>#<effect-name>`.
+To catch effects:
+
+1. Call `starstream:std/builtin#push-effect-handler-frame` with a frame ID.
+2. For each handled effect ID, call `starstream:std/builtin#add-effect-handler`
+    and export `starstream:effect-handler/<abi-name>#<effect-name>` (see below).
+3. At the end of the `try` block, call `starstream:std/builtin#pop-effect-handler-frame`.
+
 When the effect is raised, the module stack will be searched for matching handlers.
+The effect handler will be passed the frame ID, followed by the effect arguments.
 The effect handler function must return one of two types:
 
 * If the effect has no result type, the handler returns a `u8` status code.
@@ -170,7 +177,7 @@ The status code must be one of:
 
 ```wit
 interface starstream:effect-handler/my-abi {
-    my-effect: func(number: s32) -> tuple<u8, s32>;
+    my-effect: func(frame-id: u32, number: s32) -> tuple<u8, s32>;
 }
 
 world root {

@@ -7,7 +7,7 @@ use starstream_runtime::{
     TokenMintExport, get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span};
-use wasmtime::component::{Component, ResourceTable, Val};
+use wasmtime::component::{Component, Val};
 use wasmtime::error::Context as _;
 use wasmtime::{Store, bail};
 
@@ -99,7 +99,7 @@ impl<'a> FromIterator<&'a (String, Val)> for MyTokenStorage {
 }
 
 async fn get_my_token_storage(
-    store: &mut Store<impl Send + 'static>,
+    store: &mut Store<impl Host + 'static>,
     token: &Token,
     storage: &StorageExport,
 ) -> wasmtime::Result<MyTokenStorage> {
@@ -121,14 +121,7 @@ fn test_event(total: u64) -> Event {
 
 #[test_log::test(tokio::test)]
 async fn my_mint() -> wasmtime::Result<()> {
-    let mut store = Store::new(
-        &ENGINE,
-        Ctx {
-            table: ResourceTable::default(),
-            events: Vec::default(),
-            outputs: Vec::default(),
-        },
-    );
+    let mut store = Store::new(&ENGINE, Ctx::default());
     let instance = CONTRACT
         .instantiate(&mut store)
         .await
@@ -153,25 +146,21 @@ async fn my_mint() -> wasmtime::Result<()> {
 
     let Ctx {
         table,
+        starstream,
         events,
         outputs,
     } = store.into_data();
     assert!(table.is_empty());
     assert_eq!(events, [test_event(1)]);
     assert!(outputs.is_empty());
+    assert!(starstream.instance_stack.is_empty());
+    assert!(starstream.effect_stack.is_empty());
     Ok(())
 }
 
 #[test_log::test(tokio::test)]
 async fn load() -> wasmtime::Result<()> {
-    let mut store = Store::new(
-        &ENGINE,
-        Ctx {
-            table: ResourceTable::default(),
-            events: Vec::default(),
-            outputs: Vec::default(),
-        },
-    );
+    let mut store = Store::new(&ENGINE, Ctx::default());
     let instance = CONTRACT
         .instantiate(&mut store)
         .await
@@ -200,25 +189,21 @@ async fn load() -> wasmtime::Result<()> {
 
     let Ctx {
         table,
+        starstream,
         events,
         outputs,
     } = store.into_data();
     assert!(table.is_empty());
     assert_eq!(events, [test_event(42)]);
     assert!(outputs.is_empty());
+    assert!(starstream.instance_stack.is_empty());
+    assert!(starstream.effect_stack.is_empty());
     Ok(())
 }
 
 #[test_log::test(tokio::test)]
 async fn call_token_mint() -> wasmtime::Result<()> {
-    let mut store = Store::new(
-        &ENGINE,
-        Ctx {
-            table: ResourceTable::default(),
-            events: Vec::default(),
-            outputs: Vec::default(),
-        },
-    );
+    let mut store = Store::new(&ENGINE, Ctx::default());
     let instance = CONTRACT
         .instantiate(&mut store)
         .await
@@ -232,6 +217,7 @@ async fn call_token_mint() -> wasmtime::Result<()> {
 
     let Ctx {
         table,
+        starstream,
         events,
         outputs,
     } = store.into_data();
@@ -241,5 +227,7 @@ async fn call_token_mint() -> wasmtime::Result<()> {
         [test_event(10), test_event(1), test_event(20), test_event(1)]
     );
     assert!(outputs.is_empty());
+    assert!(starstream.instance_stack.is_empty());
+    assert!(starstream.effect_stack.is_empty());
     Ok(())
 }

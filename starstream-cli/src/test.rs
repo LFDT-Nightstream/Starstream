@@ -49,10 +49,12 @@ impl Test {
                                 Ok(output) => info!(test = test_name, output = output),
                                 Err(err) => {
                                     errors += 1;
-                                    print_report(miette::Report::msg(err).wrap_err(format!(
-                                        "{wasm}: {test_name:?} failed",
-                                        wasm = wasm.display()
-                                    )))?;
+                                    print_report(crate::wasmtime_error_to_report(err).wrap_err(
+                                        format!(
+                                            "{wasm}: {test_name:?} failed",
+                                            wasm = wasm.display()
+                                        ),
+                                    ))?;
                                 }
                             }
                         }
@@ -61,7 +63,7 @@ impl Test {
                 Err(err) => {
                     errors += 1;
                     print_report(
-                        miette::Report::msg(err)
+                        crate::wasmtime_error_to_report(err)
                             .wrap_err(format!("could not load {wasm}", wasm = wasm.display())),
                     )?;
                 }

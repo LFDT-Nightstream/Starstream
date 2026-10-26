@@ -862,6 +862,7 @@ impl Ledger {
 
                 let ctx = Ctx {
                     table,
+                    starstream: Default::default(),
                     cardano: self.cardano,
                 };
                 let mut store = wasmtime::Store::new(&self.engine, ctx);
