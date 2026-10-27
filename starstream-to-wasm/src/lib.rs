@@ -33,7 +33,7 @@ use crate::component_abi::{
 };
 use crate::component_encoder::TypeBuilder;
 use crate::decision_tree::{Ctor, DecisionTree, Matrix, Pat, Row};
-use crate::intrinsics::CheckedOp;
+use crate::intrinsics::{CheckedOp, FlooredOp};
 use crate::ir::{ControlFlowGraph, Out};
 use crate::stackifier::stackify;
 
@@ -2946,25 +2946,20 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int(w), Type::Int(_)) => {
-                        if w.is_64bit() {
-                            if w.is_signed() {
-                                func.instructions(bb).i64_div_s();
-                            } else {
+                        if !w.is_signed() {
+                            if w.is_64bit() {
                                 func.instructions(bb).i64_div_u();
-                            }
-                        } else if w.is_signed() && w.is_sub32() {
-                            // `MIN / -1` fits in i32, so it doesn't trap natively.
-                            if self.options.check_overflows {
-                                let checked_div = self.get_or_create_checked(CheckedOp::Div, *w);
-                                func.instructions(bb).call(checked_div);
                             } else {
-                                func.instructions(bb).i32_div_s();
-                                self.emit_truncate(func, bb, *w);
+                                func.instructions(bb).i32_div_u();
                             }
-                        } else if w.is_signed() {
-                            func.instructions(bb).i32_div_s();
+                        } else if w.is_sub32() && self.options.check_overflows {
+                            // `MIN / -1` fits in i32, so it doesn't trap natively.
+                            let checked_div = self.get_or_create_checked(CheckedOp::Div, *w);
+                            func.instructions(bb).call(checked_div);
                         } else {
-                            func.instructions(bb).i32_div_u();
+                            let floored_div = self.get_or_create_floored(FlooredOp::Div, *w);
+                            func.instructions(bb).call(floored_div);
+                            self.emit_truncate(func, bb, *w);
                         }
                         Ok(())
                     }
@@ -2984,14 +2979,12 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int(w), Type::Int(_)) => {
-                        if w.is_64bit() {
-                            if w.is_signed() {
-                                func.instructions(bb).i64_rem_s();
-                            } else {
-                                func.instructions(bb).i64_rem_u();
-                            }
-                        } else if w.is_signed() {
-                            func.instructions(bb).i32_rem_s();
+                        if w.is_signed() {
+                            // Never out of range: it's smaller than the divisor.
+                            let floored_rem = self.get_or_create_floored(FlooredOp::Rem, *w);
+                            func.instructions(bb).call(floored_rem);
+                        } else if w.is_64bit() {
+                            func.instructions(bb).i64_rem_u();
                         } else {
                             func.instructions(bb).i32_rem_u();
                         }
