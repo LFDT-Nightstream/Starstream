@@ -445,8 +445,6 @@ TypedProgram {
     (call 6
       (local.get 0)
       (drop
-        (local.get 1))
-      (drop
         (local.get 0)
         (local.set 2
           (local.get 1)))

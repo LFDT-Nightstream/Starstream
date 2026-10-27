@@ -3720,6 +3720,7 @@ dependencies = [
  "starstream-compiler",
  "starstream-runtime",
  "starstream-types",
+ "starstream-wasm-opt",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -3740,6 +3741,16 @@ dependencies = [
  "miette",
  "pretty",
  "serde",
+]
+
+[[package]]
+name = "starstream-wasm-opt"
+version = "0.0.0"
+dependencies = [
+ "wasm-encoder 0.261.0",
+ "wasmparser 0.261.0",
+ "wasmprinter",
+ "wat",
 ]
 
 [[package]]

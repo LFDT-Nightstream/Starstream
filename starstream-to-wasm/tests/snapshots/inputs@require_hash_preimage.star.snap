@@ -3591,34 +3591,25 @@ TypedProgram {
     (local.get 2)
   )
   (func (;18;) (type 4)
-    (local i32 i64 i32)
+    (local i32)
     (local.set 0
       (global.get 3))
     (global.set 3
       (i32.const 0))
-    (local.set 1
-      (global.get 4))
     (global.set 4
       (i64.const 0))
-    (local.set 2
-      (global.get 5))
     (global.set 5
       (i32.const 0))
     (call 7
       (local.get 0))
   )
   (func (;19;) (type 6) (param i32 i64)
-    (local i64 i64)
     (block ;; label = @1
       (block ;; label = @2
-        (local.set 2
-          (call 0
-            (local.get 1)))
-        (local.set 3
-          (local.get 2))
         (br_if 0 (;@2;)
           (i64.ne
-            (local.get 3)
+            (call 0
+              (local.get 1))
             (global.get 2)))
         (br 1 (;@1;)))
       (unreachable))
@@ -3641,10 +3632,9 @@ TypedProgram {
     (local.set 4)
     (local.set 3)
     (local.set 2)
-    (local.set 1)
-    (i32.store
-      (local.get 1)
-      (local.get 2))
+    (local.tee 1)
+    (local.get 2)
+    (i32.store)
     (i64.store offset=8
       (local.get 1)
       (local.get 3))
@@ -3694,25 +3684,15 @@ TypedProgram {
       (local.get 0))
   )
   (func (;26;) (type 4)
-    (local i32 i32)
-    (local.set 0
-      (call 23
-        (i64.const 1)))
-    (local.set 1
-      (local.get 0))
     (call 24
-      (local.get 1)
+      (call 23
+        (i64.const 1))
       (i64.const 1))
   )
   (func (;27;) (type 4)
-    (local i32 i32)
-    (local.set 0
-      (call 23
-        (i64.const 1)))
-    (local.set 1
-      (local.get 0))
     (call 24
-      (local.get 1)
+      (call 23
+        (i64.const 1))
       (i64.const 2))
   )
   (func (;28;) (type 4)
@@ -3948,9 +3928,9 @@ panic: call_coordination_script: failed to call function
 Caused by:
     0: failed to call function
     1: error while executing at wasm backtrace:
-    0:    0x86e - <unknown>!<wasm function 19>
-    1:    0x8f3 - <unknown>!<wasm function 24>
-    2:    0x92a - <unknown>!<wasm function 27>
+    0:    0x858 - <unknown>!<wasm function 19>
+    1:    0x8db - <unknown>!<wasm function 24>
+    2:    0x8fe - <unknown>!<wasm function 27>
     2: wasm trap: wasm `unreachable` instruction executed
 
 ==== Test: Alive UTXO ====

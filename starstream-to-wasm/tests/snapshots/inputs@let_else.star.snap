@@ -375,23 +375,17 @@ TypedProgram {
   (import "starstream:std/builtin" "pop-effect-handler-frame" (func (;5;) (type 3)))
   (export "unwrap-or-zero" (func 6))
   (func (;6;) (type 4) (param i32 i64) (result i64)
-    (local i32 i64 i64 i64)
+    (local i64)
     (block ;; label = @1
-      (local.set 2
-        (local.get 0)
-        (local.set 3
-          (local.get 1)))
       (br_if 0 (;@1;)
         (i32.eq
-          (local.get 2)
+          (local.get 0)
+          (local.set 2
+            (local.get 1))
           (i32.const 1)))
       (return
         (i64.const 0)))
-    (local.set 5
-      (local.get 3))
-    (local.set 4
-      (local.get 5))
-    (local.get 4)
+    (local.get 2)
   )
   (@custom "component-type"
     (component

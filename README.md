@@ -81,6 +81,8 @@ Compiler:
   - Implements the [language spec] in an easy-to-audit way.
   - Not optimized, but used as a comparison point for other targets.
 - `starstream-to-wasm/` - Compiler from Starstream source to WebAssembly modules.
+- `starstream-wasm-opt/` - Wasm-to-Wasm optimization of compiler output,
+  aimed at executing fewer instructions in the prover.
 
 Tooling:
 

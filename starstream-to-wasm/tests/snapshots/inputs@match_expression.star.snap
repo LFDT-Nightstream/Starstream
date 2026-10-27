@@ -2888,19 +2888,18 @@ TypedProgram {
   (import "starstream:std/builtin" "pop-effect-handler-frame" (func (;5;) (type 3)))
   (export "get-bar" (func 11))
   (func (;6;) (type 4) (param i32 i64 i64) (result i64)
-    (local i32 i64 i64 i32 i64 i64 i32 i64)
+    (local i32 i64 i64 i32 i64)
     (block (result i64) ;; label = @1
       (block ;; label = @2
         (block ;; label = @3
-          (local.set 3
-            (local.get 0)
-            (local.set 4
-              (local.get 1)
-              (local.set 5
-                (local.get 2))))
           (br_if 0 (;@3;)
             (i32.eq
-              (local.get 3)
+              (local.tee 3
+                (local.get 0)
+                (local.set 4
+                  (local.get 1)
+                  (local.set 5
+                    (local.get 2))))
               (i32.const 2)))
           (block ;; label = @4
             (br_if 0 (;@4;)
@@ -2913,11 +2912,9 @@ TypedProgram {
                   (local.get 3)
                   (i32.const 1)))
               (unreachable))
-            (local.set 10
-              (local.get 4))
             (br 3 (;@1;)
-              (local.get 10)))
-          (local.set 9
+              (local.get 4)))
+          (drop
             (i32.wrap_i64
               (local.get 4)))
           (br 2 (;@1;)
@@ -2933,40 +2930,31 @@ TypedProgram {
             (i32.const 0)))
         (br 1 (;@1;)
           (i64.const 2)))
-      (local.set 8
-        (local.get 7))
-      (local.get 8))
+      (local.get 7))
   )
   (func (;7;) (type 4) (param i32 i64 i64) (result i64)
-    (local i32 i64 i64 i32)
-    (block (result i64) ;; label = @1
-      (block ;; label = @2
-        (local.set 3
-          (local.get 0)
-          (local.set 4
-            (local.get 1)
-            (local.set 5
-              (local.get 2))))
-        (br_if 0 (;@2;)
-          (i32.eq
-            (local.get 3)
-            (i32.const 0)))
-        (br 1 (;@1;)
-          (i64.const 0)))
-      (local.set 6
-        (i32.wrap_i64
-          (local.get 4)))
-      (i64.const 1))
-  )
-  (func (;8;) (type 5) (param i64) (result i64)
     (local i64)
     (block (result i64) ;; label = @1
       (block ;; label = @2
-        (local.set 1
-          (local.get 0))
+        (br_if 0 (;@2;)
+          (i32.eq
+            (local.get 0)
+            (local.set 3
+              (local.get 1))
+            (i32.const 0)))
+        (br 1 (;@1;)
+          (i64.const 0)))
+      (drop
+        (i32.wrap_i64
+          (local.get 3)))
+      (i64.const 1))
+  )
+  (func (;8;) (type 5) (param i64) (result i64)
+    (block (result i64) ;; label = @1
+      (block ;; label = @2
         (br_if 0 (;@2;)
           (i64.eq
-            (local.get 1)
+            (local.get 0)
             (i64.const 42)))
         (br 1 (;@1;)
           (i64.const 0)))
@@ -2996,38 +2984,33 @@ TypedProgram {
         (unreachable)))
   )
   (func (;10;) (type 4) (param i32 i64 i64) (result i64)
-    (local i32 i64 i64 i64 i64)
+    (local i64 i64 i64 i64)
     (block (result i64) ;; label = @1
       (block ;; label = @2
-        (local.set 3
-          (local.get 0)
-          (local.set 4
-            (local.get 1)
-            (local.set 5
-              (local.get 2))))
         (br_if 0 (;@2;)
           (i32.eq
-            (local.get 3)
+            (local.get 0)
+            (local.set 3
+              (local.get 1)
+              (local.set 4
+                (local.get 2)))
             (i32.const 1)))
         (br 1 (;@1;)
           (i64.const 0)))
+      (local.set 5
+        (local.get 3))
       (local.set 6
         (local.get 4))
-      (local.set 7
-        (local.get 5))
       (call 9
-        (local.get 6)
-        (local.get 7)))
+        (local.get 5)
+        (local.get 6)))
   )
   (func (;11;) (type 3)
-    (local i64)
     (drop
       (call 6
         (i32.const 0)
-        (local.set 0
-          (i64.extend_i32_u
-            (i32.const 1)))
-        (local.get 0)
+        (i64.extend_i32_u
+          (i32.const 1))
         (i64.const 0)))
   )
   (@custom "component-type"

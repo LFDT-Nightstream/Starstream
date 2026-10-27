@@ -57,10 +57,8 @@ mod world_spec;
     imports, functions, and so on. Each function (for example `main`) is
     compiled to Wasm bytecode and added to the code section.
 
-    Optimizations like constant-evaluation are left on the table for now.
-    The easiest way to get them is probably to import [wasm-opt].
-
-    [wasm-opt]: https://docs.rs/wasm-opt/latest/wasm_opt/
+    Codegen doesn't optimize as it goes. `starstream-wasm-opt` rewrites the
+    finished module instead, unless [CompileOptions::optimize] is off.
 */
 
 /*
@@ -80,6 +78,8 @@ pub struct CompileOptions {
     pub check_overflows: bool,
     /// Change to `true` to populate [`CompileResult::mermaid`].
     pub output_mermaid: bool,
+    /// Change to `false` to skip `starstream-wasm-opt` on the output.
+    pub optimize: bool,
 }
 
 /// The Wasm module output of the Starstream compiler.
@@ -135,6 +135,7 @@ impl Default for CompileOptions {
         Self {
             check_overflows: true,
             output_mermaid: false,
+            optimize: true,
         }
     }
 }
@@ -437,10 +438,14 @@ impl Compiler {
             name: Cow::Borrowed("component-type"),
             data: Cow::Borrowed(&component),
         });
+        let mut wasm = module.finish();
+        if self.options.optimize {
+            wasm = starstream_wasm_opt::optimize(&wasm).expect("codegen emits valid Wasm");
+        }
 
         CompileResult {
             errors: self.errors,
-            wasm: Some(module.finish()),
+            wasm: Some(wasm),
             binary_wit: Some(component),
             mermaid: self.mermaid,
             libraries: self.libraries,
