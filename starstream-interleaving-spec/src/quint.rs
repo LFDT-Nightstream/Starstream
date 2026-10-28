@@ -565,12 +565,24 @@ impl fmt::Display for Qnt<&Step> {
             Step::EnterMethod { method, arguments } => {
                 write!(f, "enter_method({}, {})", Qnt(method), Qnt(arguments))
             }
+            Step::PushEffectHandlerFrame { frame_id } => {
+                write!(f, "push_effect_handler_frame({frame_id})")
+            }
+            Step::AddEffectHandler { effect } => {
+                write!(f, "add_effect_handler({})", Qnt(effect))
+            }
+            Step::PopEffectHandlerFrame => f.write_str("pop_effect_handler_frame"),
+            Step::SkipEffectHandler => f.write_str("skip_effect_handler"),
             Step::RaiseEffect { effect, arguments } => {
                 write!(f, "raise_effect({}, {})", Qnt(effect), Qnt(arguments))
             }
-            Step::EnterEffectHandler { effect, arguments } => write!(
+            Step::EnterEffectHandler {
+                frame_id,
+                effect,
+                arguments,
+            } => write!(
                 f,
-                "enter_effect_handler({}, {})",
+                "enter_effect_handler({frame_id}, {}, {})",
                 Qnt(effect),
                 Qnt(arguments)
             ),
