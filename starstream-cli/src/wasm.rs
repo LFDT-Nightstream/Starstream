@@ -84,6 +84,7 @@ impl Wasm {
         let options = CompileOptions {
             check_overflows: true,
             output_mermaid: self.output_mermaid.is_some(),
+            optimize: true,
         };
         let compile_result = options.compile_contract(&typed, entry_id);
         for error in &compile_result.errors {

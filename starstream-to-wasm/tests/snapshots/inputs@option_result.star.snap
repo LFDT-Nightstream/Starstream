@@ -2688,16 +2688,15 @@ TypedProgram {
     (i64.const 0)
   )
   (func (;8;) (type 5) (param i32 i64) (result i64)
-    (local i32 i64 i64)
+    (local i32 i64)
     (block (result i64) ;; label = @1
       (block ;; label = @2
-        (local.set 2
-          (local.get 0)
-          (local.set 3
-            (local.get 1)))
         (br_if 0 (;@2;)
           (i32.eq
-            (local.get 2)
+            (local.tee 2
+              (local.get 0)
+              (local.set 3
+                (local.get 1)))
             (i32.const 1)))
         (block ;; label = @3
           (br_if 0 (;@3;)
@@ -2707,33 +2706,27 @@ TypedProgram {
           (unreachable))
         (br 1 (;@1;)
           (i64.const 0)))
-      (local.set 4
-        (local.get 3))
-      (local.get 4))
+      (local.get 3))
   )
   (func (;9;) (type 4) (result i32 i64)
     (i32.const 0)
     (i64.const 42)
   )
   (func (;10;) (type 4) (result i32 i64)
-    (local i64)
     (i32.const 1)
-    (local.set 0
-      (i64.extend_i32_u
-        (i32.const 0)))
-    (local.get 0)
+    (i64.extend_i32_u
+      (i32.const 0))
   )
   (func (;11;) (type 5) (param i32 i64) (result i64)
-    (local i32 i64 i64 i32)
+    (local i32 i64)
     (block (result i64) ;; label = @1
       (block ;; label = @2
-        (local.set 2
-          (local.get 0)
-          (local.set 3
-            (local.get 1)))
         (br_if 0 (;@2;)
           (i32.eq
-            (local.get 2)
+            (local.tee 2
+              (local.get 0)
+              (local.set 3
+                (local.get 1)))
             (i32.const 0)))
         (block ;; label = @3
           (br_if 0 (;@3;)
@@ -2741,14 +2734,12 @@ TypedProgram {
               (local.get 2)
               (i32.const 1)))
           (unreachable))
-        (local.set 5
+        (drop
           (i32.wrap_i64
             (local.get 3)))
         (br 1 (;@1;)
           (i64.const 0)))
-      (local.set 4
-        (local.get 3))
-      (local.get 4))
+      (local.get 3))
   )
   (func (;12;) (type 6) (param i32 i64 i32 i64)
     (drop

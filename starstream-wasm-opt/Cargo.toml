@@ -1,0 +1,16 @@
+[package]
+name = "starstream-wasm-opt"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+wasm-encoder = { workspace = true, features = ["wasmparser"] }
+wasmparser.workspace = true
+
+[dev-dependencies]
+wasmprinter.workspace = true
+wat.workspace = true

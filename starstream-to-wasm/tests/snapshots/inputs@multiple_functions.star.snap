@@ -440,14 +440,9 @@ TypedProgram {
   (import "starstream:std/builtin" "add-effect-handler" (func (;4;) (type 2) (param i64 i64 i64 i64)))
   (import "starstream:std/builtin" "pop-effect-handler-frame" (func (;5;) (type 3)))
   (func (;6;) (type 3)
-    (local i32 i32)
     (block ;; label = @1
-      (local.set 0
-        (i32.const 1))
-      (local.set 1
-        (local.get 0))
       (br_if 0 (;@1;)
-        (local.get 1))
+        (i32.const 1))
       (return))
   )
   (func (;7;) (type 4) (param i64 i64) (result i64)
@@ -474,13 +469,8 @@ TypedProgram {
         (unreachable)))
   )
   (func (;8;) (type 5) (result i64)
-    (local i64 i64)
-    (local.set 0
-      (i64.const 41))
-    (local.set 1
-      (local.get 0))
     (call 7
-      (local.get 1)
+      (i64.const 41)
       (i64.const 1))
   )
   (@custom "component-type"

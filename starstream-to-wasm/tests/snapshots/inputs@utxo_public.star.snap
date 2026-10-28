@@ -5449,13 +5449,11 @@ TypedProgram {
       (i64.const 7442122955733531148))
   )
   (func (;24;) (type 3)
-    (local i32 i32)
+    (local i32)
     (local.set 0
       (global.get 7))
     (global.set 7
       (i32.const 0))
-    (local.set 1
-      (global.get 8))
     (global.set 8
       (i32.const 0))
     (call 6
@@ -5520,26 +5518,22 @@ TypedProgram {
     (local.get 1)
   )
   (func (;26;) (type 3)
-    (local i32 i32)
+    (local i32)
     (local.set 0
       (global.get 9))
     (global.set 9
       (i32.const 0))
-    (local.set 1
-      (global.get 10))
     (global.set 10
       (i32.const 0))
     (call 6
       (local.get 0))
   )
   (func (;27;) (type 3)
-    (local i32 i32)
+    (local i32)
     (local.set 0
       (global.get 11))
     (global.set 11
       (i32.const 0))
-    (local.set 1
-      (global.get 12))
     (global.set 12
       (i32.const 0))
     (call 6
@@ -5584,10 +5578,9 @@ TypedProgram {
     (local.set 4)
     (local.set 3)
     (local.set 2)
-    (local.set 1)
-    (i32.store
-      (local.get 1)
-      (local.get 2))
+    (local.tee 1)
+    (local.get 2)
+    (i32.store)
     (i64.store offset=8
       (local.get 1)
       (local.get 3))
@@ -5655,61 +5648,45 @@ TypedProgram {
         (i32.const 0)))
   )
   (func (;33;) (type 3)
-    (local i32 i32)
-    (local.set 0
-      (call 15))
-    (local.set 1
-      (local.get 0))
     (call 10
       (call 17
-        (local.get 1)
+        (call 15)
         (i64.const 5)))
   )
   (func (;34;) (type 3)
-    (local i32 i32)
-    (local.set 0
-      (call 15))
-    (local.set 1
-      (local.get 0))
+    (local i32)
     (call 14
-      (local.get 1))
+      (local.tee 0
+        (call 15)))
     (call 10
       (call 17
-        (local.get 1)
+        (local.get 0)
         (i64.const 7)))
   )
   (func (;35;) (type 3)
-    (local i32 i32)
-    (local.set 0
-      (call 15))
-    (local.set 1
+    (local i32)
+    (call 10
+      (call 17
+        (local.tee 0
+          (call 15))
+        (i64.const 5)))
+    (call 14
       (local.get 0))
     (call 10
       (call 17
-        (local.get 1)
-        (i64.const 5)))
-    (call 14
-      (local.get 1))
-    (call 10
-      (call 17
-        (local.get 1)
+        (local.get 0)
         (i64.const 7)))
     (call 14
-      (local.get 1))
+      (local.get 0))
     (call 10
       (call 17
-        (local.get 1)
+        (local.get 0)
         (i64.const 8)))
   )
   (func (;36;) (type 3)
-    (local i32 i32)
-    (local.set 0
-      (call 16))
-    (local.set 1
-      (local.get 0))
     (call 10
       (call 17
-        (local.get 1)
+        (call 16)
         (i64.const 2)))
   )
   (func (;37;) (type 3)

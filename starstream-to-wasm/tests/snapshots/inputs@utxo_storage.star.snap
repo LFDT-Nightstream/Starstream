@@ -493,10 +493,9 @@ TypedProgram {
     (local.set 4)
     (local.set 3)
     (local.set 2)
-    (local.set 1)
-    (i32.store
-      (local.get 1)
-      (local.get 2))
+    (local.tee 1)
+    (local.get 2)
+    (i32.store)
     (i64.store offset=8
       (local.get 1)
       (local.get 3))
