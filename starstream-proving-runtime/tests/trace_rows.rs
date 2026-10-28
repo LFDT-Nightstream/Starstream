@@ -3,8 +3,8 @@
 //!
 //! Neo-Wasm proves an execution by single-stepping it. Every executed Wasm
 //! operator, structural ones included, is one trace row of the same width
-//! whatever its opcode, and normalization adds aux rows: one per call
-//! parameter, one per declared local, and the host-event gather and Poseidon
+//! whatever its opcode, and normalization adds aux rows for frame moves,
+//! zero-initialized declared locals, and host-event gather and Poseidon
 //! permutation rows. The dynamic row count is therefore the number a Wasm
 //! optimizer is judged by, though host-event rows only shrink when the program
 //! makes fewer or smaller host calls. This only traces and normalizes; it
@@ -61,9 +61,8 @@ enum RowKind {
     Alu,
     Memory,
     Call,
-    CallParamInit,
+    FrameMove,
     LocalZero,
-    TailEnter,
     EventGather,
     EventPerm,
     TurnBoundary,
@@ -73,16 +72,15 @@ enum RowKind {
 }
 
 impl RowKind {
-    const ALL: [Self; 15] = [
+    const ALL: [Self; 14] = [
         Self::Control,
         Self::Variable,
         Self::Const,
         Self::Alu,
         Self::Memory,
         Self::Call,
-        Self::CallParamInit,
+        Self::FrameMove,
         Self::LocalZero,
-        Self::TailEnter,
         Self::EventGather,
         Self::EventPerm,
         Self::TurnBoundary,
@@ -97,9 +95,8 @@ impl RowKind {
             return Self::of_opcode(row.opcode);
         };
         match aux {
-            WasmAuxOpcode::CallParamInit => Self::CallParamInit,
+            WasmAuxOpcode::FrameMove => Self::FrameMove,
             WasmAuxOpcode::LocalZero => Self::LocalZero,
-            WasmAuxOpcode::TailEnter => Self::TailEnter,
             WasmAuxOpcode::HostEventGather => Self::EventGather,
             WasmAuxOpcode::HostEventPerm => Self::EventPerm,
             WasmAuxOpcode::TurnBoundary => Self::TurnBoundary,
@@ -131,7 +128,7 @@ impl RowKind {
             | Self::Alu
             | Self::Memory
             | Self::Call => RowGroup::Wasm,
-            Self::CallParamInit | Self::LocalZero | Self::TailEnter => RowGroup::FrameAux,
+            Self::FrameMove | Self::LocalZero => RowGroup::FrameAux,
             Self::EventGather
             | Self::EventPerm
             | Self::TurnBoundary
@@ -149,9 +146,8 @@ impl RowKind {
             Self::Alu => "alu/compare/convert",
             Self::Memory => "memory/table",
             Self::Call => "call",
-            Self::CallParamInit => "aux call-param-init",
+            Self::FrameMove => "aux frame-move",
             Self::LocalZero => "aux local-zero",
-            Self::TailEnter => "aux tail-enter",
             Self::EventGather => "aux event-gather",
             Self::EventPerm => "aux event-perm",
             Self::TurnBoundary => "aux turn-boundary",
