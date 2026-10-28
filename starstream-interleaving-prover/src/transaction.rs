@@ -11,7 +11,7 @@ use crate::{
         tags::{ConstraintScope, always},
     },
     ivc_state::TxPhase,
-    opcode::Opcode,
+    opcode::{Opcode, selector_sum},
 };
 
 #[cfg(test)]
@@ -31,11 +31,7 @@ pub fn verify_transaction_sat(
 pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     b.with_tag(always("transaction boundaries"), |b| {
         let sum = |predicate: fn(&Opcode) -> bool| {
-            Opcode::all()
-                .into_iter()
-                .filter(predicate)
-                .map(|op| (op.selector(), F::ONE))
-                .collect::<Vec<_>>()
+            selector_sum(Opcode::all().into_iter().filter(predicate))
         };
         for (flag, terms) in [
             (COL_METHOD_APPEND, sum(Opcode::appends_method)),
@@ -172,18 +168,27 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             );
         }
         b.push_row(
-            sum(|op| {
-                matches!(
-                    op,
-                    Opcode::SetStorage | Opcode::GetStorage | Opcode::SkipConsumed
-                )
-            }),
+            selector_sum([Opcode::SetStorage, Opcode::GetStorage, Opcode::SkipConsumed]),
             [(COL_EVENT_OWNER, F::ONE), (COL_BOUNDARY_UTXO, -F::ONE)],
             [],
         );
         b.push_row(
-            sum(|op| op.has_event() && !matches!(op, Opcode::SetStorage | Opcode::GetStorage)),
+            sum(|op| {
+                op.has_event()
+                    && !matches!(
+                        op,
+                        Opcode::SetStorage
+                            | Opcode::GetStorage
+                            | Opcode::EnterEffectHandler
+                            | Opcode::ResumeEffect
+                    )
+            }),
             [(COL_EVENT_OWNER, F::ONE), (COL_CURR_BEFORE, -F::ONE)],
+            [],
+        );
+        b.push_row(
+            sum(|op| matches!(op, Opcode::EnterEffectHandler | Opcode::ResumeEffect)),
+            [(COL_EVENT_OWNER, F::ONE), (COL_CALL_TARGET, -F::ONE)],
             [],
         );
         for op in Opcode::all() {
@@ -365,6 +370,10 @@ pub(crate) fn check_statement(
         (COL_CURR_BEFORE, 2),
         (COL_CURR_PHASE_BEFORE, 0),
         (COL_CALL_SP_BEFORE, 1),
+        (COL_INSTANCE_DEPTH_BEFORE, 0),
+        (COL_EFFECT_HEAD_BEFORE, 0),
+        (COL_EFFECT_DEPTH_BEFORE, 0),
+        (COL_EFFECT_ARENA_LEN_BEFORE, 0),
         (COL_NEXT_UTXO_ID_BEFORE, 0),
         (COL_ENABLED_METHOD_LOG_LEN_BEFORE, 0),
     ] {

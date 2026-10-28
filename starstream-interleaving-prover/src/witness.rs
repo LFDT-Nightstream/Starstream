@@ -17,6 +17,42 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     let mut wit = vec![F::ZERO; range_checks.base_column_count()];
 
     wit[COL_ONE] = F::ONE;
+    wit[COL_INSTANCE_DEPTH_BEFORE] = F::new(u64::from(input.instance_depth_before));
+    wit[COL_INSTANCE_DEPTH_AFTER] = F::new(u64::from(input.instance_depth_after));
+    wit[COL_INSTANCE_PUSH] =
+        F::from_bool(matches!(input.opcode, Opcode::NewUtxo | Opcode::CallMethod));
+    wit[COL_INSTANCE_POP] = F::from_bool(matches!(
+        input.opcode,
+        Opcode::ReceiveNewUtxoHandle | Opcode::ReceiveMethodResult
+    ));
+    wit[COL_EFFECT_HEAD_BEFORE] = F::new(u64::from(input.effect_head_before));
+    wit[COL_EFFECT_HEAD_AFTER] = F::new(u64::from(input.effect_head_after));
+    wit[COL_EFFECT_DEPTH_BEFORE] = F::new(u64::from(input.effect_depth_before));
+    wit[COL_EFFECT_DEPTH_AFTER] = F::new(u64::from(input.effect_depth_after));
+    wit[COL_EFFECT_ARENA_LEN_BEFORE] = F::new(u64::from(input.effect_arena_len_before));
+    wit[COL_EFFECT_ARENA_LEN_AFTER] = F::new(u64::from(input.effect_arena_len_after));
+    wit[COL_EFFECT_FRAME_ID] = F::new(u64::from(input.effect_frame_id));
+    wit[COL_EFFECT_REGISTERED] = F::from_bool(input.effect_registered);
+    wit[COL_EFFECT_SCOPE_READ] = F::from_bool(matches!(
+        input.opcode,
+        Opcode::PopEffectHandlerFrame | Opcode::SkipEffectHandler | Opcode::EnterEffectHandler
+    ));
+    if matches!(
+        input.opcode,
+        Opcode::SkipEffectHandler | Opcode::EnterEffectHandler
+    ) {
+        wit[COL_EFFECT_HEAD_INVERSE] = wit[COL_EFFECT_HEAD_BEFORE].try_inverse().unwrap_or(F::ZERO);
+    }
+    if matches!(
+        input.opcode,
+        Opcode::AddEffectHandler | Opcode::PopEffectHandlerFrame
+    ) {
+        wit[COL_EFFECT_DEPTH_INVERSE] = wit[COL_EFFECT_DEPTH_BEFORE]
+            .try_inverse()
+            .unwrap_or(F::ZERO);
+    }
+    wit[COL_CALL_FRAME_SAVED_EFFECT_HEAD] = F::new(u64::from(input.saved_effect_head));
+    wit[COL_CALL_FRAME_SAVED_EFFECT_DEPTH] = F::new(u64::from(input.saved_effect_depth));
 
     wit[input.opcode.selector()] = F::ONE;
     wit[COL_EVENT_ACTIVE] = F::from_bool(input.opcode.has_event());
@@ -69,6 +105,8 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_CURR_BEFORE] = input.curr_before.field();
     wit[COL_CURR_AFTER] = input.curr_after.field();
     wit[COL_CURR_PHASE_BEFORE] = F::new(input.curr_phase_before.value() as u64);
+    let phase = input.curr_phase_before.value();
+    wit[COL_PHASE_BEFORE_BITS_1_AND_2] = F::from_bool(phase & 0b0110 == 0b0110);
     wit[COL_CURR_PHASE_AFTER] = F::new(input.curr_phase_after.value() as u64);
     wit[COL_CALL_SP_BEFORE] = input.call_sp_before;
     wit[COL_CALL_SP_AFTER] = input.call_sp_after;
@@ -80,13 +118,10 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_CALL_FRAME_IS_EFFECT] = F::from_bool(input.call_frame_is_effect);
     wit[COL_CALL_FRAME_CONSTRUCTOR] = F::from_bool(input.call_frame_constructor);
     wit[COL_RETURN_REQUIRES_UNIT] = F::from_bool(input.return_requires_unit);
-    wit[COL_CALL_FRAME_CALLEE] = input.call_frame_callee.field();
     wit[COL_CALL_FRAME_SAVED_PHASE] = F::new(u64::from(input.call_frame_saved_phase.value()));
-    wit[COL_HANDLER_SEARCH_REMAINING_BEFORE] =
-        F::new(u64::from(input.handler_search_remaining_before));
-    wit[COL_HANDLER_SEARCH_REMAINING_AFTER] =
-        F::new(u64::from(input.handler_search_remaining_after));
     wit[COL_EFFECT_HANDLED] = F::from_bool(input.effect_handled);
+    wit[COL_EFFECT_RESTORE_DELTA] = wit[COL_EFFECT_HANDLED]
+        * (wit[COL_CALL_FRAME_SAVED_EFFECT_HEAD] - wit[COL_EFFECT_HEAD_BEFORE]);
     wit[COL_NEXT_UTXO_ID_BEFORE] = F::new(u64::from(input.next_utxo_id_before));
     wit[COL_NEXT_UTXO_ID_AFTER] = F::new(u64::from(input.next_utxo_id_after));
     wit[COL_ENABLED_METHOD_LOG_LEN_BEFORE] = F::new(u64::from(input.enabled_method_log_len_before));
@@ -114,7 +149,12 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     if input.opcode.appends_method()
         || matches!(
             input.opcode,
-            Opcode::CallMethod | Opcode::ReadAbi | Opcode::RaiseEffect | Opcode::EnterEffectHandler
+            Opcode::CallMethod
+                | Opcode::ReadAbi
+                | Opcode::RaiseEffect
+                | Opcode::EnterEffectHandler
+                | Opcode::SkipEffectHandler
+                | Opcode::AddEffectHandler
         )
     {
         wit[COL_METHOD_LOOKUP] = F::ONE;

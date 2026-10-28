@@ -1,3 +1,6 @@
+use neo_math::F;
+use p3_field::PrimeCharacteristicRing;
+
 use crate::ccs::layout::*;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -24,11 +27,32 @@ pub(crate) enum Opcode {
     FinishTransaction,
     ReadAbi,
     FinalizeCoordinator,
+    PushEffectHandlerFrame,
+    AddEffectHandler,
+    PopEffectHandlerFrame,
+    SkipEffectHandler,
+}
+
+/// Linear terms for the sum of the supplied opcode selectors.
+/// Includes exactly the supplied opcodes, including padding if present.
+pub(crate) fn selector_sum(opcodes: impl IntoIterator<Item = Opcode>) -> Vec<(usize, F)> {
+    opcodes
+        .into_iter()
+        .map(|op| (op.selector(), F::ONE))
+        .collect()
 }
 
 impl From<&starstream_interleaving_spec::Step> for Opcode {
     fn from(value: &starstream_interleaving_spec::Step) -> Self {
         match value {
+            starstream_interleaving_spec::Step::PushEffectHandlerFrame { .. } => {
+                Self::PushEffectHandlerFrame
+            }
+            starstream_interleaving_spec::Step::AddEffectHandler { .. } => Self::AddEffectHandler,
+            starstream_interleaving_spec::Step::PopEffectHandlerFrame => {
+                Self::PopEffectHandlerFrame
+            }
+            starstream_interleaving_spec::Step::SkipEffectHandler => Self::SkipEffectHandler,
             starstream_interleaving_spec::Step::FinalizeCoordinator => Self::FinalizeCoordinator,
             starstream_interleaving_spec::Step::ReadAbi { .. } => Self::ReadAbi,
             starstream_interleaving_spec::Step::SetStorage { .. } => Self::SetStorage,
@@ -86,6 +110,10 @@ impl Opcode {
                 | Self::ReceiveMethodResult
                 | Self::EnterMethod
                 | Self::RaiseEffect
+                | Self::PushEffectHandlerFrame
+                | Self::AddEffectHandler
+                | Self::PopEffectHandlerFrame
+                | Self::SkipEffectHandler
                 | Self::EnterEffectHandler
                 | Self::ExitEffectHandler
                 | Self::ResumeEffect
@@ -96,8 +124,11 @@ impl Opcode {
         matches!(self, Self::RegisterMethod | Self::PreloadMethod)
     }
 
+    /// The search skip is a host step: it runs in the raiser's turn but
+    /// neither the raiser nor the skipped scope's owner observes it.
     pub fn has_event(&self) -> bool {
-        self.is_execution() || matches!(self, Self::SetStorage | Self::GetStorage)
+        (self.is_execution() && *self != Self::SkipEffectHandler)
+            || matches!(self, Self::SetStorage | Self::GetStorage)
     }
 
     pub fn scans_output(&self) -> bool {
@@ -126,6 +157,10 @@ impl Opcode {
             Self::RegisterMethod => CurrPhase::Registering,
             Self::RaiseEffect => CurrPhase::EffectHandlerPending,
             Self::EnterEffectHandler => CurrPhase::EffectHandlerExecuting,
+            Self::SkipEffectHandler => CurrPhase::EffectHandlerPending,
+            Self::PushEffectHandlerFrame | Self::AddEffectHandler | Self::PopEffectHandlerFrame => {
+                before
+            }
             Self::ReceiveNewUtxoHandle
             | Self::ReceiveMethodResult
             | Self::Return
@@ -164,6 +199,10 @@ impl Opcode {
             Self::FinishTransaction,
             Self::ReadAbi,
             Self::FinalizeCoordinator,
+            Self::PushEffectHandlerFrame,
+            Self::AddEffectHandler,
+            Self::PopEffectHandlerFrame,
+            Self::SkipEffectHandler,
         ]
     }
 
@@ -173,7 +212,8 @@ impl Opcode {
     /// frame read from the stack top. Memory read ports derive from this predicate.
     pub fn required_effect_frame(&self) -> Option<bool> {
         match self {
-            Self::RaiseEffect
+            Self::SkipEffectHandler
+            | Self::RaiseEffect
             | Self::EnterEffectHandler
             | Self::ExitEffectHandler
             | Self::ResumeEffect => Some(true),
@@ -213,6 +253,7 @@ impl Opcode {
             self,
             Self::EnterConstructor
                 | Self::EnterMethod
+                | Self::SkipEffectHandler
                 | Self::EnterEffectHandler
                 | Self::ExitEffectHandler
         )
@@ -220,11 +261,19 @@ impl Opcode {
 
     /// Whether this opcode transfers control to `COL_CALL_TARGET`.
     pub fn switches_curr(&self) -> bool {
-        self.pushes_to_call_stack() || matches!(self, Self::Return | Self::ResumeEffect)
+        self.pushes_to_call_stack()
+            || matches!(
+                self,
+                Self::Return | Self::ResumeEffect | Self::EnterEffectHandler
+            )
     }
 
     pub fn selector(&self) -> usize {
         match self {
+            Self::PushEffectHandlerFrame => COL_SEL_PUSH_EFFECT_HANDLER_FRAME,
+            Self::AddEffectHandler => COL_SEL_ADD_EFFECT_HANDLER,
+            Self::PopEffectHandlerFrame => COL_SEL_POP_EFFECT_HANDLER_FRAME,
+            Self::SkipEffectHandler => COL_SEL_SKIP_EFFECT_HANDLER,
             Self::ReadAbi => COL_SEL_READ_ABI,
             Self::FinalizeCoordinator => COL_SEL_FINALIZE_COORDINATOR,
             Self::SetStorage => COL_SEL_SET_STORAGE,

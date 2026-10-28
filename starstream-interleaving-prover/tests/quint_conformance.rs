@@ -62,11 +62,14 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
 fn effect_handler_trace() -> Trace {
     let effect = MethodHash([9, 0, 1, 0, 1, 0, 1, 0]);
     Trace::new([
+        Step::PushEffectHandlerFrame { frame_id: 1 },
+        Step::AddEffectHandler { effect },
         Step::RaiseEffect {
             effect,
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::EnterEffectHandler {
+            frame_id: 1,
             effect,
             arguments: StarstreamValue::UNIT_VALUE,
         },
@@ -77,6 +80,7 @@ fn effect_handler_trace() -> Trace {
         Step::ResumeEffect {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
+        Step::PopEffectHandlerFrame,
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
@@ -684,5 +688,175 @@ fn circuit_and_quint_agree() {
             "{}: unexpected circuit outcome",
             case.name
         );
+    }
+}
+
+// One case per scope rule: dispatch order, invocation ownership and balance.
+fn effect_scope_cases() -> Vec<Case> {
+    let effect = MethodHash([1, 2, 3, 4, 5, 6, 7, 8]);
+    let other = MethodHash([8, 7, 6, 5, 4, 3, 2, 1]);
+    let args = StarstreamValue([11, 12, 13, 14]);
+    let unit = || StarstreamValue::UNIT_VALUE;
+    let push = |frame_id| Step::PushEffectHandlerFrame { frame_id };
+    let add = |effect| Step::AddEffectHandler { effect };
+    let raise = |effect| Step::RaiseEffect {
+        effect,
+        arguments: args.clone(),
+    };
+    let enter = |frame_id, effect| Step::EnterEffectHandler {
+        frame_id,
+        effect,
+        arguments: args.clone(),
+    };
+    let exit = |handled| Step::ExitEffectHandler {
+        handled,
+        result: unit().into(),
+    };
+    let resume = || Step::ResumeEffect {
+        result: unit().into(),
+    };
+    let ret = || Step::Return {
+        result: unit().into(),
+    };
+    let new_utxo = || Step::NewUtxo { arguments: unit() };
+    let enter_constructor = || Step::EnterConstructor { arguments: unit() };
+    let accept = |name, steps: Vec<Step>| Case {
+        name,
+        trace: Trace::new(steps),
+        expected: Outcome::Accept,
+        rejected_step: None,
+    };
+    // `None` means Quint accepts every step but not the completion.
+    let reject = |name, steps: Vec<Step>, rejected_step| Case {
+        name,
+        trace: Trace::new(steps),
+        expected: Outcome::Reject,
+        rejected_step,
+    };
+    vec![
+        accept(
+            "skip, decline, then accept an outer scope",
+            vec![
+                push(1),
+                add(effect),
+                push(2),
+                add(effect),
+                push(3),
+                add(other),
+                raise(effect),
+                Step::SkipEffectHandler,
+                enter(2, effect),
+                exit(false),
+                enter(1, effect),
+                exit(true),
+                resume(),
+                Step::PopEffectHandlerFrame,
+                Step::PopEffectHandlerFrame,
+                Step::PopEffectHandlerFrame,
+                ret(),
+            ],
+        ),
+        reject(
+            "matching scope cannot be skipped",
+            vec![push(1), add(effect), raise(effect), Step::SkipEffectHandler],
+            Some(3),
+        ),
+        reject(
+            "empty chain cannot be skipped",
+            vec![raise(effect), Step::SkipEffectHandler],
+            Some(1),
+        ),
+        reject(
+            "wrong frame id",
+            vec![push(1), add(effect), raise(effect), enter(2, effect)],
+            Some(3),
+        ),
+        reject(
+            "unhandled effect is incomplete",
+            vec![push(1), add(other), raise(effect), Step::SkipEffectHandler],
+            None,
+        ),
+        reject(
+            "sibling clause is not visible inside its handler",
+            vec![
+                push(1),
+                add(effect),
+                add(other),
+                raise(effect),
+                enter(1, effect),
+                raise(other),
+                enter(1, other),
+            ],
+            Some(6),
+        ),
+        reject(
+            "callee cannot register on its caller's scope",
+            vec![push(1), new_utxo(), enter_constructor(), add(effect)],
+            Some(3),
+        ),
+        reject(
+            "callee cannot pop its caller's scope",
+            vec![
+                push(1),
+                new_utxo(),
+                enter_constructor(),
+                Step::PopEffectHandlerFrame,
+            ],
+            Some(3),
+        ),
+        reject(
+            "return requires balanced scopes",
+            vec![new_utxo(), enter_constructor(), push(1), ret()],
+            Some(3),
+        ),
+        reject(
+            "handler exit requires balanced scopes",
+            vec![
+                push(1),
+                add(effect),
+                raise(effect),
+                enter(1, effect),
+                push(2),
+                exit(false),
+            ],
+            Some(5),
+        ),
+        reject(
+            "scopes cannot change during a pending search",
+            vec![
+                push(1),
+                add(effect),
+                raise(effect),
+                Step::PopEffectHandlerFrame,
+            ],
+            Some(3),
+        ),
+    ]
+}
+
+#[test]
+#[ignore = "requires Quint; run with --include-ignored"]
+fn effect_scopes_circuit_and_quint_agree() {
+    let verifier = QuintVerifier::new().expect("repository-pinned Quint is available");
+    for case in effect_scope_cases() {
+        assert_eq!(
+            quint_outcome(&verifier, &case),
+            case.expected,
+            "{}",
+            case.name
+        );
+        assert_eq!(circuit_outcome(&case), case.expected, "{}", case.name);
+        if case.expected == Outcome::Reject {
+            for size in [1, 3] {
+                assert!(
+                    matches!(
+                        verify_sat_batched(&case.trace, size),
+                        Err(Error::Unsatisfied(_))
+                    ),
+                    "{}",
+                    case.name
+                );
+            }
+        }
     }
 }
