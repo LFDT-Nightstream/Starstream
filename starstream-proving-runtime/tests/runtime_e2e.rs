@@ -270,18 +270,22 @@ async fn score_transaction_satisfies_the_circuit() -> wasmtime::Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "Failing due to changes to nested effect handler semantics, needs update"]
 async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> {
     let execution = trace_coordination_script(EFFECT_REENTRY, "main").await?;
     common::check_wasm_constraints(&execution)?;
 
     let effect = effect_hash_from_names("foo", "hello");
+    // The compiler numbers `try` blocks from 1.
+    let frame_id = 1;
     let expected = Trace::new([
+        Step::PushEffectHandlerFrame { frame_id },
+        Step::AddEffectHandler { effect },
         Step::RaiseEffect {
             effect,
             arguments: UNIT,
         },
         Step::EnterEffectHandler {
+            frame_id,
             effect,
             arguments: UNIT,
         },
@@ -290,6 +294,7 @@ async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> 
             result: Out(UNIT),
         },
         Step::ResumeEffect { result: Out(UNIT) },
+        Step::PopEffectHandlerFrame,
         ret(),
     ]);
     assert_eq!(
@@ -300,6 +305,17 @@ async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> 
     verify_sat(&execution.transaction.execution)
         .map_err(|error| wasmtime::format_err!("circuit rejected effect re-entry: {error}"))?;
     Ok(())
+}
+
+#[tokio::test]
+async fn effect_raised_after_its_scope_is_popped_is_unhandled() {
+    let Err(error) = trace_coordination_script(UNHANDLED_EFFECT, "main").await else {
+        panic!("the popped scope must not handle a later raise");
+    };
+    assert!(
+        format!("{error:?}").contains("effect not handled"),
+        "{error:?}"
+    );
 }
 
 #[tokio::test]
