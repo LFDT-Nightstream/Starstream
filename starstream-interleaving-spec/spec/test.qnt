@@ -358,55 +358,20 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
-  run test_effect_handler_reentry = init
-    .then(raise_effect(method, List(1, 2, 3, 4)))
-    .then(enter_effect_handler(method, List(1, 2, 3, 4)))
-    .then(exit_effect_handler(true, { value: UNIT_VALUE }))
-    .then(resume_effect({ value: UNIT_VALUE }))
-    .then(return({ value: UNIT_VALUE }))
-    .then(execution_complete)
-
-  run test_unhandled_effect_cannot_resume = init
-    .then(raise_effect(method, UNIT_VALUE))
-    .then(enter_effect_handler(method, UNIT_VALUE))
-    .then(exit_effect_handler(false, { value: UNIT_VALUE }))
-    .then(resume_effect({ value: UNIT_VALUE }))
-    .fail()
-
-  run test_effect_handler_cannot_be_skipped = init
-    .then(raise_effect(method, UNIT_VALUE))
-    .then(resume_effect({ value: UNIT_VALUE }))
-    .fail()
-
-  run test_effect_handler_cannot_be_repeated_after_mismatch = init
-    .then(raise_effect(method, UNIT_VALUE))
-    .then(enter_effect_handler(method, UNIT_VALUE))
-    .then(exit_effect_handler(false, { value: UNIT_VALUE }))
-    .then(enter_effect_handler(method, UNIT_VALUE))
-    .fail()
-
-  run test_nested_effect_restores_handler_phase = init
-    .then(raise_effect(method, UNIT_VALUE))
-    .then(enter_effect_handler(method, UNIT_VALUE))
-    .then(raise_effect(other_method, UNIT_VALUE))
-    .then(enter_effect_handler(other_method, UNIT_VALUE))
-    .then(exit_effect_handler(true, { value: UNIT_VALUE }))
-    .then(resume_effect({ value: UNIT_VALUE }))
-    .then(exit_effect_handler(true, { value: UNIT_VALUE }))
-    .then(resume_effect({ value: UNIT_VALUE }))
-    .then(return({ value: UNIT_VALUE }))
-    .then(execution_complete)
-
+  // Scope/dispatch semantics have their own focused suite in effect_scopes_test.qnt.
   run test_effect_during_constructor_execution_before_registration = init
+    .then(push_effect_handler_frame(1))
+    .then(add_effect_handler(method))
     .then(new_utxo(UNIT_VALUE))
     .then(enter_constructor(UNIT_VALUE))
     .then(raise_effect(method, UNIT_VALUE))
-    .then(enter_effect_handler(method, UNIT_VALUE))
+    .then(enter_effect_handler(1, method, UNIT_VALUE))
     .then(exit_effect_handler(true, { value: UNIT_VALUE }))
     .then(resume_effect({ value: UNIT_VALUE }))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
+    .then(pop_effect_handler_frame)
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 

@@ -14,6 +14,12 @@ const VERIFY_MAIN = 'starstream_verify'
 
 const INVARIANTS = [
   'coord_stack',
+  'effect_search_is_saved_ancestor',
+  'effect_arena_is_well_formed',
+  'effect_local_depth_fits_chain',
+  'program_scopes_rest_on_entry_head',
+  'mutable_effect_scopes_belong_to_current',
+  'executing_handler_has_selected_owner',
   'abi_method_count_matches_registrations',
   'consumed_utxo_stays_consumed',
   'cannot_return_to_loading',
@@ -31,6 +37,10 @@ const WITNESSES = [
   'has_bound_resource',
   'has_yielded_utxo',
   'has_dead_utxo',
+  'has_effect_scope',
+  'is_handling_effect',
+  'has_nested_effect',
+  'handling_outer_coroutine',
 ]
 
 const SIMULATE = [
@@ -79,6 +89,7 @@ function override(base, extras) {
 const TASKS = {
   typecheck: [
     ['typecheck', SPEC],
+    ['typecheck', `${SPEC_DIR}/effect_scopes_test.qnt`],
     ['typecheck', SIM],
     ['typecheck', VERIFY],
   ],
