@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::effect_abi::{EffectAbi, EffectAbis};
 use neo_wasm::host_event_bindings::{
     EventBlock, EventSequenceBuilder, EventSources, HostEventBindings, HostEventBindingsBuilder,
     Limb, MemoryBase, SlotBinding, opaque_value_root,
@@ -21,8 +22,10 @@ const CONSTRUCTOR_PREFIX: &str = "[static]utxo.";
 const METHOD_PREFIX: &str = "[method]utxo.";
 const GET_STORAGE_EXPORT: &str = "get-storage";
 const SET_STORAGE_EXPORT: &str = "set-storage";
-const ASSERT_EFFECT_NOT_HANDLED_EXPORT: &str =
-    "starstream:meta/effect-handler#assert-effect-not-handled";
+const BUILTIN_INTERFACE: &str = "starstream:std/builtin";
+const PUSH_EFFECT_HANDLER_FRAME: &str = "push-effect-handler-frame";
+const ADD_EFFECT_HANDLER: &str = "add-effect-handler";
+const POP_EFFECT_HANDLER_FRAME: &str = "pop-effect-handler-frame";
 
 /// Schema tag of a flat `i32`/`i64` value tuple committed as an opaque root.
 pub const FLAT_VALUE_SCHEMA_TAG: u64 = u64::from_le_bytes(*b"SSFLAT01");
@@ -97,8 +100,9 @@ enum ExportKind {
     SetStorage,
     /// A compiler-generated export with no interleaving semantics.
     Internal,
+    /// `starstream:effect-handler/<abi>#<effect>`: the dispatcher takes the
+    /// selected scope's frame id before the effect arguments.
     EffectHandler(MethodHash),
-    AssertEffectNotHandled,
 }
 
 /// Event builder that reserves whole blocks for roots.
@@ -122,6 +126,9 @@ enum ImportKind {
     CallMethod(MethodHash),
     Advice,
     Effect(MethodHash),
+    PushEffectHandlerFrame,
+    AddEffectHandler,
+    PopEffectHandlerFrame,
 }
 
 struct ImportEvents {
@@ -135,6 +142,7 @@ pub fn build_component_templates(
     wasm: &[u8],
     coordination_exports: &[&str],
 ) -> Result<ComponentTemplates, TemplateBuildError> {
+    let effect_abis = EffectAbis::decode(wasm)?;
     let module = first_core_module(wasm)?;
     let artifacts = neo_wasm::extract_wasm_program_artifacts(module)?;
     let types = parse_function_types(module)?;
@@ -156,7 +164,12 @@ pub fn build_component_templates(
         if matches!(classified, ExportKind::CoordinationScript) {
             matched_coordination_exports.insert(export.name.as_str());
         }
-        let export_events = build_export_events(export, classified, &exports)?;
+        let export_events = build_export_events(
+            export,
+            classified,
+            &exports,
+            effect_abis.exports.get(&export.name),
+        )?;
         bindings
             .export(fref, export_events.entry, export_events.exit)
             .map_err(|error| TemplateBuildError::InvalidExportBindings {
@@ -265,7 +278,6 @@ impl ExportKind {
             Self::SetStorage => "set-storage",
             Self::Internal => "internal",
             Self::EffectHandler(_) => "effect handler",
-            Self::AssertEffectNotHandled => "assert-effect-not-handled",
         }
     }
 }
@@ -274,9 +286,6 @@ fn classify_export(
     export: &FunctionExport,
     coordination_exports: &BTreeSet<&str>,
 ) -> Result<ExportKind, TemplateBuildError> {
-    if export.name == ASSERT_EFFECT_NOT_HANDLED_EXPORT {
-        return Ok(ExportKind::AssertEffectNotHandled);
-    }
     if let Some((instance, item)) = export.name.split_once('#') {
         if instance.is_empty() {
             return Err(TemplateBuildError::UnclassifiedFunctionExport {
@@ -621,6 +630,7 @@ fn build_export_events(
     export: &FunctionExport,
     kind: ExportKind,
     exports: &[FunctionExport],
+    effect_abi: Option<&EffectAbi>,
 ) -> Result<ExportEvents, TemplateBuildError> {
     let mut inputs = EntryInputs { next: 0 };
     match kind {
@@ -698,11 +708,18 @@ fn build_export_events(
             exit: Vec::new(),
         }),
         ExportKind::EffectHandler(effect) => {
-            let mut entry = Sequence::op(EventKind::EnterEffectHandler);
+            if export.params.first() != Some(&ValType::I32) {
+                return Err(TemplateBuildError::InvalidEffectHandlerFrameId {
+                    name: export.name.clone(),
+                });
+            }
+            let frame_id = inputs.take(1, export)?;
+            let mut entry = Sequence::op(EventKind::EnterEffectHandler)
+                .map(1, |builder| builder.input_local_i32(frame_id, 0))?;
             for word in effect.0 {
                 entry = entry.constant_i32(word)?;
             }
-            entry = entry.root(entry_arguments_root(export, &mut inputs, 0)?)?;
+            entry = entry.root(entry_arguments_root(export, &mut inputs, 1)?)?;
             let entry = entry.finish()?;
             if export.results.as_ref() != [ValType::I32] {
                 return Err(TemplateBuildError::InvalidEffectHandlerResult {
@@ -710,21 +727,27 @@ fn build_export_events(
                     results: export.results.clone(),
                 });
             }
+            let (status, result) = if let Some(abi) =
+                effect_abi.filter(|abi| !abi.result.types.is_empty())
+            {
+                let sources = abi
+                    .result
+                    .lanes
+                    .iter()
+                    .map(|&(offset, width)| {
+                        memory_read(MemoryBase::Output, abi.handler_value_offset + offset, width)
+                    })
+                    .collect();
+                (
+                    memory_read(MemoryBase::Output, 0, 1),
+                    Root::value(&abi.result.types, sources),
+                )
+            } else {
+                (SlotBinding::OutputElem { limb: Limb::Lo }, Root::unit())
+            };
             let exit = Sequence::op(EventKind::ExitEffectHandler)
-                .map(1, |builder| {
-                    builder.push(SlotBinding::OutputElem { limb: Limb::Lo })
-                })?
-                .root(Root::unit())?
-                .finish()?;
-            Ok(ExportEvents { entry, exit })
-        }
-        ExportKind::AssertEffectNotHandled => {
-            // TODO: represent as its own kind of thing?
-            let mut entry = Sequence::op(EventKind::EnterEffectHandler);
-            entry = entry.root(entry_arguments_root(export, &mut inputs, 0)?)?;
-            let entry = entry.finish()?;
-            let exit = Sequence::op(EventKind::ExitEffectHandler)
-                .root(Root::unit())?
+                .map(1, |builder| builder.push(status))?
+                .root(result)?
                 .finish()?;
             Ok(ExportEvents { entry, exit })
         }
@@ -755,6 +778,14 @@ fn classify_import(import: &FunctionImport) -> Result<ImportKind, TemplateBuildE
             &import.field,
         )?));
     }
+    if import.module == BUILTIN_INTERFACE {
+        return Ok(match import.field.as_str() {
+            PUSH_EFFECT_HANDLER_FRAME => ImportKind::PushEffectHandlerFrame,
+            ADD_EFFECT_HANDLER => ImportKind::AddEffectHandler,
+            POP_EFFECT_HANDLER_FRAME => ImportKind::PopEffectHandlerFrame,
+            _ => ImportKind::Advice,
+        });
+    }
     if let Some(abi) = import.module.strip_prefix(EFFECT_INTERFACE_PREFIX) {
         // TODO: method_hash_from_name already says that this is missing the
         // full abi (the type signature)
@@ -777,6 +808,15 @@ fn build_import_template(import: &FunctionImport) -> Result<ImportEvents, Templa
         ImportKind::CallMethod(method) => return build_call_method_template(import, method),
         ImportKind::Advice => result_advice_events(import),
         ImportKind::Effect(effect) => return build_effect_template(import, effect),
+        ImportKind::PushEffectHandlerFrame => {
+            build_effect_scope_template(import, EventKind::PushEffectHandlerFrame, &[ValType::I32])
+        }
+        ImportKind::AddEffectHandler => {
+            build_effect_scope_template(import, EventKind::AddEffectHandler, &[ValType::I64; 4])
+        }
+        ImportKind::PopEffectHandlerFrame => {
+            build_effect_scope_template(import, EventKind::PopEffectHandlerFrame, &[])
+        }
     }?;
 
     Ok(ImportEvents {
@@ -785,24 +825,28 @@ fn build_import_template(import: &FunctionImport) -> Result<ImportEvents, Templa
     })
 }
 
+fn memory_read(base: MemoryBase, byte_offset: u32, width: u8) -> SlotBinding {
+    match width {
+        1 => SlotBinding::MemoryRead8 { base, byte_offset },
+        2 => SlotBinding::MemoryRead16 { base, byte_offset },
+        4 => SlotBinding::MemoryRead32 { base, byte_offset },
+        _ => unreachable!("supported canonical ABI lane width"),
+    }
+}
+
 fn build_effect_template(
     import: &FunctionImport,
     effect: MethodHash,
 ) -> Result<ImportEvents, TemplateBuildError> {
-    if !import.params.is_empty() {
-        return Err(TemplateBuildError::UnsupportedEffectParameters {
-            module: import.module.clone(),
-            field: import.field.clone(),
-        });
-    }
     let mut call = Sequence::op(EventKind::RaiseEffect);
     for word in effect.0 {
         call = call.constant_i32(word)?;
     }
-    call = call.root(import_arguments_root(import, 0)?)?;
+    let arguments = import_arguments_root(import, 0)?;
+    let (result, high_lane) = import_result_root(import)?;
+    call = call.root(arguments)?;
 
     let return_ = Sequence::op(EventKind::ResumeEffect);
-    let (result, high_lane) = import_result_root(import)?;
     let mut return_events = return_.root(result)?.finish()?;
     return_events.extend(high_lane);
     Ok(ImportEvents {
@@ -811,9 +855,40 @@ fn build_effect_template(
     })
 }
 
+/// Scope builtins return nothing, and every parameter is committed: the frame
+/// id, or the effect hash as four i64 arguments split into low/high limbs.
+fn build_effect_scope_template(
+    import: &FunctionImport,
+    kind: EventKind,
+    params: &[ValType],
+) -> Result<Vec<EventBlock>, TemplateBuildError> {
+    if import.params.as_ref() != params || !import.results.is_empty() {
+        return Err(TemplateBuildError::InvalidEffectScopeImport {
+            field: import.field.clone(),
+            params: import.params.clone(),
+            results: import.results.clone(),
+        });
+    }
+    let mut call = Sequence::op(kind);
+    for (arg, ty) in (0..).zip(params) {
+        call = match ty {
+            ValType::I32 => call.arg_i32(arg)?,
+            ValType::I64 => call.arg_i64(arg)?,
+            // the function has only 3 callers and the types are fixed there
+            _ => unreachable!("unsupported type"),
+        };
+    }
+    Ok(call.finish()?)
+}
+
 /// SHA-256 identity shared by an effect import and its generated handler export.
 pub fn effect_hash_from_names(abi: &str, effect: &str) -> MethodHash {
-    method_hash_from_name(&format!("{abi}#{effect}"))
+    // Effect registrations are SHA-256 of the exact WIT names in the runtime
+    // and compiler. Method-name normalization does not apply here.
+    let digest = Sha256::digest(format!("{abi}#{effect}"));
+    MethodHash(std::array::from_fn(|i| {
+        u32::from_le_bytes(digest[i * 4..i * 4 + 4].try_into().unwrap())
+    }))
 }
 
 /// Root over import arguments after `skip`.
@@ -1148,6 +1223,19 @@ fn parse_function_exports(
 
 #[derive(Debug, thiserror::Error)]
 pub enum TemplateBuildError {
+    #[error("effect ABI: {message}")]
+    EffectAbi { message: String },
+    #[error(
+        "effect scope builtin `{field}` has signature {params:?} -> {results:?}, \
+         which does not match the runtime's"
+    )]
+    InvalidEffectScopeImport {
+        field: String,
+        params: Box<[ValType]>,
+        results: Box<[ValType]>,
+    },
+    #[error("effect handler export `{name}` must take an i32 frame id first")]
+    InvalidEffectHandlerFrameId { name: String },
     #[error("failed to parse core Wasm: {0}")]
     Wasm(#[from] wasmparser::BinaryReaderError),
 
@@ -1189,11 +1277,6 @@ pub enum TemplateBuildError {
         index: usize,
         ty: ValType,
     },
-
-    #[error(
-        "effect import `{module}`.`{field}` has parameters, which are not supported until the compiler forwards them to handler dispatchers"
-    )]
-    UnsupportedEffectParameters { module: String, field: String },
 
     #[error(
         "import `{module}`.`{field}` has unsupported flat result types {results:?}; \
@@ -1453,7 +1536,7 @@ mod tests {
         (module
           (import "starstream:effects/foo" "hello" (func $effect))
           (func (export "main") call $effect)
-          (func (export "starstream:effect-handler/foo#hello") (result i32)
+          (func (export "starstream:effect-handler/foo#hello") (param i32) (result i32)
             i32.const 1))
     "#;
 
@@ -1482,8 +1565,9 @@ mod tests {
             }])
         );
         assert_eq!(
-            enter(&templates, "starstream:effect-handler/foo#hello", &[]),
+            enter(&templates, "starstream:effect-handler/foo#hello", &[3]),
             Trace::new([Step::EnterEffectHandler {
+                frame_id: 3,
                 effect,
                 arguments: StarstreamValue::UNIT_VALUE,
             }])
@@ -1500,6 +1584,151 @@ mod tests {
                 result: StarstreamValue::UNIT_VALUE.into(),
             }])
         );
+    }
+
+    #[test]
+    fn effect_id_matches_multiword_wit_imports_handlers_and_registrations() {
+        let templates = build(
+            r#"(module
+              (import "starstream:effects/my-abi" "my-effect" (func))
+              (import "starstream:std/builtin" "add-effect-handler"
+                (func (param i64 i64 i64 i64)))
+              (func (export "starstream:effect-handler/my-abi#my-effect")
+                (param i32) (result i32)
+                i32.const 1))"#,
+            &[],
+        );
+        // Match the runtime's four u64 arguments, flattened to low/high limbs.
+        let digest = Sha256::digest("my-abi#my-effect");
+        let words: [u32; 8] = std::array::from_fn(|i| {
+            u32::from_le_bytes(digest[i * 4..i * 4 + 4].try_into().unwrap())
+        });
+        let effect = MethodHash(words);
+        assert_eq!(
+            call(
+                &templates,
+                "starstream:effects/my-abi",
+                "my-effect",
+                &[],
+                None
+            ),
+            Trace::new([
+                Step::RaiseEffect {
+                    effect,
+                    arguments: StarstreamValue::UNIT_VALUE
+                },
+                Step::ResumeEffect {
+                    result: StarstreamValue::UNIT_VALUE.into()
+                }
+            ])
+        );
+        let args: Vec<_> = words
+            .chunks_exact(2)
+            .map(|pair| (pair[0], pair[1]))
+            .collect();
+        assert_eq!(
+            call(
+                &templates,
+                "starstream:std/builtin",
+                "add-effect-handler",
+                &args,
+                None
+            ),
+            Trace::new([Step::AddEffectHandler { effect }])
+        );
+        assert_eq!(
+            enter(
+                &templates,
+                "starstream:effect-handler/my-abi#my-effect",
+                &[9]
+            ),
+            Trace::new([Step::EnterEffectHandler {
+                frame_id: 9,
+                effect,
+                arguments: StarstreamValue::UNIT_VALUE
+            }])
+        );
+    }
+
+    #[test]
+    fn effect_scope_builtins_commit_their_parameters() {
+        let templates = build(
+            r#"(module
+              (import "starstream:std/builtin" "push-effect-handler-frame" (func (param i32)))
+              (import "starstream:std/builtin" "pop-effect-handler-frame" (func)))"#,
+            &[],
+        );
+        for frame_id in [0, 7, u32::MAX] {
+            assert_eq!(
+                call(
+                    &templates,
+                    "starstream:std/builtin",
+                    "push-effect-handler-frame",
+                    &[(frame_id, 0)],
+                    None
+                ),
+                Trace::new([Step::PushEffectHandlerFrame { frame_id }])
+            );
+        }
+        assert_eq!(
+            call(
+                &templates,
+                "starstream:std/builtin",
+                "pop-effect-handler-frame",
+                &[],
+                None
+            ),
+            Trace::new([Step::PopEffectHandlerFrame])
+        );
+    }
+
+    #[test]
+    fn effect_handler_arguments_follow_the_frame_id() {
+        let templates = build(
+            r#"(module
+              (func (export "starstream:effect-handler/foo#hello")
+                (param i32 i64 i32) (result i32)
+                i32.const 1))"#,
+            &[],
+        );
+        let wide = 4294967298_u64;
+        assert_eq!(
+            enter(
+                &templates,
+                "starstream:effect-handler/foo#hello",
+                &[5, wide & 0xffff_ffff, wide >> 32, 7]
+            ),
+            Trace::new([Step::EnterEffectHandler {
+                frame_id: 5,
+                effect: effect_hash_from_names("foo", "hello"),
+                arguments: flat_value_root(&[ValType::I64, ValType::I32], &[wide, 7]),
+            }])
+        );
+    }
+
+    #[test]
+    fn effect_scope_builtins_and_handlers_reject_incompatible_signatures() {
+        for wat in [
+            r#"(import "starstream:std/builtin" "push-effect-handler-frame" (func (param i64)))"#,
+            r#"(import "starstream:std/builtin" "add-effect-handler" (func (param i64 i64 i64)))"#,
+            r#"(import "starstream:std/builtin" "pop-effect-handler-frame"
+                (func (result i32)))"#,
+        ] {
+            let wasm = wat::parse_str(format!("(module {wat})")).unwrap();
+            assert!(matches!(
+                build_component_templates(&wasm, &[]),
+                Err(TemplateBuildError::InvalidEffectScopeImport { .. })
+            ));
+        }
+        let wasm = wat::parse_str(
+            r#"(module (func (export "starstream:effect-handler/foo#hello") (result i32)
+                i32.const 1))"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            build_component_templates(&wasm, &[]),
+            Err(TemplateBuildError::InvalidEffectHandlerFrameId { .. })
+        ));
     }
 
     #[test]
