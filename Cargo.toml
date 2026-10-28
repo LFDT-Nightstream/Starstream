@@ -98,13 +98,13 @@ wrpc-transport = { version = "0.30", default-features = false }
 wrpc-wave = { version = "0.1", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
 
-neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
-neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
-neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
-neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
-neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
-neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
-neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "7db6b98d4519d0e3767bf35bea392f70bd283120" }
+neo-fold-clean = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5e7f5caa846bc2bf51d57d0fd3a1168cf19d98e2" }
+neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5e7f5caa846bc2bf51d57d0fd3a1168cf19d98e2" }
+neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5e7f5caa846bc2bf51d57d0fd3a1168cf19d98e2" }
+neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5e7f5caa846bc2bf51d57d0fd3a1168cf19d98e2" }
+neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5e7f5caa846bc2bf51d57d0fd3a1168cf19d98e2" }
+neo-application = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5e7f5caa846bc2bf51d57d0fd3a1168cf19d98e2" }
+neo-wasm = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "5e7f5caa846bc2bf51d57d0fd3a1168cf19d98e2" }
 
 [profile.dev.package]
 insta.opt-level = 3
