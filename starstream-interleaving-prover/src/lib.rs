@@ -118,6 +118,8 @@ pub enum Unsatisfied {
     },
     #[error("terminal call-stack pointer must be zero, got {actual:?}")]
     TerminalCallStackNotEmpty { actual: F },
+    #[error("terminal invocation depth must be zero, got {actual:?}")]
+    TerminalInstanceStackNotEmpty { actual: F },
     #[error("terminal coroutine must be a coordinator, got packed id {actual:?}")]
     TerminalCoroutineNotCoordinator { actual: F },
 }

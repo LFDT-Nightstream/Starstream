@@ -22,6 +22,10 @@ define_column_region! {
         COL_SEL_RECEIVE_METHOD_RESULT: Boolean => "selector for the ReceiveMethodResult action",
         COL_SEL_ENTER_METHOD: Boolean => "selector for the EnterMethod action",
         COL_SEL_RAISE_EFFECT: Boolean => "selector for the RaiseEffect action",
+        COL_SEL_PUSH_EFFECT_HANDLER_FRAME: Boolean => "selector for the PushEffectHandlerFrame action",
+        COL_SEL_ADD_EFFECT_HANDLER: Boolean => "selector for the AddEffectHandler action",
+        COL_SEL_POP_EFFECT_HANDLER_FRAME: Boolean => "selector for the PopEffectHandlerFrame action",
+        COL_SEL_SKIP_EFFECT_HANDLER: Boolean => "selector for the SkipEffectHandler host search step",
         COL_SEL_ENTER_EFFECT_HANDLER: Boolean => "selector for the EnterEffectHandler action",
         COL_SEL_EXIT_EFFECT_HANDLER: Boolean => "selector for the ExitEffectHandler action",
         COL_SEL_RESUME_EFFECT: Boolean => "selector for the ResumeEffect action",
@@ -40,16 +44,26 @@ define_column_region! {
         COL_OUTPUT_REMAINING: U32 => "next_utxo_id - output_cursor - 1 on output scans",
         COL_CURR_BEFORE: U32 => "packed coroutine id that has the turn",
         COL_CURR_AFTER: U32 => "packed coroutine id that has the turn in the next step",
+        COL_INSTANCE_DEPTH_BEFORE: U32 => "runtime invocation depth excluding the root coordinator",
+        COL_INSTANCE_DEPTH_AFTER: U32 => "runtime invocation depth after this step",
+        COL_INSTANCE_PUSH: Boolean => "constructor or method call pushes a runtime invocation",
+        COL_INSTANCE_POP: Boolean => "receiving a program result pops its invocation",
+        COL_EFFECT_FRAME_ID: U32 => "compiled handler id: written on scope push, read on handler entry",
+        COL_EFFECT_SCOPE_READ: Boolean => "pop, skip or handler entry reads the head scope's parent",
+        COL_EFFECT_REGISTERED: Boolean => "head scope registers the method-index effect: add writes 1, entry reads 1, skip reads 0",
+        COL_EFFECT_HEAD_INVERSE: Field => "inverse proving a nonempty head on skip and handler entry",
+        COL_EFFECT_DEPTH_INVERSE: Field => "inverse proving a local scope exists on add and pop",
+        COL_EFFECT_RESTORE_DELTA: Field => "handled flag times (saved head - head) on handler exit",
+        COL_PHASE_BEFORE_BITS_1_AND_2: Boolean => "product of phase-before bits 1 and 2: set only for entry-pending and effect-pending phases",
         COL_CALL_STACK_PUSH: Boolean => "true when a call happens and we need to keep track of the caller's context",
         COL_CALL_STACK_POP: Boolean => "true when consuming a completed call or resuming an effect",
         COL_CALL_STACK_TOP: Boolean => "true when peeking at the top of the call stack without popping",
         COL_CALL_FRAME_IS_EFFECT: Boolean => "whether the call frame is an effect frame",
         COL_CALL_FRAME_CONSTRUCTOR: Boolean => "program call is a constructor call",
-        COL_CALL_FRAME_CALLEE: U32 => "callee retained for a split import's return phase",
         COL_CALL_FRAME_SAVED_PHASE: (Bits(4)) => "phase saved in an effect frame and restored on resume",
         COL_RETURN_REQUIRES_UNIT: Boolean => "return is from a constructor or the top-level coordinator",
-        COL_HANDLER_SEARCH_REMAINING_BEFORE: U32 => "effect-dispatch candidates remaining before this call-stack access",
-        COL_HANDLER_SEARCH_REMAINING_AFTER: U32 => "effect-dispatch candidates remaining after this call-stack access",
+        COL_CALL_FRAME_SAVED_EFFECT_HEAD: U32 => "caller's effect head saved on push, restored by an accepted handler exit",
+        COL_CALL_FRAME_SAVED_EFFECT_DEPTH: U32 => "caller's local scope depth saved on push, restored on return and handler exit",
         COL_EFFECT_HANDLED: Boolean => "handler exit status: continue search = 0, resume = 1",
         COL_CALL_SP_BEFORE_INVERSE: Field => "inverse proving that an execution row starts with a nonempty call stack",
         // TODO: limit sp so that this doesn't overflow
@@ -124,6 +138,12 @@ define_column_region! {
         COL_NEXT_UTXO_ID_AFTER: U32 => "utxo id allocator",
         COL_ENABLED_METHOD_LOG_LEN_BEFORE: U32 => "next free enabled-method append-log entry",
         COL_ENABLED_METHOD_LOG_LEN_AFTER: U32 => "next free enabled-method append-log entry after this step",
+        COL_EFFECT_HEAD_BEFORE: U32 => "visible scope chain head (node id + 1, 0 if empty); search cursor while an effect is pending",
+        COL_EFFECT_HEAD_AFTER: U32 => "effect head after this step",
+        COL_EFFECT_DEPTH_BEFORE: U32 => "scopes pushed and not yet popped by the current invocation",
+        COL_EFFECT_DEPTH_AFTER: U32 => "local scope depth after this step",
+        COL_EFFECT_ARENA_LEN_BEFORE: U32 => "scopes allocated so far; ids are never reused",
+        COL_EFFECT_ARENA_LEN_AFTER: U32 => "scopes allocated after this step",
     ]
 }
 
@@ -151,7 +171,7 @@ define_column_region! {
     ]
 }
 
-pub const SELECTORS: [usize; 21] = [
+pub const SELECTORS: [usize; 25] = [
     COL_SEL_FINALIZE_COORDINATOR,
     COL_SEL_READ_ABI,
     COL_SEL_NEW_UTXO,
@@ -164,6 +184,10 @@ pub const SELECTORS: [usize; 21] = [
     COL_SEL_RECEIVE_METHOD_RESULT,
     COL_SEL_ENTER_METHOD,
     COL_SEL_RAISE_EFFECT,
+    COL_SEL_PUSH_EFFECT_HANDLER_FRAME,
+    COL_SEL_ADD_EFFECT_HANDLER,
+    COL_SEL_POP_EFFECT_HANDLER_FRAME,
+    COL_SEL_SKIP_EFFECT_HANDLER,
     COL_SEL_ENTER_EFFECT_HANDLER,
     COL_SEL_EXIT_EFFECT_HANDLER,
     COL_SEL_RESUME_EFFECT,

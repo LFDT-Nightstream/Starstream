@@ -178,7 +178,11 @@ fn initial_state() -> Vec<F> {
             COL_CURR_BEFORE => crate::ivc_state::CoroutineId::Coord(1).field(),
             COL_CURR_PHASE_BEFORE => F::from_u8(crate::ivc_state::CurrPhase::Executing.value()),
             COL_CALL_SP_BEFORE | COL_LAST_INPUT_HAS_ABI_BEFORE => F::ONE,
-            COL_NEXT_UTXO_ID_BEFORE
+            COL_INSTANCE_DEPTH_BEFORE
+            | COL_EFFECT_HEAD_BEFORE
+            | COL_EFFECT_DEPTH_BEFORE
+            | COL_EFFECT_ARENA_LEN_BEFORE
+            | COL_NEXT_UTXO_ID_BEFORE
             | COL_TX_PHASE_BEFORE
             | COL_COORD_FINALIZED_BEFORE
             | COL_ABI_READ_REMAINING_BEFORE
