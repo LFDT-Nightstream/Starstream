@@ -9,17 +9,15 @@ use crate::{
     ccs::{
         layout::{
             COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
-            COL_CALL_FRAME_CALLEE, COL_CALL_FRAME_CONSTRUCTOR, COL_CALL_FRAME_IS_EFFECT,
-            COL_CALL_FRAME_SAVED_PHASE, COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE,
-            COL_CALL_SP_BEFORE_INVERSE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8,
-            COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH,
-            COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER, COL_CURR_BEFORE,
-            COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE, COL_EFFECT_HANDLED,
+            COL_CALL_FRAME_CONSTRUCTOR, COL_CALL_FRAME_IS_EFFECT, COL_CALL_FRAME_SAVED_PHASE,
+            COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_SP_BEFORE_INVERSE,
+            COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8, COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP,
+            COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER,
+            COL_CURR_BEFORE, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE, COL_EFFECT_HANDLED,
             COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
             COL_ENABLED_METHOD_LOG_LEN_AFTER, COL_ENABLED_METHOD_LOG_LEN_BEFORE,
-            COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_OWNER_STRIDE_8,
-            COL_HANDLER_SEARCH_REMAINING_AFTER, COL_HANDLER_SEARCH_REMAINING_BEFORE,
-            COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER,
+            COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_OWNER_STRIDE_8, COL_METHOD_INDEX,
+            COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER,
             COL_NEXT_UTXO_ID_BEFORE, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_READ,
             COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_RESULT_ROOT,
             COL_RETURN_REQUIRES_UNIT, COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO, COL_SEL_RAISE_EFFECT,
@@ -28,7 +26,7 @@ use crate::{
         tags::{ConstraintScope, always, opcode_tag, opcode_tags},
     },
     ivc_state::CoroutineKind,
-    opcode::Opcode,
+    opcode::{Opcode, selector_sum},
 };
 
 pub(crate) const CALL_TARGET_ZERO_TEST: ZeroTest = ZeroTest::column(
@@ -220,6 +218,8 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             (Opcode::ReadAbi.selector(), -F::ONE),
             (Opcode::RaiseEffect.selector(), -F::ONE),
             (Opcode::EnterEffectHandler.selector(), -F::ONE),
+            (Opcode::SkipEffectHandler.selector(), -F::ONE),
+            (Opcode::AddEffectHandler.selector(), -F::ONE),
         ]);
         b.push_linear_zero([
             (COL_ENABLED_METHOD_LOG_LEN_AFTER, F::ONE),
@@ -462,10 +462,16 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         visit_exit_effect_handler,
     );
     b.with_tag(
+        opcode_tag("skip effect handler constraints", Opcode::SkipEffectHandler),
+        visit_skip_effect_handler,
+    );
+    b.with_tag(
         opcode_tag("resume effect constraints", Opcode::ResumeEffect),
         visit_resume_effect,
     );
 
+    instance_stack_constraints(&mut b);
+    effect_scope_constraints(&mut b);
     crate::commitment::constraints(&mut b);
     range_checks.push_constraints(&mut b, ConstraintScope::Always);
 
@@ -563,11 +569,7 @@ fn visit_enter_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_coroutine_kind(b, Opcode::CallMethod, COL_CURR_BEFORE, CoroutineKind::Coord);
     require_coroutine_kind(b, Opcode::CallMethod, COL_CALL_TARGET, CoroutineKind::Utxo);
-    require_phase_before(
-        b,
-        Opcode::CallMethod,
-        crate::ivc_state::CurrPhase::Executing,
-    );
+    require_program_call_phase(b, Opcode::CallMethod);
     require_phase_after(
         b,
         Opcode::CallMethod,
@@ -583,12 +585,6 @@ fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         b,
         Opcode::CallMethod,
         COL_RESOURCE_RESOLVER_VALUE,
-        COL_CALL_TARGET,
-    );
-    require_equal(
-        b,
-        Opcode::CallMethod,
-        COL_CALL_FRAME_CALLEE,
         COL_CALL_TARGET,
     );
     require_equal(
@@ -765,7 +761,7 @@ fn visit_enter_constructor(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 
 fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_coroutine_kind(b, Opcode::NewUtxo, COL_CURR_BEFORE, CoroutineKind::Coord);
-    require_phase_before(b, Opcode::NewUtxo, crate::ivc_state::CurrPhase::Executing);
+    require_program_call_phase(b, Opcode::NewUtxo);
     require_phase_after(
         b,
         Opcode::NewUtxo,
@@ -779,7 +775,6 @@ fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             (COL_ONE, -F::ONE),
         ],
     );
-    require_equal(b, Opcode::NewUtxo, COL_CALL_FRAME_CALLEE, COL_CALL_TARGET);
     require_equal(
         b,
         Opcode::NewUtxo,
@@ -811,12 +806,6 @@ fn visit_receive_new_utxo_handle(b: &mut TaggedR1csBuilder<'_, ConstraintScope>)
         Opcode::ReceiveNewUtxoHandle,
         COL_RESOURCE_RESOLVER_ADDR_CID,
         COL_CURR_BEFORE,
-    );
-    require_equal(
-        b,
-        Opcode::ReceiveNewUtxoHandle,
-        COL_RESOURCE_RESOLVER_VALUE,
-        COL_CALL_FRAME_CALLEE,
     );
 }
 
@@ -854,13 +843,6 @@ fn visit_raise_effect(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         crate::ivc_state::CurrPhase::EffectHandlerPending,
     );
     require_equal(b, Opcode::RaiseEffect, COL_CALL_TARGET, COL_CURR_BEFORE);
-    b.push_gated_linear_zero(
-        Opcode::RaiseEffect.selector(),
-        [
-            (COL_HANDLER_SEARCH_REMAINING_AFTER, F::ONE),
-            (COL_ONE, -F::ONE),
-        ],
-    );
     require_equal(
         b,
         Opcode::RaiseEffect,
@@ -879,13 +861,6 @@ fn visit_enter_effect_handler(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         b,
         Opcode::EnterEffectHandler,
         crate::ivc_state::CurrPhase::EffectHandlerExecuting,
-    );
-    b.push_gated_linear_zero(
-        Opcode::EnterEffectHandler.selector(),
-        [
-            (COL_HANDLER_SEARCH_REMAINING_BEFORE, F::ONE),
-            (COL_ONE, -F::ONE),
-        ],
     );
 }
 
@@ -906,17 +881,12 @@ fn visit_exit_effect_handler(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             (COL_EFFECT_HANDLED, -F::ONE),
         ],
     );
-    b.push_gated_linear_zero(
-        Opcode::ExitEffectHandler.selector(),
-        [
-            (COL_HANDLER_SEARCH_REMAINING_BEFORE, F::ONE),
-            (COL_ONE, -F::ONE),
-        ],
-    );
-    b.push_gated_linear_zero(
-        Opcode::ExitEffectHandler.selector(),
-        [(COL_HANDLER_SEARCH_REMAINING_AFTER, F::ONE)],
-    );
+}
+
+fn visit_skip_effect_handler(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    let opcode = Opcode::SkipEffectHandler;
+    require_phase_before(b, opcode, crate::ivc_state::CurrPhase::EffectHandlerPending);
+    require_phase_after(b, opcode, crate::ivc_state::CurrPhase::EffectHandlerPending);
 }
 
 fn visit_resume_effect(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -931,9 +901,228 @@ fn visit_resume_effect(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         COL_CURR_PHASE_AFTER,
         COL_CALL_FRAME_SAVED_PHASE,
     );
-    require_equal(b, Opcode::ResumeEffect, COL_CALL_TARGET, COL_CURR_BEFORE);
+}
+
+// Executing (0) and EffectHandlerExecuting (4) differ only in bit 2.
+fn require_program_call_phase(b: &mut TaggedR1csBuilder<'_, ConstraintScope>, opcode: Opcode) {
+    let bits = phase_bits(COL_CURR_PHASE_BEFORE);
     b.push_gated_linear_zero(
-        Opcode::ResumeEffect.selector(),
-        [(COL_HANDLER_SEARCH_REMAINING_BEFORE, F::ONE)],
+        opcode.selector(),
+        [(bits[0], F::ONE), (bits[1], F::ONE), (bits[3], F::ONE)],
     );
+}
+
+fn instance_stack_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    use layout::*;
+    b.with_tag(always("runtime invocation stack"), |b| {
+        b.push_linear_zero([
+            (COL_INSTANCE_PUSH, F::ONE),
+            (COL_SEL_NEW_UTXO, -F::ONE),
+            (COL_SEL_CALL_METHOD, -F::ONE),
+        ]);
+        b.push_linear_zero([
+            (COL_INSTANCE_POP, F::ONE),
+            (COL_SEL_RECEIVE_NEW_UTXO_HANDLE, -F::ONE),
+            (COL_SEL_RECEIVE_METHOD_RESULT, -F::ONE),
+        ]);
+        b.push_linear_zero([
+            (COL_INSTANCE_DEPTH_AFTER, F::ONE),
+            (COL_INSTANCE_DEPTH_BEFORE, -F::ONE),
+            (COL_INSTANCE_PUSH, -F::ONE),
+            (COL_INSTANCE_POP, F::ONE),
+        ]);
+    });
+}
+
+/// Explicit `try` scopes as a cactus stack: an append-only arena of nodes
+/// linked by parent, a visible head, and a count of the scopes the current
+/// invocation pushed. Mirrors the Quint `effect_arena`/`effect_head`/
+/// `effect_local_depth` state, with the head encoded as node id + 1.
+fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    use layout::*;
+    let except = |excluded: &[Opcode]| {
+        selector_sum(
+            Opcode::all()
+                .into_iter()
+                .filter(|op| *op != Opcode::Padding && !excluded.contains(op)),
+        )
+    };
+    let push = Opcode::PushEffectHandlerFrame;
+    let add = Opcode::AddEffectHandler;
+    let pop = Opcode::PopEffectHandlerFrame;
+    let skip = Opcode::SkipEffectHandler;
+    let enter = Opcode::EnterEffectHandler;
+    let exit = Opcode::ExitEffectHandler;
+
+    b.with_tag(
+        opcode_tags(
+            "scope mutation runs in a live guest body",
+            &[push, add, pop],
+        ),
+        |b| {
+            // Allowed: Executing, ConstructorExecuting, Registering and
+            // EffectHandlerExecuting. Bit 3 rejects the receive/effect pending
+            // phases; bits 1 and 2 together reject the entry-pending ones.
+            let bits = phase_bits(COL_CURR_PHASE_BEFORE);
+            b.push_row(
+                [(bits[1], F::ONE)],
+                [(bits[2], F::ONE)],
+                [(COL_PHASE_BEFORE_BITS_1_AND_2, F::ONE)],
+            );
+            b.push_row(
+                selector_sum([push, add, pop]),
+                [(bits[3], F::ONE), (COL_PHASE_BEFORE_BITS_1_AND_2, F::ONE)],
+                [],
+            );
+            // The body keeps running: a mutation cannot fake a handler
+            // exit or any other phase change.
+            b.push_row(
+                selector_sum([push, add, pop]),
+                [
+                    (COL_CURR_PHASE_AFTER, F::ONE),
+                    (COL_CURR_PHASE_BEFORE, -F::ONE),
+                ],
+                [],
+            );
+        },
+    );
+
+    b.with_tag(opcode_tags("effect arena allocation", &[push]), |b| {
+        b.push_linear_zero([
+            (COL_EFFECT_ARENA_LEN_AFTER, F::ONE),
+            (COL_EFFECT_ARENA_LEN_BEFORE, -F::ONE),
+            (push.selector(), -F::ONE),
+        ]);
+        // The fresh node becomes the head; the parent port links the old one.
+        require_equal(b, push, COL_EFFECT_HEAD_AFTER, COL_EFFECT_ARENA_LEN_AFTER);
+    });
+
+    b.with_tag(
+        opcode_tags("effect scope reads", &[pop, skip, enter, add]),
+        |b| {
+            // Pop, skip and entry all move the head to the read node's parent.
+            b.push_linear_zero(
+                selector_sum([pop, skip, enter])
+                    .into_iter()
+                    .chain([(COL_EFFECT_SCOPE_READ, -F::ONE)]),
+            );
+            // Registration lookups: add writes 1, entry must read 1, skip 0.
+            b.push_linear_zero(
+                selector_sum([add, enter])
+                    .into_iter()
+                    .chain([(COL_EFFECT_REGISTERED, -F::ONE)]),
+            );
+            // Search steps need a nonzero head. On other opcodes, the inverse
+            // must be zero when the head is nonzero; a zero head leaves it free.
+            b.push_row(
+                [(COL_EFFECT_HEAD_BEFORE, F::ONE)],
+                [(COL_EFFECT_HEAD_INVERSE, F::ONE)],
+                selector_sum([skip, enter]),
+            );
+            // Only scopes this invocation pushed may be mutated.
+            b.push_row(
+                [(COL_EFFECT_DEPTH_BEFORE, F::ONE)],
+                [(COL_EFFECT_DEPTH_INVERSE, F::ONE)],
+                selector_sum([add, pop]),
+            );
+        },
+    );
+
+    b.with_tag(opcode_tags("effect head transition", &[exit]), |b| {
+        b.push_row(
+            except(&[push, pop, skip, enter, exit]),
+            [
+                (COL_EFFECT_HEAD_AFTER, F::ONE),
+                (COL_EFFECT_HEAD_BEFORE, -F::ONE),
+            ],
+            [],
+        );
+        // A decline keeps the head as the next search candidate; acceptance
+        // restores the raiser's head.
+        b.push_row(
+            [(COL_EFFECT_HANDLED, F::ONE)],
+            [
+                (COL_CALL_FRAME_SAVED_EFFECT_HEAD, F::ONE),
+                (COL_EFFECT_HEAD_BEFORE, -F::ONE),
+            ],
+            [(COL_EFFECT_RESTORE_DELTA, F::ONE)],
+        );
+        b.push_gated_linear_zero(
+            exit.selector(),
+            [
+                (COL_EFFECT_HEAD_AFTER, F::ONE),
+                (COL_EFFECT_HEAD_BEFORE, -F::ONE),
+                (COL_EFFECT_RESTORE_DELTA, -F::ONE),
+            ],
+        );
+    });
+
+    let fresh = [Opcode::NewUtxo, Opcode::CallMethod, enter];
+    let restoring = [Opcode::Return, exit];
+    let balanced = [Opcode::Return, Opcode::YieldBegin, exit];
+    b.with_tag(
+        opcode_tags(
+            "local effect depth",
+            &[
+                push,
+                pop,
+                Opcode::NewUtxo,
+                Opcode::CallMethod,
+                enter,
+                Opcode::Return,
+                Opcode::YieldBegin,
+                exit,
+            ],
+        ),
+        |b| {
+            b.push_row(
+                except(
+                    &[push, pop]
+                        .iter()
+                        .chain(&fresh)
+                        .chain(&restoring)
+                        .copied()
+                        .collect::<Vec<_>>(),
+                ),
+                [
+                    (COL_EFFECT_DEPTH_AFTER, F::ONE),
+                    (COL_EFFECT_DEPTH_BEFORE, -F::ONE),
+                ],
+                [],
+            );
+            for (op, delta) in [(push, F::ONE), (pop, -F::ONE)] {
+                b.push_gated_linear_zero(
+                    op.selector(),
+                    [
+                        (COL_EFFECT_DEPTH_AFTER, F::ONE),
+                        (COL_EFFECT_DEPTH_BEFORE, -F::ONE),
+                        (COL_ONE, -delta),
+                    ],
+                );
+            }
+            b.push_row(selector_sum(fresh), [(COL_EFFECT_DEPTH_AFTER, F::ONE)], []);
+            b.push_row(
+                selector_sum(restoring),
+                [
+                    (COL_EFFECT_DEPTH_AFTER, F::ONE),
+                    (COL_CALL_FRAME_SAVED_EFFECT_DEPTH, -F::ONE),
+                ],
+                [],
+            );
+            b.push_row(
+                selector_sum(balanced),
+                [(COL_EFFECT_DEPTH_BEFORE, F::ONE)],
+                [],
+            );
+        },
+    );
+
+    b.with_tag(always("call frames save the effect context"), |b| {
+        for (saved, current) in [
+            (COL_CALL_FRAME_SAVED_EFFECT_HEAD, COL_EFFECT_HEAD_BEFORE),
+            (COL_CALL_FRAME_SAVED_EFFECT_DEPTH, COL_EFFECT_DEPTH_BEFORE),
+        ] {
+            b.push_gated_linear_zero(COL_CALL_STACK_PUSH, [(saved, F::ONE), (current, -F::ONE)]);
+        }
+    });
 }

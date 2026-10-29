@@ -19,6 +19,8 @@ starstream-runtime = { workspace = true }
 starstream-interleaving-prover = { path = "../starstream-interleaving-prover" }
 thiserror = { workspace = true }
 wasmparser = { workspace = true }
+wit-component = { workspace = true }
+wit-parser = { workspace = true, features = ["decoding"] }
 wasmtime = { workspace = true, features = [
     "anyhow",
     "async",
@@ -37,4 +39,3 @@ starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 wat = "1"
-wit-component = { workspace = true }

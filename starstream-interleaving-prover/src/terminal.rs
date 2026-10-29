@@ -15,6 +15,11 @@ pub(crate) enum TerminalClaim {
 impl TerminalClaim {
     pub(crate) fn check(&self, value: impl Fn(usize) -> F) -> Result<(), Unsatisfied> {
         check_execution_end(value(COL_CALL_SP_AFTER), value(COL_CURR_AFTER))?;
+        if value(COL_INSTANCE_DEPTH_AFTER) != F::ZERO {
+            return Err(Unsatisfied::TerminalInstanceStackNotEmpty {
+                actual: value(COL_INSTANCE_DEPTH_AFTER),
+            });
+        }
         let phase = match self {
             Self::Execution => TxPhase::Running,
             Self::Transaction { .. } => TxPhase::Finished,

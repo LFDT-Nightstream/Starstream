@@ -44,18 +44,23 @@ module starstream {
 
   type CallFrameKind = ProgramCall | ConstructorCall | EffectCall
 
+  type EffectScope = {
+    parent: Option[int],
+    owner: CoroutineId,
+    frame_id: int,
+    effects: Set[MethodHash],
+  }
+
   type CallFrame = {
     kind: CallFrameKind,
     caller: CoroutineId,
-    callee: CoroutineId,
     expected_arguments: StarstreamValue,
     expected_result: StarstreamValue,
     expected_method: Option[MethodHash],
     saved_phase: CurrPhase,
-    // Core instances whose effect dispatcher must still be called, ordered
-    // from outermost to innermost. Coordinator calls are not modeled yet, so a
-    // raised effect currently initializes this to the raising instance alone.
-    handler_search: List[CoroutineId],
+    // Caller restoration context; the current head doubles as the search cursor.
+    saved_effect_head: Option[int],
+    saved_effect_depth: int,
   }
 
   type UtxoLifecycle = Live | Consumed
@@ -82,6 +87,16 @@ module starstream {
     coordinator_finalized: bool,
     curr: CoroutineId,
     call_stack: List[CallFrame],
+    effect_arena: List[EffectScope],
+    // Visible chain during execution; candidate cursor during pending search.
+    effect_head: Option[int],
+    // Scopes pushed by the current invocation and not yet popped; these are
+    // the top nodes of the visible chain. During a pending search this is
+    // still the raiser's count.
+    effect_local_depth: int,
+    // Program invocations remain through Receive* for resource-handle binding.
+    // Handler entry changes curr, but not this stack; search follows effect_arena parent links.
+    instance_stack: List[CoroutineId],
     curr_cid_phase: CurrPhase,
     utxo_lifecycle: CoroutineId -> UtxoLifecycle,
     next_utxo_id: int,
@@ -110,6 +125,10 @@ module starstream {
     | ReceiveMethodResult
     | EnterMethod
     | RaiseEffect
+    | PushEffectHandlerFrame
+    | AddEffectHandler
+    | PopEffectHandlerFrame
+    | SkipEffectHandler
     | EnterEffectHandler
     | ExitEffectHandler
     | ResumeEffect
@@ -124,10 +143,10 @@ module starstream {
     // so an empty call stack is a termination condition
     state.call_stack.length() > 0,
     match op {
-      | NewUtxo => state.curr_cid_phase == Executing
+      | NewUtxo => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
       | ReceiveNewUtxoHandle => state.curr_cid_phase == NewUtxoHandlePending
       | EnterConstructor => state.curr_cid_phase == CtorEnterPending
-      | CallMethod => state.curr_cid_phase == Executing
+      | CallMethod => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
       | ReceiveMethodResult => state.curr_cid_phase == MethodResultPending
       | EnterMethod => state.curr_cid_phase == MethodEnterPending
       | Return =>
@@ -145,11 +164,23 @@ module starstream {
           state.curr_cid_phase == Executing or
           state.curr_cid_phase == ConstructorExecuting or
           state.curr_cid_phase == EffectHandlerExecuting
+      | PushEffectHandlerFrame => guest_executing
+      | AddEffectHandler => guest_executing
+      | PopEffectHandlerFrame => guest_executing
+      | SkipEffectHandler => state.curr_cid_phase == EffectHandlerPending
       | EnterEffectHandler => state.curr_cid_phase == EffectHandlerPending
       | ExitEffectHandler => state.curr_cid_phase == EffectHandlerExecuting
       | ResumeEffect => state.curr_cid_phase == EffectResumePending
     }
   }
+
+  // Registration calls can execute in a live guest body, including cleanup
+  // after registration. They cannot interleave with pending call boundaries.
+  def guest_executing: bool =
+    state.curr_cid_phase == Executing or
+    state.curr_cid_phase == ConstructorExecuting or
+    state.curr_cid_phase == Registering or
+    state.curr_cid_phase == EffectHandlerExecuting
 
   pure def is_utxo(cid: CoroutineId): bool =
     match cid {
@@ -180,15 +211,19 @@ module starstream {
       outputs_seen: 0,
       coordinator_finalized: false,
       curr: cid,
+      instance_stack: List(cid),
+      effect_arena: List(),
+      effect_head: None,
+      effect_local_depth: 0,
       call_stack: List({
         kind: ProgramCall,
         caller: Coord(0),
-        callee: cid,
         expected_arguments: UNIT_VALUE,
         expected_result: UNIT_VALUE,
         expected_method: None,
         saved_phase: Executing,
-        handler_search: List(),
+        saved_effect_head: None,
+        saved_effect_depth: 0,
       }),
       curr_cid_phase: Executing,
       utxo_lifecycle: Map(),
@@ -337,17 +372,19 @@ module starstream {
       caller.is_coord(),
       state' = {
         curr: target,
+        effect_local_depth: 0,
+        instance_stack: state.instance_stack.append(target),
         tx_phase: Running,
         call_stack: state.call_stack.append(
           {
             kind: ConstructorCall,
             caller: caller,
-            callee: target,
             expected_arguments: arguments,
             expected_result: UNIT_VALUE,
             expected_method: None,
             saved_phase: state.curr_cid_phase,
-            handler_search: List(),
+            saved_effect_head: state.effect_head,
+            saved_effect_depth: state.effect_local_depth,
           }
         ),
         curr_cid_phase: CtorEnterPending,
@@ -382,6 +419,7 @@ module starstream {
   // triggers with utxo-context.resume()
   action yield_begin(): bool = all {
     action_allowed(YieldBegin),
+    state.effect_local_depth == 0,
     state.curr.is_utxo(),
 
     state' = {
@@ -441,12 +479,14 @@ module starstream {
 
     all {
       frame.kind == ProgramCall or frame.kind == ConstructorCall,
+      state.effect_local_depth == 0,
       if (frame.kind == ConstructorCall or frame.caller == Coord(0))
         frame.expected_result == result.value
       else true,
       val returning_to_import = frame.caller != Coord(0)
       state' = {
         curr: frame.caller,
+        effect_local_depth: frame.saved_effect_depth,
         tx_phase: Running,
         call_stack:
           if (returning_to_import)
@@ -472,8 +512,9 @@ module starstream {
       frame.caller == state.curr,
       not(state.resource_resolver.keys().contains(key)),
       state' = {
+        instance_stack: state.instance_stack.pop_last(),
         call_stack: state.call_stack.pop_last(),
-        resource_resolver: state.resource_resolver.put(key, frame.callee),
+        resource_resolver: state.resource_resolver.put(key, state.instance_stack.last()),
         curr_cid_phase: frame.saved_phase,
         ...state
       }
@@ -504,15 +545,17 @@ module starstream {
       val frame = {
         kind: ProgramCall,
         caller: state.curr,
-        callee: target,
         expected_arguments: arguments,
         expected_result: UNIT_VALUE,
         expected_method: Some(method),
         saved_phase: state.curr_cid_phase,
-        handler_search: List(),
+        saved_effect_head: state.effect_head,
+        saved_effect_depth: state.effect_local_depth,
       }
       state' = {
         curr: target,
+        effect_local_depth: 0,
+        instance_stack: state.instance_stack.append(target),
         call_stack: state.call_stack.append(frame),
         tx_phase: Running,
         curr_cid_phase: MethodEnterPending,
@@ -531,7 +574,9 @@ module starstream {
       frame.caller == state.curr,
       frame.expected_result == result.value,
       state' = {
+        instance_stack: state.instance_stack.pop_last(),
         call_stack: state.call_stack.pop_last(),
+        curr: frame.caller,
         curr_cid_phase: frame.saved_phase,
         ...state
       }
@@ -564,9 +609,63 @@ module starstream {
     }
   }
 
-  // Effect imports are split around reentrant handler calls. Raising pushes a
-  // frame without changing coroutine ownership; same-instance handler entry,
-  // exit, and import resumption all remain on the raiser's trace chain.
+  // These three actions correspond to the explicit builtin host calls.
+  action push_effect_handler_frame(frame_id: int): bool = all {
+    action_allowed(PushEffectHandlerFrame),
+    0 <= frame_id and frame_id < 4294967296,
+    state' = {
+      effect_head: Some(state.effect_arena.length()),
+      effect_arena: state.effect_arena.append({
+        parent: state.effect_head,
+        owner: state.curr,
+        frame_id: frame_id,
+        effects: Set(),
+      }),
+      effect_local_depth: state.effect_local_depth + 1,
+      tx_phase: Running,
+      ...state
+    },
+  }
+
+  // Only scopes pushed by this invocation may be mutated, so a nonzero local
+  // depth is required even when an inherited head has the same owner.
+  action add_effect_handler(effect: MethodHash): bool = all {
+    action_allowed(AddEffectHandler),
+    state.effect_local_depth > 0,
+    match state.effect_head {
+      | Some(id) => {
+          val scope = state.effect_arena[id]
+          state' = {
+            effect_arena: state.effect_arena.replaceAt(
+              id,
+              {
+                effects: scope.effects.insert(effect),
+                ...scope
+              }
+            ),
+            tx_phase: Running,
+            ...state
+          }
+        }
+      | None => all { false, state' = state }
+    },
+  }
+
+  action pop_effect_handler_frame: bool = all {
+    action_allowed(PopEffectHandlerFrame),
+    state.effect_local_depth > 0,
+    match state.effect_head {
+      | Some(id) => state' = {
+          effect_head: state.effect_arena[id].parent,
+          effect_local_depth: state.effect_local_depth - 1,
+          tx_phase: Running,
+          ...state
+        }
+      | None => all { false, state' = state }
+    },
+  }
+
+  // A raise saves the visible head and local depth; search follows parent links.
   action raise_effect(effect: MethodHash, arguments: StarstreamValue): bool = all {
     action_allowed(RaiseEffect),
     arguments.is_valid(),
@@ -574,16 +673,12 @@ module starstream {
       call_stack: state.call_stack.append({
         kind: EffectCall,
         caller: state.curr,
-        callee: state.curr,
         expected_arguments: arguments,
         expected_result: UNIT_VALUE,
         expected_method: Some(effect),
         saved_phase: state.curr_cid_phase,
-        // TODO: are utxos supposed to be in the search path?
-        //
-        // they can't call things, so they would be only handling their own effects
-        // maybe that's useful though?
-        handler_search: List(state.curr),
+        saved_effect_head: state.effect_head,
+        saved_effect_depth: state.effect_local_depth,
       }),
       curr_cid_phase: EffectHandlerPending,
       tx_phase: Running,
@@ -591,18 +686,56 @@ module starstream {
     }
   }
 
-  action enter_effect_handler(effect: MethodHash, arguments: StarstreamValue): bool = {
+  // Internal host search step, not a guest export. A candidate with no matching
+  // registration is skipped without calling its instance. A matching candidate
+  // must be entered; a false handler result can then continue the search.
+  action skip_effect_handler: bool = {
+    val frame = state.call_stack.last()
+    all {
+      action_allowed(SkipEffectHandler),
+      frame.kind == EffectCall,
+      match frame.expected_method {
+        | Some(effect) => match state.effect_head {
+            | Some(id) => all {
+                not(state.effect_arena[id].effects.contains(effect)),
+                state' = { effect_head: state.effect_arena[id].parent, ...state },
+              }
+            | None => all { false, state' = state }
+          }
+        | None => all { false, state' = state }
+      },
+    }
+  }
+
+
+  action enter_effect_handler(frame_id: int, effect: MethodHash, arguments: StarstreamValue): bool = {
     val frame = state.call_stack.last()
     all {
       action_allowed(EnterEffectHandler),
       arguments.is_valid(),
       frame.kind == EffectCall,
-      frame.caller == state.curr,
-      frame.handler_search.length() > 0,
-      frame.handler_search.last() == state.curr,
       frame.expected_method == Some(effect),
       frame.expected_arguments == arguments,
-      state' = { curr_cid_phase: EffectHandlerExecuting, ...state }
+      match state.effect_head {
+        | Some(id) => {
+            val scope = state.effect_arena[id]
+            all {
+              scope.effects.contains(effect),
+              scope.frame_id == frame_id,
+              state' = {
+                curr: scope.owner,
+                // Excludes both the selected try scope (including sibling with
+                // clauses) and every inner scope. A nested try branches from
+                // the selected scope's parent.
+                effect_head: scope.parent,
+                effect_local_depth: 0,
+                curr_cid_phase: EffectHandlerExecuting,
+                ...state
+              }
+            }
+          }
+        | None => all { false, state' = state }
+      },
     }
   }
 
@@ -612,16 +745,17 @@ module starstream {
       action_allowed(ExitEffectHandler),
       result.value.is_valid(),
       frame.kind == EffectCall,
-      val remaining_search = if (handled) List() else frame.handler_search.pop_last()
+      // The handler popped every scope it pushed, so the head is back at the
+      // selected scope's parent: the next search candidate on decline.
+      state.effect_local_depth == 0,
       state' = {
-        call_stack: state.call_stack.replaceAt(
-          state.call_stack.length() - 1,
-          {
-            expected_result: result.value,
-            handler_search: remaining_search,
-            ...frame
-          }
-        ),
+        call_stack: state.call_stack.replaceAt(state.call_stack.length() - 1,
+          { expected_result: result.value, ...frame }),
+        // A decline continues from the current head; acceptance restores the
+        // raiser's chain. Pending phases prevent guest code running in between.
+        effect_head: if (handled) frame.saved_effect_head else state.effect_head,
+        effect_local_depth: frame.saved_effect_depth,
+        curr: frame.caller,
         curr_cid_phase: if (handled) EffectResumePending else EffectHandlerPending,
         ...state
       }
@@ -634,11 +768,10 @@ module starstream {
       action_allowed(ResumeEffect),
       result.value.is_valid(),
       frame.kind == EffectCall,
-      frame.caller == state.curr,
       frame.expected_result == result.value,
-      frame.handler_search.length() == 0,
       state' = {
         call_stack: state.call_stack.pop_last(),
+        curr: frame.caller,
         curr_cid_phase: frame.saved_phase,
         ...state
       }
@@ -651,6 +784,111 @@ module starstream {
     state.call_stack.length() == 0,
     state' = state,
   }
+
+  // Derived views are for assertions/exploration only, not stored snapshots.
+  // Scope IDs on the chain ending at start, outermost first.
+  pure def scope_ids(arena: List[EffectScope], start: Option[int]): List[int] =
+    arena.foldl({ cursor: start, ids: List() }, (acc, ignored) =>
+      match acc.cursor {
+        | Some(id) => { cursor: arena[id].parent, ids: List(id).concat(acc.ids) }
+        | None => acc
+      }).ids
+
+  // The node reached by following `steps` parent links from start.
+  pure def scope_ancestor(arena: List[EffectScope], start: Option[int], steps: int): Option[int] =
+    range(0, steps).foldl(start, (cursor, ignored) =>
+      match cursor {
+        | Some(id) => arena[id].parent
+        | None => None
+      })
+
+  pure def scope_id_in_arena(arena: List[EffectScope], id: Option[int]): bool =
+    match id {
+      | Some(i) => 0 <= i and i < arena.length()
+      | None => true
+    }
+
+  val effect_stack = scope_ids(state.effect_arena, state.effect_head)
+    .foldl(List(), (scopes, id) => scopes.append(state.effect_arena[id]))
+
+  // Outside a pending search, effect_head is the current invocation's chain
+  // and effect_local_depth counts its own nodes at the top of that chain.
+  def effect_head_is_visible_chain: bool =
+    state.curr_cid_phase != EffectHandlerPending
+
+  val effect_arena_is_well_formed = all {
+    state.effect_arena.indices().forall(i =>
+      match state.effect_arena[i].parent {
+        | Some(p) => 0 <= p and p < i
+        | None => true
+      }),
+    scope_id_in_arena(state.effect_arena, state.effect_head),
+    state.effect_local_depth >= 0,
+    state.call_stack.indices().forall(i => all {
+      scope_id_in_arena(state.effect_arena, state.call_stack[i].saved_effect_head),
+      state.call_stack[i].saved_effect_depth >= 0,
+    }),
+  }
+
+  // Popping is only guarded by the counter, so it must never exceed the chain.
+  val effect_local_depth_fits_chain =
+    effect_head_is_visible_chain implies
+      state.effect_local_depth <= scope_ids(state.effect_arena, state.effect_head).length()
+
+  val mutable_effect_scopes_belong_to_current =
+    effect_head_is_visible_chain implies {
+      val ids = scope_ids(state.effect_arena, state.effect_head)
+      ids.indices().forall(i =>
+        i >= ids.length() - state.effect_local_depth implies
+          state.effect_arena[ids[i]].owner == state.curr)
+    }
+
+  // Stripping the local scopes of an executing program invocation recovers the
+  // head it was entered with, which is also the head its caller resumes with.
+  val program_scopes_rest_on_entry_head = {
+    val executing = state.curr_cid_phase == Executing or
+      state.curr_cid_phase == ConstructorExecuting or
+      state.curr_cid_phase == Registering
+    (executing and state.call_stack.length() > 0) implies {
+      val frame = state.call_stack.last()
+      frame.kind != EffectCall implies
+        scope_ancestor(state.effect_arena, state.effect_head, state.effect_local_depth) ==
+          frame.saved_effect_head
+    }
+  }
+
+  // Only the top pending effect uses the head as a cursor. Suspended effect
+  // calls retain their restoration heads, not independent search cursors.
+  val effect_search_is_saved_ancestor =
+    if (state.curr_cid_phase != EffectHandlerPending) true
+    else if (state.call_stack.length() == 0) false
+    else {
+      val frame = state.call_stack.last()
+      all {
+        frame.kind == EffectCall,
+        match state.effect_head {
+          | Some(id) => scope_ids(state.effect_arena, frame.saved_effect_head).to_set().contains(id)
+          | None => true
+        },
+      }
+    }
+
+  // Recover the entry boundary for diagnostics only, by stripping local nodes.
+  // No selected-node or entry-head field is needed by the execution actions.
+  val executing_handler_has_selected_owner =
+    if (state.curr_cid_phase != EffectHandlerExecuting) true
+    else if (state.call_stack.length() == 0) false
+    else {
+      val frame = state.call_stack.last()
+      val entry_head = scope_ancestor(state.effect_arena, state.effect_head, state.effect_local_depth)
+      all {
+        frame.kind == EffectCall,
+        scope_ids(state.effect_arena, frame.saved_effect_head).to_set().exists(id => all {
+          state.effect_arena[id].parent == entry_head,
+          state.effect_arena[id].owner == state.curr,
+        }),
+      }
+    }
 
   val coord_stack =
     state.curr.is_utxo() implies state.call_stack.length() > 1
