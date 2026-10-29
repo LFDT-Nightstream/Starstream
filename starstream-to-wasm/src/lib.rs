@@ -2552,9 +2552,11 @@ impl Compiler {
                     }
                     // try{} contents.
                     self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
-                    // Pop effect handler stack frame.
-                    func.instructions(bb)
-                        .call(self.builtins.pop_effect_handler_frame.unwrap());
+                    if *bb != usize::MAX {
+                        // Pop effect handler stack frame.
+                        func.instructions(bb)
+                            .call(self.builtins.pop_effect_handler_frame.unwrap());
+                    }
                 }
             }
         }
