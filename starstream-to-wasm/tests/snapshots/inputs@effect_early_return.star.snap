@@ -391,5 +391,4 @@ package starstream:effect-handler {
 }
 
 ==== Test: Test ====
-events: []
-outputs: []
+panic: call_coordination_script: unbalanced effect stack push/pop (before: 0, after: 1)

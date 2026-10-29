@@ -282,6 +282,13 @@ async fn call_func<T: Host>(
     mut results: impl AsMut<[Val]>,
 ) -> wasmtime::Result<()> {
     let f = get_func(store.as_context_mut(), instance, name)?;
+    let effect_stack_len = store
+        .as_context_mut()
+        .data_mut()
+        .starstream()
+        .effect_stack
+        .len();
+
     store
         .as_context_mut()
         .data_mut()
@@ -298,7 +305,21 @@ async fn call_func<T: Host>(
         .starstream()
         .instance_stack
         .pop();
-    result
+    let result = result?;
+
+    let new_effect_stack_len = store
+        .as_context_mut()
+        .data_mut()
+        .starstream()
+        .effect_stack
+        .len();
+    if effect_stack_len != new_effect_stack_len {
+        bail!(
+            "unbalanced effect stack push/pop (before: {effect_stack_len}, after: {new_effect_stack_len})"
+        )
+    }
+
+    Ok(result)
 }
 
 /// Link ABI event [`types::ComponentFunc`] in a [`LinkerInstance`]
