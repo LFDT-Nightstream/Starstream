@@ -147,6 +147,26 @@ Proof.
     ltac:(wf) ltac:(wf)).
 Qed.
 
+(* `v; local.tee x` writes `v` to `x` and leaves `v`, whether or not the
+   frame has local `x`. *)
+Lemma tee_alone : forall v, wf_val v ->
+  Steps (mk_config z [:: admininstr_val v; admininstr_LOCAL_TEE x])
+        (mk_config (with_local z x v) [:: admininstr_val v]).
+Proof.
+  move=> v Hv. have Hz' := set_local_wf v Hv.
+  have Hv1 : List.Forall wf_val [:: v] by constructor.
+  have T1 : Step
+      (mk_config z [:: admininstr_val v; admininstr_LOCAL_TEE x])
+      (mk_config z [:: admininstr_val v; admininstr_val v; admininstr_LOCAL_SET x])
+    := pure _ _ _ (Step_pure__local_tee v x).
+  have T2 : Step
+      (mk_config z [:: admininstr_val v; admininstr_val v; admininstr_LOCAL_SET x])
+      (mk_config (with_local z x v) [:: admininstr_val v])
+    := set_in_context [:: v] v [::] Hv1 Hv (List.Forall_nil _).
+  apply: (steps_cons _ _ _ T1); last by wf.
+  by apply: (steps_one _ _ T2); wf.
+Qed.
+
 (* 1. `local.set x; local.get x` → `local.tee x` *)
 Lemma set_get_tee : forall v, wf_val v ->
   Steps (mk_config z [:: admininstr_val v; admininstr_LOCAL_SET x; admininstr_LOCAL_GET x])
@@ -157,26 +177,15 @@ Proof.
   move=> v Hv. have Hz' := set_local_wf v Hv.
   have Hlocal : fun_local (with_local z x v) x = v := local_after_set s f x v Hrange.
   have Hget : List.Forall wf_admininstr [:: admininstr_LOCAL_GET x] by wf_code.
-  have Hv1 : List.Forall wf_val [:: v] by constructor.
   have S1 : Step
       (mk_config z [:: admininstr_val v; admininstr_LOCAL_SET x; admininstr_LOCAL_GET x])
       (mk_config (with_local z x v) [:: admininstr_LOCAL_GET x])
     := set_in_context [::] v _ (List.Forall_nil _) Hv Hget.
   have S2 := read _ _ _ (Step_read__local_get (with_local z x v) x).
   rewrite Hlocal in S2.
-  have T1 : Step
-      (mk_config z [:: admininstr_val v; admininstr_LOCAL_TEE x])
-      (mk_config z [:: admininstr_val v; admininstr_val v; admininstr_LOCAL_SET x])
-    := pure _ _ _ (Step_pure__local_tee v x).
-  have T2 : Step
-      (mk_config z [:: admininstr_val v; admininstr_val v; admininstr_LOCAL_SET x])
-      (mk_config (with_local z x v) [:: admininstr_val v])
-    := set_in_context [:: v] v [::] Hv1 Hv (List.Forall_nil _).
-  split.
-  - apply: (steps_cons _ _ _ S1); last by wf.
-    by apply: (steps_one _ _ S2); wf.
-  - apply: (steps_cons _ _ _ T1); last by wf.
-    by apply: (steps_one _ _ T2); wf.
+  split; last exact: tee_alone.
+  apply: (steps_cons _ _ _ S1); last by wf.
+  by apply: (steps_one _ _ S2); wf.
 Qed.
 
 (* 2. `local.tee x; drop` → `local.set x` *)

@@ -5,29 +5,41 @@ program, against SpecTec's Wasm 2.0 semantics: the same `Wasm2.v` that
 Nightstream's `formal/wasm-rocq` proves the Neo-Wasm circuit against.
 
 The main result is `invoke_refines` in `Nested.v`. Take a store, and
-rewrite its function bodies with local-cleanup rules 1, 2 and 5 from
-`src/locals.rs`, anywhere in a body and at any depth of blocks, loops and
-ifs. Then every run of a call into the rewritten store that ends in values or
-a trap has a run of the same call into the original store that ends in the
-same values or trap. The final states agree except for function bodies. So
-the rewrite adds no behaviour, which is the direction that matters when the
-prover proves the rewritten code.
+rewrite its function bodies with the five local-cleanup rules from
+`src/locals.rs`, anywhere in a body, in any mix, and at any depth of blocks,
+loops and ifs. Rules 3 and 4 may delete writes only to locals the function
+never reads. Then every run of a call into the rewritten store that ends in
+values or a trap has either:
+- a run of the same call into the original store that ends in the same values
+  or trap, with final states that agree except for function bodies; or
+- a run of the original that goes wrong: it gets stuck before the end.
+
+So the rewrite adds no behaviour, which is the direction that matters when
+the prover proves the rewritten code. The second case is there because of
+rule 3. Deleting `local.tee` drops an instruction that needs a value under
+it, and without Wasm's type system the proof cannot rule out an original
+with nothing there. Wasm's type soundness rules it out for validated
+modules, but that theorem isn't proved against these semantics.
 
 - `LocalRewrites.v`: each rule on its own. From the same state, the original
   instructions and their rewrite run to the same configuration.
 - `StepInversion.v`: which steps a configuration can take. Every step happens
   at its first non-value instruction, checked across all of SpecTec's
-  rules, plus lemmas for `local.tee`, `local.set` and traps.
+  rules. Plus lemmas for `local.tee`, `local.set`, `drop` and traps.
 - `Nested.v`: the simulation. Before each step of the rewritten program, the
-  original runs away any junk the rewrite deleted, then takes the
-  corresponding step. That is the same step for most instructions; for
-  blocks, loops, ifs and calls it enters its own code, and inside labels and
-  frames it recurses. The two programs have different stores, so it also
-  shows that every rule other than a call reads only what both stores agree
-  on.
+  original runs away any code the rewrite deleted, then takes the matching
+  step. For most instructions that is the same step. For blocks, loops, ifs
+  and calls the original enters its own code, and inside labels and frames
+  the simulation recurses.
+
+  The two programs have different stores, and their frames differ in locals
+  the function never reads. So `Nested.v` also shows that every rule other
+  than a call reads only what both stores agree on. It shows that every
+  `local.get` they share reads a local whose values agree. And it shows that
+  every step of an instruction with no code in it produces no code and no
+  reads of locals.
 
 Not yet proved:
-- the rules that depend on a local never being read (3 and 4);
 - removing and renumbering locals;
 - that the Rust code applies exactly these rules, and that instantiating the
   two modules gives stores related as the theorem assumes.

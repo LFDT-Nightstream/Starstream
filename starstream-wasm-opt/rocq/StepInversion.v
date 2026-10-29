@@ -332,6 +332,28 @@ Proof.
   by exists vs1, v.
 Qed.
 
+Lemma base_drop : forall z vs z' es',
+  base_step (mk_config z (map admininstr_val vs ++ [:: admininstr_DROP])) (mk_config z' es') ->
+  exists v, vs = [:: v] /\ z' = z /\ es' = [::].
+Proof.
+  move=> z vs z' es' H. inversion H as [? ? ? Hp | ? ? ? Hr | | | ? ? Hs]; subst.
+  - inversion Hp; subst; kill_lhs. by case=> <-; exists v_val.
+  - inversion Hr; subst; kill_lhs.
+  - kill_lhs.
+  - kill_lhs.
+  - inversion Hs; subst; kill_lhs.
+Qed.
+
+Lemma step_drop : forall z us r z' es',
+  Step (mk_config z (map admininstr_val us ++ admininstr_DROP :: r)) (mk_config z' es') ->
+  exists us' v, us = us' ++ [:: v] /\ z' = z /\ es' = map admininstr_val us' ++ r.
+Proof.
+  move=> z us r z' es' H. have := step_at_head _ _ _ _ H.
+  rewrite /at_head split_vals_nonval //= => /(_ ltac:(done)) [vs1 [vs2 [H' [Hus [Hes' Hb]]]]].
+  have [v [Hvs2 [Hz HH']]] := base_drop _ _ _ _ Hb. subst.
+  by exists vs1, v.
+Qed.
+
 (* Once a trap reaches the front, steps only discard what is around it. *)
 
 Definition trap_headed (es : seq admininstr) : Prop :=
