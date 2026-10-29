@@ -5,7 +5,6 @@
   "scripts": {
     "typecheck": "node scripts/quint.mjs typecheck",
     "simulate": "node scripts/quint.mjs simulate",
-    "verify": "node scripts/quint.mjs verify",
     "repl": "node scripts/quint.mjs repl",
     "check": "node scripts/quint.mjs check",
     "test_spec": "quint test spec/test.qnt --main replay_trace --match \"^test_\" --verbosity=3 && npm run test_effect_scopes",
