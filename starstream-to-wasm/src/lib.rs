@@ -271,6 +271,7 @@ struct Compiler {
     current_resource: Option<ResourceContext>,
 
     handler_id: i32,
+    on_return_cleanup: Vec<Box<dyn Fn(InstructionSink)>>,
 }
 
 struct ResourceContext {
@@ -1557,12 +1558,14 @@ impl Compiler {
 
         // TODO: allow access to parent scope's globals (ex. utxo storage).
         // TODO: allow access to parent scope's locals (spilled to globals?).
+        let old_return_clenaup = std::mem::take(&mut self.on_return_cleanup);
         let parent = &() as &dyn Locals;
         _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &handler.body);
         if bb != usize::MAX {
             self.visit_return(&mut func, &bb);
             func.cfg.fill(bb, Out::Return);
         }
+        self.on_return_cleanup = old_return_clenaup;
 
         let stackified = stackify(&func, bb_orig, stackifier::AsyncMode::Sync);
         if self.options.output_mermaid {
@@ -2364,6 +2367,9 @@ impl Compiler {
     /// Visit a `return;` statement or the end of the function, doing any
     /// necessary cleanup.
     fn visit_return(&self, func: &mut StFunction, bb: &usize) {
+        for each in self.on_return_cleanup.iter().rev() {
+            each(func.instructions(bb));
+        }
         if let Some(context_local) = self.context_local {
             // If we own or borrow a context, drop it now.
             func.instructions(bb)
@@ -2551,11 +2557,16 @@ impl Compiler {
                         }
                     }
                     // try{} contents.
+                    let pop_fn = self.builtins.pop_effect_handler_frame.unwrap();
+                    self.on_return_cleanup
+                        .push(Box::new(move |mut sink: InstructionSink| {
+                            sink.call(pop_fn);
+                        }));
                     self.visit_block_drop(func, bb, &(parent, &locals), subject)?;
+                    let pop_frame = self.on_return_cleanup.pop().unwrap();
                     if *bb != usize::MAX {
                         // Pop effect handler stack frame.
-                        func.instructions(bb)
-                            .call(self.builtins.pop_effect_handler_frame.unwrap());
+                        pop_frame(func.instructions(bb));
                     }
                 }
             }
