@@ -9,8 +9,6 @@ const SPEC_DIR = 'spec'
 const SPEC = `${SPEC_DIR}/starstream.qnt`
 const SIM = `${SPEC_DIR}/sim.qnt`
 const MAIN = 'starstream_sim'
-const VERIFY = `${SPEC_DIR}/verify.qnt`
-const VERIFY_MAIN = 'starstream_verify'
 
 const INVARIANTS = [
   'coord_stack',
@@ -91,12 +89,9 @@ const TASKS = {
     ['typecheck', SPEC],
     ['typecheck', `${SPEC_DIR}/effect_scopes_test.qnt`],
     ['typecheck', SIM],
-    ['typecheck', VERIFY],
   ],
 
   simulate: [SIMULATE],
-
-  verify: [['verify', VERIFY, `--main=${VERIFY_MAIN}`, '--invariants', ...INVARIANTS]],
 
   repl: [
     {

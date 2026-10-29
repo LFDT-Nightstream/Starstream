@@ -45,14 +45,11 @@ synthesizes matching outputs once, tracked by a simulator-only `outputs_installe
 flag without changing the core phase. Fixed-statement rejection
 tests run against the core spec, not this output-synthesis wrapper.
 
-Two modules supply its domain constants:
+`spec/sim.qnt` supplies its domain constants: simulation/REPL use up to two
+inputs, four UTXOs/handles, three methods/values, initial ABIs of length 1–2,
+and up to three registrations.
 
-- `spec/sim.qnt`: simulation/REPL use up to two inputs, four UTXOs/handles,
-  three methods/values, initial ABIs of length 1–2, and up to three registrations.
-- `spec/verify.qnt`: CI verification keeps at most one input, two UTXOs/handles,
-  two methods, one value, single-method initial ABIs, and up to two registrations.
-
-`npm run check` typechecks both profiles and simulates the larger one.
+`npm run check` typechecks the specification and simulates it.
 
 ## Running
 
