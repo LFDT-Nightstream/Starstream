@@ -18,8 +18,20 @@ So the rewrite adds no behaviour, which is the direction that matters when
 the prover proves the rewritten code. The second case is there because of
 rule 3. Deleting `local.tee` drops an instruction that needs a value under
 it, and without Wasm's type system the proof cannot rule out an original
-with nothing there. Wasm's type soundness rules it out for validated
-modules, but that theorem isn't proved against these semantics.
+with nothing there. Validated modules don't get stuck: SpecTec proves type
+soundness against this same file, in
+[`type_preservation.v`](https://github.com/Wasm-DSL/spectec/blob/95c256c2c/spectec/test-rocq/theories/type_preservation.v)
+and
+[`type_progress.v`](https://github.com/Wasm-DSL/spectec/blob/95c256c2c/spectec/test-rocq/theories/type_progress.v),
+with two SIMD cases of progress left open. We don't import those proofs:
+they would add 23 axioms and an admitted lemma to the assumptions below, and
+the optimizer only has to be right on code that validates.
+
+`module_ok_rewrite` in `Validation.v` shows that the rewrite keeps code valid:
+rewriting any function bodies of a valid module, in the same way, gives a
+valid module. The pass needs this because it runs in rounds. Each round's
+original is the previous round's output, so ruling out the second case for
+that round needs that output to be valid.
 
 - `LocalRewrites.v`: each rule on its own. From the same state, the original
   instructions and their rewrite run to the same configuration.
@@ -38,14 +50,20 @@ modules, but that theorem isn't proved against these semantics.
   `local.get` they share reads a local whose values agree. And it shows that
   every step of an instruction with no code in it produces no code and no
   reads of locals.
+- `Validation.v`: retyping the rewritten code. Any typing derivation for a
+  sequence of instructions splits into derivations for its parts, with some
+  stack between them, so each rule and each block can be retyped alone.
 
 Not yet proved:
 - removing and renumbering locals;
 - that the Rust code applies exactly these rules, and that instantiating the
-  two modules gives stores related as the theorem assumes.
+  two modules gives valid stores related as the theorem assumes. With those
+  and SpecTec's soundness, the results above compose across the pass's rounds.
 
-The only assumptions are the 55 numeric primitives `Wasm2.v` leaves
-abstract, the same list as Nightstream's `scripts/audit.expected`.
+The only assumptions are the 55 things `Wasm2.v` leaves abstract, the same
+list as Nightstream's `scripts/audit.expected`: 54 numeric primitives and
+decidable equality on its list type, `res_list_eq_dec`. `Validation.v` needs
+only that last one.
 
 ## Build
 
