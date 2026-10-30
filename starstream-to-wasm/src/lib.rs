@@ -2364,8 +2364,8 @@ impl Compiler {
         func.into_raw_body()
     }
 
-    /// Visit a `return;` statement or the end of the function, doing any
-    /// necessary cleanup.
+    /// Visit a `return`, `resume`, tail call, or end of the function,
+    /// doing any necessary cleanup.
     fn visit_return(&self, func: &mut StFunction, bb: &usize) {
         for each in self.on_return_cleanup.iter().rev() {
             each(func.instructions(bb));
@@ -2523,6 +2523,7 @@ impl Compiler {
                 }
                 TypedStatement::Resume => {
                     if let Some(resource) = &self.current_resource {
+                        self.visit_return(func, bb);
                         func.cfg.fill(
                             *bb,
                             Out::ReturnCall {
