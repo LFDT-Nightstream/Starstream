@@ -19,7 +19,10 @@ jobs:
       # Test all crates, except those that force-target WASM.
       - run: cargo test --workspace
       - name: Test Rust-to-Quint trace verification
-        run: npm test
+        run: npm run test_rust
+        working-directory: starstream-interleaving-spec
+      - name: Test circuit-to-Quint conformance
+        run: npm run test_circuit
         working-directory: starstream-interleaving-spec
       # Cosmetic checks.
       - run: cargo clippy
