@@ -1,0 +1,7 @@
+-Q . ""
+-arg -w -arg -notation-overridden,-ambiguous-paths
+Wasm2.v
+LocalRewrites.v
+StepInversion.v
+Nested.v
+Validation.v
