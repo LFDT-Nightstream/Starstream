@@ -893,6 +893,7 @@ TypedProgram {
         Contract,
         Import(
             TypedImportDef {
+                span: 11..98,
                 items: [
                     TypedImportItem {
                         imported: Identifier {
@@ -937,6 +938,9 @@ TypedProgram {
                         value: "../target/wasm32-unknown-unknown/release/sha256lib.wasm",
                         span: 38..95,
                     },
+                ),
+                module: Some(
+                    ModuleId(1),
                 ),
             },
         ),

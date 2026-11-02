@@ -378,8 +378,8 @@ fn resolve_path_imports<'g>(
     graph: &crate::ModuleGraph,
     importer: ModuleId,
     module_exports: &'g HashMap<ModuleId, Namespace>,
-) -> HashMap<usize, &'g Namespace> {
-    let mut result: HashMap<usize, &'g Namespace> = HashMap::new();
+) -> HashMap<usize, (&'g Namespace, ModuleId)> {
+    let mut result = HashMap::new();
 
     for edge in graph.edges_of(importer) {
         let target_id = edge.target;
@@ -387,7 +387,7 @@ fn resolve_path_imports<'g>(
             // Topological order should ensure deps are processed first.
             unreachable!();
         };
-        result.insert(edge.def_index, target_exports);
+        result.insert(edge.def_index, (target_exports, target_id));
     }
 
     result
@@ -488,17 +488,17 @@ impl Inferencer {
         &mut self,
         env: &mut TypeEnv,
         definitions: &[Spanned<Definition>],
-        resolved: &HashMap<usize, &Namespace>,
+        resolved: &HashMap<usize, (&Namespace, ModuleId)>,
     ) -> Result<(), TypeError> {
         for (i, def) in definitions.iter().enumerate() {
             if let Definition::Import(import) = &def.node {
                 // Resolve the namespace we're importing from.
                 let source = &import.from.to_string();
-                let namespace = match (resolved.get(&i), &import.from) {
-                    (Some(&ns), _) => {
+                let (namespace, module) = match (resolved.get(&i), &import.from) {
+                    (Some((ns, module)), _) => {
                         // Preresolved import. Common case for path imports which come
                         // from the module graph.
-                        ns
+                        (*ns, Some(*module))
                     }
                     (
                         None,
@@ -509,8 +509,14 @@ impl Inferencer {
                         },
                     ) => {
                         // WIT import.
-                        self.builtins
-                            .get_as_namespace(namespace, package, interface.as_ref())?
+                        (
+                            self.builtins.get_as_namespace(
+                                namespace,
+                                package,
+                                interface.as_ref(),
+                            )?,
+                            None,
+                        )
                     }
                     (None, ImportSource::Path(path)) => {
                         // Non-preresolved path import, usually leftover from
@@ -567,8 +573,10 @@ impl Inferencer {
                 self.typed_definitions.insert(
                     &def.node,
                     TypedDefinition::Import(TypedImportDef {
+                        span: def.span,
                         items: typed_items,
                         from: import.from.clone(),
+                        module,
                     }),
                 );
             }

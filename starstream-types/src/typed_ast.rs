@@ -37,9 +37,11 @@ pub enum TypedDefinition {
 
 #[derive(Clone, Debug)]
 pub struct TypedImportDef {
+    pub span: Span,
     /// All items imported, whether as a namespace or one-by-one.
     pub items: Vec<TypedImportItem>,
     pub from: ImportSource,
+    pub module: Option<ModuleId>,
 }
 
 #[derive(Clone, Debug)]
