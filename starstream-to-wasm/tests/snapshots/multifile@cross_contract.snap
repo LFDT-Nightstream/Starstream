@@ -23,6 +23,15 @@ ModuleGraph {
         ModuleId(1),
     ],
 }
+==== main.star ====
+  x no callable found for function 4
+   ,-[$PWD/tests/multifile/cross_contract/main.star:6:5]
+ 5 | script fn run() -> i64 {
+ 6 |     helper()
+   :     ^^^|^^
+   :        `-- no callable found for function 4
+ 7 | }
+   `----
 ==== other.star ====
 package root:component;
 
@@ -45,13 +54,3 @@ package starstream:std {
     pop-effect-handler-frame: func();
   }
 }
-
-==== main.star ====
-  x no callable found for function 4
-   ,-[$PWD/tests/multifile/cross_contract/main.star:6:5]
- 5 | script fn run() -> i64 {
- 6 |     helper()
-   :     ^^^|^^
-   :        `-- no callable found for function 4
- 7 | }
-   `----

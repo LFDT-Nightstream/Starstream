@@ -1,8 +1,8 @@
 #![allow(clippy::result_large_err)]
 
 use std::{
-    cell::Cell,
-    collections::{HashMap, HashSet},
+    cell::RefCell,
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     sync::Arc,
 };
@@ -151,7 +151,8 @@ pub struct TypedModule {
     pub source: Arc<str>,
     pub contents: TypedModuleContents,
     pub edges: Vec<ModuleId>,
-    pub hash: Cell<[u8; 32]>,
+    /// Set after the compiler visits a module, for use by its importers.
+    pub export: RefCell<Option<TypedModuleExport>>,
 }
 
 #[derive(Debug, Default)]
@@ -162,6 +163,11 @@ pub enum TypedModuleContents {
     Wasm(Box<TypedWasmModule>),
 }
 
+#[derive(Debug, Default)]
+pub struct TypedModuleExport {
+    pub hash: [u8; 32],
+}
+
 /// Typechecked counterpart to `ModuleGraph`. Modules are listed in `id`
 /// order (matching the source graph), with `topo_order` giving the iteration
 /// order callers should use for downstream passes.
@@ -170,7 +176,7 @@ pub struct TypedModuleGraph {
     pub modules: Vec<TypedModule>,
     pub topo_order: Vec<ModuleId>,
     /// Module ids that declare `contract;` — i.e. codegen entries.
-    pub contract_entries: HashSet<ModuleId>,
+    pub contract_entries: BTreeSet<ModuleId>,
     pub generic_types: HashMap<String, GenericTypeDef>,
     /// Warnings collected from every module (e.g. unnecessary disclose,
     /// path-import-in-single-file). Carried even on success so callers can
@@ -350,7 +356,7 @@ pub fn typecheck_modules(
                 .iter()
                 .map(|e| e.target)
                 .collect(),
-            hash: Default::default(),
+            export: Default::default(),
         });
     }
 

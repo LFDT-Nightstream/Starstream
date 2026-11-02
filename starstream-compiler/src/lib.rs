@@ -17,7 +17,7 @@ pub use module_graph::{Module, ModuleGraph, ModuleGraphError, ModuleId, PathImpo
 pub use parser::parse_program;
 pub use typecheck::{
     TypeWarning, TypeWarningKind, TypecheckFailure, TypecheckModulesFailure, TypecheckOptions,
-    TypedModule, TypedModuleGraph, typecheck_modules, typecheck_program,
+    TypedModule, TypedModuleExport, TypedModuleGraph, typecheck_modules, typecheck_program,
 };
 
 pub const FILE_EXTENSION: &str = "star";

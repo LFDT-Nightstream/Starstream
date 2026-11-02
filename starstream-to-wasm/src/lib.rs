@@ -9,7 +9,7 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_compiler::typecheck::TypedModuleContents;
-use starstream_compiler::{TypedWasmModule, WasmLinkage};
+use starstream_compiler::{TypedModuleExport, TypedWasmModule, WasmLinkage};
 use starstream_types::{
     AbiType, BinaryOp, DUMMY_SPAN, EnumType, EnumVariantKind, FunctionExport, FunctionKind,
     FunctionType, ImportSource, IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type,
@@ -92,8 +92,10 @@ pub struct CompileResult {
     pub binary_wit: Option<Vec<u8>>,
     /// List of (name, flowchart) pairs. Requires [`CompileOptions::output_mermaid`].
     pub mermaid: Vec<(String, String)>,
-
+    /// Libraries that must be linked in to finish a component.
     pub libraries: Vec<(String, Arc<[u8]>, WasmLinkage)>,
+    /// The contract's collected exports for downstream use.
+    export: Option<TypedModuleExport>,
 }
 
 /// A Wasm compiler error.
@@ -160,9 +162,9 @@ impl CompileOptions {
         entry: starstream_compiler::ModuleId,
     ) -> CompileResult {
         // Build a reachable-from-entry set by chasing edges through the graph.
-        use std::collections::HashSet;
-        let mut reachable = HashSet::new();
-        let mut cross_contract = HashSet::new();
+        use std::collections::BTreeSet;
+        let mut reachable = BTreeSet::new();
+        let mut cross_contract = BTreeSet::new();
         reachable.insert(entry);
         let mut stack = vec![entry];
         while let Some(id) = stack.pop() {
@@ -181,6 +183,11 @@ impl CompileOptions {
         // to the entry.
         compiler.module = Some(entry);
         let mut definitions = Vec::new();
+        for import in cross_contract {
+            if let Some(_export) = &*graph.module(import).export.borrow() {
+                // TODO
+            }
+        }
         for &module_id in &graph.topo_order {
             if reachable.contains(&module_id) {
                 match &graph.module(module_id).contents {
@@ -198,13 +205,8 @@ impl CompileOptions {
             }
         }
         compiler.visit_program(&definitions);
-        let result = compiler.finish();
-        if let Some(wasm) = &result.wasm {
-            graph
-                .module(entry)
-                .hash
-                .set(sha2::Sha256::digest(wasm).into());
-        }
+        let mut result = compiler.finish();
+        *graph.module(entry).export.borrow_mut() = result.export.take();
         result
     }
 }
@@ -268,6 +270,8 @@ struct Compiler {
     effect_handlers: BTreeMap<NameId, Effect>,
     /// Function bodies.
     code_bytes: Vec<Vec<u8>>,
+    /// Information for exports.
+    export_info: TypedModuleExport,
 
     // Memory building.
     bump_ptr: u32,
@@ -362,6 +366,7 @@ impl Compiler {
                 binary_wit: None,
                 mermaid: Vec::new(),
                 libraries: Vec::new(),
+                export: None,
             };
         }
 
@@ -460,6 +465,7 @@ impl Compiler {
             binary_wit: Some(component),
             mermaid: self.mermaid,
             libraries: self.libraries,
+            export: Some(self.export_info),
         }
     }
 

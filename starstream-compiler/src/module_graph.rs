@@ -26,7 +26,7 @@ use starstream_types::{
 use crate::parser::{self, ParseError};
 
 /// Stable identifier for a module within a [ModuleGraph].
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct ModuleId(u32);
 
 impl ModuleId {
