@@ -107,18 +107,3 @@ fn helper_codegen_error_names_helper() {
     );
     assert_eq!(&module.source[error.span.into_range()], "wide");
 }
-
-#[test]
-fn cross_contract_import_errors() {
-    // Helper file also declares `contract;` — must be rejected at graph build.
-    let entry = fixture("cross_contract").join("main.star");
-    let mut fs = starstream_types::FileSystem::new();
-    match starstream_compiler::ModuleGraph::from_entry(&mut fs, &entry)
-        .err()
-        .unwrap_or_default()
-        .as_slice()
-    {
-        [starstream_compiler::ModuleGraphError::CrossContractImport { .. }] => {}
-        other => panic!("expected CrossContractImport, got {:?}", other),
-    }
-}
