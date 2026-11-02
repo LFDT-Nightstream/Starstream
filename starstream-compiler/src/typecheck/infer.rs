@@ -1,6 +1,7 @@
 #![allow(clippy::result_large_err)]
 
 use std::{
+    cell::Cell,
     collections::{HashMap, HashSet},
     fmt::Display,
     sync::Arc,
@@ -150,6 +151,7 @@ pub struct TypedModule {
     pub source: Arc<str>,
     pub contents: TypedModuleContents,
     pub edges: Vec<ModuleId>,
+    pub hash: Cell<[u8; 32]>,
 }
 
 #[derive(Debug, Default)]
@@ -168,7 +170,7 @@ pub struct TypedModuleGraph {
     pub modules: Vec<TypedModule>,
     pub topo_order: Vec<ModuleId>,
     /// Module ids that declare `contract;` — i.e. codegen entries.
-    pub contract_entries: Vec<ModuleId>,
+    pub contract_entries: HashSet<ModuleId>,
     pub generic_types: HashMap<String, GenericTypeDef>,
     /// Warnings collected from every module (e.g. unnecessary disclose,
     /// path-import-in-single-file). Carried even on success so callers can
@@ -348,13 +350,14 @@ pub fn typecheck_modules(
                 .iter()
                 .map(|e| e.target)
                 .collect(),
+            hash: Default::default(),
         });
     }
 
     Ok(TypedModuleGraph {
         modules,
         topo_order: graph.topo_order().to_vec(),
-        contract_entries: graph.contract_entries().to_vec(),
+        contract_entries: graph.contract_entries().iter().copied().collect(),
         generic_types,
         warnings,
         traces,

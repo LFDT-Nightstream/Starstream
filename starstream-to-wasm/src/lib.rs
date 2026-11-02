@@ -161,13 +161,16 @@ impl CompileOptions {
     ) -> CompileResult {
         // Build a reachable-from-entry set by chasing edges through the graph.
         use std::collections::HashSet;
-        let mut reachable: HashSet<starstream_compiler::ModuleId> = HashSet::new();
+        let mut reachable = HashSet::new();
+        let mut cross_contract = HashSet::new();
         reachable.insert(entry);
         let mut stack = vec![entry];
         while let Some(id) = stack.pop() {
             let module = graph.module(id);
             for &target in &module.edges {
-                if reachable.insert(target) {
+                if graph.contract_entries.contains(&target) {
+                    cross_contract.insert(target);
+                } else if reachable.insert(target) {
                     stack.push(target);
                 }
             }
@@ -195,7 +198,14 @@ impl CompileOptions {
             }
         }
         compiler.visit_program(&definitions);
-        compiler.finish()
+        let result = compiler.finish();
+        if let Some(wasm) = &result.wasm {
+            graph
+                .module(entry)
+                .hash
+                .set(sha2::Sha256::digest(wasm).into());
+        }
+        result
     }
 }
 
