@@ -173,7 +173,22 @@ pub enum Step {
         effect: EffectHash,
         arguments: StarstreamValue,
     },
+    /// Open a `try` scope owned by the current invocation. `frame_id`
+    /// identifies the compiled handler code, not a unique dynamic scope.
+    PushEffectHandlerFrame {
+        frame_id: u32,
+    },
+    /// Register an effect on the innermost scope of the current invocation.
+    AddEffectHandler {
+        effect: EffectHash,
+    },
+    /// Close the innermost scope of the current invocation.
+    PopEffectHandlerFrame,
+    /// Host search step past a scope that does not register the pending
+    /// effect; no program event. The effect is the pending raise's.
+    SkipEffectHandler,
     EnterEffectHandler {
+        frame_id: u32,
         effect: EffectHash,
         arguments: StarstreamValue,
     },

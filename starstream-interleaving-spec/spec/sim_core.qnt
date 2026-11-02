@@ -132,6 +132,53 @@ module starstream_sim_core {
     enter_method(method, arguments)
   }
 
+  // Bounded exploration of the explicit effect scopes. The scope limit bounds
+  // live registrations; the call-frame limit also bounds recursive raises.
+  action simulate_push_effect_handler_frame: bool = all {
+    effect_stack.length() < 4,
+    nondet frame_id = 0.to(3).oneOf()
+    push_effect_handler_frame(frame_id),
+  }
+
+  action simulate_add_effect_handler: bool = {
+    nondet effect = SIM_METHODS.oneOf()
+    add_effect_handler(effect)
+  }
+
+  action simulate_raise_effect: bool = all {
+    state.call_stack.length() < 10,
+    nondet effect = SIM_METHODS.oneOf()
+    nondet arguments = SIM_VALUES.oneOf()
+    raise_effect(effect, arguments),
+  }
+
+  action simulate_skip_effect_handler: bool = skip_effect_handler
+
+  action simulate_enter_effect_handler: bool = all {
+    state.call_stack.length() > 0,
+    val frame = state.call_stack.last()
+    match state.effect_head {
+      | Some(id) =>
+          match frame.expected_method {
+            | Some(effect) => enter_effect_handler(
+                state.effect_arena[id].frame_id, effect, frame.expected_arguments)
+            | None => all { false, state' = state }
+          }
+      | None => all { false, state' = state }
+    },
+  }
+
+  action simulate_exit_effect_handler: bool = {
+    nondet handled = Set(false, true).oneOf()
+    nondet result = SIM_VALUES.oneOf()
+    exit_effect_handler(handled, { value: result })
+  }
+
+  action simulate_resume_effect: bool = all {
+    state.call_stack.length() > 0,
+    resume_effect({ value: state.call_stack.last().expected_result }),
+  }
+
   // ghost variable used to verify transition invariants using next() inside
   // always() seems to not be well supported by the quint tla generation (orKeep
   // wants a non temporal action, so nesting doesn't work)
@@ -174,6 +221,14 @@ module starstream_sim_core {
       simulate_call_method,
       simulate_receive_method_result,
       simulate_enter_method,
+      simulate_push_effect_handler_frame,
+      simulate_add_effect_handler,
+      pop_effect_handler_frame,
+      simulate_raise_effect,
+      simulate_skip_effect_handler,
+      simulate_enter_effect_handler,
+      simulate_exit_effect_handler,
+      simulate_resume_effect,
   }
 
   action init = {
@@ -201,6 +256,13 @@ module starstream_sim_core {
         prev_lifecycle.get(u) == Consumed
           implies state.utxo_lifecycle.get(u) == Consumed
     )
+
+  val has_effect_scope = effect_stack.length() > 0
+  val is_handling_effect = state.curr_cid_phase == EffectHandlerExecuting
+  val has_nested_effect = state.call_stack.indices().filter(i =>
+    state.call_stack[i].kind == EffectCall).size() >= 2
+  val handling_outer_coroutine = state.curr_cid_phase == EffectHandlerExecuting and
+    state.instance_stack.length() > 0 and state.curr != state.instance_stack.last()
 
   val tx_finished = state.tx_phase == Finished
   val has_loaded_input = state.next_utxo_id > 0 and state.tx_inputs.length() > 0

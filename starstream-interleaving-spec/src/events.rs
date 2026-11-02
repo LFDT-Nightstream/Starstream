@@ -29,6 +29,9 @@ pub enum EventKind {
     EnterEffectHandler,
     ExitEffectHandler,
     ResumeEffect,
+    PushEffectHandlerFrame,
+    AddEffectHandler,
+    PopEffectHandlerFrame,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,6 +42,7 @@ pub enum Word {
     Argument(usize),
     Result(usize),
     Handled,
+    FrameId,
 }
 
 impl EventKind {
@@ -60,6 +64,9 @@ impl EventKind {
             13 => Self::ResumeEffect,
             14 => Self::ReceiveNewUtxoHandle,
             15 => Self::ReceiveMethodResult,
+            16 => Self::PushEffectHandlerFrame,
+            17 => Self::AddEffectHandler,
+            18 => Self::PopEffectHandlerFrame,
             _ => return None,
         })
     }
@@ -81,8 +88,12 @@ impl EventKind {
             Step::EnterEffectHandler { .. } => Self::EnterEffectHandler,
             Step::ExitEffectHandler { .. } => Self::ExitEffectHandler,
             Step::ResumeEffect { .. } => Self::ResumeEffect,
+            Step::PushEffectHandlerFrame { .. } => Self::PushEffectHandlerFrame,
+            Step::AddEffectHandler { .. } => Self::AddEffectHandler,
+            Step::PopEffectHandlerFrame => Self::PopEffectHandlerFrame,
             // these are circuit-only instructions
-            Step::PreloadMethod { .. }
+            Step::SkipEffectHandler
+            | Step::PreloadMethod { .. }
             | Step::ReadAbi { .. }
             | Step::SkipConsumed
             | Step::FinalizeCoordinator
@@ -107,6 +118,9 @@ impl EventKind {
             Self::ResumeEffect => 13,
             Self::ReceiveNewUtxoHandle => 14,
             Self::ReceiveMethodResult => 15,
+            Self::PushEffectHandlerFrame => 16,
+            Self::AddEffectHandler => 17,
+            Self::PopEffectHandlerFrame => 18,
         }
     }
 
@@ -131,14 +145,22 @@ impl EventKind {
                 root(&mut words, &mut last_root_block, false)
             }
             Self::ReceiveNewUtxoHandle => words.push(Resource),
-            Self::YieldBegin => {}
-            Self::RegisterMethod => words.extend((0..METHOD_WORDS).map(Method)),
+            Self::YieldBegin | Self::PopEffectHandlerFrame => {}
+            Self::PushEffectHandlerFrame => words.push(FrameId),
+            Self::RegisterMethod | Self::AddEffectHandler => {
+                words.extend((0..METHOD_WORDS).map(Method))
+            }
             Self::CallMethod => {
                 words.push(Resource);
                 words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, true);
             }
-            Self::EnterMethod | Self::RaiseEffect | Self::EnterEffectHandler => {
+            Self::EnterMethod | Self::RaiseEffect => {
+                words.extend((0..METHOD_WORDS).map(Method));
+                root(&mut words, &mut last_root_block, true);
+            }
+            Self::EnterEffectHandler => {
+                words.push(FrameId);
                 words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, true);
             }
@@ -172,6 +194,7 @@ impl EventKind {
             });
         }
         let mut resource = 0_u32;
+        let mut frame_id = 0_u32;
         let mut method = [0_u32; METHOD_WORDS];
         let mut argument = [0_u64; 4];
         let mut result = [0_u64; 4];
@@ -212,6 +235,7 @@ impl EventKind {
                         }
                     }
                     Word::Resource => resource = named("resource")?,
+                    Word::FrameId => frame_id = named("frame_id")?,
                     Word::Method(index) => method[index] = named("method")?,
                     Word::Argument(index) => argument[index] = value,
                     Word::Result(index) => result[index] = value,
@@ -275,6 +299,9 @@ impl EventKind {
             },
             EventKind::YieldBegin => Step::YieldBegin,
             EventKind::RegisterMethod => Step::RegisterMethod { method },
+            EventKind::PushEffectHandlerFrame => Step::PushEffectHandlerFrame { frame_id },
+            EventKind::AddEffectHandler => Step::AddEffectHandler { effect: method },
+            EventKind::PopEffectHandlerFrame => Step::PopEffectHandlerFrame,
             EventKind::Return => Step::Return {
                 result: Out(result),
             },
@@ -295,6 +322,7 @@ impl EventKind {
                 arguments: argument,
             },
             EventKind::EnterEffectHandler => Step::EnterEffectHandler {
+                frame_id,
                 effect: method,
                 arguments: argument,
             },
@@ -314,12 +342,19 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         return vec![];
     };
 
+    let frame_id = match step {
+        Step::PushEffectHandlerFrame { frame_id } | Step::EnterEffectHandler { frame_id, .. } => {
+            *frame_id
+        }
+        _ => 0,
+    };
     let (resource, method, argument, result) = match step {
         Step::SetStorage { storage, .. } => (0, None, Some(storage), None),
         Step::GetStorage { storage } => (0, None, None, Some(&storage.0)),
         Step::PreloadMethod { .. }
         | Step::ReadAbi { .. }
         | Step::SkipConsumed
+        | Step::SkipEffectHandler
         | Step::FinalizeCoordinator
         | Step::FinishTransaction => unreachable!(),
         Step::NewUtxo { arguments } => (0, None, Some(arguments), None),
@@ -327,6 +362,8 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         Step::EnterConstructor { arguments } => (0, None, Some(arguments), None),
         Step::YieldBegin => (0, None, None, None),
         Step::RegisterMethod { method } => (0, Some(method), None, None),
+        Step::PushEffectHandlerFrame { .. } | Step::PopEffectHandlerFrame => (0, None, None, None),
+        Step::AddEffectHandler { effect } => (0, Some(effect), None, None),
         Step::Return { result } => (0, None, None, Some(&result.0)),
         Step::CallMethod {
             resource,
@@ -336,9 +373,9 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         Step::ReceiveMethodResult { result } => (0, None, None, Some(&result.0)),
         Step::EnterMethod { method, arguments } => (0, Some(method), Some(arguments), None),
         Step::RaiseEffect { effect, arguments }
-        | Step::EnterEffectHandler { effect, arguments } => {
-            (0, Some(effect), Some(arguments), None)
-        }
+        | Step::EnterEffectHandler {
+            effect, arguments, ..
+        } => (0, Some(effect), Some(arguments), None),
         Step::ExitEffectHandler { result, .. } => (0, None, None, Some(&result.0)),
         Step::ResumeEffect { result } => (0, None, None, Some(&result.0)),
     };
@@ -348,6 +385,7 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
             block.map(|word| match word {
                 Word::Constant(x) => u64::from(x),
                 Word::Resource => u64::from(resource),
+                Word::FrameId => u64::from(frame_id),
                 Word::Method(i) => u64::from(method.unwrap().0[i]),
                 Word::Argument(i) => argument.unwrap().0[i],
                 Word::Result(i) => result.unwrap().0[i],
@@ -442,6 +480,7 @@ mod test {
                 arguments: ROOT,
             },
             Step::EnterEffectHandler {
+                frame_id: 3,
                 effect: METHOD,
                 arguments: ROOT,
             },
@@ -450,6 +489,9 @@ mod test {
                 result: Out(OTHER),
             },
             Step::ResumeEffect { result: Out(OTHER) },
+            Step::PushEffectHandlerFrame { frame_id: 3 },
+            Step::AddEffectHandler { effect: METHOD },
+            Step::PopEffectHandlerFrame,
         ]
     }
 
@@ -522,6 +564,27 @@ mod test {
         );
         let resume = Step::ReceiveMethodResult { result: Out(OTHER) };
         assert_eq!(encode(&resume), [[15, 21, 22, 23, 24, 0, 0, 0]]);
+    }
+
+    #[test]
+    fn handler_entry_commits_frame_id_before_effect() {
+        let step = Step::EnterEffectHandler {
+            frame_id: 9,
+            effect: METHOD,
+            arguments: ROOT,
+        };
+        assert_eq!(
+            encode(&step),
+            [[11, 9, 1, 2, 3, 4, 5, 6], [7, 8, 11, 12, 13, 14, 0, 0]]
+        );
+        assert_eq!(
+            encode(&Step::PushEffectHandlerFrame { frame_id: 9 }),
+            [[16, 9, 0, 0, 0, 0, 0, 0]]
+        );
+        assert_eq!(
+            encode(&Step::PopEffectHandlerFrame),
+            [[18, 0, 0, 0, 0, 0, 0, 0]]
+        );
     }
 
     #[test]

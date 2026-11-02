@@ -1,3 +1,4 @@
+mod effect_stack;
 mod resource_bindings;
 
 mod padding {
@@ -12,6 +13,8 @@ mod padding {
         // Explicitly reviewed derived gates, each constrained to non-padding
         // selectors. New activation schemes need review.
         let derived = [
+            COL_INSTANCE_PUSH,
+            COL_EFFECT_SCOPE_READ,
             COL_CALL_STACK_PUSH,
             COL_CALL_STACK_POP,
             COL_CALL_STACK_TOP,
@@ -84,9 +87,10 @@ use starstream_interleaving_spec::{MethodHash, ResourceHandle, StarstreamValue, 
 use super::{Error, Unsatisfied, build_witness_rows, verify_sat, verify_witness_rows};
 use crate::{
     ccs::layout::{
-        COL_ABI_METHOD_COUNT_ADDR, COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_CALL_TARGET_INVERSE,
-        COL_CALL_TARGET_IS_ZERO, COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE,
-        COL_SEL_ENTER_CONSTRUCTOR, range_check_layout,
+        COL_ABI_METHOD_COUNT_ADDR, COL_CALL_SP_AFTER, COL_CALL_STACK_EXPECTED_ARG_VALUE,
+        COL_CALL_TARGET_INVERSE, COL_CALL_TARGET_IS_ZERO, COL_EFFECT_HEAD_AFTER,
+        COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE, COL_SEL_ENTER_CONSTRUCTOR,
+        range_check_layout,
     },
     memory::MemoryId,
     step::normalize,
@@ -403,15 +407,35 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
     ])
 }
 
+/// Push a `try` scope registering `effects`.
+fn effect_scope(frame_id: u32, effects: &[MethodHash]) -> Vec<Step> {
+    std::iter::once(Step::PushEffectHandlerFrame { frame_id })
+        .chain(
+            effects
+                .iter()
+                .map(|&effect| Step::AddEffectHandler { effect }),
+        )
+        .collect()
+}
+
+/// Steps preceding the first raise in [`nested_effect_trace`].
+const NESTED_EFFECT_PREFIX: usize = 4;
+
+// The outer handler runs with only the scopes outside its own visible, so
+// the inner effect is registered on an enclosing scope.
 fn nested_effect_trace() -> Trace {
     let outer = MethodHash([10, 0, 1, 0, 1, 0, 1, 0]);
     let inner = MethodHash([11, 0, 1, 0, 1, 0, 1, 0]);
-    Trace::new([
+    let mut steps = effect_scope(1, &[inner]);
+    steps.extend(effect_scope(2, &[outer]));
+    assert_eq!(steps.len(), NESTED_EFFECT_PREFIX);
+    steps.extend([
         Step::RaiseEffect {
             effect: outer,
             arguments: vec![1, 2, 3, 4].into(),
         },
         Step::EnterEffectHandler {
+            frame_id: 2,
             effect: outer,
             arguments: vec![1, 2, 3, 4].into(),
         },
@@ -420,6 +444,7 @@ fn nested_effect_trace() -> Trace {
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::EnterEffectHandler {
+            frame_id: 1,
             effect: inner,
             arguments: StarstreamValue::UNIT_VALUE,
         },
@@ -437,22 +462,26 @@ fn nested_effect_trace() -> Trace {
         Step::ResumeEffect {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
+        Step::PopEffectHandlerFrame,
+        Step::PopEffectHandlerFrame,
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-    ])
+    ]);
+    Trace::new(steps)
 }
 
 fn constructor_effect_trace(effect_after_registration: bool) -> Trace {
     let effect = MethodHash([12, 0, 1, 0, 1, 0, 1, 0]);
-    let mut steps = vec![
+    let mut steps = effect_scope(1, &[effect]);
+    steps.extend([
         Step::NewUtxo {
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::EnterConstructor {
             arguments: StarstreamValue::UNIT_VALUE,
         },
-    ];
+    ]);
     if effect_after_registration {
         steps.push(Step::RegisterMethod { method: effect });
     }
@@ -462,6 +491,7 @@ fn constructor_effect_trace(effect_after_registration: bool) -> Trace {
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::EnterEffectHandler {
+            frame_id: 1,
             effect,
             arguments: StarstreamValue::UNIT_VALUE,
         },
@@ -483,6 +513,7 @@ fn constructor_effect_trace(effect_after_registration: bool) -> Trace {
         Step::ReceiveNewUtxoHandle {
             resource: ResourceHandle(0).into(),
         },
+        Step::PopEffectHandlerFrame,
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
@@ -620,6 +651,7 @@ fn rejects_effect_while_method_result_is_pending() {
                 arguments: StarstreamValue::UNIT_VALUE,
             },
             Step::EnterEffectHandler {
+                frame_id: 1,
                 effect,
                 arguments: StarstreamValue::UNIT_VALUE,
             },
@@ -658,6 +690,7 @@ fn rejects_effect_while_new_utxo_handle_is_pending() {
                 arguments: StarstreamValue::UNIT_VALUE,
             },
             Step::EnterEffectHandler {
+                frame_id: 1,
                 effect,
                 arguments: StarstreamValue::UNIT_VALUE,
             },
@@ -716,18 +749,20 @@ fn accepts_nested_effect_handler_reentry() {
 #[test]
 fn nested_same_effect_resumes_match_results_by_stack_position() {
     let mut trace = nested_effect_trace();
-    let Step::RaiseEffect { effect, .. } = trace.0[0] else {
+    let base = NESTED_EFFECT_PREFIX;
+    let Step::RaiseEffect { effect, .. } = trace.0[base] else {
         unreachable!()
     };
-    for index in [2, 3] {
+    for index in [1, base + 2, base + 3] {
         match &mut trace.0[index] {
-            Step::RaiseEffect { effect: inner, .. }
+            Step::AddEffectHandler { effect: inner }
+            | Step::RaiseEffect { effect: inner, .. }
             | Step::EnterEffectHandler { effect: inner, .. } => *inner = effect,
             _ => unreachable!(),
         }
     }
     for (index, value) in [(4, 11), (5, 11), (6, 22), (7, 22)] {
-        match &mut trace.0[index] {
+        match &mut trace.0[base + index] {
             Step::ExitEffectHandler { result, .. } | Step::ResumeEffect { result } => {
                 *result = StarstreamValue::from(vec![value]).into();
             }
@@ -736,7 +771,7 @@ fn nested_same_effect_resumes_match_results_by_stack_position() {
     }
     verify_sat(&trace).unwrap();
 
-    trace.0.swap(5, 7);
+    trace.0.swap(base + 5, base + 7);
     assert!(matches!(
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
@@ -761,12 +796,14 @@ fn rejects_skipping_effect_handler_search() {
 #[test]
 fn rejects_repeating_effect_handler_after_search_is_exhausted() {
     let effect = MethodHash([14, 0, 1, 0, 1, 0, 1, 0]);
-    let trace = Trace::new([
+    let mut steps = effect_scope(1, &[effect]);
+    steps.extend([
         Step::RaiseEffect {
             effect,
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::EnterEffectHandler {
+            frame_id: 1,
             effect,
             arguments: StarstreamValue::UNIT_VALUE,
         },
@@ -775,22 +812,32 @@ fn rejects_repeating_effect_handler_after_search_is_exhausted() {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
         Step::EnterEffectHandler {
+            frame_id: 1,
             effect,
             arguments: StarstreamValue::UNIT_VALUE,
         },
     ]);
-    assert!(verify_sat(&trace).is_err());
+    assert!(matches!(
+        verify_sat(&Trace::new(steps)),
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 5,
+            constraint: "effect scope reads",
+            ..
+        }))
+    ));
 }
 
 #[test]
 fn rejects_resuming_an_unhandled_effect() {
     let effect = MethodHash([15, 0, 1, 0, 1, 0, 1, 0]);
-    let trace = Trace::new([
+    let mut steps = effect_scope(1, &[effect]);
+    steps.extend([
         Step::RaiseEffect {
             effect,
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::EnterEffectHandler {
+            frame_id: 1,
             effect,
             arguments: StarstreamValue::UNIT_VALUE,
         },
@@ -802,7 +849,7 @@ fn rejects_resuming_an_unhandled_effect() {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
     ]);
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&Trace::new(steps)).is_err());
 }
 
 #[test]
@@ -832,7 +879,7 @@ fn rejects_effect_after_resume_signal() {
 #[test]
 fn rejects_effect_resume_with_wrong_result() {
     let mut trace = nested_effect_trace();
-    let Step::ResumeEffect { result } = &mut trace.0[5] else {
+    let Step::ResumeEffect { result } = &mut trace.0[NESTED_EFFECT_PREFIX + 5] else {
         unreachable!()
     };
     *result = StarstreamValue::from(vec![99]).into();
@@ -1108,4 +1155,117 @@ fn rejects_tampered_continuity_value() {
             }
         )))
     ));
+}
+
+/// Raise `effect` past a single scope that registers something else.
+const SKIP_ROW: usize = 3;
+
+fn effect_skip_trace(effect: MethodHash) -> Trace {
+    Trace::new([
+        Step::PushEffectHandlerFrame { frame_id: 1 },
+        Step::AddEffectHandler {
+            effect: MethodHash([9; 8]),
+        },
+        Step::RaiseEffect {
+            effect,
+            arguments: StarstreamValue([11, 12, 13, 14]),
+        },
+        Step::SkipEffectHandler,
+    ])
+}
+
+#[test]
+fn effect_skip_accepts_dynamic_ids_and_preserves_pending_arguments() {
+    for effect in [
+        MethodHash([1, 2, 3, 4, 5, 6, 7, 8]),
+        MethodHash([u32::MAX; 8]),
+    ] {
+        let trace = effect_skip_trace(effect);
+        let (rows, preload) = build_witness_rows(&trace);
+        // This is a valid execution prefix, not a completed transaction.
+        verify_witness_rows(&rows, &preload).unwrap();
+        let (raise, skip) = (&rows[SKIP_ROW - 1], &rows[SKIP_ROW]);
+        assert_eq!(raise[COL_CALL_SP_AFTER], skip[COL_CALL_SP_AFTER]);
+        assert_eq!(skip[COL_EFFECT_HEAD_AFTER], F::ZERO);
+        for column in COL_CALL_STACK_EXPECTED_ARG_VALUE {
+            assert_eq!(raise[column], skip[column]);
+        }
+        assert!(matches!(
+            verify_sat(&trace),
+            Err(Error::Unsatisfied(
+                Unsatisfied::TerminalCallStackNotEmpty { .. }
+            ))
+        ));
+    }
+}
+
+#[test]
+fn effect_skip_searches_for_the_pending_effect() {
+    // The inner scope handles the raised effect. A forged skip claims to
+    // search for the outer scope's effect instead, which the inner scope
+    // does not register, but the pending frame records the raised one.
+    let (raised, other) = (MethodHash([1; 8]), MethodHash([2; 8]));
+    let trace = Trace::new([
+        Step::PushEffectHandlerFrame { frame_id: 1 },
+        Step::AddEffectHandler { effect: other },
+        Step::PushEffectHandlerFrame { frame_id: 2 },
+        Step::AddEffectHandler { effect: raised },
+        Step::RaiseEffect {
+            effect: raised,
+            arguments: StarstreamValue([11, 12, 13, 14]),
+        },
+        Step::SkipEffectHandler,
+    ]);
+    let (mut rows, preload) = build_witness_rows(&trace);
+    assert!(matches!(
+        verify_witness_rows(&rows, &preload),
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 5,
+            constraint: "effect scope reads",
+            ..
+        }))
+    ));
+    use crate::ccs::layout::*;
+    let add_other = rows[1].clone();
+    let skip = &mut rows[5];
+    for column in COL_METHOD_HASH_VALUE
+        .into_iter()
+        .chain(COL_METHOD_TABLE_ADDR)
+        .chain([COL_METHOD_INDEX])
+    {
+        skip[column] = add_other[column];
+    }
+    skip[COL_EFFECT_REGISTERED] = F::ZERO;
+    crate::witness::assign_stride_columns(skip);
+    range_check_layout().assign_bits(skip).unwrap();
+    assert!(matches!(
+        verify_witness_rows(&rows, &preload),
+        Err(Error::Unsatisfied(Unsatisfied::Memory(_)))
+    ));
+}
+
+#[test]
+fn exhausted_search_cannot_skip_handle_resume_or_return() {
+    let effect = MethodHash([1; 8]);
+    for next in [
+        Step::SkipEffectHandler,
+        Step::EnterEffectHandler {
+            frame_id: 1,
+            effect,
+            arguments: StarstreamValue([11, 12, 13, 14]),
+        },
+        Step::ResumeEffect {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+        Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+    ] {
+        let mut trace = effect_skip_trace(effect);
+        trace.0.push(next);
+        let (rows, preload) = build_witness_rows(&trace);
+        assert!(verify_witness_rows(&rows, &preload).is_err());
+    }
+    let (rows, preload) = build_witness_rows(&Trace::new([Step::SkipEffectHandler]));
+    assert!(verify_witness_rows(&rows, &preload).is_err());
 }

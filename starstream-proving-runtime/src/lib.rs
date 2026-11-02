@@ -1,4 +1,5 @@
 mod decoder;
+mod effect_abi;
 mod execution;
 mod runtime;
 mod templates;

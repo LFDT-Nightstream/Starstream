@@ -1,8 +1,40 @@
 //! Cooperative scheduling of per-instance semantic traces.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{InputUtxo, MethodHash, OutputUtxo, ResourceHandle, Step, Trace, TransactionStatement};
+
+/// A registered `try` scope in the transaction-wide, append-only arena.
+struct EffectScope {
+    parent: Option<usize>,
+    owner: usize,
+    effects: HashSet<MethodHash>,
+}
+
+/// A raised effect awaiting a handler, with the raiser's visible head.
+struct PendingEffect {
+    raiser: usize,
+    effect: MethodHash,
+    saved_head: Option<usize>,
+}
+
+/// Walk outward from `head`, emitting a skip for every scope that does not
+/// register `effect`. Returns the matching scope, which becomes the cursor.
+fn search_handler(
+    arena: &[EffectScope],
+    mut head: Option<usize>,
+    effect: MethodHash,
+    merged: &mut Vec<Step>,
+) -> Result<usize, InterleavingError> {
+    loop {
+        let id = head.ok_or(InterleavingError::UnhandledEffect { effect })?;
+        if arena[id].effects.contains(&effect) {
+            return Ok(id);
+        }
+        merged.push(Step::SkipEffectHandler);
+        head = arena[id].parent;
+    }
+}
 
 /// Index in the supplied trace list, not a guest-visible handle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -140,7 +172,16 @@ fn schedule_execution(
     let mut current = 0_usize;
     let mut next_process = 1_usize;
     let mut call_stack = Vec::new();
-    let mut pending_constructors = HashMap::<usize, usize>::new();
+    let mut instance_stack = vec![0_usize];
+    // Scope bookkeeping mirrors the spec only far enough to route control:
+    // ownership and balance are checked by Quint and the circuit, not here.
+    let mut arena = Vec::<EffectScope>::new();
+    // The visible chain while executing; the search cursor while an effect is pending.
+    let mut head = None::<usize>;
+    let mut effects = Vec::<PendingEffect>::new();
+    // A coordinator's handler can call another UTXO constructor while an earlier
+    // constructor call is suspended, so each caller needs a stack of pending targets.
+    let mut pending_constructors = HashMap::<usize, Vec<usize>>::new();
     let mut resource_targets = HashMap::<(usize, ResourceHandle), usize>::new();
     let mut inputs = Vec::with_capacity(input_methods.len());
     for methods in input_methods {
@@ -181,7 +222,11 @@ fn schedule_execution(
 
         match step {
             Step::NewUtxo { .. } => {
-                if let Some(&target) = pending_constructors.get(&current) {
+                if let Some(&target) = pending_constructors
+                    .get(&current)
+                    .and_then(|pending| pending.last())
+                    && effects.is_empty()
+                {
                     return Err(InterleavingError::ConstructorAlreadyPending {
                         caller: ProcessIndex(current),
                         target: ProcessIndex(target),
@@ -197,7 +242,11 @@ fn schedule_execution(
                 let target = next_process;
                 next_process += 1;
                 allocation_order.push(target);
-                pending_constructors.insert(current, target);
+                pending_constructors
+                    .entry(current)
+                    .or_default()
+                    .push(target);
+                instance_stack.push(target);
                 call_stack.push(current);
                 merged.push(step);
                 current = target;
@@ -209,6 +258,7 @@ fn schedule_execution(
                         resource,
                     });
                 };
+                instance_stack.push(target);
                 call_stack.push(current);
                 merged.push(step);
                 current = target;
@@ -227,7 +277,8 @@ fn schedule_execution(
                 current = caller;
             }
             Step::ReceiveNewUtxoHandle { resource } => {
-                let Some(target) = pending_constructors.remove(&current) else {
+                instance_stack.pop();
+                let Some(target) = pending_constructors.get_mut(&current).and_then(Vec::pop) else {
                     return Err(InterleavingError::ConstructorResumeWithoutPendingCall {
                         process: ProcessIndex(current),
                     });
@@ -235,15 +286,77 @@ fn schedule_execution(
                 resource_targets.insert((current, resource.0), target);
                 merged.push(step);
             }
-            Step::ReceiveMethodResult { .. } => merged.push(step),
+            Step::ReceiveMethodResult { .. } => {
+                instance_stack.pop();
+                merged.push(step);
+            }
             Step::YieldBegin => {
                 registrations[current].clear();
                 merged.push(step);
             }
-            Step::RaiseEffect { .. }
-            | Step::EnterEffectHandler { .. }
-            | Step::ExitEffectHandler { .. }
-            | Step::ResumeEffect { .. } => merged.push(step),
+            Step::PushEffectHandlerFrame { .. } => {
+                arena.push(EffectScope {
+                    parent: head,
+                    owner: current,
+                    effects: HashSet::new(),
+                });
+                head = Some(arena.len() - 1);
+                merged.push(step);
+            }
+            Step::AddEffectHandler { effect } => {
+                let id = head.ok_or(InterleavingError::InvalidEffectDispatch)?;
+                arena[id].effects.insert(effect);
+                merged.push(step);
+            }
+            Step::PopEffectHandlerFrame => {
+                let id = head.ok_or(InterleavingError::InvalidEffectDispatch)?;
+                head = arena[id].parent;
+                merged.push(step);
+            }
+            Step::RaiseEffect { effect, .. } => {
+                effects.push(PendingEffect {
+                    raiser: current,
+                    effect,
+                    saved_head: head,
+                });
+                merged.push(step);
+                let id = search_handler(&arena, head, effect, &mut merged)?;
+                head = Some(id);
+                current = arena[id].owner;
+            }
+            Step::EnterEffectHandler { .. } => {
+                let id = head.ok_or(InterleavingError::InvalidEffectDispatch)?;
+                head = arena[id].parent;
+                merged.push(step);
+            }
+            Step::ExitEffectHandler { handled: false, .. } => {
+                let pending = effects
+                    .last()
+                    .ok_or(InterleavingError::InvalidEffectDispatch)?;
+                merged.push(step);
+                // The handler balanced its scopes, so head is the selected
+                // scope's parent: the next candidate.
+                let id = search_handler(&arena, head, pending.effect, &mut merged)?;
+                head = Some(id);
+                current = arena[id].owner;
+            }
+            Step::ExitEffectHandler { handled: true, .. } => {
+                let pending = effects
+                    .last()
+                    .ok_or(InterleavingError::InvalidEffectDispatch)?;
+                head = pending.saved_head;
+                current = pending.raiser;
+                merged.push(step);
+            }
+            Step::ResumeEffect { .. } => {
+                let pending = effects
+                    .pop()
+                    .ok_or(InterleavingError::InvalidEffectDispatch)?;
+                if current != pending.raiser {
+                    return Err(InterleavingError::InvalidEffectDispatch);
+                }
+                merged.push(step);
+            }
             Step::RegisterMethod { method } => {
                 registrations[current].push(method);
                 merged.push(step);
@@ -251,6 +364,7 @@ fn schedule_execution(
             Step::EnterConstructor { .. } | Step::EnterMethod { .. } => merged.push(step),
             Step::GetStorage { .. }
             | Step::SetStorage { .. }
+            | Step::SkipEffectHandler
             | Step::PreloadMethod { .. }
             | Step::ReadAbi { .. }
             | Step::SkipConsumed
@@ -282,6 +396,10 @@ fn schedule_execution(
 /// Scheduling failure. Quint or the circuit must still validate the merged trace.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InterleavingError {
+    #[error("effect dispatch has no matching pending search or resumption")]
+    InvalidEffectDispatch,
+    #[error("no registered scope handles effect {effect:?}")]
+    UnhandledEffect { effect: MethodHash },
     #[error("input process {process:?} must start with SetStorage")]
     MissingStorageLoad { process: ProcessIndex },
     #[error("no entrypoint coordination-script trace was supplied")]
@@ -706,6 +824,131 @@ mod tests {
         verifier
             .verify_transaction(&transaction.trace, &transaction.statement)
             .unwrap();
+    }
+
+    fn effect(value: u32) -> MethodHash {
+        MethodHash([value, 0, 0, 0, 0, 0, 0, 7])
+    }
+
+    fn raise(effect: MethodHash) -> Step {
+        Step::RaiseEffect {
+            effect,
+            arguments: value([5]),
+        }
+    }
+
+    fn enter_handler(frame_id: u32, effect: MethodHash) -> Step {
+        Step::EnterEffectHandler {
+            frame_id,
+            effect,
+            arguments: value([5]),
+        }
+    }
+
+    fn exit_handler(handled: bool) -> Step {
+        Step::ExitEffectHandler {
+            handled,
+            result: Out(value([6])),
+        }
+    }
+
+    fn resume() -> Step {
+        Step::ResumeEffect {
+            result: Out(value([6])),
+        }
+    }
+
+    // The UTXO's own scope registers a different effect, so the search skips
+    // it and dispatches to the coordinator's scope.
+    fn skipped_scope_traces() -> Vec<Trace> {
+        let coordinator = Trace::new([
+            Step::PushEffectHandlerFrame { frame_id: 1 },
+            Step::AddEffectHandler { effect: effect(1) },
+            new_utxo([]),
+            enter_handler(1, effect(1)),
+            exit_handler(true),
+            receive_new_utxo_handle(ResourceHandle(0)),
+            Step::PopEffectHandlerFrame,
+            ret(),
+        ]);
+        let utxo = Trace::new([
+            enter_constructor([]),
+            Step::PushEffectHandlerFrame { frame_id: 2 },
+            Step::AddEffectHandler { effect: effect(2) },
+            raise(effect(1)),
+            resume(),
+            Step::PopEffectHandlerFrame,
+            ret(),
+        ]);
+        vec![coordinator, utxo]
+    }
+
+    #[test]
+    fn effect_search_skips_scopes_without_the_effect() {
+        let merged = interleave_execution_only(&skipped_scope_traces()).unwrap();
+        assert_eq!(
+            merged.0[4..12],
+            [
+                Step::PushEffectHandlerFrame { frame_id: 2 },
+                Step::AddEffectHandler { effect: effect(2) },
+                raise(effect(1)),
+                Step::SkipEffectHandler,
+                enter_handler(1, effect(1)),
+                exit_handler(true),
+                resume(),
+                Step::PopEffectHandlerFrame,
+            ]
+        );
+    }
+
+    // The inner scope declines; the search continues to the outer scope of
+    // the same coordinator, which is entered as a second activation.
+    fn declined_handler_traces() -> Vec<Trace> {
+        vec![Trace::new([
+            Step::PushEffectHandlerFrame { frame_id: 1 },
+            Step::AddEffectHandler { effect: effect(1) },
+            Step::PushEffectHandlerFrame { frame_id: 2 },
+            Step::AddEffectHandler { effect: effect(1) },
+            raise(effect(1)),
+            enter_handler(2, effect(1)),
+            exit_handler(false),
+            enter_handler(1, effect(1)),
+            exit_handler(true),
+            resume(),
+            Step::PopEffectHandlerFrame,
+            Step::PopEffectHandlerFrame,
+            ret(),
+        ])]
+    }
+
+    #[test]
+    fn declined_handler_continues_from_the_selected_scope_parent() {
+        let traces = declined_handler_traces();
+        assert_eq!(interleave_execution_only(&traces).unwrap(), traces[0]);
+    }
+
+    #[test]
+    fn unhandled_effect_is_rejected() {
+        let coordinator = Trace::new([raise(effect(1)), ret()]);
+        assert_eq!(
+            interleave_execution_only(&[coordinator]),
+            Err(InterleavingError::UnhandledEffect { effect: effect(1) })
+        );
+    }
+
+    #[test]
+    #[ignore = "requires Quint; run through npm test"]
+    fn effect_interleavings_satisfy_quint() {
+        let verifier = crate::QuintVerifier::new().unwrap();
+        for (name, traces) in [
+            ("skipped scope", skipped_scope_traces()),
+            ("declined handler", declined_handler_traces()),
+        ] {
+            let merged = interleave_execution_only(&traces).unwrap();
+            verifier
+                .verify(&merged)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+        }
     }
 
     #[test]

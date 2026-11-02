@@ -137,6 +137,20 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
             links: vec![link(COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE)],
         },
         ContinuityGroup {
+            name: "instance_stack_depth",
+            role: "runtime invocation depth survives effect dispatch and nested handlers",
+            links: vec![link(COL_INSTANCE_DEPTH_AFTER, COL_INSTANCE_DEPTH_BEFORE)],
+        },
+        ContinuityGroup {
+            name: "effect_scope_continuity",
+            role: "effect head, local scope depth and arena allocator carry across rows",
+            links: vec![
+                link(COL_EFFECT_HEAD_AFTER, COL_EFFECT_HEAD_BEFORE),
+                link(COL_EFFECT_DEPTH_AFTER, COL_EFFECT_DEPTH_BEFORE),
+                link(COL_EFFECT_ARENA_LEN_AFTER, COL_EFFECT_ARENA_LEN_BEFORE),
+            ],
+        },
+        ContinuityGroup {
             name: "call_stack_pointer_continuity",
             role: "row[i].COL_CALL_SP_AFTER must match row[i+1].COL_CALL_SP_BEFORE",
             links: vec![link(COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE)],

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
@@ -24,6 +24,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             | Step::CallMethod { method, .. }
             | Step::EnterMethod { method, .. }
             | Step::RaiseEffect { effect: method, .. }
+            | Step::AddEffectHandler { effect: method }
             | Step::EnterEffectHandler { effect: method, .. } => Some(*method),
             _ => None,
         })
@@ -53,14 +54,21 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
     };
     let mut curr = CoroutineId::Coord(1);
     let mut curr_phase = CurrPhase::Executing;
+    // Program invocations remain until Receive*, which binds the callee handle.
+    let mut instance_stack = vec![CoroutineId::Coord(1)];
+    // Append-only scope arena, indexed by node id; heads are encoded id + 1.
+    let mut arena: Vec<EffectScope> = vec![];
+    let mut effect_head = 0u32;
+    let mut effect_depth = 0u32;
     // Quint's initial coordinator frame occupies the first stack slot.
     let mut callers = vec![CallFrame {
         caller: CoroutineId::Coord(0),
-        callee: CoroutineId::Coord(1),
         saved_phase: CurrPhase::Executing,
         kind: CallFrameKind::Program,
-        handler_search_remaining: 0,
+        saved_effect_head: 0,
+        saved_effect_depth: 0,
         arguments: starstream_interleaving_spec::StarstreamValue::UNIT_VALUE,
+        effect: None,
     }];
     let mut call_sp = F::new(1);
     let mut next_utxo_id = 0u32;
@@ -88,27 +96,15 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             _ => CoroutineId::Coord(0),
         };
         let curr_before = curr;
-        let event_owner = if opcode == Opcode::FinalizeCoordinator {
-            CoroutineId::Coord(1)
-        } else if matches!(
-            opcode,
-            Opcode::SetStorage | Opcode::GetStorage | Opcode::SkipConsumed
-        ) {
-            boundary_utxo
-        } else if opcode.has_event() {
-            curr_before
-        } else {
-            CoroutineId::Coord(0)
-        };
-        let commitment_before = commitments
-            .get(&event_owner)
-            .copied()
-            .filter(|_| opcode.has_event() || opcode.reads_trace_root())
-            .unwrap_or([F::ZERO; 4]);
+        let instance_depth_before = instance_stack.len().saturating_sub(1) as u32;
         let curr_phase_before = curr_phase;
         let next_utxo_id_before = next_utxo_id;
         let enabled_method_log_len_before =
             u32::try_from(enabled_method_log.len()).expect("the enabled-method log fits in u32");
+        let effect_head_before = effect_head;
+        let effect_depth_before = effect_depth;
+        let effect_arena_len_before =
+            u32::try_from(arena.len()).expect("the effect arena fits in u32");
         let mut dynamic_phase_after = None;
 
         let call_sp_before = call_sp;
@@ -145,12 +141,13 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let mut enabled_method_log_generation = 0;
         let mut call_frame_is_effect = false;
         let mut call_frame_constructor = false;
-        let mut call_frame_callee = CoroutineId::Coord(0);
         let mut call_frame_saved_phase = CurrPhase::Executing;
         let mut return_requires_unit = false;
-        let mut handler_search_remaining_before = 0;
-        let mut handler_search_remaining_after = 0;
         let mut effect_handled = false;
+        let mut effect_frame_id = 0;
+        let mut effect_registered = false;
+        let mut saved_effect_head = 0;
+        let mut saved_effect_depth = 0;
 
         match step {
             Step::ReadAbi { method } => {
@@ -218,16 +215,18 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     .expect("the UTXO allocator fits in u32");
                 callers.push(CallFrame {
                     caller: curr_before,
-                    callee: target,
                     saved_phase: curr_phase_before,
                     kind: CallFrameKind::Constructor,
-                    handler_search_remaining: 0,
+                    saved_effect_head: effect_head_before,
+                    saved_effect_depth: effect_depth_before,
                     arguments: arguments.clone(),
+                    effect: None,
                 });
+                effect_depth = 0;
+                instance_stack.push(target);
                 curr_after = target;
                 call_target = target;
                 call_frame_constructor = true;
-                call_frame_callee = target;
                 call_frame_saved_phase = curr_phase_before;
             }
             Step::EnterConstructor { arguments } => {
@@ -299,7 +298,8 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Program));
                 call_frame_is_effect = frame.kind == CallFrameKind::Effect;
                 call_frame_constructor = frame.kind == CallFrameKind::Constructor;
-                call_frame_callee = frame.callee;
+                saved_effect_depth = frame.saved_effect_depth;
+                effect_depth = frame.saved_effect_depth;
                 return_requires_unit =
                     frame.kind == CallFrameKind::Constructor || !return_has_receiver;
                 curr_after = frame.caller;
@@ -337,18 +337,20 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     .unwrap_or(CoroutineId::Coord(0));
                 callers.push(CallFrame {
                     caller: curr_before,
-                    callee: target,
                     saved_phase: curr_phase_before,
                     kind: CallFrameKind::Program,
-                    handler_search_remaining: 0,
+                    saved_effect_head: effect_head_before,
+                    saved_effect_depth: effect_depth_before,
                     arguments: arguments.clone(),
+                    effect: None,
                 });
+                effect_depth = 0;
+                instance_stack.push(target);
                 curr_after = target;
                 call_target = target;
                 resolver_address = key;
                 resolver_value = target;
                 resolver_read = true;
-                call_frame_callee = target;
                 call_frame_saved_phase = curr_phase_before;
 
                 abi_generation_address = target;
@@ -374,21 +376,20 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 let frame = callers
                     .pop()
                     .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Constructor));
-                call_frame_callee = frame.callee;
                 call_frame_saved_phase = frame.saved_phase;
                 call_target = frame.caller;
                 resolver_address = (curr_before, resource.0);
-                resolver_value = frame.callee;
+                resolver_value = instance_stack.pop().unwrap_or(CoroutineId::Coord(0));
                 resolver_write = true;
                 resource_resolver.insert(resolver_address, resolver_value);
                 dynamic_phase_after = Some(frame.saved_phase);
             }
             Step::ReceiveMethodResult { result } => {
+                instance_stack.pop();
                 expected_result = Some(result.0.words32().map(|x| F::new(u64::from(x))).to_vec());
                 let frame = callers
                     .pop()
                     .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Program));
-                call_frame_callee = frame.callee;
                 call_frame_saved_phase = frame.saved_phase;
                 call_target = frame.caller;
                 dynamic_phase_after = Some(frame.saved_phase);
@@ -402,26 +403,82 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 call_target = curr_before;
                 call_frame_is_effect = true;
                 call_frame_saved_phase = curr_phase_before;
-                handler_search_remaining_after = 1;
                 callers.push(CallFrame {
                     caller: curr_before,
-                    callee: curr_before,
                     saved_phase: curr_phase_before,
                     kind: CallFrameKind::Effect,
-                    handler_search_remaining: 1,
+                    saved_effect_head: effect_head_before,
+                    saved_effect_depth: effect_depth_before,
                     arguments: arguments.clone(),
+                    effect: Some(*effect),
                 });
             }
-            Step::EnterEffectHandler { effect, arguments } => {
+            Step::PushEffectHandlerFrame { frame_id } => {
+                arena.push(EffectScope {
+                    parent: effect_head_before,
+                    owner: curr_before,
+                    effects: HashSet::new(),
+                });
+                effect_frame_id = *frame_id;
+                effect_head = u32::try_from(arena.len()).expect("the effect arena fits in u32");
+                effect_depth = effect_depth_before.wrapping_add(1);
+            }
+            Step::AddEffectHandler { effect } => {
+                method_hash = Some(encode_method_hash(*effect));
+                method_index = method_indices[effect];
+                effect_registered = true;
+                if let Some(scope) = scope_mut(&mut arena, effect_head_before) {
+                    scope.effects.insert(*effect);
+                }
+            }
+            Step::PopEffectHandlerFrame => {
+                // An invalid pop keeps the depth representable as a field
+                // element; the inverse constraint rejects it.
+                effect_head = scope(&arena, effect_head_before).map_or(0, |scope| scope.parent);
+                effect_depth = effect_depth_before.wrapping_sub(1);
+            }
+            Step::SkipEffectHandler => {
+                // The searched effect is the pending raise's, which the
+                // circuit reads back from the call frame.
+                let frame = callers.last();
+                let effect = frame.and_then(|frame| frame.effect);
+                if let Some(effect) = effect {
+                    method_hash = Some(encode_method_hash(effect));
+                    method_index = method_indices[&effect];
+                }
+                call_frame_is_effect = true;
+                expected_arguments = frame.map(|frame| {
+                    frame
+                        .arguments
+                        .words32()
+                        .map(|x| F::new(u64::from(x)))
+                        .to_vec()
+                });
+                let selected = scope(&arena, effect_head_before);
+                effect_registered = selected
+                    .zip(effect)
+                    .is_some_and(|(scope, effect)| scope.effects.contains(&effect));
+                effect_head = selected.map_or(0, |scope| scope.parent);
+            }
+            Step::EnterEffectHandler {
+                frame_id,
+                effect,
+                arguments,
+            } => {
                 expected_arguments =
                     Some(arguments.words32().map(|x| F::new(u64::from(x))).to_vec());
                 method_hash = Some(encode_method_hash(*effect));
                 method_index = method_indices[effect];
                 call_frame_is_effect = true;
-                handler_search_remaining_before = callers
-                    .last()
-                    .map(|frame| frame.handler_search_remaining)
-                    .unwrap_or(0);
+                // The claimed frame id is committed and checked against the
+                // arena by the frame-id read port.
+                let selected = scope(&arena, effect_head_before);
+                effect_registered = selected.is_some_and(|scope| scope.effects.contains(effect));
+                effect_frame_id = *frame_id;
+                effect_head = selected.map_or(0, |scope| scope.parent);
+                effect_depth = 0;
+                call_target = selected.map_or(CoroutineId::Coord(0), |scope| scope.owner);
+                curr_after = call_target;
             }
             Step::ExitEffectHandler { handled, result } => {
                 if let Some(frame) = callers.last_mut() {
@@ -432,10 +489,13 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                             .map(|x| F::new(u64::from(x)))
                             .to_vec(),
                     );
-                    handler_search_remaining_before = frame.handler_search_remaining;
-                    frame.handler_search_remaining = 0;
+                    saved_effect_head = frame.saved_effect_head;
+                    saved_effect_depth = frame.saved_effect_depth;
                 }
-                handler_search_remaining_after = 0;
+                if *handled {
+                    effect_head = saved_effect_head;
+                }
+                effect_depth = saved_effect_depth;
                 expected_result = Some(result.0.words32().map(|x| F::new(u64::from(x))).to_vec());
                 call_frame_is_effect = true;
                 effect_handled = *handled;
@@ -452,7 +512,6 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Effect));
                 call_frame_is_effect = frame.kind == CallFrameKind::Effect;
                 call_frame_saved_phase = frame.saved_phase;
-                handler_search_remaining_before = frame.handler_search_remaining;
                 curr_after = frame.caller;
                 call_target = frame.caller;
                 dynamic_phase_after = Some(frame.saved_phase);
@@ -483,7 +542,28 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         } else if opcode.scans_output() {
             abi_method_count_before = abi_method_counts.get(&boundary_utxo).copied().unwrap_or(0);
         }
+        let event_owner = if opcode == Opcode::FinalizeCoordinator {
+            CoroutineId::Coord(1)
+        } else if matches!(
+            opcode,
+            Opcode::SetStorage | Opcode::GetStorage | Opcode::SkipConsumed
+        ) {
+            boundary_utxo
+        } else if matches!(opcode, Opcode::EnterEffectHandler | Opcode::ResumeEffect) {
+            call_target
+        } else if opcode.has_event() {
+            curr_before
+        } else {
+            CoroutineId::Coord(0)
+        };
+        let commitment_before = commitments
+            .get(&event_owner)
+            .copied()
+            .filter(|_| opcode.has_event() || opcode.reads_trace_root())
+            .unwrap_or([F::ZERO; 4]);
         let mut row = Wit {
+            instance_depth_before,
+            instance_depth_after: instance_stack.len().saturating_sub(1) as u32,
             io_before: io_chain,
             io_after: io_chain,
             abi_method_count_before,
@@ -507,12 +587,28 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             call_target,
             call_frame_is_effect,
             call_frame_constructor,
-            call_frame_callee,
             call_frame_saved_phase,
             return_requires_unit,
-            handler_search_remaining_before,
-            handler_search_remaining_after,
             effect_handled,
+            effect_frame_id,
+            effect_registered,
+            saved_effect_head: if opcode.pushes_to_call_stack() {
+                effect_head_before
+            } else {
+                saved_effect_head
+            },
+            saved_effect_depth: if opcode.pushes_to_call_stack() {
+                effect_depth_before
+            } else {
+                saved_effect_depth
+            },
+            effect_head_before,
+            effect_head_after: effect_head,
+            effect_depth_before,
+            effect_depth_after: effect_depth,
+            effect_arena_len_before,
+            effect_arena_len_after: u32::try_from(arena.len())
+                .expect("the effect arena fits in u32"),
             next_utxo_id_before,
             next_utxo_id_after: next_utxo_id,
             enabled_method_log_len_before,
@@ -550,6 +646,21 @@ pub(crate) struct NormalizedTrace {
     pub(crate) method_table: Vec<MethodHash>,
 }
 
+struct EffectScope {
+    /// Encoded parent head: node id + 1, or 0 for the root.
+    parent: u32,
+    owner: CoroutineId,
+    effects: HashSet<MethodHash>,
+}
+
+fn scope(arena: &[EffectScope], head: u32) -> Option<&EffectScope> {
+    arena.get(head.checked_sub(1)? as usize)
+}
+
+fn scope_mut(arena: &mut [EffectScope], head: u32) -> Option<&mut EffectScope> {
+    arena.get_mut(head.checked_sub(1)? as usize)
+}
+
 // The circuit encodes these variants with separate effect and constructor bits.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CallFrameKind {
@@ -561,22 +672,25 @@ enum CallFrameKind {
 #[derive(Clone)]
 struct CallFrame {
     caller: CoroutineId,
-    callee: CoroutineId,
     saved_phase: CurrPhase,
     kind: CallFrameKind,
-    handler_search_remaining: u32,
+    saved_effect_head: u32,
+    saved_effect_depth: u32,
     arguments: starstream_interleaving_spec::StarstreamValue,
+    /// The pending effect of an effect frame, which the search looks up.
+    effect: Option<MethodHash>,
 }
 
 impl CallFrame {
     fn placeholder(kind: CallFrameKind) -> Self {
         Self {
             caller: CoroutineId::Coord(0),
-            callee: CoroutineId::Coord(0),
             saved_phase: CurrPhase::Executing,
             kind,
-            handler_search_remaining: 0,
+            saved_effect_head: 0,
+            saved_effect_depth: 0,
             arguments: starstream_interleaving_spec::StarstreamValue::UNIT_VALUE,
+            effect: None,
         }
     }
 }
@@ -603,12 +717,21 @@ pub(crate) struct Wit {
     pub(crate) call_target: CoroutineId,
     pub(crate) call_frame_is_effect: bool,
     pub(crate) call_frame_constructor: bool,
-    pub(crate) call_frame_callee: CoroutineId,
     pub(crate) call_frame_saved_phase: CurrPhase,
     pub(crate) return_requires_unit: bool,
-    pub(crate) handler_search_remaining_before: u32,
-    pub(crate) handler_search_remaining_after: u32,
     pub(crate) effect_handled: bool,
+    pub(crate) effect_frame_id: u32,
+    pub(crate) effect_registered: bool,
+    pub(crate) saved_effect_head: u32,
+    pub(crate) saved_effect_depth: u32,
+    pub(crate) effect_head_before: u32,
+    pub(crate) effect_head_after: u32,
+    pub(crate) effect_depth_before: u32,
+    pub(crate) effect_depth_after: u32,
+    pub(crate) effect_arena_len_before: u32,
+    pub(crate) effect_arena_len_after: u32,
+    pub(crate) instance_depth_before: u32,
+    pub(crate) instance_depth_after: u32,
     pub(crate) next_utxo_id_before: u32,
     pub(crate) next_utxo_id_after: u32,
     pub(crate) enabled_method_log_len_before: u32,
@@ -642,6 +765,8 @@ impl Wit {
     /// assigned zero. It goes through the same column assigner as execution.
     pub(crate) fn padding_after(&self) -> Self {
         Self {
+            instance_depth_before: self.instance_depth_after,
+            instance_depth_after: self.instance_depth_after,
             tx_before: self.tx_after,
             io_before: self.io_after,
             io_after: self.io_after,
@@ -663,12 +788,19 @@ impl Wit {
             call_target: CoroutineId::Coord(0),
             call_frame_is_effect: false,
             call_frame_constructor: false,
-            call_frame_callee: CoroutineId::Coord(0),
             call_frame_saved_phase: CurrPhase::Executing,
             return_requires_unit: false,
-            handler_search_remaining_before: 0,
-            handler_search_remaining_after: 0,
             effect_handled: false,
+            effect_frame_id: 0,
+            effect_registered: false,
+            saved_effect_head: 0,
+            saved_effect_depth: 0,
+            effect_head_before: self.effect_head_after,
+            effect_head_after: self.effect_head_after,
+            effect_depth_before: self.effect_depth_after,
+            effect_depth_after: self.effect_depth_after,
+            effect_arena_len_before: self.effect_arena_len_after,
+            effect_arena_len_after: self.effect_arena_len_after,
             next_utxo_id_before: self.next_utxo_id_after,
             next_utxo_id_after: self.next_utxo_id_after,
             enabled_method_log_len_before: self.enabled_method_log_len_after,
