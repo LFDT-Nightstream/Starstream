@@ -412,3 +412,29 @@ impl std::fmt::Display for NameId {
         write!(f, "{}", self.0)
     }
 }
+
+/// Stable identifier for a module within a ModuleGraph.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+pub struct ModuleId(u32);
+
+impl ModuleId {
+    /// The entry file of a `ModuleGraph::from_entry` graph, which is always
+    /// loaded first. Lets callers attribute errors to it even when building
+    /// the graph fails.
+    pub const ENTRY: ModuleId = ModuleId(0);
+
+    pub fn from_index(idx: usize) -> ModuleId {
+        ModuleId(idx.try_into().expect("ModuleId overflow"))
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl std::fmt::Debug for ModuleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Always put on one line, ignoring alternate formatting.
+        write!(f, "ModuleId({})", self.0)
+    }
+}

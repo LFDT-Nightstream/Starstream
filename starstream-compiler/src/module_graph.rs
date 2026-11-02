@@ -25,27 +25,7 @@ use starstream_types::{
 
 use crate::parser::{self, ParseError};
 
-/// Stable identifier for a module within a [ModuleGraph].
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub struct ModuleId(u32);
-
-impl ModuleId {
-    /// The entry file of a [`ModuleGraph::from_entry`] graph, which is always
-    /// loaded first. Lets callers attribute errors to it even when building
-    /// the graph fails.
-    pub const ENTRY: ModuleId = ModuleId(0);
-
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-impl std::fmt::Debug for ModuleId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Always put on one line, ignoring alternate formatting.
-        write!(f, "ModuleId({})", self.0)
-    }
-}
+pub use starstream_types::ModuleId;
 
 /// One loaded module node.
 pub struct Module {
@@ -97,7 +77,7 @@ pub struct PathImport {
 pub struct ModuleGraph {
     modules: Vec<Module>,
     topo_order: Vec<ModuleId>,
-    edges: HashMap<u32, Vec<PathImport>>,
+    edges: HashMap<ModuleId, Vec<PathImport>>,
     /// Codegen entries — nodes whose source declares `contract;`. The
     /// single-file `load_from_entry` always populates this with exactly the
     /// entry file (even if the file doesn't actually declare `contract;`).
@@ -189,7 +169,7 @@ impl ModuleGraph {
     }
 
     pub fn edges_of(&self, id: ModuleId) -> &[PathImport] {
-        self.edges.get(&id.0).map(|v| v.as_slice()).unwrap_or(&[])
+        self.edges.get(&id).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
     pub fn contract_entries(&self) -> &[ModuleId] {
@@ -227,7 +207,7 @@ impl ModuleGraph {
     }
 
     pub fn source(&self, id: ModuleId) -> NamedSource<Arc<str>> {
-        self.modules[id.0 as usize].to_named_source()
+        self.modules[id.index()].to_named_source()
     }
 }
 
@@ -370,7 +350,7 @@ fn walk(fs: &FileSystem, dir: &Path, visit: &mut impl FnMut(&Path)) {
 
 struct Builder<'a> {
     modules: Vec<Module>,
-    edges: HashMap<u32, Vec<PathImport>>,
+    edges: HashMap<ModuleId, Vec<PathImport>>,
     by_path: HashMap<PathBuf, ModuleId>,
     errors: Vec<ModuleGraphError>,
     fs: &'a mut FileSystem,
@@ -394,7 +374,7 @@ impl<'a> Builder<'a> {
         // Resolve imports transitively.
         let mut next = 0;
         while next < self.modules.len() {
-            self.resolve_imports(ModuleId(next as u32));
+            self.resolve_imports(ModuleId::from_index(next));
             next += 1;
         }
 
@@ -435,7 +415,7 @@ impl<'a> Builder<'a> {
             return Ok(id);
         }
         let idx = self.modules.len();
-        let id = ModuleId(idx as u32);
+        let id = ModuleId::from_index(idx);
         self.by_path.insert(abs_path.to_path_buf(), id);
         self.modules.push(Module {
             id,
@@ -564,7 +544,7 @@ impl<'a> Builder<'a> {
         }
 
         if !resolved.is_empty() {
-            self.edges.insert(id.0, resolved);
+            self.edges.insert(id, resolved);
         }
     }
 
@@ -580,7 +560,7 @@ impl<'a> Builder<'a> {
         for seed in seeds
             .iter()
             .copied()
-            .chain((0..n).map(|i| ModuleId(i as u32)))
+            .chain((0..n).map(ModuleId::from_index))
         {
             if color[seed.index()] != DfsColor::White {
                 continue;
@@ -605,7 +585,7 @@ impl<'a> Builder<'a> {
         path_stack.push((start, DUMMY_SPAN));
 
         while let Some(&(node, child_idx)) = stack.last() {
-            let edges = self.edges.get(&node.0).map(|v| v.as_slice()).unwrap_or(&[]);
+            let edges = self.edges.get(&node).map(|v| v.as_slice()).unwrap_or(&[]);
 
             if child_idx >= edges.len() {
                 color[node.index()] = DfsColor::Black;
