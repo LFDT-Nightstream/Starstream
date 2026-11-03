@@ -141,6 +141,12 @@ pub trait ContractLookup<T> {
     fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>>;
 }
 
+impl<T> ContractLookup<T> for &dyn ContractLookup<T> {
+    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>> {
+        (**self).get_contract(external_id)
+    }
+}
+
 /// Runtime-internal data structures which all implementors of `Host` must include.
 #[derive(Default, Debug)]
 pub struct StarstreamCtx {
