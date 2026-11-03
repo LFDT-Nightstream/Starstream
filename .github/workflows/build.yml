@@ -40,6 +40,14 @@ jobs:
         working-directory: starstream-js
         env:
           STARSTREAM: ${{ github.workspace }}/target/debug/starstream
+      - name: Test importing the packed starstream-js
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          tarball=$(echo "$RUNNER_TEMP"/starstream-*.tgz)
+          cd "$(mktemp -d)"
+          npm install "$tarball"
+          node --input-type=module -e 'import { Ledger, digest } from "starstream"; new Ledger("http://localhost"); await digest(new Uint8Array());'
+        working-directory: starstream-js
       # Cosmetic checks.
       - run: cargo clippy
       - run: cargo fmt --check
