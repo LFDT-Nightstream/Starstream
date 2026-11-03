@@ -9,13 +9,20 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=24"
+  },
   "devDependencies": {
     "tsdown": "^0.22.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },
   "scripts": {
+    "bindgen": "wit-bindgen-wrpc js --out-dir src/bindings ../starstream-ledger/wit",
     "prepack": "tsdown",
     "test": "vitest"
+  },
+  "dependencies": {
+    "@bytecodealliance/wrpc": "^0.4.0"
   }
 }
