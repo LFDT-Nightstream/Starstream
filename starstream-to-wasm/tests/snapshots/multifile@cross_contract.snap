@@ -23,15 +23,6 @@ ModuleGraph {
         ModuleId(1),
     ],
 }
-==== main.star ====
-  x no callable found for function 4
-   ,-[$PWD/tests/multifile/cross_contract/main.star:6:5]
- 5 | script fn run() -> i64 {
- 6 |     helper()
-   :     ^^^|^^
-   :        `-- no callable found for function 4
- 7 | }
-   `----
 ==== other.star ====
 package root:component;
 
@@ -52,5 +43,39 @@ package starstream:std {
     add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
 
     pop-effect-handler-frame: func();
+  }
+}
+
+==== main.star ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  import starstream:contract/scripts;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
+  export run: func() -> s64;
+}
+package starstream:std {
+  interface builtin {
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
+
+    resource token;
+
+    push-effect-handler-frame: func(frame-id: u32);
+
+    add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
+
+    pop-effect-handler-frame: func();
+  }
+}
+
+
+package starstream:contract {
+  interface scripts {
+    @external-id("4646e7033fa0f51a9f84b5ee5350e508a2d48ba79b313b7411c1fd6e85fe1f80")
+    helper: func() -> s64;
   }
 }

@@ -163,9 +163,9 @@ pub enum TypedModuleContents {
     Wasm(Box<TypedWasmModule>),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone)]
 pub struct TypedModuleExport {
-    pub hash: [u8; 32],
+    pub hash: String,
 }
 
 /// Typechecked counterpart to `ModuleGraph`. Modules are listed in `id`
@@ -200,6 +200,14 @@ impl TypedModuleGraph {
             }
             Ok(())
         })
+    }
+
+    /// Iterate contract entry points in topological order.
+    pub fn contract_entries(&self) -> impl Iterator<Item = ModuleId> {
+        self.topo_order
+            .iter()
+            .copied()
+            .filter(|x| self.contract_entries.contains(x))
     }
 }
 

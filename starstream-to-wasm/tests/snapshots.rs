@@ -265,7 +265,7 @@ fn multifile() {
                             }
                         }
 
-                        for &entry_id in &typed.contract_entries {
+                        for entry_id in typed.contract_entries() {
                             let entry_module = typed.module(entry_id);
                             writeln!(
                                 output,
