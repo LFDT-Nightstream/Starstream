@@ -327,10 +327,6 @@ fn run_tests(output: &mut String, component_wasm: &[u8], contracts: &mut Imports
         }
     }
 
-    if tests.is_empty() {
-        return;
-    }
-
     let contract =
         Contract::<Ctx>::new(&component, None, &*contracts).expect("failed to create contract");
 
@@ -417,10 +413,12 @@ struct Imports(HashMap<String, Contract<Ctx>>);
 
 impl ContractLookup<Ctx> for &Imports {
     fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<Ctx>> {
-        let contract = self
-            .0
-            .get(external_id)
-            .with_context(|| format!("contract `{external_id}` not found"))?;
+        let contract = self.0.get(external_id).with_context(|| {
+            format!(
+                "contract `{external_id}` not found (know {len} contracts)",
+                len = self.0.len()
+            )
+        })?;
         Ok(contract.clone())
     }
 }

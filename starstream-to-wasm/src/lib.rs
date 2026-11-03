@@ -1,6 +1,7 @@
 //! Compiler from Starstream DSL to core WebAssembly with component-types section.
 #![allow(clippy::too_many_arguments)]
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -89,6 +90,8 @@ pub struct CompileResult {
     pub errors: Vec<CompileError>,
     /// The Wasm module bytes. `None` if there was a fatal error.
     pub wasm: Option<Vec<u8>>,
+    /// The cached component bytes.
+    component: RefCell<Option<Rc<[u8]>>>,
     /// The WIT custom section bytes.
     pub binary_wit: Option<Vec<u8>>,
     /// List of (name, flowchart) pairs. Requires [`CompileOptions::output_mermaid`].
@@ -365,6 +368,7 @@ impl Compiler {
             return CompileResult {
                 errors: self.errors,
                 wasm: None,
+                component: Default::default(),
                 binary_wit: None,
                 mermaid: Vec::new(),
                 libraries: Vec::new(),
@@ -461,18 +465,21 @@ impl Compiler {
             wasm = starstream_wasm_opt::optimize(&wasm).expect("codegen emits valid Wasm");
         }
 
-        let export = TypedModuleExport {
-            // TODO: use hash of linked component rather than core module.
-            hash: format!("{:x}", sha2::Sha256::digest(&wasm)),
-        };
-        CompileResult {
+        let mut r = CompileResult {
             errors: self.errors,
             wasm: Some(wasm),
+            component: Default::default(),
             binary_wit: Some(component),
             mermaid: self.mermaid,
             libraries: self.libraries.into_values().collect(),
-            export: Some(export),
+            export: None,
+        };
+        if let Ok(component) = r.to_component() {
+            r.export = Some(TypedModuleExport {
+                hash: format!("{:x}", sha2::Sha256::digest(&component)),
+            });
         }
+        r
     }
 
     fn push_error(&mut self, span: Span, message: impl Into<String>) -> ErrorToken {

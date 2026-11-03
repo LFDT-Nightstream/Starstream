@@ -4,7 +4,10 @@
 //! as real `.star` files on disk, so they can be opened in an editor and
 //! debugged the same way as a real project.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 fn fixture(scenario: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -13,7 +16,7 @@ fn fixture(scenario: &str) -> PathBuf {
         .join(scenario)
 }
 
-fn compile_contract(entry: &Path) -> Vec<u8> {
+fn compile_contract(entry: &Path) -> Rc<[u8]> {
     let mut tracker = starstream_types::FileSystem::new();
     let (graph, entry_id) =
         starstream_compiler::ModuleGraph::from_entry(&mut tracker, entry).expect("graph");
