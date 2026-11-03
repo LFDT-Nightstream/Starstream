@@ -216,7 +216,7 @@ fn inputs() {
                             let component_wasm = compile_result.to_component().unwrap();
                             writeln!(output, "{}", wit(&component_wasm)).unwrap();
 
-                            run_tests(output, &component_wasm, &mut Imports::default());
+                            run_tests(output, &engine(), &component_wasm, &mut Imports::default());
                         }
                     }
                 }
@@ -268,6 +268,7 @@ fn multifile() {
                             }
                         }
 
+                        let engine = engine();
                         let mut contracts = Imports::default();
 
                         for entry_id in typed.contract_entries() {
@@ -290,7 +291,7 @@ fn multifile() {
                                 let component_wasm = compile_result.to_component().unwrap();
                                 writeln!(output, "{}", wit(&component_wasm)).unwrap();
 
-                                run_tests(output, &component_wasm, &mut contracts);
+                                run_tests(output, &engine, &component_wasm, &mut contracts);
                             }
                         }
                     }
@@ -311,10 +312,18 @@ fn multifile() {
     });
 }
 
-fn run_tests(output: &mut String, component_wasm: &[u8], contracts: &mut Imports) {
+fn engine() -> wasmtime::Engine {
     let mut engine_config = wasmtime::Config::default();
     starstream_runtime::configure_wasmtime(&mut engine_config);
-    let engine = wasmtime::Engine::new(&engine_config).expect("failed to create wasmtime Engine");
+    wasmtime::Engine::new(&engine_config).expect("failed to create wasmtime Engine")
+}
+
+fn run_tests(
+    output: &mut String,
+    engine: &wasmtime::Engine,
+    component_wasm: &[u8],
+    contracts: &mut Imports,
+) {
     let component = Component::new(&engine, component_wasm).expect("failed to load component");
     let ty = component.component_type();
 

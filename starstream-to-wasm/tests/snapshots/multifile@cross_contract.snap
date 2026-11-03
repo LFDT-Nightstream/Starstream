@@ -85,11 +85,5 @@ package starstream:contract {
 }
 
 ==== Test: test1 ====
-panic: call_coordination_script: failed to call function
-
-Caused by:
-    0: error while executing at wasm backtrace:
-    0:    0x31e - <unknown>!<wasm function 7>
-    1:    0x323 - <unknown>!<wasm function 8>
-    1: failed to instantiate component
-    2: cross-`Engine` usage is not supported
+events: []
+outputs: []
