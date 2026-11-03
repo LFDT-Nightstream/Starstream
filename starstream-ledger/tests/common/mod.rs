@@ -35,9 +35,10 @@ pub fn compile_contract_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> 
         "failed to compile program: {:#?}",
         compile_result.errors
     );
-    compile_result
+    let component = compile_result
         .to_component()
-        .map_err(|err| anyhow!("failed to componentize program: {err:?}"))
+        .map_err(|err| anyhow!("failed to componentize program: {err:?}"))?;
+    Ok(component.to_vec())
 }
 
 pub static SCORE_WASM: LazyLock<Box<[u8]>> = LazyLock::new(|| {

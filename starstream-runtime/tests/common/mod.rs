@@ -1,5 +1,4 @@
 use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::{Arc, LazyLock, Mutex};
 
 use sha2::{Digest as _, Sha256};
@@ -19,7 +18,7 @@ pub static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(|| {
     wasmtime::Engine::new(&engine_config).expect("failed to construct engine")
 });
 
-pub fn compile_contract(source: &str) -> wasmtime::Result<Rc<[u8]>> {
+pub fn compile_contract(source: &str) -> wasmtime::Result<Vec<u8>> {
     let (program, errs) = parse_program(source).into_output_errors();
     ensure!(errs.is_empty(), "failed to parse program: {errs:?}");
     let program = program.context("parser did not produce a program")?;
@@ -36,7 +35,7 @@ pub fn compile_contract(source: &str) -> wasmtime::Result<Rc<[u8]>> {
         compile_result.errors
     );
 
-    Ok(compile_result.to_component().unwrap())
+    Ok(compile_result.to_component().unwrap().to_vec())
 }
 
 pub fn method_hash(name: &str) -> (u64, u64, u64, u64) {
