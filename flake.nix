@@ -16,7 +16,7 @@
             pkgs.emscripten
             pkgs.llvmPackages.bintools-unwrapped
             pkgs.llvmPackages.clang-unwrapped
-            pkgs.nodejs_22
+            pkgs.nodejs_24
             pkgs.python3
             pkgs.rustup
             pkgs.wabt
