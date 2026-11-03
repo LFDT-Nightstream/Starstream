@@ -1410,7 +1410,7 @@ impl<T: Host> Contract<T> {
         let component = self.pre.component();
         let instance_idx = component
             .get_export_index(None, name)
-            .context("export not found")?;
+            .context("get_utxo_typed: export not found")?;
         let Some(types::ComponentExtern {
             ty: types::ComponentItem::Resource(utxo_ty),
             ..
@@ -1454,7 +1454,7 @@ impl<T: Host> Contract<T> {
         let types::ComponentExtern { ty, .. } = self
             .ty
             .get_export(self.pre.engine(), name)
-            .context("export not found")?;
+            .context("get_utxo: export not found")?;
         let types::ComponentItem::ComponentInstance(ty) = ty else {
             bail!("export is not an instance")
         };
@@ -1599,7 +1599,7 @@ impl<T: Host> Contract<T> {
         let component = self.pre.component();
         let instance_idx = component
             .get_export_index(None, name)
-            .context("export not found")?;
+            .context("get_token_typed: export not found")?;
         let Some(types::ComponentExtern {
             ty: types::ComponentItem::Resource(token_ty),
             ..
@@ -1641,7 +1641,7 @@ impl<T: Host> Contract<T> {
         let types::ComponentExtern { ty, .. } = self
             .ty
             .get_export(self.pre.engine(), name)
-            .context("export not found")?;
+            .context("get_token: export not found")?;
         let types::ComponentItem::ComponentInstance(ty) = ty else {
             bail!("export is not an instance")
         };
@@ -1680,7 +1680,7 @@ impl<T: Host> Contract<T> {
             .pre
             .component()
             .get_export_index(Some(&utxo.instance_idx), name)
-            .context("export not found")?;
+            .context("get_utxo_main_typed: export not found")?;
 
         let (Some(Type::Own(resource_ty)), None) = ({
             let mut results = ty.results();
@@ -1700,7 +1700,7 @@ impl<T: Host> Contract<T> {
         let types::ComponentExtern { ty, .. } = utxo
             .instance_ty
             .get_export(self.pre.engine(), name)
-            .context("export not found")?;
+            .context("get_utxo_main: export not found")?;
         let types::ComponentItem::ComponentFunc(ty) = ty else {
             bail!("export is not a function")
         };
@@ -1734,7 +1734,7 @@ impl<T: Host> Contract<T> {
             .pre
             .component()
             .get_export_index(Some(&utxo.instance_idx), name)
-            .context("export not found")?;
+            .context("get_utxo_method_typed: export not found")?;
         let Some((_, Type::Borrow(resource_ty))) = ty.params().next() else {
             bail!("function does not take borrowed resource type as first parameter");
         };
@@ -1750,7 +1750,7 @@ impl<T: Host> Contract<T> {
         let types::ComponentExtern { ty, .. } = utxo
             .instance_ty
             .get_export(self.pre.engine(), name)
-            .context("export not found")?;
+            .context("get_utxo_method: export not found")?;
         let types::ComponentItem::ComponentFunc(ty) = ty else {
             bail!("export is not a function")
         };
@@ -1784,7 +1784,7 @@ impl<T: Host> Contract<T> {
             .pre
             .component()
             .get_export_index(Some(&token.instance_idx), name)
-            .context("export not found")?;
+            .context("get_token_mint_typed: export not found")?;
         let (Some(Type::Own(resource_ty)), None) = ({
             let mut results = ty.results();
             (results.next(), results.next())
@@ -1807,7 +1807,7 @@ impl<T: Host> Contract<T> {
         let types::ComponentExtern { ty, .. } = token
             .instance_ty
             .get_export(self.pre.engine(), name)
-            .context("export not found")?;
+            .context("get_token_mint: export not found")?;
         let types::ComponentItem::ComponentFunc(ty) = ty else {
             bail!("export is not a function")
         };
@@ -1844,7 +1844,7 @@ impl<T: Host> Contract<T> {
             .pre
             .component()
             .get_export_index(Some(&token.instance_idx), name)
-            .context("export not found")?;
+            .context("get_token_burn_typed: export not found")?;
         let (Some((_, Type::Own(resource_ty))), None) = ({
             let mut params = ty.params();
             (params.next(), params.next())
@@ -1867,7 +1867,7 @@ impl<T: Host> Contract<T> {
         let types::ComponentExtern { ty, .. } = token
             .instance_ty
             .get_export(self.pre.engine(), name)
-            .context("export not found")?;
+            .context("get_token_burn: export not found")?;
         let types::ComponentItem::ComponentFunc(ty) = ty else {
             bail!("export is not a function")
         };
@@ -1903,7 +1903,7 @@ impl<T: Host> Contract<T> {
             .pre
             .component()
             .get_export_index(None, name)
-            .context("export not found")?;
+            .context("get_coordination_script_typed: export not found")?;
         Ok(CoordinationScriptExport {
             ty,
             idx,
@@ -1920,9 +1920,21 @@ impl<T: Host> Contract<T> {
         let types::ComponentExtern { ty, .. } = self
             .ty
             .get_export(self.pre.engine(), name)
-            .context("export not found")?;
+            .with_context(|| {
+                let mut all = String::new();
+                let exports = self.ty.exports(self.pre.engine());
+                for (name, _) in exports {
+                    use std::fmt::Write;
+                    if !all.is_empty() {
+                        all.push_str(", ");
+                    }
+                    _ = write!(all, "{:?}", name);
+                }
+                format!("{name:?} not found in [{all}]")
+            })
+            .context("get_coordination_script: export not found")?;
         let types::ComponentItem::ComponentFunc(ty) = ty else {
-            bail!("export is not a function")
+            bail!("export {name:?} is not a function")
         };
         self.get_coordination_script_typed(name, ty)
     }

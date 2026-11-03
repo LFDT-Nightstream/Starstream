@@ -29,6 +29,8 @@ package root:component;
 world root {
   import starstream:std/builtin;
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
+  export helper: func() -> s64;
 }
 package starstream:std {
   interface builtin {
@@ -55,6 +57,8 @@ world root {
   use starstream:std/builtin.{utxo as s-utxo, token as s-token};
 
   export run: func() -> s64;
+  @external-id("starstream:test:")
+  export test1: func();
 }
 package starstream:std {
   interface builtin {
@@ -75,7 +79,17 @@ package starstream:std {
 
 package starstream:contract {
   interface scripts {
-    @external-id("4646e7033fa0f51a9f84b5ee5350e508a2d48ba79b313b7411c1fd6e85fe1f80")
+    @external-id("d37d572415fd567c88a41fcc220cda6fb80e74579345ea6305c208b83bf4de93")
     helper: func() -> s64;
   }
 }
+
+==== Test: test1 ====
+panic: call_coordination_script: failed to call function
+
+Caused by:
+    0: error while executing at wasm backtrace:
+    0:    0x31e - <unknown>!<wasm function 7>
+    1:    0x323 - <unknown>!<wasm function 8>
+    1: failed to instantiate component
+    2: cross-`Engine` usage is not supported

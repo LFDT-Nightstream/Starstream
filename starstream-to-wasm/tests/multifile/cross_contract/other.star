@@ -1,5 +1,5 @@
 contract;
 
-fn helper() -> i64 {
+script fn helper() -> i64 {
     9
 }
