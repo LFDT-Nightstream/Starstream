@@ -26,6 +26,8 @@ jobs:
         working-directory: starstream-interleaving-spec
       # Cosmetic checks.
       - run: cargo clippy
+      # Native builds of this crate are empty.
+      - run: cargo clippy -p starstream-ledger-web --target wasm32-unknown-unknown
       - run: cargo fmt --check
       # Mock ledger
       - name: Mock Ledger - Check formatting

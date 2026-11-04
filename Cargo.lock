@@ -1397,6 +1397,9 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "http"
@@ -3798,6 +3801,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "starstream-ledger-web"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "ed25519-dalek",
+ "futures",
+ "hex",
+ "http",
+ "http-body",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "sha2",
+ "starstream-ledger",
+ "starstream-runtime",
+ "starstream-runtime-web",
+ "wasmtime",
+]
+
+[[package]]
 name = "starstream-proving-runtime"
 version = "0.0.0"
 dependencies = [
@@ -3839,6 +3863,7 @@ name = "starstream-runtime-web"
 version = "0.0.0"
 dependencies = [
  "cranelift-codegen",
+ "futures",
  "wasmtime",
 ]
 

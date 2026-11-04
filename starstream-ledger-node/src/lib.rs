@@ -14,7 +14,7 @@ use clap::Parser;
 use ed25519_dalek::VerifyingKey;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::genesis::{Genesis, build_genesis};
-use starstream_ledger::server::Ledger;
+use starstream_ledger::server::{DEFAULT_FUEL, DEFAULT_IO_TIMEOUT, DEFAULT_MAX_REQUESTS, Ledger};
 use starstream_ledger::{CardanoCtx, TransactionOutput};
 use tokio::fs;
 use tokio::net::TcpSocket;
@@ -39,11 +39,11 @@ pub struct Args {
     addr: SocketAddr,
 
     /// Maximum amount of concurrent requests.
-    #[arg(long, global = true, value_name = "MAX_REQUESTS", default_value_t = u32::from(u16::MAX))]
+    #[arg(long, global = true, value_name = "MAX_REQUESTS", default_value_t = DEFAULT_MAX_REQUESTS)]
     max_requests: u32,
 
     /// Fuel available to each UTXO method call over `/rpc`.
-    #[arg(long, value_name = "FUEL", default_value_t = 1_000_000_000)]
+    #[arg(long, value_name = "FUEL", default_value_t = DEFAULT_FUEL)]
     fuel: u64,
 
     /// Time to wait for graceful shutdown before exiting, in seconds.
@@ -51,7 +51,7 @@ pub struct Args {
     shutdown_timeout: u64,
 
     /// Time a client connection may stall before it is closed, in seconds.
-    #[arg(long, global = true, value_name = "SECONDS", default_value_t = 30)]
+    #[arg(long, global = true, value_name = "SECONDS", default_value_t = DEFAULT_IO_TIMEOUT.as_secs())]
     io_timeout: u64,
 
     /// Path to the genesis file.

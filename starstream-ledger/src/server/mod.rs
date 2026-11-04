@@ -3,6 +3,7 @@
 #![cfg_attr(not(all(feature = "http", feature = "tcp")), allow(dead_code))]
 
 use core::sync::atomic::AtomicU64;
+use core::time::Duration;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -77,6 +78,15 @@ struct Transaction {
     envelope: Bytes,
     encoded: Bytes,
 }
+
+/// Default maximum amount of concurrent requests.
+pub const DEFAULT_MAX_REQUESTS: u32 = u16::MAX as u32;
+
+/// Default fuel available to each UTXO method call over `/rpc`.
+pub const DEFAULT_FUEL: u64 = 1_000_000_000;
+
+/// Default time a client connection may stall before it is closed.
+pub const DEFAULT_IO_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct Genesis {
     outputs: RwLock<Box<[Option<Arc<TransactionOutput>>]>>,
