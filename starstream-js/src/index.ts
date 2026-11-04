@@ -4,6 +4,11 @@
 // Ledgers
 
 export { Ledger, type FuncType } from "./ledger.ts";
+export {
+  WasmLedger,
+  type GenesisScript,
+  type WasmLedgerOptions,
+} from "./wasm-ledger.ts";
 export { t, type Type } from "@bytecodealliance/wrpc";
 
 // ----------------------------------------------------------------------------

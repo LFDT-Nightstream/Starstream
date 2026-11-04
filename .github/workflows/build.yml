@@ -35,6 +35,7 @@ jobs:
         run: rm -rf src/bindings && npm run bindgen && git add --intent-to-add src/bindings && git diff --exit-code src/bindings && echo "OK"
         working-directory: starstream-js
       - run: cargo build -p starstream-cli
+      - run: cargo build -p starstream-ledger-web --release --target wasm32-unknown-unknown
       - name: Test starstream-js
         run: npx vitest run
         working-directory: starstream-js
