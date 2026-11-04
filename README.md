@@ -108,10 +108,13 @@ The host/embedder side of the WASM execution is split between
 instance management
 - `starstream-runtime-web/` - Runs `starstream-runtime/` on wasm32 in a JS host:
     Wasmtime's custom fiber and virtual memory C ABIs, with fibers and an
-    executor on JSPI.
+    executor on JSPI, and timers.
 - `starstream-ledger/` - Ledger-backed execution: resolves transaction inputs,
     loads UTXO state, runs coordination scripts, and collects transaction
     outputs.
+- `starstream-ledger-web/` - Compiles the ledger to Wasm (freestanding):
+    `cargo build -p starstream-ledger-web --release --target
+    wasm32-unknown-unknown`.
 
 With the Starstream specific proving side in:
 

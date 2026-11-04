@@ -59,7 +59,8 @@ const TEXT_PLAIN_UTF_8: MediaType = MediaType::from_parts(
     &[(mediatype::names::CHARSET, mediatype::values::UTF_8)],
 );
 
-fn build_text_response<T>(
+/// Build a `text/plain` response with status `code` and `body`.
+pub fn build_text_response<T>(
     code: http::StatusCode,
     body: impl Into<T>,
 ) -> http::Result<http::Response<http_body_util::Full<T>>>

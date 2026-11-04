@@ -3,8 +3,10 @@
 
 mod fiber;
 mod platform;
+mod timer;
 
 pub use fiber::block_on;
+pub use timer::{Sleep, sleep};
 
 use core::any::Any;
 

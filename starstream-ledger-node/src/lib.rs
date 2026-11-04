@@ -13,9 +13,9 @@ use bytes::Bytes;
 use clap::Parser;
 use ed25519_dalek::VerifyingKey;
 use sha2::{Digest as _, Sha256};
-use starstream_ledger::genesis::{Genesis, build_genesis};
-use starstream_ledger::server::Ledger;
-use starstream_ledger::{CardanoCtx, TransactionOutput};
+use starstream_ledger::CardanoCtx;
+use starstream_ledger::genesis::Genesis;
+use starstream_ledger::server::{DEFAULT_FUEL, DEFAULT_IO_TIMEOUT, DEFAULT_MAX_REQUESTS, Ledger};
 use tokio::fs;
 use tokio::net::TcpSocket;
 use tokio::signal;
@@ -39,11 +39,11 @@ pub struct Args {
     addr: SocketAddr,
 
     /// Maximum amount of concurrent requests.
-    #[arg(long, global = true, value_name = "MAX_REQUESTS", default_value_t = u32::from(u16::MAX))]
+    #[arg(long, global = true, value_name = "MAX_REQUESTS", default_value_t = u32::from(DEFAULT_MAX_REQUESTS))]
     max_requests: u32,
 
     /// Fuel available to each UTXO method call over `/rpc`.
-    #[arg(long, value_name = "FUEL", default_value_t = 1_000_000_000)]
+    #[arg(long, value_name = "FUEL", default_value_t = DEFAULT_FUEL)]
     fuel: u64,
 
     /// Time to wait for graceful shutdown before exiting, in seconds.
@@ -51,7 +51,7 @@ pub struct Args {
     shutdown_timeout: u64,
 
     /// Time a client connection may stall before it is closed, in seconds.
-    #[arg(long, global = true, value_name = "SECONDS", default_value_t = 30)]
+    #[arg(long, global = true, value_name = "SECONDS", default_value_t = DEFAULT_IO_TIMEOUT.as_secs())]
     io_timeout: u64,
 
     /// Path to the genesis file.
@@ -95,8 +95,7 @@ fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
 async fn read_genesis(
     genesis: impl AsRef<Path>,
     imports: Vec<PathBuf>,
-    cardano: CardanoCtx,
-) -> anyhow::Result<Vec<TransactionOutput>> {
+) -> anyhow::Result<(Genesis, HashMap<[u8; 32], Bytes>)> {
     let genesis = genesis.as_ref();
     let genesis = fs::read_to_string(genesis)
         .await
@@ -110,10 +109,7 @@ async fn read_genesis(
             .with_context(|| format!("failed to read `{}`", path.display()))?;
         imported.insert(Sha256::digest(&wasm).into(), Bytes::from(wasm));
     }
-    let mut engine_config = wasmtime::Config::default();
-    starstream_ledger::configure_wasmtime(&mut engine_config);
-    let engine = wasmtime::Engine::new(&engine_config)?;
-    build_genesis(&engine, genesis, &imported, cardano).await
+    Ok((genesis, imported))
 }
 
 fn default_admin_key() -> String {
@@ -156,17 +152,23 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         current_slot: cardano_current_slot,
     };
 
-    let mut engine_config = wasmtime::Config::default();
-    starstream_ledger::server::configure_wasmtime(&mut engine_config);
-    let engine = wasmtime::Engine::new(&engine_config)?;
-
-    let genesis = if let Some(genesis) = genesis {
-        read_genesis(genesis, imports, cardano).await?
+    let (genesis, imported) = if let Some(genesis) = genesis {
+        read_genesis(genesis, imports).await?
     } else {
-        Vec::default()
+        (Genesis::default(), HashMap::default())
     };
 
-    let ledger = Ledger::new(engine, max_requests, fuel, network, admin, genesis, cardano);
+    let ledger = Ledger::with_genesis(
+        wasmtime::Config::default(),
+        max_requests,
+        fuel,
+        network,
+        admin,
+        genesis,
+        &imported,
+        cardano,
+    )
+    .await?;
     let ledger = Arc::new(ledger);
 
     let tcp = bind_tcp(addr)?;

@@ -9,6 +9,7 @@ members = [
   "starstream-ledger",
   "starstream-ledger-cli",
   "starstream-ledger-node",
+  "starstream-ledger-web",
   "starstream-runtime",
   "starstream-runtime-web",
   "starstream-sandbox-web",
