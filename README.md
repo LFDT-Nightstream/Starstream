@@ -106,6 +106,9 @@ The host/embedder side of the WASM execution is split between
 
 - `starstream-runtime/` - Component ABI bindings, contract linking, and UTXO
 instance management
+- `starstream-runtime-web/` - Runs `starstream-runtime/` on wasm32 in a JS host:
+    Wasmtime's custom fiber and virtual memory C ABIs, with fibers and an
+    executor on JSPI.
 - `starstream-ledger/` - Ledger-backed execution: resolves transaction inputs,
     loads UTXO state, runs coordination scripts, and collects transaction
     outputs.
