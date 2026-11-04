@@ -91,6 +91,7 @@ pub struct Ledger {
     genesis: Genesis,
     network: Arc<str>,
     cardano: CardanoCtx,
+    #[cfg(feature = "server-tcp")]
     max_requests: u32,
     permits: Semaphore,
     fuel: u64,
@@ -150,6 +151,7 @@ impl Ledger {
             },
             network: network.into(),
             cardano,
+            #[cfg(feature = "server-tcp")]
             max_requests: max_requests as _,
             permits: Semaphore::new(max_requests),
             fuel,

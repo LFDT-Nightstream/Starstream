@@ -1,5 +1,3 @@
-#![cfg(all(feature = "client", feature = "server"))]
-
 use core::net::SocketAddr;
 use core::str::FromStr as _;
 use core::time::Duration;
