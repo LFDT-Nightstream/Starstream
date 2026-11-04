@@ -834,6 +834,22 @@ async fn stalled_connections_are_closed() {
         assert_eq!(&res, b"HTTP/1.1 408", "{content_type}");
     }
 
+    {
+        let mut large = tokio::net::TcpStream::connect(addr).await.unwrap();
+        large
+            .write_all(
+                format!("POST /rpc HTTP/1.1\r\nHost: ledger\r\nContent-Type: {APPLICATION_COSE}\r\nContent-Length: 16777217\r\n\r\n").as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut res = [0; 12];
+        tokio::time::timeout(Duration::from_secs(10), large.read_exact(&mut res))
+            .await
+            .expect("oversized request body must be rejected")
+            .unwrap();
+        assert_eq!(&res, b"HTTP/1.1 413", "oversized");
+    }
+
     let mut header = vec![0x00];
     for s in [LEDGER_BLOCK_INSTANCE, "get-height"] {
         header.push(u8::try_from(s.len()).unwrap());
