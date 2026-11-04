@@ -179,7 +179,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   set_events(ptr: number, len: number): void;
 
   // wasmtime's `custom-fiber` hooks and the `block_on` parking hooks, all
-  // implemented with JSPI (see `starstream-sandbox-web/src/fiber.rs`).
+  // implemented with JSPI (see `starstream-runtime-web/src/fiber.rs`).
   wasmtime_fiber_init(top: number, entry: number, arg0: number): void;
   wasmtime_fiber_switch: WebAssembly.Suspending | ((top: number) => void);
   host_park: WebAssembly.Suspending | (() => void);
@@ -189,7 +189,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
 interface SandboxWasmExports {
   memory: WebAssembly.Memory;
   __stack_pointer: WebAssembly.Global;
-  wasmtime_fiber_enter(entry: number, arg0: number, top: number): void;
+  starstream_fiber_enter(entry: number, arg0: number, top: number): void;
   deploy(input_len: number): number;
   construct(input_len: number): number;
   call(input_len: number): number;
@@ -372,7 +372,7 @@ function getWasmInstance(): Promise<RunWasm> {
     const exports = instance.exports as unknown as SandboxWasmExports;
     if (!JSPI) jspiUnavailable();
     sp = exports.__stack_pointer;
-    enterFiber = WebAssembly.promising(exports.wasmtime_fiber_enter);
+    enterFiber = WebAssembly.promising(exports.starstream_fiber_enter);
     wasm = {
       memory: exports.memory,
       deploy: exports.deploy,

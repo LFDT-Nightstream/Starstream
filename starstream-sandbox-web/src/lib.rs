@@ -4,11 +4,9 @@
 //! [`call`], …).
 //!
 //! The contract runtime is `starstream-runtime`, driven through its
-//! `*_async` APIs on JSPI-backed fibers (see [`fiber`]); values cross the JS
+//! `*_async` APIs on JSPI-backed fibers (see [`starstream_runtime_web`]); values cross the JS
 //! boundary as JSON, lowered to/from [`wasmtime::component::Val`] against each
 //! function's declared type.
-mod fiber;
-mod platform;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -17,7 +15,6 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use fiber::block_on;
 use log::error;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -27,6 +24,7 @@ use starstream_compiler::{
 use starstream_runtime::{
     Contract, ContractLookup, Host, StarstreamCtx, Token, Utxo, UtxoExport, bindings,
 };
+use starstream_runtime_web::block_on;
 use starstream_types::{FileSystem, MemoryFs};
 use wasmtime::component::{Component, Resource, ResourceTable, Type, Val, types};
 use wasmtime::error::Context as _;
@@ -255,15 +253,7 @@ struct Input {
 fn init() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
-        /// Cranelift profiler that does nothing: the default one calls
-        /// `Instant::now()`, which panics on wasm32-unknown-unknown.
-        struct CraneliftProfiler;
-        impl cranelift_codegen::timing::Profiler for CraneliftProfiler {
-            fn start_pass(&self, _pass: cranelift_codegen::timing::Pass) -> Box<dyn std::any::Any> {
-                Box::new(())
-            }
-        }
-        _ = cranelift_codegen::timing::set_thread_profiler(Box::new(CraneliftProfiler));
+        starstream_runtime_web::disable_cranelift_profiler();
 
         _ = log::set_logger(&LOGGER);
         log::set_max_level(log::LevelFilter::Trace);
@@ -442,14 +432,7 @@ fn handle_deploy(input_len: usize) -> wasmtime::Result<()> {
 
     let mut engine_config = wasmtime::Config::default();
     starstream_runtime::configure_wasmtime(&mut engine_config);
-    // Pulley bytecode in malloc-backed memory: no signals, guards or CoW images
-    // (see `platform`).
-    engine_config.target("pulley32")?;
-    engine_config.signals_based_traps(false);
-    engine_config.memory_guard_size(0);
-    engine_config.memory_reservation(0);
-    engine_config.memory_reservation_for_growth(1 << 20);
-    engine_config.memory_init_cow(false);
+    starstream_runtime_web::configure_wasmtime(&mut engine_config)?;
     let engine = wasmtime::Engine::new(&engine_config)?;
     let component = Component::from_binary(&engine, wasm).context("failed to compile component")?;
     let contract =
