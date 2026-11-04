@@ -16,7 +16,7 @@ name = "ledger"
 required-features = ["client", "server"]
 
 [features]
-default = ["client", "proving", "server"]
+default = ["client", "genesis", "proving", "server"]
 client = [
     "dep:wasmtime-wizer",
     "dep:wrpc-http",
@@ -24,6 +24,7 @@ client = [
     "hyper-util/client-legacy",
     "wrpc-http/client-legacy",
 ]
+genesis = ["client", "dep:wasm-wave", "wasmtime/wave"]
 proving = ["client", "dep:starstream-proving-runtime"]
 server = [
     "dep:anyhow",
@@ -66,6 +67,7 @@ tokio-util = { workspace = true, features = ["codec", "io"] }
 tower-http = { workspace = true, optional = true, features = ["timeout"] }
 tracing = { workspace = true, features = ["attributes"] }
 wasm-tokio = { workspace = true }
+wasm-wave = { workspace = true, optional = true }
 wasm-encoder = { workspace = true, features = ["wasmparser"] }
 wasmparser = { workspace = true }
 wasmprinter = { workspace = true }

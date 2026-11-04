@@ -8,27 +8,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context as _, anyhow, bail, ensure};
+use anyhow::{Context as _, anyhow};
 use bytes::Bytes;
 use clap::Parser;
 use ed25519_dalek::VerifyingKey;
-use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
-use starstream_ledger::client::runtime::{
-    Client, Contract, Ctx, call_coordination_script, compile_contract,
-};
+use starstream_ledger::genesis::{Genesis, build_genesis};
 use starstream_ledger::server::Ledger;
-use starstream_ledger::{
-    CardanoCtx, TransactionInput, TransactionOutput, encode_digest, parse_digest,
-};
+use starstream_ledger::{CardanoCtx, TransactionOutput};
 use tokio::fs;
 use tokio::net::TcpSocket;
 use tokio::signal;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
-use wasmtime::Store;
-use wasmtime::component::Val;
-use wasmtime_wizer::Wizer;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -79,25 +71,6 @@ pub struct Args {
     cardano_current_slot: i64,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct GenesisScript {
-    /// Digest of the contract exporting the coordination script.
-    contract: Box<str>,
-    /// Coordination script to call.
-    script: Box<str>,
-    /// WAVE-encoded coordination script arguments.
-    #[serde(default)]
-    args: Vec<Box<str>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Genesis {
-    #[serde(default)]
-    scripts: Vec<GenesisScript>,
-}
-
 fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     debug!("binding TCP socket");
     let sock = match address {
@@ -119,31 +92,7 @@ fn bind_tcp(address: SocketAddr) -> anyhow::Result<TcpSocket> {
     Ok(sock)
 }
 
-struct GenesisClient<'a>(&'a HashMap<[u8; 32], Bytes>);
-
-fn get_contract<'a>(
-    contracts: &'a HashMap<[u8; 32], Bytes>,
-    digest: &[u8; 32],
-) -> anyhow::Result<&'a Bytes> {
-    contracts.get(digest).with_context(|| {
-        format!(
-            "contract `{}` not found, pass it via `--import`",
-            encode_digest(digest)
-        )
-    })
-}
-
-impl Client for GenesisClient<'_> {
-    async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
-        get_contract(self.0, &digest).cloned()
-    }
-
-    async fn get_input_utxo(&self, _input: &TransactionInput) -> anyhow::Result<TransactionOutput> {
-        bail!("genesis scripts cannot have UTXO inputs")
-    }
-}
-
-async fn build_genesis(
+async fn read_genesis(
     genesis: impl AsRef<Path>,
     imports: Vec<PathBuf>,
     cardano: CardanoCtx,
@@ -152,7 +101,7 @@ async fn build_genesis(
     let genesis = fs::read_to_string(genesis)
         .await
         .with_context(|| format!("failed to read `{}`", genesis.display()))?;
-    let Genesis { scripts } = toml::from_str(&genesis).context("failed to parse genesis")?;
+    let genesis: Genesis = toml::from_str(&genesis).context("failed to parse genesis")?;
 
     let mut imported = HashMap::with_capacity(imports.len());
     for path in imports {
@@ -164,75 +113,7 @@ async fn build_genesis(
     let mut engine_config = wasmtime::Config::default();
     starstream_ledger::configure_wasmtime(&mut engine_config);
     let engine = wasmtime::Engine::new(&engine_config)?;
-    let wizer = Wizer::new();
-    let mut contracts: HashMap<_, Contract> = HashMap::with_capacity(imported.len());
-    let mut outputs = Vec::default();
-    for GenesisScript {
-        contract,
-        script,
-        args,
-    } in scripts
-    {
-        let digest = parse_digest(&contract)
-            .with_context(|| format!("failed to parse `{contract}` as multibase multihash"))?;
-        let Contract { contract, wasm } = if let Some(contract) = contracts.get(&digest) {
-            contract.clone()
-        } else {
-            let wasm = get_contract(&imported, &digest)?;
-            let contract = compile_contract(
-                &GenesisClient(&imported),
-                &engine,
-                &wizer,
-                wasm,
-                None,
-                &mut contracts,
-            )
-            .await?;
-            let contract = Contract {
-                contract: Some(contract),
-                wasm: wasm.clone(),
-            };
-            contracts.insert(digest, contract.clone());
-            contract
-        };
-        let contract = contract.context("contract was not compiled")?;
-        let script = contract.get_coordination_script(&script)?;
-        let ty = script.ty();
-        let mut params = Vec::with_capacity(ty.params().len());
-        let mut args = args.into_iter();
-        for (name, ty) in ty.params() {
-            let v = args
-                .next()
-                .with_context(|| format!("missing value for parameter `{name}`"))?;
-            let v = wasm_wave::from_str::<Val>(&ty, v.as_ref())
-                .with_context(|| format!("failed to parse value for parameter `{name}`"))?;
-            params.push(v.into());
-        }
-        ensure!(args.next().is_none(), "trailing arguments");
-        let mut results = vec![Val::Bool(false); ty.results().len()];
-        let ctx = Ctx {
-            cardano,
-            ..Ctx::default()
-        };
-        let (tx, execution) = call_coordination_script(
-            &mut Store::new(&engine, ctx),
-            &GenesisClient(&imported),
-            &wizer,
-            &contract,
-            &wasm,
-            &script,
-            &mut contracts,
-            params,
-            &mut results,
-            &mut Vec::default(),
-        )
-        .await?;
-        if let Err(err) = execution {
-            warn!(?err, "failed to check execution trace");
-        }
-        outputs.extend(tx.outputs);
-    }
-    Ok(outputs)
+    build_genesis(&engine, genesis, &imported, cardano).await
 }
 
 fn default_admin_key() -> String {
@@ -280,7 +161,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
     let engine = wasmtime::Engine::new(&engine_config)?;
 
     let genesis = if let Some(genesis) = genesis {
-        build_genesis(genesis, imports, cardano).await?
+        read_genesis(genesis, imports, cardano).await?
     } else {
         Vec::default()
     };
