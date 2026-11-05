@@ -1,0 +1,34 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi Foo {\n    effect Hello();\n}\n\nfn branches(flag: bool) -> i64 {\n    if (flag) {\n        return 1;\n    } else {\n        return 2;\n    };\n}\n\nfn handled() -> i64 {\n    try {\n        return 1;\n    } with Hello() { }\n}\n"
+---
+T-Fn: branches => i64
+  T-Expr: {branches: fn(flag: bool) -> i64, flag: bool} ⊢ if (flag) {
+    return 1;
+} else {
+    return 2;
+} ⇒ ()
+    T-If: {branches: fn(flag: bool) -> i64, flag: bool} ⊢ if (flag) {
+    return 1;
+} else {
+    return 2;
+} ⇒ ()
+      T-Var: {branches: fn(flag: bool) -> i64, flag: bool} ⊢ flag ⇒ bool
+      Check-Bool: bool => ok
+      T-Return: {branches: fn(flag: bool) -> i64, flag: bool} ⊢ return 1; ⇒ i64
+        T-Int: {branches: fn(flag: bool) -> i64, flag: bool} ⊢ 1 ⇒ i64
+        Unify-Var: i64 ~ i64 => {i64/t3}
+      T-Return: {branches: fn(flag: bool) -> i64, flag: bool} ⊢ return 2; ⇒ i64
+        T-Int: {branches: fn(flag: bool) -> i64, flag: bool} ⊢ 2 ⇒ i64
+        Unify-Var: i64 ~ i64 => {i64/t4}
+      Unify-Const: () ~ () => {}
+
+T-Fn: handled => i64
+  T-TryWith: {branches: fn(flag: bool) -> i64, handled: fn() -> i64} ⊢ try {
+    return 1;
+} with Hello() { } ⇒ 
+    T-Return: {branches: fn(flag: bool) -> i64, handled: fn() -> i64} ⊢ return 1; ⇒ i64
+      T-Int: {branches: fn(flag: bool) -> i64, handled: fn() -> i64} ⊢ 1 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t5}
+    Unify-Const: () ~ () => {}
+    Unify-Const: () ~ () => {}
