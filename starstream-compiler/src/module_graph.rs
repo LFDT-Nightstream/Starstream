@@ -294,7 +294,7 @@ impl std::fmt::Display for ModuleGraphError {
             ModuleGraphError::UnknownExtension { path, .. } => {
                 write!(
                     f,
-                    "path import `{path}` has unknown extension, expecting `.star`",
+                    "path import `{path}` has unknown extension, expecting one of `.star`, `.wasm`",
                     path = path.display(),
                 )
             }
