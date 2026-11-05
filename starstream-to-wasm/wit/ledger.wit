@@ -2,7 +2,7 @@ package starstream:std;
 
 /// Methods that are applicable in any ledger-like context.
 interface ledger {
-    use starstream:std/builtin.{token};
+    use builtin.{token};
 
     /// Built-in effect that is raised when a Utxo's lifetime ends for each
     /// token still attached to it.
