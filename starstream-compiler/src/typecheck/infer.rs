@@ -423,7 +423,6 @@ struct AbiCallTracker {
 struct FunctionCtx {
     expected_return: Type,
     return_span: Span,
-    saw_return: bool,
     /// Declaration spans for function parameters that are private (non-`pub`).
     private_param_decl_spans: Vec<Span>,
     is_coroutine: bool,
@@ -2074,7 +2073,6 @@ impl Inferencer {
         let mut ctx = FunctionCtx {
             expected_return: func_ty.result.clone(),
             return_span,
-            saw_return: false,
             private_param_decl_spans,
             is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
         };
@@ -2083,7 +2081,11 @@ impl Inferencer {
 
         env.pop_scope();
 
-        if func_ty.result != Type::unit() && !ctx.saw_return && typed_body.tail_expression.is_none()
+        // Every path must produce a value: either the body ends in a tail
+        // expression or it diverges on every path with `return`/`resume`.
+        if func_ty.result != Type::unit()
+            && typed_body.tail_expression.is_none()
+            && !Self::block_diverges(&typed_body)
         {
             return Err(TypeError::new(
                 TypeErrorKind::MissingReturn {
@@ -2120,7 +2122,6 @@ impl Inferencer {
         let mut ctx = FunctionCtx {
             expected_return: Type::Unit,
             return_span: DUMMY_SPAN,
-            saw_return: false,
             private_param_decl_spans: Default::default(),
             is_coroutine: false,
         };
@@ -2234,12 +2235,8 @@ impl Inferencer {
                 }
 
                 let typed_else_branch = if let Some(block) = else_branch {
-                    let saw_return_before_else = ctx.saw_return;
                     let (typed_block, mut else_traces) =
                         self.infer_block(env, block, ctx, false)?;
-                    // This return is conditional on the pattern failing; it
-                    // does not prove that the success path returns a value.
-                    ctx.saw_return = saw_return_before_else;
                     children.append(&mut else_traces);
                     if !Self::block_diverges(&typed_block) {
                         return Err(TypeError::new(
@@ -2415,7 +2412,6 @@ impl Inferencer {
                                 found: self.apply_for_display(actual_type),
                             },
                         )?;
-                        ctx.saw_return = true;
                         let tree = self.make_trace(
                             "T-Return",
                             env_context,
@@ -2437,7 +2433,6 @@ impl Inferencer {
                                 found: self.apply_for_display(&unit),
                             },
                         )?;
-                        ctx.saw_return = true;
                         let tree = self.make_trace(
                             "T-ReturnUnit",
                             env_context,
@@ -2500,7 +2495,6 @@ impl Inferencer {
                         found: Type::Unit,
                     },
                 )?;
-                ctx.saw_return = true;
                 let tree = self.make_trace("T-Resume", env_context, stmt_repr, result_repr, || {
                     vec![unify_trace]
                 });
@@ -2602,7 +2596,8 @@ impl Inferencer {
 
     /// Whether evaluating this block is guaranteed not to continue with the
     /// statement following it. This is deliberately structural: a `let ...
-    /// else` fallback must make its exit explicit on every control-flow path.
+    /// else` fallback, or a function body without a tail expression, must
+    /// make its exit explicit on every control-flow path.
     fn block_diverges(block: &TypedBlock) -> bool {
         block.statements.iter().any(Self::statement_diverges)
             || block
@@ -2615,6 +2610,8 @@ impl Inferencer {
         match statement {
             TypedStatement::Return(_) | TypedStatement::Resume => true,
             TypedStatement::Expression(expr) => Self::expr_diverges(&expr.node),
+            // Handlers resume at the `raise` point, so only the body matters.
+            TypedStatement::TryWith { subject, .. } => Self::block_diverges(subject),
             _ => false,
         }
     }
@@ -2660,7 +2657,6 @@ impl Inferencer {
             let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
             let mut children = vec![expr_trace];
             if treat_tail_as_return {
-                ctx.saw_return = true;
                 let actual = &typed_expr.node.ty;
                 let (_, unify_trace) = self.unify(
                     actual,

@@ -401,6 +401,58 @@ fn missing_return_error() {
 }
 
 #[test]
+fn missing_return_after_conditional_return() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn compute(flag: bool) -> i64 {
+            if (flag) {
+                return 1;
+            }
+            let value = 2;
+        }
+        "#
+    );
+}
+
+#[test]
+fn missing_return_after_loop_return() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn compute(flag: bool) -> i64 {
+            while (flag) {
+                return 1;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn return_on_every_path() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi Foo {
+            effect Hello();
+        }
+
+        fn branches(flag: bool) -> i64 {
+            if (flag) {
+                return 1;
+            } else {
+                return 2;
+            };
+        }
+
+        fn handled() -> i64 {
+            try {
+                return 1;
+            } with Hello() { }
+        }
+        "#
+    );
+}
+
+#[test]
 fn unknown_type_annotation_error() {
     assert_typecheck_snapshot!(
         r#"
