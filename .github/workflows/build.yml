@@ -24,6 +24,30 @@ jobs:
       - name: Test circuit-to-Quint conformance
         run: npm run test_circuit
         working-directory: starstream-interleaving-spec
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+        working-directory: starstream-js
+      - run: npx tsc --noEmit
+        working-directory: starstream-js
+      - name: Require that `npm run bindgen` output was committed
+        run: rm -rf src/bindings && npm run bindgen && git add --intent-to-add src/bindings && git diff --exit-code src/bindings && echo "OK"
+        working-directory: starstream-js
+      - run: cargo build -p starstream-cli
+      - name: Test starstream-js
+        run: npx vitest run
+        working-directory: starstream-js
+        env:
+          STARSTREAM: ${{ github.workspace }}/target/debug/starstream
+      - name: Test importing the packed starstream-js
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          tarball=$(echo "$RUNNER_TEMP"/starstream-*.tgz)
+          cd "$(mktemp -d)"
+          npm install "$tarball"
+          node --input-type=module -e 'import { Ledger, digest } from "starstream"; new Ledger("http://localhost"); await digest(new Uint8Array());'
+        working-directory: starstream-js
       # Cosmetic checks.
       - run: cargo clippy
       - run: cargo fmt --check
