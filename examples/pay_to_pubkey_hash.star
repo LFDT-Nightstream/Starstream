@@ -1,15 +1,16 @@
+contract;
+
 // 1. some other coordination script can call PayToPublicKey::new(someone_to_send_to)
 // 2. that same coordination script would then attach tokens to the PayToPublicKeyutxo created above
 // 3. coordination script runs off chain producing a proof which includes the PayToPublicKey utxo in it's output set
 // 4. a transaction is submitted to the ledger with this proof attached to it
 // 5. ledger verifies proof and transitions it's ledger state and `someone_to_send_to` now has the tokens
-import { PublicKey } from starstream:std/types;
-
-// package namespace to be discussed later
-import { assert_transaction_signed_by, TokenReleased } from starstream:std/host;
+//import { PublicKey, TokenReleased, assert_transaction_signed_by } from "../starstream-to-wasm/wit/ledger.wit";
+import { PublicKey, TokenReleased, assert_transaction_signed_by } from starstream:std/ledger;
 
 abi IPayToPublicKey {
-    fn consume() / [TokenReleased];
+    // TODO: / [TokenReleased]
+    fn consume();
 }
 
 utxo PayToPublicKey {
@@ -23,7 +24,8 @@ utxo PayToPublicKey {
     }
 
     impl IPayToPublicKey {
-        fn consume() / [TokenReleased] {
+        fn consume() {
+            // ^TODO: / [TokenReleased]
             // recipient is the owner at this point
             runtime assert_transaction_signed_by(_recipient);
             resume;
@@ -47,6 +49,5 @@ script fn send_with_change(input: PayToPublicKey, to: PublicKey, amount: u64, ch
         let s = t.subtract(amount);
         send_single_token(to, s.amount);
         send_single_token(change_recipient, s.change);
-        resume;
     }
 }
