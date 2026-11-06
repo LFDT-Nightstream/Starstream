@@ -8,11 +8,6 @@ use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use sha2::{Digest as _, Sha256};
-use starstream_proving_runtime::{
-    CapturedExecution, ComponentTemplates, WasmTraceSink, WasmtimeTraceRegistry,
-    build_component_templates, check_captured_transaction, enable_tracing,
-    register_tracing_component,
-};
 use starstream_runtime::bindings::starstream;
 use starstream_runtime::{
     CoordinationScriptExport, CoordinationScriptImport, StarstreamCtx, Token, Utxo, UtxoExport,
@@ -32,6 +27,16 @@ use crate::{
     CardanoCtx, Transaction, TransactionEvent, TransactionInput, TransactionOutput, encode_digest,
     parse_digest,
 };
+
+#[cfg(feature = "proving")]
+mod proving;
+
+#[cfg(feature = "proving")]
+pub use starstream_proving_runtime::CapturedExecution;
+
+/// The execution captured by [`call_coordination_script`].
+#[cfg(not(feature = "proving"))]
+pub type CapturedExecution = ();
 
 /// Contract compiled from the instrumented component bytes
 #[derive(Clone)]
@@ -150,37 +155,6 @@ pub async fn compile_contract(
     })
 }
 
-fn build_templates(contract: &CompiledContract) -> wasmtime::Result<ComponentTemplates> {
-    let scripts = contract
-        .contract
-        .coordination_script_names()
-        .collect::<Vec<_>>();
-    build_component_templates(&contract.instrumented, &scripts)
-        .context("failed to build trace templates")
-}
-
-fn register_tracing(cx: &mut Ctx, contract: &CompiledContract) -> wasmtime::Result<()> {
-    let templates = build_templates(contract)?;
-    register_tracing_component(cx, &contract.instrumented, &templates.bindings)
-}
-
-/// Register compiled imports that have not been registered yet
-fn register_imports(
-    cx: &mut Ctx,
-    imports: &HashMap<[u8; 32], Contract>,
-    registered: &mut HashSet<[u8; 32]>,
-) -> wasmtime::Result<()> {
-    for (digest, Contract { contract, .. }) in imports {
-        let Some(contract) = contract else {
-            continue;
-        };
-        if registered.insert(*digest) {
-            register_tracing(cx, contract)?;
-        }
-    }
-    Ok(())
-}
-
 /// Call the coordination script `export` exported by `contract` with `args`,
 /// loading UTXO arguments through `client`.
 ///
@@ -212,48 +186,11 @@ pub async fn call_coordination_script(
 
     let engine = contract.component().engine();
     let digest: [u8; 32] = Sha256::digest(wasm).into();
-    let mut registered = HashSet::from([digest]);
-    let mut tracing = (|| {
-        if args
-            .iter()
-            .any(|arg| matches!(arg, CoordinationScriptArg::Utxo(_)))
-        {
-            // Direct scalar/resource parameters each lower to _one_ core local.
-            // TODO: Support composite and indirectly lowered coordinator arguments.
-            ensure!(
-                export.ty().params().len() <= 16
-                    && export.ty().params().all(|(_, ty)| matches!(
-                        ty,
-                        Type::Bool
-                            | Type::S8
-                            | Type::U8
-                            | Type::S16
-                            | Type::U16
-                            | Type::S32
-                            | Type::U32
-                            | Type::S64
-                            | Type::U64
-                            | Type::Float32
-                            | Type::Float64
-                            | Type::Char
-                            | Type::Own(_)
-                            | Type::Borrow(_)
-                    )),
-                "traced input loading requires direct scalar/resource arguments"
-            );
-        }
-        let templates = build_templates(contract)?;
-        enable_tracing(store)?;
-        let cx = store.data_mut();
-        register_tracing_component(cx, &contract.instrumented, &templates.bindings)?;
-        register_imports(cx, imports, &mut registered)?;
-        Ok(templates)
-    })();
+    #[cfg(feature = "proving")]
+    let mut tracing = proving::Tracing::new(store, contract, digest, export, imports, &args);
     let instance = contract.instantiate(&mut *store).await?;
 
     let mut inputs = Vec::default();
-    let mut input_locals = Vec::default();
-    let mut input_methods = Vec::default();
     let mut params = Vec::with_capacity(param_len);
     for arg in args {
         let v = match arg {
@@ -299,21 +236,8 @@ pub async fn call_coordination_script(
                     &mut *imports,
                 )
                 .await?;
-                tracing = tracing.and_then(|templates| {
-                    let cx = store.data_mut();
-                    register_tracing(cx, &contract)?;
-                    register_imports(cx, imports, &mut registered)?;
-                    Ok(templates)
-                });
-                input_locals.push(params.len());
-                input_methods.push(
-                    utxo.methods
-                        .iter()
-                        .map(|&(a, b, c, d)| {
-                            starstream_proving_runtime::MethodHash::from_u64_words([a, b, c, d])
-                        })
-                        .collect::<Vec<_>>(),
-                );
+                #[cfg(feature = "proving")]
+                tracing.register_input(store, &contract, imports, params.len(), &utxo.methods);
                 let utxo_export = contract.get_utxo(&utxo.instance)?;
                 let storage_export = utxo_export.storage().context("UTXO has no storage")?;
                 let mut storage = Val::Record(Vec::default());
@@ -414,36 +338,10 @@ pub async fn call_coordination_script(
             state,
         });
     }
-    let execution = tracing.and_then(|templates| {
-        let mut handles = Vec::with_capacity(input_locals.len());
-        if !input_locals.is_empty() {
-            // The root coordinator is instantiated before input UTXOs;
-            // the registry iterates in instance-index order.
-            let (.., coordinator) = store
-                .data()
-                .traces
-                .instances()
-                .context("failed to capture trace")?
-                .next()
-                .context("missing coordinator trace")?;
-            let fref = templates
-                .export_fref(export.name())
-                .context("missing coordinator export")?;
-            let entry = coordinator
-                .steps()
-                .iter()
-                .find(|step| step.current_function_ref == Some(fref))
-                .context("missing coordinator entry arguments")?;
-            for local in input_locals {
-                let &(handle, ..) = entry
-                    .locals_words
-                    .get(local)
-                    .context("missing input handle local")?;
-                handles.push(starstream_proving_runtime::ResourceHandle(handle));
-            }
-        }
-        check_captured_transaction(&store.data().traces, handles, &input_methods)
-    });
+    #[cfg(not(feature = "proving"))]
+    let execution = Ok(());
+    #[cfg(feature = "proving")]
+    let execution = tracing.check(store, export);
     Ok((
         Transaction {
             inputs,
@@ -461,7 +359,8 @@ pub struct Ctx {
     pub starstream: StarstreamCtx,
     pub events: Vec<TransactionEvent>,
     pub outputs: Vec<starstream_runtime::Utxo<<Self as starstream_runtime::Host>::UtxoContext>>,
-    pub traces: WasmtimeTraceRegistry,
+    #[cfg(feature = "proving")]
+    pub traces: starstream_proving_runtime::WasmtimeTraceRegistry,
     pub cardano: CardanoCtx,
 }
 
@@ -476,16 +375,6 @@ pub struct UtxoCtx {
 
 pub fn lock<T>(mu: &std::sync::Mutex<T>) -> wasmtime::Result<std::sync::MutexGuard<'_, T>> {
     mu.lock().map_err(|err| format_err!("{err}"))
-}
-
-impl WasmTraceSink for Ctx {
-    fn wasm_trace_registry(&self) -> &WasmtimeTraceRegistry {
-        &self.traces
-    }
-
-    fn wasm_trace_registry_mut(&mut self) -> &mut WasmtimeTraceRegistry {
-        &mut self.traces
-    }
 }
 
 impl starstream::std::cardano::Host for Ctx {
