@@ -35,7 +35,7 @@ pub fn compile_contract(source: &str) -> wasmtime::Result<Vec<u8>> {
         compile_result.errors
     );
 
-    Ok(compile_result.to_component().unwrap())
+    Ok(compile_result.to_component().unwrap().to_vec())
 }
 
 pub fn method_hash(name: &str) -> (u64, u64, u64, u64) {

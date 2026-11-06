@@ -188,6 +188,7 @@ TypedProgram {
     definitions: [
         Import(
             TypedImportDef {
+                span: 0..53,
                 items: [
                     TypedImportItem {
                         imported: Identifier {
@@ -231,6 +232,7 @@ TypedProgram {
                         },
                     ),
                 },
+                module: None,
             },
         ),
         Function(

@@ -1,6 +1,7 @@
 //! Compiler from Starstream DSL to core WebAssembly with component-types section.
 #![allow(clippy::too_many_arguments)]
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -9,7 +10,7 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_compiler::typecheck::TypedModuleContents;
-use starstream_compiler::{TypedWasmModule, WasmLinkage};
+use starstream_compiler::{TypedModuleExport, TypedWasmModule, WasmLinkage};
 use starstream_types::{
     AbiType, BinaryOp, DUMMY_SPAN, EnumType, EnumVariantKind, FunctionExport, FunctionKind,
     FunctionType, ImportSource, IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type,
@@ -19,6 +20,7 @@ use starstream_types::{
     TypedTestDef, TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp,
     ast::Identifier,
 };
+use starstream_types::{ModuleId, TypedImportItem};
 use thiserror::Error;
 use wasm_encoder::{
     BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection,
@@ -88,12 +90,16 @@ pub struct CompileResult {
     pub errors: Vec<CompileError>,
     /// The Wasm module bytes. `None` if there was a fatal error.
     pub wasm: Option<Vec<u8>>,
+    /// The cached component bytes.
+    component: RefCell<Option<Rc<[u8]>>>,
     /// The WIT custom section bytes.
     pub binary_wit: Option<Vec<u8>>,
     /// List of (name, flowchart) pairs. Requires [`CompileOptions::output_mermaid`].
     pub mermaid: Vec<(String, String)>,
-
+    /// Libraries that must be linked in to finish a component.
     pub libraries: Vec<(String, Arc<[u8]>, WasmLinkage)>,
+    /// The contract's collected exports for downstream use.
+    export: Option<TypedModuleExport>,
 }
 
 /// A Wasm compiler error.
@@ -159,21 +165,28 @@ impl CompileOptions {
         graph: &starstream_compiler::TypedModuleGraph,
         entry: starstream_compiler::ModuleId,
     ) -> CompileResult {
+        let mut compiler = Compiler::new(self);
+
         // Build a reachable-from-entry set by chasing edges through the graph.
-        use std::collections::HashSet;
-        let mut reachable: HashSet<starstream_compiler::ModuleId> = HashSet::new();
+        use std::collections::BTreeSet;
+        let mut reachable = BTreeSet::new();
         reachable.insert(entry);
         let mut stack = vec![entry];
         while let Some(id) = stack.pop() {
             let module = graph.module(id);
             for &target in &module.edges {
-                if reachable.insert(target) {
+                if graph.contract_entries.contains(&target) {
+                    // Importing from another entry point will read exports rather than walking.
+                    // Probably will cause errors downstream if this is missing, but at least don't panic.
+                    if let Some(export) = graph.module(target).export.borrow().clone() {
+                        compiler.import_info.insert(target, export);
+                    }
+                } else if reachable.insert(target) {
                     stack.push(target);
                 }
             }
         }
 
-        let mut compiler = Compiler::new(self);
         // Errors raised outside any one module's definitions are attributed
         // to the entry.
         compiler.module = Some(entry);
@@ -188,14 +201,17 @@ impl CompileOptions {
                     }
                     TypedModuleContents::Wasm(typed_wasm_module) => {
                         compiler.module = Some(module_id);
-                        compiler.visit_embedded_wasm(typed_wasm_module);
+                        compiler.visit_embedded_wasm(module_id, typed_wasm_module);
                         compiler.module = Some(entry);
                     }
-                };
+                }
             }
         }
         compiler.visit_program(&definitions);
-        compiler.finish()
+        let mut result = compiler.finish();
+        eprintln!("setting {:?} to {:?}", entry, result.export);
+        *graph.module(entry).export.borrow_mut() = result.export.take();
+        result
     }
 }
 
@@ -234,7 +250,7 @@ struct Compiler {
     resource_abi_fns: HashMap<Type, (u32, u32)>,
     resource_drop_fns: Vec<(Rc<Resource>, u32)>,
 
-    libraries: Vec<(String, Arc<[u8]>, WasmLinkage)>,
+    libraries: HashMap<ModuleId, (String, Arc<[u8]>, WasmLinkage)>,
 
     // Diagnostics.
     fatal: bool,
@@ -258,6 +274,9 @@ struct Compiler {
     effect_handlers: BTreeMap<NameId, Effect>,
     /// Function bodies.
     code_bytes: Vec<Vec<u8>>,
+
+    // Cross-contract tracking.
+    import_info: BTreeMap<ModuleId, TypedModuleExport>,
 
     // Memory building.
     bump_ptr: u32,
@@ -349,9 +368,11 @@ impl Compiler {
             return CompileResult {
                 errors: self.errors,
                 wasm: None,
+                component: Default::default(),
                 binary_wit: None,
                 mermaid: Vec::new(),
                 libraries: Vec::new(),
+                export: None,
             };
         }
 
@@ -444,13 +465,21 @@ impl Compiler {
             wasm = starstream_wasm_opt::optimize(&wasm).expect("codegen emits valid Wasm");
         }
 
-        CompileResult {
+        let mut r = CompileResult {
             errors: self.errors,
             wasm: Some(wasm),
+            component: Default::default(),
             binary_wit: Some(component),
             mermaid: self.mermaid,
-            libraries: self.libraries,
+            libraries: self.libraries.into_values().collect(),
+            export: None,
+        };
+        if let Ok(component) = r.to_component() {
+            r.export = Some(TypedModuleExport {
+                hash: format!("{:x}", sha2::Sha256::digest(&component)),
+            });
         }
+        r
     }
 
     fn push_error(&mut self, span: Span, message: impl Into<String>) -> ErrorToken {
@@ -1153,7 +1182,8 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Visitors
 
-    fn visit_embedded_wasm(&mut self, module: &TypedWasmModule) {
+    /// Visit an `import ... from "*.wasm"` statement.
+    fn visit_embedded_wasm(&mut self, module_id: ModuleId, module: &TypedWasmModule) {
         let mut instance_type = TypeBuilder::<InstanceType>::default();
 
         for (&id, (wit_name, ty)) in &module.functions {
@@ -1171,8 +1201,10 @@ impl Compiler {
             .inner
             .import(&module.name, ComponentTypeRef::Instance(id));
 
-        self.libraries
-            .push((module.name.to_owned(), module.wasm.clone(), module.linkage));
+        self.libraries.insert(
+            module_id,
+            (module.name.to_owned(), module.wasm.clone(), module.linkage),
+        );
     }
 
     /// Root visitor called by [compile] to start walking the AST for a program,
@@ -1202,8 +1234,8 @@ impl Compiler {
         for &(module, definition) in definitions {
             self.module = module;
             match definition {
-                TypedDefinition::Import(def) => self.visit_import(def, &mut imported_interfaces),
-                TypedDefinition::Abi(def) => self.visit_abi(def, &mut imported_interfaces),
+                TypedDefinition::Import(def) => self.visit_import(&mut imported_interfaces, def),
+                TypedDefinition::Abi(def) => self.visit_abi(&mut imported_interfaces, def),
                 // All others handled below.
                 _ => {}
             }
@@ -1278,18 +1310,38 @@ impl Compiler {
 
     fn visit_import(
         &mut self,
-        def: &TypedImportDef,
         imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
+        def: &TypedImportDef,
     ) {
-        if matches!(&def.from, ImportSource::Path { .. }) {
-            // For now, path imports have been visited in topological order,
-            // and visit_program already called for them, so we don't need to
-            // do anything here.
-            // TODO: will change once we have cross-contract imports.
-            return;
+        match (&def.from, def.module) {
+            (wit @ ImportSource::Wit { .. }, _) => {
+                self.visit_import_wit(imported_interfaces, &wit.to_string(), None, &def.items)
+            }
+            (ImportSource::Path(_), Some(module)) => {
+                if let Some(export) = self.import_info.get(&module) {
+                    let hash = export.hash.clone();
+                    self.visit_import_wit(
+                        imported_interfaces,
+                        "starstream:contract/scripts",
+                        Some(&hash),
+                        &def.items,
+                    );
+                }
+            }
+            _ => {
+                self.push_error(def.span, "path import was not resolved to a module");
+            }
         }
+    }
 
-        for item in &def.items {
+    fn visit_import_wit(
+        &mut self,
+        imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
+        module: &str,
+        external_id: Option<&str>,
+        items: &[TypedImportItem],
+    ) {
+        for item in items {
             match &item.ty {
                 Type::Function(func_ty) => {
                     if let Some(StaticFunction::Named(id)) = func_ty.callee {
@@ -1305,7 +1357,7 @@ impl Compiler {
 
                         // Core import
                         let func_idx = self.import_function(
-                            &def.from.to_string(),
+                            module,
                             &kebab,
                             &FuncType::new(
                                 core_params.iter().copied(),
@@ -1320,10 +1372,16 @@ impl Compiler {
                             &func_ty.params,
                             &func_ty.result,
                         );
+                        let name: ComponentExternName<'_> = ComponentExternName {
+                            name: kebab.into(),
+                            implements: None,
+                            version_suffix: None,
+                            external_id: external_id.map(From::from),
+                        };
                         imported_interfaces
-                            .entry(def.from.to_string())
+                            .entry(module.to_owned())
                             .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
-                            .export_fn(&kebab, &sig);
+                            .export_fn(name, &sig);
                     }
                 }
                 _ => todo!(),
@@ -1333,8 +1391,8 @@ impl Compiler {
 
     fn visit_abi(
         &mut self,
-        def: &TypedAbiDef,
         imported_interfaces: &mut BTreeMap<String, TypeBuilder<InstanceType>>,
+        def: &TypedAbiDef,
     ) {
         for part in &def.functions {
             match part.ty.kind {

@@ -1,15 +1,18 @@
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use std::process::Command;
 
 use miette::{Diagnostic, GraphicalReportHandler, GraphicalTheme, Report, SourceCode};
+use sha2::Digest;
 use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
-use starstream_runtime::Contract;
+use starstream_runtime::{Contract, ContractLookup};
 use starstream_types::FileSystem;
 use wasmprinter::Print;
 use wasmtime::component::Component;
+use wasmtime::error::Context;
 
 #[path = "../../starstream-runtime/tests/common/mod.rs"]
 pub mod common;
@@ -213,7 +216,7 @@ fn inputs() {
                             let component_wasm = compile_result.to_component().unwrap();
                             writeln!(output, "{}", wit(&component_wasm)).unwrap();
 
-                            run_tests(output, &component_wasm);
+                            run_tests(output, &engine(), &component_wasm, &mut Imports::default());
                         }
                     }
                 }
@@ -265,7 +268,10 @@ fn multifile() {
                             }
                         }
 
-                        for &entry_id in &typed.contract_entries {
+                        let engine = engine();
+                        let mut contracts = Imports::default();
+
+                        for entry_id in typed.contract_entries() {
                             let entry_module = typed.module(entry_id);
                             writeln!(
                                 output,
@@ -285,7 +291,7 @@ fn multifile() {
                                 let component_wasm = compile_result.to_component().unwrap();
                                 writeln!(output, "{}", wit(&component_wasm)).unwrap();
 
-                                run_tests(output, &component_wasm);
+                                run_tests(output, &engine, &component_wasm, &mut contracts);
                             }
                         }
                     }
@@ -306,10 +312,18 @@ fn multifile() {
     });
 }
 
-fn run_tests(output: &mut String, component_wasm: &[u8]) {
+fn engine() -> wasmtime::Engine {
     let mut engine_config = wasmtime::Config::default();
     starstream_runtime::configure_wasmtime(&mut engine_config);
-    let engine = wasmtime::Engine::new(&engine_config).expect("failed to create wasmtime Engine");
+    wasmtime::Engine::new(&engine_config).expect("failed to create wasmtime Engine")
+}
+
+fn run_tests(
+    output: &mut String,
+    engine: &wasmtime::Engine,
+    component_wasm: &[u8],
+    contracts: &mut Imports,
+) {
     let component = Component::new(&engine, component_wasm).expect("failed to load component");
     let ty = component.component_type();
 
@@ -322,12 +336,8 @@ fn run_tests(output: &mut String, component_wasm: &[u8]) {
         }
     }
 
-    if tests.is_empty() {
-        return;
-    }
-
-    let contract = Contract::<Ctx>::new(&component, None, common::NoopContractLookup)
-        .expect("failed to create contract");
+    let contract =
+        Contract::<Ctx>::new(&component, None, &*contracts).expect("failed to create contract");
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     for (name, description) in tests {
@@ -370,6 +380,11 @@ fn run_tests(output: &mut String, component_wasm: &[u8]) {
         }
         writeln!(output).unwrap();
     }
+
+    contracts.0.insert(
+        format!("{:x}", sha2::Sha256::digest(component_wasm)),
+        contract,
+    );
 }
 
 fn format_panic(output: &mut String, error: &Box<dyn std::any::Any + Send + 'static>) {
@@ -400,4 +415,19 @@ fn build_wasm_examples() {
             .unwrap()
             .success()
     );
+}
+
+#[derive(Default)]
+struct Imports(HashMap<String, Contract<Ctx>>);
+
+impl ContractLookup<Ctx> for &Imports {
+    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<Ctx>> {
+        let contract = self.0.get(external_id).with_context(|| {
+            format!(
+                "contract `{external_id}` not found (know {len} contracts)",
+                len = self.0.len()
+            )
+        })?;
+        Ok(contract.clone())
+    }
 }

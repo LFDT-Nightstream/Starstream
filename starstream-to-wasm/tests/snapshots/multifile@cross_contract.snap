@@ -3,4 +3,87 @@ source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/multifile/cross_contract
 ---
 ==== Workspace ====
-not yet implemented: cross-contract call from `$PWD/tests/multifile/cross_contract/main.star` to `$PWD/tests/multifile/cross_contract/other.star`, which also declares `contract;`
+ModuleGraph {
+    modules.len(): 2,
+    topo_order: [
+        ModuleId(1),
+        ModuleId(0),
+    ],
+    edges: {
+        ModuleId(0): [
+            PathImport {
+                def_index: 1,
+                target: ModuleId(1),
+                span: 34..48,
+            },
+        ],
+    },
+    contract_entries: [
+        ModuleId(0),
+        ModuleId(1),
+    ],
+}
+==== other.star ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
+  export helper: func() -> s64;
+}
+package starstream:std {
+  interface builtin {
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
+
+    resource token;
+
+    push-effect-handler-frame: func(frame-id: u32);
+
+    add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
+
+    pop-effect-handler-frame: func();
+  }
+}
+
+==== main.star ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  import starstream:contract/scripts;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+
+  export run: func() -> s64;
+  @external-id("starstream:test:")
+  export test1: func();
+}
+package starstream:std {
+  interface builtin {
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
+
+    resource token;
+
+    push-effect-handler-frame: func(frame-id: u32);
+
+    add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
+
+    pop-effect-handler-frame: func();
+  }
+}
+
+
+package starstream:contract {
+  interface scripts {
+    @external-id("d37d572415fd567c88a41fcc220cda6fb80e74579345ea6305c208b83bf4de93")
+    helper: func() -> s64;
+  }
+}
+
+==== Test: test1 ====
+events: []
+outputs: []
