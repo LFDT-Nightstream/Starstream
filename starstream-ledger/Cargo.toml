@@ -7,8 +7,16 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[[test]]
+name = "proving"
+required-features = ["proving"]
+
+[[test]]
+name = "ledger"
+required-features = ["client", "server"]
+
 [features]
-default = ["client", "server"]
+default = ["client", "proving", "server"]
 client = [
     "dep:wasmtime-wizer",
     "dep:wrpc-http",
@@ -16,6 +24,7 @@ client = [
     "hyper-util/client-legacy",
     "wrpc-http/client-legacy",
 ]
+proving = ["client", "dep:starstream-proving-runtime"]
 server = [
     "dep:anyhow",
     "dep:http-body",
@@ -48,7 +57,7 @@ multibase = { workspace = true, features = ["std"] }
 multihash = { workspace = true, features = ["std"] }
 serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
-starstream-proving-runtime = { workspace = true }
+starstream-proving-runtime = { workspace = true, optional = true }
 starstream-runtime = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
