@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use wasm_encoder::{InstructionSink, MemArg, ValType};
+use wasm_encoder::{InstructionSink, MemArg, MemArgTarget, ValType};
 
 /// Function used to generate instructions to store a single value to memory.
 pub type StoreFn = Box<dyn Fn(InstructionSink)>;
@@ -236,7 +236,8 @@ impl ComponentAbiType {
         let mem_arg = MemArg {
             offset,
             align: log2(self.alignment()),
-            memory_index,
+            target: MemArgTarget::Memory(memory_index),
+            ordering: None,
         };
         match self {
             ComponentAbiType::Bool => {

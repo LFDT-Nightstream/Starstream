@@ -79,7 +79,7 @@ package starstream:std {
 
 package starstream:contract {
   interface scripts {
-    @external-id("d37d572415fd567c88a41fcc220cda6fb80e74579345ea6305c208b83bf4de93")
+    @external-id("6e27d2c756795b80ca9472f63bd7fe04a071a68ad99a20e3722d4e8d95f45cab")
     helper: func() -> s64;
   }
 }
