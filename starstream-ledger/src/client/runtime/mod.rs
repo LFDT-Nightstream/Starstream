@@ -181,7 +181,7 @@ pub async fn call_coordination_script(
     let param_len = export.ty().params().len();
     ensure!(
         args_len == param_len,
-        "argument length mismatch, expected: {args_len}, got: {param_len}"
+        "argument length mismatch, expected: {param_len}, got: {args_len}"
     );
 
     let engine = contract.component().engine();
