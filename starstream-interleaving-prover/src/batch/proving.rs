@@ -1,111 +1,241 @@
-//! Experimental transaction-bound, relation-only R1CS-F' audits.
-//! Verification replays the full history; this is not recursive NIFS verification.
-//!
-//! TODO: Prove RAM/ROM accesses and bind their initialization. For now memory
-//! consistency is only checked on the host; the proof authenticates the local
-//! relation and carried-state continuity, NOT full interleaving semantics.
+//! Transaction-bound Nebula proofs. Host checks remain the fast diagnostic path.
 
 use super::*;
+pub use crate::memory::MemoryId;
 use crate::terminal::TerminalClaim;
-pub use neo_ajtai::AjtaiError;
-use neo_application::range_checked_variable_widths;
-use neo_fold_clean::{
-    engine::ccs_native::poseidon2::POSEIDON2_GOLDILOCKS_BITS,
-    frontends::{
-        f_prime::{
-            image::FPrimeImageLayout,
-            recursive_plan::{
-                RecursiveStepImagePlan, StateXOutPlanOptions, build_recursive_step_image_config,
-                build_semantic_state_preimage_fields,
-            },
-        },
-        r1cs_f_prime::{self, R1csFPrimePreprocessing, SparseR1cs},
-    },
-    lifecycle::verify_uncompressed_audit,
-    paper::{
-        digest::digest_fields_as_digest32,
-        f_prime::{
-            poseidon_trace::encode_poseidon_trace,
-            ring_action_trace::{LowNormEncoding, RingActionTraceLayout},
-        },
-    },
-};
-pub use neo_fold_clean::{
-    frontends::r1cs_f_prime::Error as R1csError,
-    lifecycle::{Error as LifecycleError, UncompressedAudit},
-    paper::params::Params,
-};
-use starstream_interleaving_spec::TransactionStatement;
+use nightstream::Engine;
+use nightstream::nebula::{self, R1csApplication, RowRelation, Size};
+use p3_field::PrimeField64;
+use starstream_interleaving_spec::{MethodHash, TransactionStatement};
+use std::num::NonZeroUsize;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProvingError {
     #[error(transparent)]
     Circuit(#[from] crate::Error),
     #[error(transparent)]
-    Frontend(#[from] Box<R1csError>),
+    Backend(#[from] nightstream::Error),
     #[error(transparent)]
-    Audit(#[from] crate::audit::AuditError),
+    Application(#[from] nebula::R1csApplicationError),
     #[error(transparent)]
-    Verification(#[from] LifecycleError),
+    Binding(#[from] nebula::CatalogBindingError),
     #[error(transparent)]
-    Setup(#[from] AjtaiError),
+    Prove(#[from] nebula::ProveError),
+    #[error(transparent)]
+    Verification(#[from] nebula::VerifyError),
     #[error(transparent)]
     FinalClaim(#[from] FinalClaimError),
+    #[error("cannot prove an empty trace")]
+    EmptyTrace,
+    #[error("trace requires {segments} segments, but the profile allows {max}")]
+    TraceTooLong { segments: usize, max: usize },
+    #[error("invalid proof configuration: {0}")]
+    Configuration(&'static str),
+    #[error("method dictionary must be sorted, unique, and match the normalized trace")]
+    MethodDictionary,
 }
 
-impl From<R1csError> for ProvingError {
-    fn from(error: R1csError) -> Self {
-        Self::Frontend(Box::new(error))
-    }
-}
-
-/// Full-history relation audit and its authenticated final carried state.
-/// This does not prove memory consistency; see the module-level TODO.
+/// Verifier-owned circuit configuration.
 #[derive(Clone, Debug)]
-pub struct TransactionProof {
-    pub proof: UncompressedAudit,
-    // TODO(privacy): Publish only the transaction digest/terminal projection,
-    // not the whole carried state (which exposes activity counters).
-    pub final_state: Vec<F>,
+pub struct ProofConfig {
+    pub batch_size: usize,
+    pub geometry: nebula::Geometry,
+    pub regions: Vec<(MemoryId, nebula::Region)>,
+    pub slots: Vec<Vec<usize>>,
+    pub engine: Engine,
+    pub minimum_security_bits: u32,
 }
 
-/// Reusable preprocessing for a fixed batch size and parameter set.
-/// The verifier must use its own trusted context, not prover-supplied setup.
-pub struct TransactionProofContext {
-    batch: Batch,
-    preprocessing: R1csFPrimePreprocessing,
-}
-
-impl TransactionProofContext {
-    /// Both parties must agree on the parameters, batch size and setup seed.
-    /// The seed is verifier-owned configuration, never taken from the proof.
-    /// Weak test parameters are supported for demos; they are not secure.
-    pub fn new(
+impl ProofConfig {
+    /// Size a local benchmark from its trace, including ROM preloads. This is
+    /// not a ledger sizing policy: a verifier must independently accept the
+    /// resulting configuration, never take arbitrary prover-supplied sizes.
+    pub fn for_trace_benchmark(
+        trace: &Trace,
         batch_size: usize,
-        params: Params,
-        setup_seed: [u8; 32],
+        segment_batches: usize,
     ) -> Result<Self, ProvingError> {
+        if !segment_batches.is_power_of_two() {
+            return Err(ProvingError::Configuration(
+                "benchmark segment length must be a power of two",
+            ));
+        }
         let batch = Batch::new(batch_size)?;
-        let relation = sparse_relation(&batch);
-        let plan = recursive_plan(&batch, &relation);
-        let compiled = crate::audit::derive(&relation, plan, &params)?;
-        register_setup(
-            &params,
-            compiled.structure().ccs.m.div_ceil(neo_math::D),
-            setup_seed,
+        let normalized = normalize(trace);
+        let packed = batch.pack(&normalized.steps);
+        let preload = crate::memory::preload_tables(&normalized.method_table).entries();
+        let mut memories = Vec::new();
+        for memory in batch.memory.entries() {
+            let mut widths = vec![1usize; memory.ports[0].address_columns.len()];
+            let mut include = |address: Vec<u64>| {
+                for (width, value) in widths.iter_mut().zip(address) {
+                    *width = (*width).max((u64::BITS - value.leading_zeros()) as usize);
+                }
+            };
+            for (_, address, _) in preload.iter().filter(|(id, _, _)| *id == memory.id) {
+                include(address.iter().map(|x| u64::from(*x)).collect());
+            }
+            for row in &packed.rows {
+                for port in &memory.ports {
+                    let active = match port.activation {
+                        MemoryPortActivation::Always => true,
+                        MemoryPortActivation::When(column) => row[column] == F::ONE,
+                        MemoryPortActivation::Unless(column) => row[column] == F::ZERO,
+                    };
+                    if active {
+                        include(
+                            port.address_columns
+                                .iter()
+                                .map(|column| row[*column].as_canonical_u64())
+                                .collect(),
+                        );
+                    }
+                }
+            }
+            if widths.iter().sum::<usize>() >= 32 {
+                return Err(ProvingError::Configuration(
+                    "benchmark memory region is too large",
+                ));
+            }
+            memories.push((memory.id, memory.kind, widths));
+        }
+        let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(memories);
+        let ports = batch
+            .memory
+            .entries()
+            .iter()
+            .map(|m| m.ports.len())
+            .sum::<usize>();
+        let r = rom_cells
+            .max(segment_batches as u64)
+            .max(2)
+            .next_power_of_two()
+            .ilog2() as usize;
+        let mu = ram_cells
+            .max(rom_cells)
+            .max(segment_batches as u64)
+            .max(2)
+            .next_power_of_two()
+            .ilog2() as usize;
+        let segments = 4096usize
+            .checked_div(segment_batches)
+            .filter(|n| *n > 0)
+            .ok_or(ProvingError::Configuration(
+                "invalid benchmark segment length",
+            ))?;
+        let geometry = nebula::Geometry::new(r, mu, ports, segment_batches, segments).ok_or(
+            ProvingError::Configuration("invalid benchmark memory geometry"),
         )?;
-        let plan = compiled.plan().clone();
-        // TODO(upstream): Reuse the derived structure with the registered setup.
-        drop(compiled);
-        let preprocessing = r1cs_f_prime::preprocess_sparse(&relation, &plan, params)?;
         Ok(Self {
-            batch,
-            preprocessing,
+            batch_size,
+            geometry,
+            regions,
+            slots: (0..ports).map(|rank| vec![rank]).collect(),
+            engine: Engine::Optimized,
+            minimum_security_bits: 109,
         })
     }
 
-    /// Checks RAM/ROM and statement consistency on the host, then proves the
-    /// local relation and carried continuity. No memory argument is included.
+    /// Report circuit dimensions without assembling or preparing a prover.
+    pub fn size_parts(&self) -> Result<Vec<nebula::SizePart>, ProvingError> {
+        let batch = Batch::new(self.batch_size)?;
+        let app = application(&batch, self)?;
+        Ok(nebula::size_parts(&self.geometry, &app)?)
+    }
+
+    /// Experimental bounded profile for small integration tests, not a ledger
+    /// capacity policy. Single-part addresses have eight bits; multipart ones
+    /// have four per part. Each segment contains eight packed batches.
+    pub fn small(batch_size: usize) -> Result<Self, ProvingError> {
+        let batch = Batch::new(batch_size)?;
+        let (regions, [rom_cells, ram_cells]) =
+            nebula::pack_regions(batch.memory.entries().iter().map(|m| {
+                let parts = m.ports[0].address_columns.len();
+                (m.id, m.kind, vec![if parts == 1 { 8 } else { 4 }; parts])
+            }));
+        // One slot per port preserves the catalog's access order, including
+        // writes followed by reads in the same execution row.
+        let ports: usize = batch.memory.entries().iter().map(|m| m.ports.len()).sum();
+        let slots = (0..ports).map(|rank| vec![rank]).collect();
+        let r = rom_cells.max(2).next_power_of_two().ilog2() as usize;
+        let mu = ram_cells.max(rom_cells).max(2).next_power_of_two().ilog2() as usize;
+        let geometry = nebula::Geometry::new(r, mu, ports, 8, 512).ok_or(
+            ProvingError::Configuration("memory geometry exceeds backend limits"),
+        )?;
+        Ok(Self {
+            batch_size,
+            geometry,
+            regions,
+            slots,
+            engine: Engine::Optimized,
+            minimum_security_bits: 109,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct TransactionProof {
+    pub proof: nebula::Proof,
+    // Authenticated by the memory verifier; terminal projection is checked below.
+    pub final_state: Vec<F>,
+}
+
+pub struct TransactionProofContext {
+    batch: Batch,
+    config: ProofConfig,
+    methods: Vec<MethodHash>,
+    program: nebula::Program,
+    prover: nebula::Prover<R1csApplication<MemoryId>>,
+    verifier: nebula::Verifier<R1csApplication<MemoryId>>,
+}
+
+fn application(
+    batch: &Batch,
+    config: &ProofConfig,
+) -> Result<R1csApplication<MemoryId>, ProvingError> {
+    Ok(R1csApplication::new(
+        RowRelation::of(batch.relation.r1cs())?,
+        &batch.continuity,
+        &batch.memory,
+        Size {
+            geometry: config.geometry,
+            // Batch already packs the execution rows into each assignment.
+            rows: NonZeroUsize::MIN,
+            regions: config.regions.clone(),
+            slots: config.slots.clone(),
+        },
+    )?)
+}
+
+/// Dictionary used by normalization. A verifier must agree on this table
+/// independently; deriving it from the trace is suitable for local tests.
+pub fn method_dictionary(trace: &Trace) -> Vec<MethodHash> {
+    normalize(trace).method_table
+}
+
+impl TransactionProofContext {
+    /// Compile a verifier-owned relation and bind its method/effect ROM.
+    /// Currently normalization requires the exact trace-local dictionary.
+    pub fn new(config: ProofConfig, methods: Vec<MethodHash>) -> Result<Self, ProvingError> {
+        if methods.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
+            return Err(ProvingError::MethodDictionary);
+        }
+        let batch = Batch::new(config.batch_size)?;
+        let app = application(&batch, &config)?;
+        let program = app.program(&crate::memory::preload_tables(&methods))?;
+        let circuit = nebula::Circuit::compile(config.geometry, app)?;
+        let prover = circuit.prover(config.engine, config.minimum_security_bits)?;
+        let verifier = circuit.verifier(config.engine, config.minimum_security_bits)?;
+        Ok(Self {
+            batch,
+            config,
+            methods,
+            program,
+            prover,
+            verifier,
+        })
+    }
+
     pub fn prove(
         &self,
         trace: &Trace,
@@ -113,17 +243,31 @@ impl TransactionProofContext {
         roots: &crate::TraceCommitments,
     ) -> Result<TransactionProof, ProvingError> {
         let normalized = normalize(trace);
-        let packed =
+        let padding = normalized
+            .steps
+            .last()
+            .ok_or(ProvingError::EmptyTrace)?
+            .padding_after();
+        if normalized.method_table != self.methods {
+            return Err(ProvingError::MethodDictionary);
+        }
+        let mut packed =
             super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
         let final_state = final_state(&self.batch, &packed);
+        let n = self.config.geometry.n;
+        pad_to_segments(&self.batch, &mut packed, padding, &self.config.geometry)?;
+        let mut run = self
+            .prover
+            .start(&self.program, state_words(&initial_state()))?;
+        for segment in packed.rows.chunks(n) {
+            run.segment(segment)?;
+        }
         Ok(TransactionProof {
-            proof: crate::audit::prove(&self.preprocessing, packed.rows)?,
+            proof: run.finish()?,
             final_state,
         })
     }
 
-    /// Authenticates the statement/instance-root digest and terminal state.
-    /// Replays the audit history, but does not establish the host-only memory checks.
     pub fn verify(
         &self,
         proof: &TransactionProof,
@@ -132,40 +276,54 @@ impl TransactionProofContext {
     ) -> Result<(), ProvingError> {
         let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
         check_final_state(
-            proof.proof.proof.state.semantic_state_digest,
             &proof.final_state,
             TerminalClaim::Transaction {
                 commitment: expected,
             },
         )?;
-        verify_uncompressed_audit(&self.preprocessing.prep, &proof.proof)?;
+        self.verifier.verify(
+            &self.program,
+            &state_words(&initial_state()),
+            &state_words(&proof.final_state),
+            &proof.proof,
+        )?;
         Ok(())
     }
 }
 
-fn register_setup(params: &Params, cols: usize, seed: [u8; 32]) -> Result<(), AjtaiError> {
-    // Rejects an existing setup for these dimensions with a different seed or kappa.
-    neo_ajtai::set_global_pp_seeded(neo_math::D, params.kappa() as usize, cols, seed)
+/// Fill the final segment with inactive batches, preserving the terminal state.
+fn pad_to_segments(
+    batch: &Batch,
+    packed: &mut PackedWitness,
+    padding: Wit,
+    geometry: &nebula::Geometry,
+) -> Result<(), ProvingError> {
+    if packed.rows.is_empty() {
+        return Err(ProvingError::EmptyTrace);
+    }
+    let segments = packed.rows.len().div_ceil(geometry.n);
+    if segments > geometry.s_max {
+        return Err(ProvingError::TraceTooLong {
+            segments,
+            max: geometry.s_max,
+        });
+    }
+    if !packed.rows.len().is_multiple_of(geometry.n) {
+        let pad = batch
+            .pack(&[padding])
+            .rows
+            .pop()
+            .expect("one padding batch");
+        while !packed.rows.len().is_multiple_of(geometry.n) {
+            packed.rows.push(pad.clone());
+        }
+        packed.origins.resize(packed.rows.len() * batch.size, None);
+    }
+    Ok(())
 }
 
-fn sparse_relation(batch: &Batch) -> SparseR1cs {
-    let core = batch.relation.r1cs();
-    let ccs = core.structure();
-    SparseR1cs::new(
-        ccs.matrices[0].clone(),
-        ccs.matrices[1].clone(),
-        ccs.matrices[2].clone(),
-        ccs.n,
-        ccs.m,
-        core.public_input_count(),
-    )
-    .unwrap()
-}
-
-fn state_digest(fields: &[F]) -> [u8; 32] {
-    digest_fields_as_digest32(
-        encode_poseidon_trace(&build_semantic_state_preimage_fields(fields)).digest_native,
-    )
+fn state_words(state: &[F]) -> Vec<u64> {
+    state.iter().map(PrimeField64::as_canonical_u64).collect()
 }
 
 // Verifier-owned initial state, independent of the witness being proved.
@@ -210,12 +368,9 @@ pub enum FinalClaimError {
     LengthMismatch { expected: usize, actual: usize },
     #[error(transparent)]
     Terminal(#[from] Unsatisfied),
-    #[error("final-state digest mismatch")]
-    DigestMismatch,
 }
 
 fn check_final_state(
-    authenticated_state_digest: [u8; 32],
     final_state: &[F],
     expected_terminal: TerminalClaim,
 ) -> Result<(), FinalClaimError> {
@@ -237,55 +392,7 @@ fn check_final_state(
             .expect("terminal columns are carried");
         final_state[index]
     })?;
-    if state_digest(final_state) != authenticated_state_digest {
-        return Err(FinalClaimError::DigestMismatch);
-    }
     Ok(())
-}
-
-fn recursive_plan(batch: &Batch, r1cs: &SparseR1cs) -> RecursiveStepImagePlan {
-    let widths = range_checked_variable_widths(batch.relation.columns());
-    // Full-history audit verification supplies the fold checks outside the image.
-    let mut plan = RecursiveStepImagePlan {
-        limbs: widths.iter().sum::<usize>() + 1,
-        app_private_var_widths: widths,
-        boundary_bits: 4 * POSEIDON2_GOLDILOCKS_BITS,
-        kmul_count: 0,
-        ring_action_pair_count: 0,
-        ring_action_pair_layout: RingActionTraceLayout::new(
-            LowNormEncoding::U64,
-            LowNormEncoding::U64,
-            LowNormEncoding::U64,
-            LowNormEncoding::U64,
-        ),
-        sponge_transcript_permutes: 0,
-        nifs_payload_shapes: vec![],
-        accumulator: None,
-        state_x_out: None,
-    };
-    let layout = FPrimeImageLayout::new(build_recursive_step_image_config(&plan));
-    plan.state_x_out = Some(StateXOutPlanOptions {
-        pc: 1,
-        public_x_out_lane_bit_starts: std::array::from_fn(|i| {
-            layout.boundary.offset + i * POSEIDON2_GOLDILOCKS_BITS
-        }),
-        app_public_input_var_indices: (0..r1cs.m_in).collect(),
-        app_public_input_bit_var_indices: vec![],
-        // Batch already eliminated the middle links and remapped the endpoints
-        // into its column-major assignment layout.
-        semantic_state_in_var_indices: batch
-            .continuity
-            .links()
-            .map(|link| link.next_step_column)
-            .collect(),
-        semantic_state_out_var_indices: batch
-            .continuity
-            .links()
-            .map(|link| link.previous_step_column)
-            .collect(),
-        initial_semantic_state_digest_anchor: Some(state_digest(&initial_state())),
-    });
-    plan
 }
 
 #[cfg(test)]

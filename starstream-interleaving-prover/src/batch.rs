@@ -332,7 +332,7 @@ pub fn verify_sat_batched(trace: &Trace, batch_size: usize) -> Result<(), Error>
 /// Check the relation and the exact final per-instance trace commitment map.
 /// The expected map is supplied by the caller, not derived from the witness.
 /// Transaction proofs bind this map through the aggregate transaction digest.
-/// TODO(proof): Authenticate the underlying RAM accesses as well.
+/// This is a host diagnostic; the proving API authenticates memory accesses with Nebula.
 pub fn verify_sat_with_commitments(
     trace: &Trace,
     batch_size: usize,
