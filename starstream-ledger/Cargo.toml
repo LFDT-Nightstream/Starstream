@@ -22,7 +22,6 @@ http = [
     "dep:form_urlencoded",
     "dep:http-body",
     "dep:http-body-util",
-    "dep:hyper",
     "dep:tower-http",
 ]
 genesis = ["client", "dep:wasm-wave", "wasmtime/wave"]

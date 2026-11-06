@@ -1,26 +1,22 @@
+use core::error::Error;
 use core::future::poll_fn;
 use core::pin::pin;
 use core::task::{Poll, ready};
 use core::time::Duration;
 
-use std::error::Error as _;
 use std::sync::Arc;
 
-use futures::TryFutureExt as _;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
 use tokio::net::TcpListener;
-use tokio::sync::{Notify, TryAcquireError};
+use tokio::sync::Notify;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
 use tokio_io_timeout::TimeoutStream;
 use tracing::{Instrument as _, debug, error, info, instrument, warn};
 
 use crate::server::Ledger;
-use crate::server::http::{
-    allow_cross_origin, build_options_or_method_not_allowed, build_text_response,
-};
 
 fn is_connection_error(err: &std::io::Error) -> bool {
     matches!(
@@ -40,7 +36,7 @@ fn is_timeout(err: &hyper::Error) -> bool {
 }
 
 impl Ledger {
-    /// Return the future serving the ledger HTTP API on `listener`.
+    /// Return the future serving the ledger HTTP API on `lis`.
     ///
     /// At most `max_requests` connections are served at once, and a connection
     /// is closed if it does not send a complete request head within
@@ -52,154 +48,26 @@ impl Ledger {
     /// down; [`Notify::notify_waiters`] is lost if it races the first poll of
     /// the future.
     #[instrument(skip_all)]
-    pub fn handle_http(
+    pub fn serve_http(
         self: Arc<Self>,
-        listener: TcpListener,
+        lis: TcpListener,
         io_timeout: Duration,
     ) -> (impl Future<Output = ()> + use<>, Arc<Notify>) {
-        let ledger = self.clone();
+        let ledger = Arc::clone(&self);
         let svc = service_fn(move |req: http::Request<hyper::body::Incoming>| {
-            let ledger = ledger.clone();
-            async move {
-                let _permit = match ledger.permits.try_acquire() {
-                    Ok(permit) => permit,
-                    Err(TryAcquireError::NoPermits) => {
-                        return build_text_response(
-                            http::StatusCode::SERVICE_UNAVAILABLE,
-                            "maximum concurrent request count reached",
-                        );
-                    }
-                    Err(TryAcquireError::Closed) => {
-                        return build_text_response(
-                            http::StatusCode::INTERNAL_SERVER_ERROR,
-                            "semaphore closed",
-                        );
-                    }
-                };
-                let (
-                    http::request::Parts {
-                        method,
-                        uri,
-                        headers,
-                        ..
-                    },
-                    body,
-                ) = req.into_parts();
-                let Some(pq) = uri.path_and_query() else {
-                    return build_text_response(
-                        http::StatusCode::BAD_REQUEST,
-                        "request target unsupported",
-                    );
-                };
-                let path = pq.path();
-                let path = path
-                    .strip_suffix('/')
-                    .filter(|path| !path.is_empty())
-                    .unwrap_or(path);
-                let mut path = path.split('/');
-                let Some("") = path.next() else {
-                    return build_text_response(
-                        http::StatusCode::BAD_REQUEST,
-                        "request target unsupported",
-                    );
-                };
-                match (
-                    method.as_str(),
-                    path.next(),
-                    path.next(),
-                    path.next(),
-                    path.next(),
-                ) {
-                    ("GET", Some("contracts"), Some(digest), None, ..) => match ledger
-                        .handle_contract_get::<false>(headers, digest)
-                        .await
-                    {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
-                    ("HEAD", Some("contracts"), Some(digest), None, ..) => match ledger
-                        .handle_contract_get::<true>(headers, digest)
-                        .await
-                    {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
-                    (_, Some("contracts"), Some(..), None, ..) => {
-                        build_options_or_method_not_allowed(
-                            "GET, HEAD, OPTIONS",
-                            &method,
-                            pq.path(),
-                        )
-                    }
-
-                    ("GET", Some("transactions"), Some(digest), None, ..) => match ledger
-                        .handle_transaction_get::<false>(headers, digest)
-                        .await
-                    {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
-                    ("HEAD", Some("transactions"), Some(digest), None, ..) => match ledger
-                        .handle_transaction_get::<true>(headers, digest)
-                        .await
-                    {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
-                    (_, Some("transactions"), Some(..), None, ..) => {
-                        build_options_or_method_not_allowed(
-                            "GET, HEAD, OPTIONS",
-                            &method,
-                            pq.path(),
-                        )
-                    }
-
-                    ("POST", Some("rpc"), None, ..) => {
-                        match ledger.handle_rpc_post(headers, body, io_timeout).await {
-                            Ok(res) => Ok(res),
-                            Err(err) => {
-                                build_text_response(err.http_status_code(), err.to_string())
-                            }
-                        }
-                    }
-                    ("GET", Some("rpc"), None, ..) => match ledger
-                        .handle_rpc_get::<false>(headers, pq.query())
-                        .await
-                    {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
-                    ("HEAD", Some("rpc"), None, ..) => match ledger
-                        .handle_rpc_get::<true>(headers, pq.query())
-                        .await
-                    {
-                        Ok(res) => Ok(res),
-                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
-                    },
-                    (_, Some("rpc"), None, ..) => build_options_or_method_not_allowed(
-                        "GET, HEAD, OPTIONS, POST",
-                        &method,
-                        pq.path(),
-                    ),
-
-                    _ => build_text_response(
-                        http::StatusCode::NOT_FOUND,
-                        format!("path `{}` not found", pq.path()),
-                    ),
-                }
-            }
-            .map_ok(allow_cross_origin)
+            let ledger = Arc::clone(&ledger);
+            async move { ledger.handle_http(req, io_timeout).await }
         });
-        let shutdown = Arc::new(Notify::new());
+        let shutdown: Arc<Notify> = Arc::default();
         let mut srv = hyper::server::conn::http1::Builder::new();
         srv.timer(TokioTimer::new()).header_read_timeout(io_timeout);
-        let max_connections = self.max_requests as usize;
+        let max_connections = usize::try_from(self.max_requests).unwrap_or(usize::MAX);
         (
             {
                 let shutdown = Arc::clone(&shutdown).notified_owned();
                 async move {
                     let graceful = GracefulShutdown::default();
-                    let mut tasks = JoinSet::new();
+                    let mut tasks = JoinSet::default();
                     let mut shutdown = pin!(shutdown);
                     loop {
                         match poll_fn(|cx| {
@@ -215,7 +83,7 @@ impl Ledger {
                                 // `poll_join_next` above.
                                 Poll::Pending if tasks.len() >= max_connections => Poll::Pending,
                                 Poll::Pending => {
-                                    let res = ready!(listener.poll_accept(cx));
+                                    let res = ready!(lis.poll_accept(cx));
                                     Poll::Ready(Some(res))
                                 }
                             }
