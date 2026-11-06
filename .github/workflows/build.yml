@@ -18,6 +18,7 @@ jobs:
       - run: cargo check --locked
       # Test all crates, except those that force-target WASM.
       - run: cargo test --workspace
+      - run: cargo check -p starstream-ledger --no-default-features --features client,http,server,starstream-runtime/wasmtime-custom-fiber,starstream-runtime/wasmtime-custom-virtual-memory --target wasm32-unknown-unknown
       - name: Test Rust-to-Quint trace verification
         run: npm run test_rust
         working-directory: starstream-interleaving-spec
