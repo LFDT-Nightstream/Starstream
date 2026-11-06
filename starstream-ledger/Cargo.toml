@@ -13,29 +13,37 @@ required-features = ["proving"]
 
 [[test]]
 name = "ledger"
-required-features = ["client", "server"]
+required-features = ["client", "http", "server", "tcp"]
 
 [features]
-default = ["client", "proving", "server"]
-client = [
-    "dep:wasmtime-wizer",
-    "dep:wrpc-http",
-    "hyper-util/client",
-    "hyper-util/client-legacy",
-    "wrpc-http/client-legacy",
+default = ["client", "http", "proving", "server", "tcp"]
+client = ["dep:wasmtime-wizer"]
+http = [
+    "dep:form_urlencoded",
+    "dep:http-body",
+    "dep:http-body-util",
+    "dep:tower-http",
 ]
 proving = ["client", "dep:starstream-proving-runtime"]
 server = [
     "dep:anyhow",
-    "dep:http-body",
-    "dep:hyper",
-    "dep:tokio-io-timeout",
-    "dep:tower-http",
     "dep:wit-component",
     "dep:wit-parser",
+]
+tcp = [
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:tokio-io-timeout",
+    "dep:wrpc-http",
+    "hyper-util/client",
+    "hyper-util/client-legacy",
     "hyper-util/server",
     "hyper-util/server-graceful",
     "hyper-util/tokio",
+    "tokio/net",
+    "tokio/rt",
+    "tokio/time",
+    "wrpc-http/client-legacy",
 ]
 
 [dependencies]
@@ -43,14 +51,14 @@ anyhow = { workspace = true }
 bytes = { workspace = true }
 coset = { workspace = true, features = ["std"] }
 ed25519-dalek = { workspace = true, features = ["fast", "std", "zeroize"] }
-form_urlencoded = { workspace = true, features = ["std"] }
+form_urlencoded = { workspace = true, optional = true, features = ["std"] }
 futures = { workspace = true }
 hex = { workspace = true, features = ["std"] }
 http = { workspace = true, features = ["std"] }
 http-body = { workspace = true, optional = true }
-http-body-util = { workspace = true }
+http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true, features = ["http1", "server"] }
-hyper-util = { workspace = true, features = ["http1"] }
+hyper-util = { workspace = true, optional = true, features = ["http1"] }
 mediatype = { workspace = true }
 minicbor = { workspace = true, features = ["derive", "std"] }
 multibase = { workspace = true, features = ["std"] }
@@ -60,7 +68,7 @@ sha2 = { workspace = true }
 starstream-proving-runtime = { workspace = true, optional = true }
 starstream-runtime = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "sync"] }
 tokio-io-timeout = { workspace = true, optional = true }
 tokio-util = { workspace = true, features = ["codec", "io"] }
 tower-http = { workspace = true, optional = true, features = ["timeout"] }
@@ -97,6 +105,7 @@ starstream-types = { workspace = true }
 tokio = { workspace = true, features = [
     "io-util",
     "macros",
+    "net",
     "rt-multi-thread",
 ] }
 wat = { workspace = true }

@@ -169,12 +169,13 @@ async fn http() {
     );
     let ledger = Arc::new(ledger);
     let (lis, addr) = bind_tcp_listener().await.unwrap();
-    let (ledger, shutdown) = ledger.handle_http(lis, Duration::from_secs(30));
+    let (ledger, shutdown) = ledger.serve_http(lis, Duration::from_secs(30));
     let ledger = tokio::spawn(ledger);
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http.clone(), HttpConnector::new(), api_base.clone()).build();
+    let client =
+        ClientBuilder::from_hyper(http.clone(), HttpConnector::new(), api_base.clone()).build();
     let http = http.build_http();
 
     let req = http::Request::builder()
@@ -649,7 +650,7 @@ impl Client for NoopClient {
 async fn serve(
     genesis: impl Into<Box<[TransactionOutput]>>,
 ) -> (
-    starstream_ledger::client::http::Client<HttpConnector>,
+    starstream_ledger::client::http::tcp::Client<HttpConnector>,
     Arc<tokio::sync::Notify>,
     tokio::task::JoinHandle<()>,
 ) {
@@ -667,12 +668,12 @@ async fn serve(
     );
     let ledger = Arc::new(ledger);
     let (lis, addr) = bind_tcp_listener().await.unwrap();
-    let (ledger, shutdown) = ledger.handle_http(lis, Duration::from_secs(30));
+    let (ledger, shutdown) = ledger.serve_http(lis, Duration::from_secs(30));
     let ledger = tokio::spawn(ledger);
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http, HttpConnector::new(), api_base).build();
+    let client = ClientBuilder::from_hyper(http, HttpConnector::new(), api_base).build();
     client
         .fund(ADMIN.clone(), NETWORK, 1, &ADMIN.verifying_key(), 1 << 20)
         .await
@@ -800,14 +801,14 @@ async fn stalled_connections_are_closed() {
     );
     let ledger = Arc::new(ledger);
     let (lis, addr) = bind_tcp_listener().await.unwrap();
-    let (ledger, shutdown) = ledger.handle_http(lis, Duration::from_millis(100));
+    let (ledger, shutdown) = ledger.serve_http(lis, Duration::from_millis(100));
     let ledger = tokio::spawn(ledger);
 
     let mut idle = tokio::net::TcpStream::connect(addr).await.unwrap();
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http, HttpConnector::new(), api_base).build();
+    let client = ClientBuilder::from_hyper(http, HttpConnector::new(), api_base).build();
     let height = tokio::time::timeout(Duration::from_secs(10), client.block_height())
         .await
         .expect("idle connection must be closed")
@@ -830,6 +831,22 @@ async fn stalled_connections_are_closed() {
             .expect("stalled request body must time out")
             .unwrap();
         assert_eq!(&res, b"HTTP/1.1 408", "{content_type}");
+    }
+
+    {
+        let mut large = tokio::net::TcpStream::connect(addr).await.unwrap();
+        large
+            .write_all(
+                format!("POST /rpc HTTP/1.1\r\nHost: ledger\r\nContent-Type: {APPLICATION_COSE}\r\nContent-Length: 16777217\r\n\r\n").as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut res = [0; 12];
+        tokio::time::timeout(Duration::from_secs(10), large.read_exact(&mut res))
+            .await
+            .expect("oversized request body must be rejected")
+            .unwrap();
+        assert_eq!(&res, b"HTTP/1.1 413", "oversized");
     }
 
     let mut header = vec![0x00];

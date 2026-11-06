@@ -288,14 +288,14 @@ async fn exec(args: Args) -> anyhow::Result<()> {
     let ledger = Ledger::new(engine, max_requests, fuel, network, admin, genesis, cardano);
     let ledger = Arc::new(ledger);
 
-    let listener = bind_tcp(addr)?;
-    let listener = listener
+    let tcp = bind_tcp(addr)?;
+    let tcp = tcp
         .listen(max_requests)
         .context("failed to listen on TCP socket")?;
-    let addr = listener
+    let addr = tcp
         .local_addr()
         .context("failed to get TCP listener local address")?;
-    let (http, http_shutdown) = ledger.handle_http(listener, io_timeout);
+    let (http, http_shutdown) = ledger.serve_http(tcp, io_timeout);
     let http = tokio::spawn(http);
     let mut http = pin!(http);
 
