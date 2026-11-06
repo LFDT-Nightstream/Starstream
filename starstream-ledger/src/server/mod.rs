@@ -1,6 +1,6 @@
 //! Starstream ledger server.
 
-#![cfg_attr(not(feature = "http"), allow(dead_code))]
+#![cfg_attr(not(all(feature = "http", feature = "tcp")), allow(dead_code))]
 
 use core::sync::atomic::AtomicU64;
 

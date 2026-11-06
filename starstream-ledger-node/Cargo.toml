@@ -23,7 +23,7 @@ clap = { workspace = true, features = [
 ed25519-dalek = { workspace = true, features = ["fast", "zeroize"] }
 hex = { workspace = true, features = ["std"] }
 sha2 = { workspace = true }
-starstream-ledger = { workspace = true, features = ["genesis", "http", "proving", "server"] }
+starstream-ledger = { workspace = true, features = ["genesis", "http", "proving", "server", "tcp"] }
 tokio = { workspace = true, features = [
     "fs",
     "macros",

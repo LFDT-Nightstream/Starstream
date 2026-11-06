@@ -13,23 +13,19 @@ required-features = ["proving"]
 
 [[test]]
 name = "ledger"
-required-features = ["client", "http", "server"]
+required-features = ["client", "http", "server", "tcp"]
 
 [features]
-default = ["client", "genesis", "http", "proving", "server"]
+default = ["client", "genesis", "http", "proving", "server", "tcp"]
 client = ["dep:wasmtime-wizer"]
 http = [
     "dep:http-body",
     "dep:hyper",
     "dep:hyper-util",
-    "dep:tokio-io-timeout",
     "dep:tower-http",
     "dep:wrpc-http",
     "hyper-util/client",
     "hyper-util/client-legacy",
-    "hyper-util/server",
-    "hyper-util/server-graceful",
-    "hyper-util/tokio",
     "wrpc-http/client-legacy",
 ]
 genesis = ["client", "dep:wasm-wave", "wasmtime/wave"]
@@ -38,6 +34,17 @@ server = [
     "dep:anyhow",
     "dep:wit-component",
     "dep:wit-parser",
+]
+tcp = [
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:tokio-io-timeout",
+    "hyper-util/server",
+    "hyper-util/server-graceful",
+    "hyper-util/tokio",
+    "tokio/net",
+    "tokio/rt",
+    "tokio/time",
 ]
 
 [dependencies]
@@ -62,7 +69,7 @@ sha2 = { workspace = true }
 starstream-proving-runtime = { workspace = true, optional = true }
 starstream-runtime = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "sync"] }
 tokio-io-timeout = { workspace = true, optional = true }
 tokio-util = { workspace = true, features = ["codec", "io"] }
 tower-http = { workspace = true, optional = true, features = ["timeout"] }
@@ -100,6 +107,7 @@ starstream-types = { workspace = true }
 tokio = { workspace = true, features = [
     "io-util",
     "macros",
+    "net",
     "rt-multi-thread",
 ] }
 wat = { workspace = true }
