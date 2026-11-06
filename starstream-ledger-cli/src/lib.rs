@@ -402,7 +402,7 @@ impl Args {
 }
 
 async fn resolve_network(
-    client: &starstream_ledger::client::http::Client<HttpConnector>,
+    client: &starstream_ledger::client::http::tcp::Client<HttpConnector>,
     network: Option<String>,
 ) -> anyhow::Result<String> {
     match network {
@@ -421,7 +421,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
     let mut http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     http.pool_timer(TokioTimer::new())
         .pool_idle_timeout(Duration::from_secs(pool_idle_timeout));
-    let client = ClientBuilder::new(http, HttpConnector::new(), url).build();
+    let client = ClientBuilder::from_hyper(http, HttpConnector::new(), url).build();
     match command {
         Command::Account(AccountCommand::Balance { account }) => {
             let balance = client.get_account_balance(&account).await?;
