@@ -6,8 +6,7 @@ use bytes::{Bytes, BytesMut};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Method, Request, Uri};
-use http_body_util::{BodyExt as _, Full};
-use hyper_util::client::legacy::connect::Connect;
+use http_body_util::Full;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
 use starstream_runtime::{CoordinationScriptExport, Utxo};
@@ -18,7 +17,7 @@ use wasm_tokio::{CoreNameEncoder, Leb128Encoder};
 use wasmtime::Store;
 use wasmtime::component::Val;
 use wasmtime_wizer::Wizer;
-use wrpc_transport::Invoke as _;
+use wrpc_transport::Invoke;
 
 use crate::client::runtime::{CompiledContract, Contract, Ctx, UtxoCtx, call_coordination_script};
 use crate::client::{
@@ -32,6 +31,9 @@ use crate::{
     Transaction, TransactionInput, TransactionOutput, configure_wasmtime, encode_digest,
     parse_digest,
 };
+
+#[cfg(feature = "tcp")]
+pub mod tcp;
 
 fn endpoint_uri(base: &Uri, endpoint: impl AsRef<str>) -> anyhow::Result<String> {
     ensure!(
@@ -180,27 +182,32 @@ fn verify_envelope(
     Ok(Some(body))
 }
 
+/// HTTP transport of the ledger client.
+pub trait Transport: Send + Sync {
+    /// Send `req` and return the response with its body collected.
+    fn request(
+        &self,
+        req: http::Request<Full<Bytes>>,
+    ) -> impl Future<Output = anyhow::Result<(http::response::Parts, Bytes)>> + Send;
+}
+
 #[derive(Clone)]
-pub struct ClientBuilder<C> {
-    http: hyper_util::client::legacy::Builder,
-    connect: C,
+pub struct ClientBuilder<W, H> {
+    wrpc: W,
+    http: H,
     api_base: Uri,
     engine: wasmtime::Engine,
     wizer: Wizer,
 }
 
-impl<C> ClientBuilder<C> {
-    pub fn new(
-        http: hyper_util::client::legacy::Builder,
-        connect: C,
-        api_base: impl Into<Uri>,
-    ) -> Self {
+impl<W, H> ClientBuilder<W, H> {
+    pub fn new(wrpc: W, http: H, api_base: impl Into<Uri>) -> Self {
         let mut engine_config = wasmtime::Config::default();
         configure_wasmtime(&mut engine_config);
         let engine = wasmtime::Engine::new(&engine_config).unwrap();
         Self {
+            wrpc,
             http,
-            connect,
             api_base: api_base.into(),
             engine,
             wizer: Wizer::new(),
@@ -217,37 +224,29 @@ impl<C> ClientBuilder<C> {
         self
     }
 
-    pub fn build(self) -> Client<C>
-    where
-        C: Connect + Clone + Send + Sync + 'static,
-    {
+    pub fn build(self) -> Client<W, H> {
         self.into()
     }
 }
 
-pub struct Client<C> {
-    wrpc: wrpc_http::Client<hyper_util::client::legacy::Client<C, wrpc_http::OutgoingBody>>,
-    http: hyper_util::client::legacy::Client<C, Full<Bytes>>,
+pub struct Client<W, H> {
+    wrpc: W,
+    http: H,
     api_base: Uri,
     engine: wasmtime::Engine,
     wizer: Wizer,
 }
 
-impl<C> From<ClientBuilder<C>> for Client<C>
-where
-    C: Connect + Clone + Send + Sync + 'static,
-{
+impl<W, H> From<ClientBuilder<W, H>> for Client<W, H> {
     fn from(
         ClientBuilder {
+            wrpc,
             http,
-            connect,
             api_base,
             engine,
             wizer,
-        }: ClientBuilder<C>,
+        }: ClientBuilder<W, H>,
     ) -> Self {
-        let wrpc = wrpc_http::Client::new(http.build(connect.clone()));
-        let http = http.build(connect.clone());
         Self {
             wrpc,
             http,
@@ -258,9 +257,10 @@ where
     }
 }
 
-impl<C> runtime::Client for Client<C>
+impl<W, H> runtime::Client for Client<W, H>
 where
-    C: Connect + Clone + Send + Sync + 'static,
+    W: Invoke<Context = http::request::Parts>,
+    H: Transport,
 {
     async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
         let wasm = Client::get_contract(self, digest).await?;
@@ -284,16 +284,13 @@ where
     }
 }
 
-impl<C> Client<C>
+impl<W, H> Client<W, H>
 where
-    C: Connect + Clone + Send + Sync + 'static,
+    W: Invoke<Context = http::request::Parts>,
+    H: Transport,
 {
-    pub fn new(
-        http: hyper_util::client::legacy::Builder,
-        connect: C,
-        api_base: impl Into<Uri>,
-    ) -> Self {
-        ClientBuilder::new(http, connect, api_base).build()
+    pub fn new(wrpc: W, http: H, api_base: impl Into<Uri>) -> Self {
+        ClientBuilder::new(wrpc, http, api_base).build()
     }
 
     pub fn engine(&self) -> &wasmtime::Engine {
@@ -463,27 +460,9 @@ where
         accept: Option<MediaType<'_>>,
     ) -> anyhow::Result<Bytes> {
         let req = build_utxo_wit_request(&self.api_base, input, accept)?;
-        let (http::response::Parts { status, .. }, body) = self.request(req).await?;
+        let (http::response::Parts { status, .. }, body) = self.http.request(req).await?;
         ensure!(status.is_success(), "{}", String::from_utf8_lossy(&body));
         Ok(body)
-    }
-
-    #[instrument(skip_all)]
-    async fn request(
-        &self,
-        req: http::Request<Full<Bytes>>,
-    ) -> anyhow::Result<(http::response::Parts, Bytes)> {
-        let res = self
-            .http
-            .request(req)
-            .await
-            .context("failed to send request")?;
-        let (parts, body) = res.into_parts();
-        let body = body
-            .collect()
-            .await
-            .context("failed to receive response body")?;
-        Ok((parts, body.to_bytes()))
     }
 
     #[instrument(skip_all)]
@@ -505,7 +484,7 @@ where
                 amount,
             },
         )?;
-        let (http::response::Parts { status, .. }, body) = self.request(req).await?;
+        let (http::response::Parts { status, .. }, body) = self.http.request(req).await?;
         let body = String::from_utf8_lossy(&body);
         ensure!(status.is_success(), "{body}");
         if !body.is_empty() {
@@ -532,7 +511,7 @@ where
                 wasm: wasm.into(),
             },
         )?;
-        let (http::response::Parts { status, .. }, body) = self.request(req).await?;
+        let (http::response::Parts { status, .. }, body) = self.http.request(req).await?;
         let body = String::from_utf8_lossy(&body);
         ensure!(status.is_success(), "{body}");
         parse_digest(&body).context("failed to parse contract digest")
@@ -547,7 +526,7 @@ where
         tx: Transaction,
     ) -> anyhow::Result<[u8; 32]> {
         let req = build_transaction_request(&self.api_base, key, network, tx)?;
-        let (http::response::Parts { status, .. }, body) = self.request(req).await?;
+        let (http::response::Parts { status, .. }, body) = self.http.request(req).await?;
         let body = String::from_utf8_lossy(&body);
         ensure!(status.is_success(), "{body}");
         parse_digest(&body).context("failed to parse transaction digest")

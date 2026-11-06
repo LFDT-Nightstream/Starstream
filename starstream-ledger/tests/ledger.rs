@@ -174,7 +174,8 @@ async fn http() {
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http.clone(), HttpConnector::new(), api_base.clone()).build();
+    let client =
+        ClientBuilder::from_hyper(http.clone(), HttpConnector::new(), api_base.clone()).build();
     let http = http.build_http();
 
     let req = http::Request::builder()
@@ -649,7 +650,7 @@ impl Client for NoopClient {
 async fn serve(
     genesis: impl Into<Box<[TransactionOutput]>>,
 ) -> (
-    starstream_ledger::client::http::Client<HttpConnector>,
+    starstream_ledger::client::http::tcp::Client<HttpConnector>,
     Arc<tokio::sync::Notify>,
     tokio::task::JoinHandle<()>,
 ) {
@@ -672,7 +673,7 @@ async fn serve(
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http, HttpConnector::new(), api_base).build();
+    let client = ClientBuilder::from_hyper(http, HttpConnector::new(), api_base).build();
     client
         .fund(ADMIN.clone(), NETWORK, 1, &ADMIN.verifying_key(), 1 << 20)
         .await
@@ -807,7 +808,7 @@ async fn stalled_connections_are_closed() {
 
     let http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
     let api_base = Uri::from_str(&format!("http://{addr}")).unwrap();
-    let client = ClientBuilder::new(http, HttpConnector::new(), api_base).build();
+    let client = ClientBuilder::from_hyper(http, HttpConnector::new(), api_base).build();
     let height = tokio::time::timeout(Duration::from_secs(10), client.block_height())
         .await
         .expect("idle connection must be closed")
