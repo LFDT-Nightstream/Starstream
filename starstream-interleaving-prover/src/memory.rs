@@ -667,10 +667,9 @@ pub(crate) fn sanity_checking_policy(
 pub(crate) fn preload_tables(
     method_table: &[starstream_interleaving_spec::MethodHash],
 ) -> MemoryPreload<MemoryId> {
-    // TODO(proof): This trace-derived dictionary is currently trusted input to
-    // the diagnostic memory checker. Bind its initialization to the eventual
-    // proof, or replace it with the ledger-derived static ABI table, when the
-    // prover path is integrated.
+    // TODO(proof): This trace-derived dictionary comes from the prover. A proof
+    // binds it to `D_init`, but nothing binds it to the ledger; replace it with
+    // the ledger-derived static ABI table when the prover path is integrated.
     let mut preload = MemoryPreload::default();
 
     for (index, method) in method_table.iter().copied().enumerate() {

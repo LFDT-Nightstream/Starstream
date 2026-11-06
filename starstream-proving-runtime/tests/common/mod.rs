@@ -492,27 +492,6 @@ pub async fn trace_coordination_script(
     })
 }
 
-/// Test-only interleaving-relation parameters matching the prover's own
-/// tests (kappa = 2, λ = 40). Not a security claim.
-pub fn interleaving_params() -> neo_fold_clean::paper::params::Params {
-    use neo_params::goldilocks_paper_b2 as b2;
-    neo_fold_clean::paper::params::Params::test_only_from_neo_params(
-        neo_params::NeoParams::new(
-            b2::Q,
-            b2::ETA as u32,
-            b2::D as u32,
-            2,
-            1 << 24,
-            b2::B_BASE,
-            b2::K_RHO,
-            b2::T,
-            b2::EXTENSION_DEGREE,
-            40,
-        )
-        .expect("test parameters"),
-    )
-}
-
 /// Expected count and suspended constructor state for STORAGE_COUNTER.
 pub fn storage_counter_statement() -> starstream_interleaving_spec::TransactionStatement {
     use starstream_interleaving_spec::{OutputUtxo, TransactionStatement};
@@ -529,14 +508,74 @@ pub fn storage_counter_statement() -> starstream_interleaving_spec::TransactionS
     }
 }
 
-/// Check each program's memory accesses before recursive preprocessing.
-pub fn check_wasm_memory(execution: &TracedExecution) -> wasmtime::Result<()> {
-    let layout = neo_wasm::build_wasm_relation_layout();
+fn wasm_preload(execution: &TracedExecution) -> neo_wasm::WasmMemoryPreload {
     let mut preload = neo_wasm::preload_from_program_artifacts(&execution.artifacts);
     neo_wasm::memory_semantics::preload_host_event_tables(
         &mut preload,
         &execution.templates.bindings,
     );
+    preload
+}
+
+fn wasm_initial_state(
+    execution: &TracedExecution,
+    entry_fref: u32,
+) -> wasmtime::Result<neo_wasm::WasmStepState> {
+    let entry_pc = execution
+        .templates
+        .program_tables
+        .function_entries
+        .iter()
+        .find(|&&(fref, _)| fref == u64::from(entry_fref))
+        .map(|&(_, pc)| pc)
+        .ok_or_else(|| wasmtime::format_err!("missing entry function"))?;
+    let initial = neo_wasm::host_event_top_level_initial_state(
+        &execution.templates.program_tables,
+        entry_pc,
+        &execution.templates.bindings,
+        entry_fref,
+        CommChainState::default(),
+    )?;
+    Ok(initial)
+}
+
+const INTERLEAVING_BATCH_SIZE: usize = 3;
+
+/// Run each trace through its Nebula application without proving it, so a trace
+/// that does not fit the proof's memories fails here.
+fn check_nebula_runs(execution: &TracedExecution) -> wasmtime::Result<()> {
+    use neo_wasm::nebula::{WasmSize, step_inputs};
+    use nightstream::nebula::Run;
+
+    let preload = wasm_preload(execution);
+    for instance in &execution.instances {
+        let initial = wasm_initial_state(execution, instance.entry_fref)?;
+        let size = WasmSize::for_run(&preload, &instance.trace)?;
+        let geometry = size.geometry();
+        let application = size.application()?;
+        let program = application.program(&preload)?;
+        let segments = instance.trace.len().div_ceil(size.segment_rows());
+        let inputs = step_inputs(&instance.trace, segments * geometry.n, size.rows())?;
+        let mut run = Run::new(application, &program, initial);
+        for segment in inputs.chunks(geometry.n) {
+            run.segment(segment)?;
+        }
+        assert_eq!(
+            *run.state(),
+            instance.trace.last().expect("nonempty trace").state_after
+        );
+    }
+    starstream_interleaving_prover::proving::check_run(
+        &execution.transaction.trace,
+        INTERLEAVING_BATCH_SIZE,
+    )?;
+    Ok(())
+}
+
+/// Check each program's memory accesses before recursive preprocessing.
+pub fn check_wasm_memory(execution: &TracedExecution) -> wasmtime::Result<()> {
+    let layout = neo_wasm::build_wasm_relation_layout();
+    let preload = wasm_preload(execution);
     for (index, instance) in execution.instances.iter().enumerate() {
         let witnesses = instance
             .trace
@@ -570,66 +609,48 @@ pub fn check_wasm_constraints(execution: &TracedExecution) -> wasmtime::Result<(
             })?;
         }
     }
-    Ok(())
+    check_nebula_runs(execution)
 }
 
-/// Relation-only full-history audits: RAM/ROM and lookups remain host-checked.
-/// TODO: Replace these sanity checks with the Nebula memory/lookup argument.
+/// Nebula memory proofs of each coroutine instance's Wasm trace.
 pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()> {
-    use neo_fold_clean::frontends::r1cs_f_prime::preprocess_sparse_seeded_with_params;
-    use neo_fold_clean::lifecycle::verify_uncompressed_audit;
-    use neo_wasm::preprocess::{
-        canonical_wasm_f_prime_shape_batched_with_initial_state_digest, semantic_state_digest,
-    };
+    use neo_wasm::nebula::{WasmSize, step_inputs};
+    use nightstream::{Engine, nebula::Circuit};
 
-    const BATCH_SIZE: usize = 16;
+    const SECURITY_BITS: u32 = 109;
     check_wasm_constraints(execution)?;
+    let preload = wasm_preload(execution);
     for (index, instance) in execution.instances.iter().enumerate() {
-        let entry_pc = execution
-            .templates
-            .program_tables
-            .function_entries
-            .iter()
-            .find(|&&(fref, _)| fref == u64::from(instance.entry_fref))
-            .map(|&(_, pc)| pc)
-            .ok_or_else(|| wasmtime::format_err!("missing entry function"))?;
-        let initial = neo_wasm::host_event_top_level_initial_state(
-            &execution.templates.program_tables,
-            entry_pc,
-            &execution.templates.bindings,
-            instance.entry_fref,
-            CommChainState::default(),
-        )?;
+        let initial = wasm_initial_state(execution, instance.entry_fref)?;
         assert_eq!(instance.trace[0].state_before, initial);
-        let batches = neo_wasm::batch::batch_count(instance.trace.len(), BATCH_SIZE);
+        let size = WasmSize::for_run(&preload, &instance.trace)?;
+        let geometry = size.geometry();
+        let segments = instance.trace.len().div_ceil(size.segment_rows());
         eprintln!(
-            "Wasm instance {index}: {} rows, {batches} batches",
+            "Wasm instance {index}: {} rows, {segments} {size:?} segments",
             instance.trace.len()
         );
         let start = std::time::Instant::now();
-        let shape = canonical_wasm_f_prime_shape_batched_with_initial_state_digest(
-            BATCH_SIZE,
-            semantic_state_digest(initial),
-        )?;
-        let prep = preprocess_sparse_seeded_with_params(
-            &shape.sparse_r1cs,
-            &shape.plan,
-            interleaving_params(),
-            u64::from_le_bytes(*b"SSWASM01"),
-        )?;
-        eprintln!("Wasm instance {index} preprocessing: {:?}", start.elapsed());
+        let application = size.application()?;
+        let program = application.program(&preload)?;
+        let circuit = Circuit::compile(geometry, application)?;
+        let prover = circuit.prover(Engine::Optimized, SECURITY_BITS)?;
+        let verifier = circuit.verifier(Engine::Optimized, SECURITY_BITS)?;
+        eprintln!("Wasm instance {index} compilation: {:?}", start.elapsed());
         let start = std::time::Instant::now();
-        let assignments = (0..batches).map(|batch| {
-            neo_wasm::batch::build_batched_witness(&instance.trace, BATCH_SIZE, batch)
-        });
-        let proof = starstream_interleaving_prover::audit::prove(&prep, assignments)?;
-        eprintln!("Wasm instance {index} audit: {:?}", start.elapsed());
+        let inputs = step_inputs(&instance.trace, segments * geometry.n, size.rows())?;
+        let mut run = prover.start(&program, initial)?;
+        for segment in inputs.chunks(geometry.n) {
+            run.segment(segment)?;
+        }
+        let final_state = *run.state();
+        let proof = run.finish()?;
+        eprintln!("Wasm instance {index} proof: {:?}", start.elapsed());
         let start = std::time::Instant::now();
-        verify_uncompressed_audit(&prep.prep, &proof)?;
-        let final_state = instance.trace.last().expect("nonempty trace").state_after;
+        verifier.verify(&program, &initial, &final_state, &proof)?;
         assert_eq!(
-            proof.proof.state.semantic_state_digest,
-            semantic_state_digest(final_state)
+            final_state,
+            instance.trace.last().expect("nonempty trace").state_after
         );
         assert!(final_state.is_terminal() && !final_state.trapped);
         assert_eq!(
@@ -638,9 +659,10 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
         );
         let mut changed = final_state;
         changed.comm_chain[0] ^= 1;
-        assert_ne!(
-            proof.proof.state.semantic_state_digest,
-            semantic_state_digest(changed)
+        assert!(
+            verifier
+                .verify(&program, &initial, &changed, &proof)
+                .is_err()
         );
         eprintln!("Wasm instance {index} verification: {:?}", start.elapsed());
     }

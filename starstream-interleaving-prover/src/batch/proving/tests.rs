@@ -1,29 +1,7 @@
 use super::*;
-use neo_params::{NeoParams, goldilocks_paper_b2};
-use p3_field::PrimeField64;
 
-fn check_execution_final_claim(digest: [u8; 32], claim: &[F]) -> Result<(), FinalClaimError> {
-    check_final_state(digest, claim, TerminalClaim::Execution)
-}
-
-// Matches neo-wasm's non-Nebula R1CS-F' test profile. These are test-only
-// parameters, not a production security claim.
-fn test_params() -> Params {
-    Params::test_only_from_neo_params(
-        NeoParams::new(
-            goldilocks_paper_b2::Q,
-            goldilocks_paper_b2::ETA as u32,
-            goldilocks_paper_b2::D as u32,
-            2,
-            1 << 15,
-            goldilocks_paper_b2::B_BASE,
-            goldilocks_paper_b2::K_RHO,
-            goldilocks_paper_b2::T,
-            goldilocks_paper_b2::EXTENSION_DEGREE,
-            40,
-        )
-        .unwrap(),
-    )
+fn check_execution_final_claim(claim: &[u64]) -> Result<(), FinalClaimError> {
+    check_final_state(claim, TerminalClaim::Execution)
 }
 
 fn transaction_fixture() -> (Trace, TransactionStatement, crate::TraceCommitments) {
@@ -43,36 +21,14 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
         .map(F::new);
     for size in [1, 3, 8] {
         super::super::verify_transaction(&trace, size, &statement, &roots).unwrap();
-        let batch = Batch::new(size).unwrap();
-        let packed = batch.pack(&normalize(&trace).steps);
-        let claim = final_state(&batch, &packed);
-        let digest = state_digest(&claim);
-        let mut wrong_log_length = claim.clone();
-        wrong_log_length[carried_index(COL_ENABLED_METHOD_LOG_LEN_AFTER)] += F::ONE;
-        assert_eq!(
-            check_final_state(
-                digest,
-                &wrong_log_length,
-                TerminalClaim::Transaction {
-                    commitment: expected
-                }
-            ),
-            Err(FinalClaimError::DigestMismatch),
-        );
+        let claim = check_run(&trace, size).unwrap();
         check_final_state(
-            digest,
             &claim,
             TerminalClaim::Transaction {
                 commitment: expected,
             },
         )
         .unwrap();
-        let actual_initial: Vec<_> = batch
-            .continuity
-            .links()
-            .map(|link| packed.rows[0][link.next_step_column])
-            .collect();
-        assert_eq!(actual_initial, initial_state());
 
         let mut changed = statement.clone();
         changed.inputs[0].storage.0[0] += 1;
@@ -80,11 +36,7 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
             .unwrap()
             .map(F::new);
         assert_eq!(
-            check_final_state(
-                digest,
-                &claim,
-                TerminalClaim::Transaction { commitment: wrong }
-            ),
+            check_final_state(&claim, TerminalClaim::Transaction { commitment: wrong }),
             Err(FinalClaimError::Terminal(
                 Unsatisfied::TransactionCommitment
             ))
@@ -95,26 +47,16 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
             .unwrap()
             .map(F::new);
         assert_eq!(
-            check_final_state(
-                digest,
-                &claim,
-                TerminalClaim::Transaction { commitment: wrong }
-            ),
+            check_final_state(&claim, TerminalClaim::Transaction { commitment: wrong }),
             Err(FinalClaimError::Terminal(
                 Unsatisfied::TransactionCommitment
             ))
         );
 
-        let phase_index = build_ivc_state_continuity_links()
-            .into_iter()
-            .flat_map(|g| g.links)
-            .position(|l| l.previous_step_column == COL_TX_PHASE_AFTER)
-            .unwrap();
         let mut running = claim.clone();
-        running[phase_index] = F::new(crate::ivc_state::TxPhase::Running as u64);
+        running[carried_index(COL_TX_PHASE_AFTER)] = crate::ivc_state::TxPhase::Running as u64;
         assert!(matches!(
             check_final_state(
-                state_digest(&running),
                 &running,
                 TerminalClaim::Transaction {
                     commitment: expected
@@ -122,137 +64,126 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
             ),
             Err(FinalClaimError::Terminal(Unsatisfied::TransactionStatement))
         ));
-        for index in 0..claim.len() {
-            let mut changed = claim.clone();
-            changed[index] += F::ONE;
-            assert!(
-                check_final_state(
-                    digest,
-                    &changed,
-                    TerminalClaim::Transaction {
-                        commitment: expected
-                    }
-                )
-                .is_err()
-            );
-        }
     }
 }
 
 #[test]
-#[ignore = "expensive relation-only proving; run explicitly with --release --ignored"]
+#[ignore = "expensive Nebula proving; run explicitly with --release --ignored"]
 fn transaction_proof_round_trip() -> Result<(), ProvingError> {
     let (trace, statement, roots) = transaction_fixture();
-    let context = TransactionProofContext::new(3, test_params(), [0x57; 32])?;
-    let proof = context.prove(&trace, &statement, &roots)?;
-    // Three batches exercise base and subsequent audit transitions.
-    assert_eq!(proof.proof.proof.state.chunk_count, 3);
-    assert!(matches!(
-        &proof.proof.proof.state.proof,
-        neo_fold_clean::paper::construction2::ProofState::Active { running, .. }
-            if !running.claims.is_empty()
-    ));
+    let context = TransactionProofContext::new(3, 109)?;
+    let mut proof = context.prove(&trace, &statement, &roots)?;
     context.verify(&proof, &statement, &roots)?;
-    let mut missing_history = proof.clone();
-    missing_history.proof.steps.pop();
-    assert!(matches!(
-        context.verify(&missing_history, &statement, &roots),
-        Err(ProvingError::Verification(_))
-    ));
     let mut changed = statement.clone();
     changed.outputs[0].storage.0[0] += 1;
     assert!(context.verify(&proof, &changed, &roots).is_err());
     let mut changed_roots = roots.clone();
     changed_roots.values_mut().next().unwrap()[0] += 1;
     assert!(context.verify(&proof, &statement, &changed_roots).is_err());
-    let mut changed_proof = proof.clone();
-    let log_index = carried_index(COL_ENABLED_METHOD_LOG_LEN_AFTER);
-    changed_proof.final_state[log_index] += F::ONE;
+    let method_table = core::mem::take(&mut proof.method_table);
     assert!(matches!(
-        context.verify(&changed_proof, &statement, &roots),
-        Err(ProvingError::FinalClaim(FinalClaimError::DigestMismatch))
+        context.verify(&proof, &statement, &roots),
+        Err(ProvingError::Verify(_))
+    ));
+    proof.method_table = method_table;
+    proof.final_state[carried_index(COL_ENABLED_METHOD_LOG_LEN_AFTER)] += 1;
+    assert!(matches!(
+        context.verify(&proof, &statement, &roots),
+        Err(ProvingError::Verify(_))
     ));
     Ok(())
 }
 
 #[test]
-fn relation_adapter_preserves_assignments_widths_and_state_endpoints() {
-    let normalized = normalize(&crate::tests::constructor_trace([1, 2, 3, 4]));
+fn step_inputs_keep_the_rows_and_the_state_endpoints() {
+    let trace = crate::tests::constructor_trace([1, 2, 3, 4]);
+    let normalized = normalize(&trace);
+    let relation = crate::ccs::build_relation().unwrap();
     let mut expected_final = None;
     for size in [1, 3, 8] {
-        let batch = Batch::new(size).unwrap();
-        let packed = batch.pack(&normalized.steps);
-        let sparse = sparse_relation(&batch);
-        let plan = recursive_plan(&batch, &sparse);
-        let binding = plan.state_x_out.as_ref().unwrap();
-        let widths = range_checked_variable_widths(batch.relation.columns());
-        assert_eq!(widths.len(), sparse.m);
-        assert_eq!(plan.app_private_var_widths, widths);
+        let (geometry, application) = application(size).unwrap();
+        assert_eq!(geometry.n, SEGMENT_STEPS);
+        let inputs = step_inputs(size, &normalized.steps);
+        assert_eq!(inputs.len() % SEGMENT_STEPS, 0);
+        let width = inputs[0].len() / size;
         assert_eq!(
-            binding.initial_semantic_state_digest_anchor,
-            Some(state_digest(&initial_state()))
+            inputs[0][..width],
+            build_witness_vector(&normalized.steps[0])
         );
-        let single_links = build_ivc_state_continuity_links();
-        let single_links = single_links.iter().flat_map(|group| &group.links);
-        for ((&input, &output), link) in binding
-            .semantic_state_in_var_indices
+        let actual_initial = build_ivc_state_continuity_links()
             .iter()
-            .zip(&binding.semantic_state_out_var_indices)
-            .zip(single_links)
-        {
-            assert_eq!(input, link.next_step_column * size);
-            assert_eq!(output, link.previous_step_column * size + size - 1);
-        }
-        for row in &packed.rows {
-            sparse.is_satisfied_by(row).unwrap();
-            for (&value, &width) in row.iter().zip(&widths) {
-                assert!(width == 64 || value.as_canonical_u64() < (1u64 << width));
-            }
-        }
-        let actual_initial = batch
-            .continuity
-            .links()
-            .map(|link| packed.rows[0][link.next_step_column])
+            .flat_map(|group| &group.links)
+            .map(|link| inputs[0][link.next_step_column].as_canonical_u64())
             .collect::<Vec<_>>();
         assert_eq!(actual_initial, initial_state());
-        let claim = final_state(&batch, &packed);
+        for input in &inputs {
+            for (row, witness) in input.chunks(width).enumerate() {
+                let (public, private) = witness.split_at(PUBLIC_INPUTS);
+                if row == 0 {
+                    assert_eq!(public, [F::ONE]);
+                } else {
+                    assert_eq!(public, [F::ZERO]);
+                }
+                let mut relation_witness = witness.to_vec();
+                relation_witness[COL_ONE] = F::ONE;
+                relation.r1cs().check_rows(&relation_witness).unwrap();
+                assert_eq!(private.len(), width - PUBLIC_INPUTS);
+            }
+        }
+        let claim = application.output_words(inputs.last().unwrap());
         assert_eq!(expected_final.get_or_insert_with(|| claim.clone()), &claim);
-        check_execution_final_claim(state_digest(&claim), &claim).unwrap();
-
-        // Check the converted backend relation, not just our CCS checker.
-        let mut tampered = packed.rows[0].clone();
-        tampered[COL_SEL_NEW_UTXO * size] = F::new(2);
-        assert!(sparse.is_satisfied_by(&tampered).is_err());
+        assert_eq!(check_run(&trace, size).unwrap(), claim);
+        check_execution_final_claim(&claim).unwrap();
     }
 }
 
 #[test]
-fn final_claim_requires_termination_and_authentication() {
-    let batch = Batch::new(3).unwrap();
+fn a_changed_memory_value_has_no_run() {
     let normalized = normalize(&crate::tests::constructor_trace([1, 2, 3, 4]));
-    let claim = final_state(&batch, &batch.pack(&normalized.steps));
-    let digest = state_digest(&claim);
-    for index in 0..claim.len() {
-        let mut altered = claim.clone();
-        altered[index] += F::ONE;
-        assert!(check_execution_final_claim(digest, &altered).is_err());
-    }
+    let (.., application) = application(1).unwrap();
+    let program = application
+        .program(&preload_tables(&normalized.method_table))
+        .unwrap();
+    let mut inputs = step_inputs(1, &normalized.steps);
+    let (row, port) = build_memory_layout()
+        .entries()
+        .iter()
+        .flat_map(|memory| &memory.ports)
+        .filter(|port| matches!(port.kind, MemoryPortKind::Read))
+        .find_map(|port| {
+            inputs
+                .iter()
+                .position(|input| match port.activation {
+                    MemoryPortActivation::Always => true,
+                    MemoryPortActivation::When(column) => input[column] == F::ONE,
+                    MemoryPortActivation::Unless(column) => input[column] == F::ZERO,
+                })
+                .map(|row| (row, port.clone()))
+        })
+        .expect("the trace reads a memory");
+    inputs[row][port.value_column] += F::ONE;
+    let mut run = Run::new(application, &program, initial_state());
+    let failed = inputs
+        .chunks(SEGMENT_STEPS)
+        .any(|segment| run.segment(segment).is_err());
+    assert!(failed);
+}
+
+#[test]
+fn final_claim_requires_termination() {
+    let claim = check_run(&crate::tests::constructor_trace([1, 2, 3, 4]), 3).unwrap();
+    check_execution_final_claim(&claim).unwrap();
     assert_eq!(
-        check_execution_final_claim(digest, &claim[..claim.len() - 1]),
+        check_execution_final_claim(&claim[..claim.len() - 1]),
         Err(FinalClaimError::LengthMismatch {
             expected: claim.len(),
             actual: claim.len() - 1,
         })
     );
     let mut nonterminal = claim.clone();
-    let stack_index = build_ivc_state_continuity_links()
-        .into_iter()
-        .flat_map(|group| group.links)
-        .position(|link| link.previous_step_column == COL_CALL_SP_AFTER)
-        .unwrap();
-    nonterminal[stack_index] = F::ONE;
+    nonterminal[carried_index(COL_CALL_SP_AFTER)] = 1;
     assert_eq!(
-        check_execution_final_claim(state_digest(&nonterminal), &nonterminal),
+        check_execution_final_claim(&nonterminal),
         Err(FinalClaimError::Terminal(
             Unsatisfied::TerminalCallStackNotEmpty { actual: F::ONE }
         ))
@@ -265,14 +196,4 @@ fn carried_index(column: usize) -> usize {
         .flat_map(|g| g.links)
         .position(|link| link.previous_step_column == column)
         .unwrap()
-}
-
-#[test]
-fn setup_registration_pins_seed_and_parameters() {
-    // Unusual width isolates this registry entry from all circuit fixtures.
-    let cols = 100_003;
-    register_setup(&test_params(), cols, [7; 32]).unwrap();
-    register_setup(&test_params(), cols, [7; 32]).unwrap();
-    assert!(register_setup(&test_params(), cols, [8; 32]).is_err());
-    assert!(register_setup(&Params::production(), cols, [7; 32]).is_err());
 }

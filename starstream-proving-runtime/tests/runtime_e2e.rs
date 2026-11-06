@@ -577,17 +577,16 @@ async fn distinct_utxo_types_route_shared_methods_and_reject_foreign_methods()
 #[cfg(feature = "proof-tests")]
 mod proving {
     use super::*;
-    use crate::common::interleaving_params;
 
     #[tokio::test]
-    #[ignore = "full-history audit; run with --release --features proof-tests -- --ignored"]
+    #[ignore = "Nebula proof; run with --release --features proof-tests -- --ignored"]
     async fn minimal_method_call_transaction_proves_and_verifies() -> wasmtime::Result<()> {
         let execution = trace_coordination_script(MINIMAL_METHOD_CALL, "example").await?;
         prove_interleaving(&execution)
     }
 
     #[tokio::test]
-    #[ignore = "Wasm and interleaving full-history audits; run with --release --features proof-tests -- --ignored"]
+    #[ignore = "Wasm and interleaving Nebula proofs; run with --release --features proof-tests -- --ignored"]
     async fn minimal_method_call_wasm_and_interleaving_proofs_verify() -> wasmtime::Result<()> {
         let execution = trace_coordination_script(MINIMAL_METHOD_CALL, "example").await?;
         common::prove_wasm_instances(&execution)?;
@@ -599,7 +598,7 @@ mod proving {
 
         let transaction = &execution.transaction;
         let start = std::time::Instant::now();
-        let context = TransactionProofContext::new(BATCH_SIZE, interleaving_params(), [7; 32])
+        let context = TransactionProofContext::new(BATCH_SIZE, 109)
             .map_err(|error| wasmtime::format_err!("preprocessing failed: {error}"))?;
         eprintln!("interleaving preprocessing: {:?}", start.elapsed());
         let start = std::time::Instant::now();

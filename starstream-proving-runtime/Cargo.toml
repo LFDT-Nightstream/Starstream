@@ -32,9 +32,8 @@ wasmtime = { workspace = true, features = [
 
 [dev-dependencies]
 neo-ccs = { workspace = true }
-neo-fold-clean = { workspace = true }
 neo-math = { workspace = true }
-neo-params = { workspace = true }
+nightstream = { workspace = true }
 starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }

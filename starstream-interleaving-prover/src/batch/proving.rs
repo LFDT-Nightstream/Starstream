@@ -1,111 +1,103 @@
-//! Experimental transaction-bound, relation-only R1CS-F' audits.
-//! Verification replays the full history; this is not recursive NIFS verification.
+//! Transaction-bound Nebula proofs of the interleaving relation and its memory.
 //!
-//! TODO: Prove RAM/ROM accesses and bind their initialization. For now memory
-//! consistency is only checked on the host; the proof authenticates the local
-//! relation and carried-state continuity, NOT full interleaving semantics.
+//! One Nebula step proves `batch_size` consecutive rows of the one-row relation,
+//! and every memory of the catalog is checked in the circuit. The verifier reads
+//! the method table from the proof, so it only binds the table to `D_init`.
 
 use super::*;
-use crate::terminal::TerminalClaim;
-pub use neo_ajtai::AjtaiError;
-use neo_application::range_checked_variable_widths;
-use neo_fold_clean::{
-    engine::ccs_native::poseidon2::POSEIDON2_GOLDILOCKS_BITS,
-    frontends::{
-        f_prime::{
-            image::FPrimeImageLayout,
-            recursive_plan::{
-                RecursiveStepImagePlan, StateXOutPlanOptions, build_recursive_step_image_config,
-                build_semantic_state_preimage_fields,
-            },
-        },
-        r1cs_f_prime::{self, R1csFPrimePreprocessing, SparseR1cs},
-    },
-    lifecycle::verify_uncompressed_audit,
-    paper::{
-        digest::digest_fields_as_digest32,
-        f_prime::{
-            poseidon_trace::encode_poseidon_trace,
-            ring_action_trace::{LowNormEncoding, RingActionTraceLayout},
-        },
+use crate::{
+    memory::{MemoryId, preload_tables},
+    terminal::TerminalClaim,
+};
+use core::num::NonZeroUsize;
+use neo_application::MemorySpec;
+pub use nightstream::Error as NightstreamError;
+pub use nightstream::nebula::{
+    CatalogBindingError, Proof, ProveError, R1csApplicationError, SegmentError, VerifyError,
+};
+use nightstream::{
+    Engine,
+    nebula::{
+        Circuit, Geometry, Program, Prover, R1csApplication, RowRelation, Run, Size, Verifier,
+        batched_slots, pack_regions,
     },
 };
-pub use neo_fold_clean::{
-    frontends::r1cs_f_prime::Error as R1csError,
-    lifecycle::{Error as LifecycleError, UncompressedAudit},
-    paper::params::Params,
-};
-use starstream_interleaving_spec::TransactionStatement;
+use p3_field::PrimeField64;
+use starstream_interleaving_spec::{MethodHash, TransactionStatement};
+
+const ROM_BITS: usize = 9;
+const RAM_BITS: usize = 13;
+const SEGMENT_STEPS: usize = 32;
+const MAX_SEGMENTS: usize = 64;
+
+const CALL_DEPTH_BITS: usize = 5;
+const COROUTINE_BITS: usize = 6;
+const EFFECT_SCOPE_BITS: usize = 5;
+const ENABLED_METHOD_LOG_BITS: usize = 6;
+const HANDLE_BITS: usize = 4;
+const INSTANCE_DEPTH_BITS: usize = 5;
+const METHOD_BITS: usize = 6;
+const WORD_STRIDE_BITS: usize = 3;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProvingError {
     #[error(transparent)]
     Circuit(#[from] crate::Error),
+    #[error("the batch size does not fit the proof geometry")]
+    Geometry,
     #[error(transparent)]
-    Frontend(#[from] Box<R1csError>),
+    Application(#[from] R1csApplicationError),
     #[error(transparent)]
-    Audit(#[from] crate::audit::AuditError),
+    Program(#[from] CatalogBindingError),
     #[error(transparent)]
-    Verification(#[from] LifecycleError),
+    Nightstream(#[from] NightstreamError),
     #[error(transparent)]
-    Setup(#[from] AjtaiError),
+    Segment(#[from] SegmentError),
+    #[error(transparent)]
+    Prove(#[from] ProveError),
+    #[error(transparent)]
+    Verify(#[from] VerifyError),
     #[error(transparent)]
     FinalClaim(#[from] FinalClaimError),
 }
 
-impl From<R1csError> for ProvingError {
-    fn from(error: R1csError) -> Self {
-        Self::Frontend(Box::new(error))
-    }
-}
-
-/// Full-history relation audit and its authenticated final carried state.
-/// This does not prove memory consistency; see the module-level TODO.
-#[derive(Clone, Debug)]
+/// A memory proof and the claim that it is verified against.
+#[derive(Debug)]
 pub struct TransactionProof {
-    pub proof: UncompressedAudit,
+    pub proof: Proof,
+    pub method_table: Vec<MethodHash>,
     // TODO(privacy): Publish only the transaction digest/terminal projection,
     // not the whole carried state (which exposes activity counters).
-    pub final_state: Vec<F>,
+    pub final_state: Vec<u64>,
 }
 
-/// Reusable preprocessing for a fixed batch size and parameter set.
-/// The verifier must use its own trusted context, not prover-supplied setup.
+/// The circuit of a fixed batch size, compiled once by each party.
 pub struct TransactionProofContext {
     batch: Batch,
-    preprocessing: R1csFPrimePreprocessing,
+    application: R1csApplication<MemoryId>,
+    prover: Prover<R1csApplication<MemoryId>>,
+    verifier: Verifier<R1csApplication<MemoryId>>,
 }
 
 impl TransactionProofContext {
-    /// Both parties must agree on the parameters, batch size and setup seed.
-    /// The seed is verifier-owned configuration, never taken from the proof.
-    /// Weak test parameters are supported for demos; they are not secure.
-    pub fn new(
-        batch_size: usize,
-        params: Params,
-        setup_seed: [u8; 32],
-    ) -> Result<Self, ProvingError> {
+    /// Both parties must agree on the batch size. `minimum_security_bits`
+    /// bounds the folding profile and the memory fingerprint term.
+    pub fn new(batch_size: usize, minimum_security_bits: u32) -> Result<Self, ProvingError> {
         let batch = Batch::new(batch_size)?;
-        let relation = sparse_relation(&batch);
-        let plan = recursive_plan(&batch, &relation);
-        let compiled = crate::audit::derive(&relation, plan, &params)?;
-        register_setup(
-            &params,
-            compiled.structure().ccs.m.div_ceil(neo_math::D),
-            setup_seed,
-        )?;
-        let plan = compiled.plan().clone();
-        // TODO(upstream): Reuse the derived structure with the registered setup.
-        drop(compiled);
-        let preprocessing = r1cs_f_prime::preprocess_sparse(&relation, &plan, params)?;
+        let (geometry, application) = application(batch_size)?;
+        let circuit = Circuit::compile(geometry, application.clone())?;
+        let prover = circuit.prover(Engine::Optimized, minimum_security_bits)?;
+        let verifier = circuit.verifier(Engine::Optimized, minimum_security_bits)?;
         Ok(Self {
             batch,
-            preprocessing,
+            application,
+            prover,
+            verifier,
         })
     }
 
-    /// Checks RAM/ROM and statement consistency on the host, then proves the
-    /// local relation and carried continuity. No memory argument is included.
+    /// Checks the statement on the host, then proves the relation and its
+    /// memory accesses.
     pub fn prove(
         &self,
         trace: &Trace,
@@ -113,17 +105,24 @@ impl TransactionProofContext {
         roots: &crate::TraceCommitments,
     ) -> Result<TransactionProof, ProvingError> {
         let normalized = normalize(trace);
-        let packed =
-            super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
-        let final_state = final_state(&self.batch, &packed);
+        let method_table = normalized.method_table.clone();
+        let inputs = step_inputs(self.batch.size, &normalized.steps);
+        super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
+        let program = self.program(&method_table)?;
+        let mut run = self.prover.start(&program, initial_state())?;
+        for segment in inputs.chunks(SEGMENT_STEPS) {
+            run.segment(segment)?;
+        }
+        let final_state = run.state().clone();
+        let proof = run.finish()?;
         Ok(TransactionProof {
-            proof: crate::audit::prove(&self.preprocessing, packed.rows)?,
+            proof,
+            method_table,
             final_state,
         })
     }
 
     /// Authenticates the statement/instance-root digest and terminal state.
-    /// Replays the audit history, but does not establish the host-only memory checks.
     pub fn verify(
         &self,
         proof: &TransactionProof,
@@ -132,45 +131,132 @@ impl TransactionProofContext {
     ) -> Result<(), ProvingError> {
         let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
         check_final_state(
-            proof.proof.proof.state.semantic_state_digest,
             &proof.final_state,
             TerminalClaim::Transaction {
                 commitment: expected,
             },
         )?;
-        verify_uncompressed_audit(&self.preprocessing.prep, &proof.proof)?;
+        let program = self.program(&proof.method_table)?;
+        self.verifier
+            .verify(&program, &initial_state(), &proof.final_state, &proof.proof)?;
         Ok(())
+    }
+
+    fn program(&self, method_table: &[MethodHash]) -> Result<Program, ProvingError> {
+        let preload = preload_tables(method_table);
+        let program = self.application.program(&preload)?;
+        Ok(program)
     }
 }
 
-fn register_setup(params: &Params, cols: usize, seed: [u8; 32]) -> Result<(), AjtaiError> {
-    // Rejects an existing setup for these dimensions with a different seed or kappa.
-    neo_ajtai::set_global_pp_seeded(neo_math::D, params.kappa() as usize, cols, seed)
+/// Runs `trace` through the memory application without proving it, and returns
+/// its final state. It fails on a trace that does not fit the proof's memories.
+pub fn check_run(trace: &Trace, batch_size: usize) -> Result<Vec<u64>, ProvingError> {
+    let normalized = normalize(trace);
+    let (.., application) = application(batch_size)?;
+    let program = application.program(&preload_tables(&normalized.method_table))?;
+    let mut run = Run::new(application, &program, initial_state());
+    for segment in step_inputs(batch_size, &normalized.steps).chunks(SEGMENT_STEPS) {
+        run.segment(segment)?;
+    }
+    Ok(run.state().clone())
 }
 
-fn sparse_relation(batch: &Batch) -> SparseR1cs {
-    let core = batch.relation.r1cs();
-    let ccs = core.structure();
-    SparseR1cs::new(
-        ccs.matrices[0].clone(),
-        ccs.matrices[1].clone(),
-        ccs.matrices[2].clone(),
-        ccs.n,
-        ccs.m,
-        core.public_input_count(),
-    )
-    .unwrap()
+fn application(batch_size: usize) -> Result<(Geometry, R1csApplication<MemoryId>), ProvingError> {
+    let rows = NonZeroUsize::new(batch_size).ok_or(crate::Error::InvalidBatchSize)?;
+    let relation = crate::ccs::build_relation()?;
+    let continuity = ContinuityCatalog::new(build_ivc_state_continuity_links(), relation.columns())
+        .map_err(crate::Error::from)?;
+    let catalog = build_memory_layout();
+    let slots = batched_slots(&catalog, &port_slots(catalog.entries()), rows);
+    let geometry = Geometry::new(ROM_BITS, RAM_BITS, slots.len(), SEGMENT_STEPS, MAX_SEGMENTS)
+        .ok_or(ProvingError::Geometry)?;
+    let (regions, ..) = pack_regions(
+        catalog
+            .entries()
+            .iter()
+            .map(|memory| (memory.id, memory.kind, region_widths(memory.id))),
+    );
+    let application = R1csApplication::new(
+        RowRelation::of(relation.r1cs())?,
+        &continuity,
+        &catalog,
+        Size {
+            geometry,
+            rows,
+            regions,
+            slots,
+        },
+    )?;
+    Ok((geometry, application))
 }
 
-fn state_digest(fields: &[F]) -> [u8; 32] {
-    digest_fields_as_digest32(
-        encode_poseidon_trace(&build_semantic_state_preimage_fields(fields)).digest_native,
-    )
+/// One slot for each port, in catalog order, so dependent ports stay in order.
+fn port_slots(memories: &[MemorySpec<MemoryId>]) -> Vec<Vec<usize>> {
+    let ports = memories.iter().map(|memory| memory.ports.len()).sum();
+    (0..ports).map(|port| vec![port]).collect()
+}
+
+/// The bit width of each address part of `id`, least significant part first.
+fn region_widths(id: MemoryId) -> Vec<usize> {
+    use MemoryId::*;
+    match id {
+        CallStackCaller
+        | CallStackExpectedArgument
+        | CallStackExpectedResult
+        | CallStackExpectedMethod
+        | CallStackIsEffect
+        | CallStackConstructor
+        | CallStackSavedPhase
+        | CallStackSavedEffectHead
+        | CallStackSavedEffectDepth => vec![CALL_DEPTH_BITS + WORD_STRIDE_BITS],
+        InstanceStack => vec![INSTANCE_DEPTH_BITS],
+        EffectScopeParent | EffectScopeOwner | EffectScopeFrameId => vec![EFFECT_SCOPE_BITS],
+        EffectRegistered => vec![EFFECT_SCOPE_BITS, METHOD_BITS],
+        AbiMethodCount | AbiGeneration => vec![COROUTINE_BITS],
+        EnabledMethodLogUtxo
+        | EnabledMethodLogMethod
+        | EnabledMethodLogGeneration
+        | EnabledMethodLogOrdinal => vec![ENABLED_METHOD_LOG_BITS],
+        MethodTable => vec![METHOD_BITS + WORD_STRIDE_BITS],
+        ResourceResolver => vec![COROUTINE_BITS, HANDLE_BITS],
+        TraceCommitments => vec![COROUTINE_BITS + WORD_STRIDE_BITS],
+    }
+}
+
+/// The step inputs of whole segments: `rows` rows each, in row order, then
+/// state-preserving padding. Every row uses the constant of the first row.
+fn step_inputs(rows: usize, steps: &[Wit]) -> Vec<Vec<F>> {
+    let padding = steps.last().expect("nonempty execution").padding_after();
+    let padded = steps.len().next_multiple_of(rows * SEGMENT_STEPS);
+    let witnesses = steps
+        .iter()
+        .chain(core::iter::repeat_n(&padding, padded - steps.len()))
+        .map(build_witness_vector)
+        .collect::<Vec<_>>();
+    witnesses
+        .chunks(rows)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .enumerate()
+                .flat_map(|(row, witness)| {
+                    witness.iter().enumerate().map(move |(column, value)| {
+                        if column == COL_ONE && row != 0 {
+                            F::ZERO
+                        } else {
+                            *value
+                        }
+                    })
+                })
+                .collect()
+        })
+        .collect()
 }
 
 // Verifier-owned initial state, independent of the witness being proved.
 // An added carried column must acquire an explicit initialization here.
-fn initial_state() -> Vec<F> {
+fn initial_state() -> Vec<u64> {
     build_ivc_state_continuity_links()
         .iter()
         .flat_map(|group| &group.links)
@@ -192,15 +278,7 @@ fn initial_state() -> Vec<F> {
             column if COL_IO_BEFORE.contains(&column) => F::ZERO,
             column => panic!("missing canonical initial value for carried column {column}"),
         })
-        .collect()
-}
-
-fn final_state(batch: &Batch, packed: &PackedWitness) -> Vec<F> {
-    let last = packed.rows.last().expect("nonempty execution");
-    batch
-        .continuity
-        .links()
-        .map(|link| last[link.previous_step_column])
+        .map(|value| value.as_canonical_u64())
         .collect()
 }
 
@@ -210,13 +288,10 @@ pub enum FinalClaimError {
     LengthMismatch { expected: usize, actual: usize },
     #[error(transparent)]
     Terminal(#[from] Unsatisfied),
-    #[error("final-state digest mismatch")]
-    DigestMismatch,
 }
 
 fn check_final_state(
-    authenticated_state_digest: [u8; 32],
-    final_state: &[F],
+    final_state: &[u64],
     expected_terminal: TerminalClaim,
 ) -> Result<(), FinalClaimError> {
     let groups = build_ivc_state_continuity_links();
@@ -235,57 +310,9 @@ fn check_final_state(
             .iter()
             .position(|link| link.previous_step_column == column)
             .expect("terminal columns are carried");
-        final_state[index]
+        F::new(final_state[index])
     })?;
-    if state_digest(final_state) != authenticated_state_digest {
-        return Err(FinalClaimError::DigestMismatch);
-    }
     Ok(())
-}
-
-fn recursive_plan(batch: &Batch, r1cs: &SparseR1cs) -> RecursiveStepImagePlan {
-    let widths = range_checked_variable_widths(batch.relation.columns());
-    // Full-history audit verification supplies the fold checks outside the image.
-    let mut plan = RecursiveStepImagePlan {
-        limbs: widths.iter().sum::<usize>() + 1,
-        app_private_var_widths: widths,
-        boundary_bits: 4 * POSEIDON2_GOLDILOCKS_BITS,
-        kmul_count: 0,
-        ring_action_pair_count: 0,
-        ring_action_pair_layout: RingActionTraceLayout::new(
-            LowNormEncoding::U64,
-            LowNormEncoding::U64,
-            LowNormEncoding::U64,
-            LowNormEncoding::U64,
-        ),
-        sponge_transcript_permutes: 0,
-        nifs_payload_shapes: vec![],
-        accumulator: None,
-        state_x_out: None,
-    };
-    let layout = FPrimeImageLayout::new(build_recursive_step_image_config(&plan));
-    plan.state_x_out = Some(StateXOutPlanOptions {
-        pc: 1,
-        public_x_out_lane_bit_starts: std::array::from_fn(|i| {
-            layout.boundary.offset + i * POSEIDON2_GOLDILOCKS_BITS
-        }),
-        app_public_input_var_indices: (0..r1cs.m_in).collect(),
-        app_public_input_bit_var_indices: vec![],
-        // Batch already eliminated the middle links and remapped the endpoints
-        // into its column-major assignment layout.
-        semantic_state_in_var_indices: batch
-            .continuity
-            .links()
-            .map(|link| link.next_step_column)
-            .collect(),
-        semantic_state_out_var_indices: batch
-            .continuity
-            .links()
-            .map(|link| link.previous_step_column)
-            .collect(),
-        initial_semantic_state_digest_anchor: Some(state_digest(&initial_state())),
-    });
-    plan
 }
 
 #[cfg(test)]
