@@ -1928,13 +1928,13 @@ impl<T: Host> Contract<T> {
                     if !all.is_empty() {
                         all.push_str(", ");
                     }
-                    _ = write!(all, "{:?}", name);
+                    _ = write!(all, "`{}`", name);
                 }
-                format!("{name:?} not found in [{all}]")
+                format!("`{name}` not found in [{all}]")
             })
             .context("export not found")?;
         let types::ComponentItem::ComponentFunc(ty) = ty else {
-            bail!("export {name:?} is not a function")
+            bail!("export `{name}` is not a function")
         };
         self.get_coordination_script_typed(name, ty)
     }
