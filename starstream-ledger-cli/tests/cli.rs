@@ -120,7 +120,7 @@ async fn cli() {
     );
     let ledger = Arc::new(ledger);
     let (lis, addr) = bind_tcp_listener().await.unwrap();
-    let (ledger, shutdown) = ledger.handle_http(lis, Duration::from_secs(30));
+    let (ledger, shutdown) = ledger.serve_http(lis, Duration::from_secs(30));
     let ledger = tokio::spawn(ledger);
 
     let publish_envelope = build_publish_envelope(

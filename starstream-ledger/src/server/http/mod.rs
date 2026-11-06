@@ -1,3 +1,4 @@
+use core::error::Error;
 use core::iter::zip;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
@@ -7,17 +8,17 @@ use std::sync::Arc;
 
 use bytes::{Buf, BufMut as _, Bytes, BytesMut};
 use ed25519_dalek::VerifyingKey;
-use futures::TryStreamExt as _;
+use futures::{TryFutureExt as _, TryStreamExt as _};
 use http::HeaderValue;
 use http::header::{
     ACCEPT, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
     ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_EXPOSE_HEADERS, ACCESS_CONTROL_MAX_AGE, ALLOW,
     CONTENT_LENGTH, CONTENT_TYPE, LOCATION, VARY, X_CONTENT_TYPE_OPTIONS,
 };
-use http_body::Body as _;
 use http_body_util::BodyExt as _;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
+use tokio::sync::TryAcquireError;
 use tokio_util::codec::Encoder as _;
 use tokio_util::io::StreamReader;
 use tower_http::timeout::{TimeoutBody, TimeoutError};
@@ -406,11 +407,15 @@ impl Ledger {
             .map_err(TransactionPostError::Http)
     }
 
-    async fn handle_envelope_post(
+    async fn handle_envelope_post<T>(
         &self,
-        body: hyper::body::Incoming,
+        body: T,
         io_timeout: Duration,
-    ) -> Result<http::Response<http_body_util::Full<Bytes>>, EnvelopePostError> {
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, EnvelopePostError>
+    where
+        T: http_body::Body<Data = Bytes>,
+        T::Error: Into<Box<dyn Error + Send + Sync>>,
+    {
         if body.size_hint().lower() > MAX_ENVELOPE_SIZE as u64 {
             return Err(EnvelopePostError::BodyTooLarge(MAX_ENVELOPE_SIZE));
         }
@@ -548,12 +553,16 @@ impl Ledger {
             .map_err(RpcGetError::Http)
     }
 
-    async fn handle_rpc_post(
+    async fn handle_rpc_post<T>(
         &self,
         headers: http::HeaderMap,
-        body: hyper::body::Incoming,
+        body: T,
         io_timeout: Duration,
-    ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcPostError> {
+    ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcPostError>
+    where
+        T: http_body::Body<Data = Bytes>,
+        T::Error: Into<Box<dyn Error + Send + Sync>>,
+    {
         fn get_by_digest<'a, T>(
             vs: &'a HashMap<[u8; 32], T>,
             digest: &str,
@@ -884,5 +893,134 @@ impl Ledger {
             .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
             .body(http_body_util::Full::new(buf.freeze()))
             .map_err(RpcPostError::Http)
+    }
+
+    /// Handle a ledger HTTP API request.
+    ///
+    /// A request is rejected with 503 if `max_requests` requests are already
+    /// being handled, and with 408 if its body sends no chunk for `io_timeout`.
+    pub async fn handle_http<T>(
+        &self,
+        req: http::Request<T>,
+        io_timeout: Duration,
+    ) -> http::Result<http::Response<http_body_util::Full<Bytes>>>
+    where
+        T: http_body::Body<Data = Bytes>,
+        T::Error: Into<Box<dyn Error + Send + Sync>>,
+    {
+        async {
+            let _permit = match self.permits.try_acquire() {
+                Ok(permit) => permit,
+                Err(TryAcquireError::NoPermits) => {
+                    return build_text_response(
+                        http::StatusCode::SERVICE_UNAVAILABLE,
+                        "maximum concurrent request count reached",
+                    );
+                }
+                Err(TryAcquireError::Closed) => {
+                    return build_text_response(
+                        http::StatusCode::INTERNAL_SERVER_ERROR,
+                        "semaphore closed",
+                    );
+                }
+            };
+            let (
+                http::request::Parts {
+                    method,
+                    uri,
+                    headers,
+                    ..
+                },
+                body,
+            ) = req.into_parts();
+            let Some(pq) = uri.path_and_query() else {
+                return build_text_response(
+                    http::StatusCode::BAD_REQUEST,
+                    "request target unsupported",
+                );
+            };
+            let path = pq.path();
+            let path = path
+                .strip_suffix('/')
+                .filter(|path| !path.is_empty())
+                .unwrap_or(path);
+            let mut path = path.split('/');
+            let Some("") = path.next() else {
+                return build_text_response(
+                    http::StatusCode::BAD_REQUEST,
+                    "request target unsupported",
+                );
+            };
+            match (
+                method.as_str(),
+                path.next(),
+                path.next(),
+                path.next(),
+                path.next(),
+            ) {
+                ("GET", Some("contracts"), Some(digest), None, ..) => {
+                    match self.handle_contract_get::<false>(headers, digest).await {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    }
+                }
+                ("HEAD", Some("contracts"), Some(digest), None, ..) => {
+                    match self.handle_contract_get::<true>(headers, digest).await {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    }
+                }
+                (_, Some("contracts"), Some(..), None, ..) => {
+                    build_options_or_method_not_allowed("GET, HEAD, OPTIONS", &method, pq.path())
+                }
+
+                ("GET", Some("transactions"), Some(digest), None, ..) => {
+                    match self.handle_transaction_get::<false>(headers, digest).await {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    }
+                }
+                ("HEAD", Some("transactions"), Some(digest), None, ..) => {
+                    match self.handle_transaction_get::<true>(headers, digest).await {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    }
+                }
+                (_, Some("transactions"), Some(..), None, ..) => {
+                    build_options_or_method_not_allowed("GET, HEAD, OPTIONS", &method, pq.path())
+                }
+
+                ("POST", Some("rpc"), None, ..) => {
+                    match self.handle_rpc_post(headers, body, io_timeout).await {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    }
+                }
+                ("GET", Some("rpc"), None, ..) => {
+                    match self.handle_rpc_get::<false>(headers, pq.query()).await {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    }
+                }
+                ("HEAD", Some("rpc"), None, ..) => {
+                    match self.handle_rpc_get::<true>(headers, pq.query()).await {
+                        Ok(res) => Ok(res),
+                        Err(err) => build_text_response(err.http_status_code(), err.to_string()),
+                    }
+                }
+                (_, Some("rpc"), None, ..) => build_options_or_method_not_allowed(
+                    "GET, HEAD, OPTIONS, POST",
+                    &method,
+                    pq.path(),
+                ),
+
+                _ => build_text_response(
+                    http::StatusCode::NOT_FOUND,
+                    format!("path `{}` not found", pq.path()),
+                ),
+            }
+        }
+        .map_ok(allow_cross_origin)
+        .await
     }
 }
