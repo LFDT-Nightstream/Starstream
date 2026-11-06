@@ -577,17 +577,16 @@ async fn distinct_utxo_types_route_shared_methods_and_reject_foreign_methods()
 #[cfg(feature = "proof-tests")]
 mod proving {
     use super::*;
-    use crate::common::interleaving_params;
 
     #[tokio::test]
-    #[ignore = "full-history audit; run with --release --features proof-tests -- --ignored"]
+    #[ignore = "Nebula proof; run with --release --features proof-tests -- --ignored"]
     async fn minimal_method_call_transaction_proves_and_verifies() -> wasmtime::Result<()> {
         let execution = trace_coordination_script(MINIMAL_METHOD_CALL, "example").await?;
         prove_interleaving(&execution)
     }
 
     #[tokio::test]
-    #[ignore = "Wasm and interleaving full-history audits; run with --release --features proof-tests -- --ignored"]
+    #[ignore = "Wasm and interleaving Nebula proofs; run with --release --features proof-tests -- --ignored"]
     async fn minimal_method_call_wasm_and_interleaving_proofs_verify() -> wasmtime::Result<()> {
         let execution = trace_coordination_script(MINIMAL_METHOD_CALL, "example").await?;
         common::prove_wasm_instances(&execution)?;
@@ -595,11 +594,45 @@ mod proving {
     }
 
     fn prove_interleaving(execution: &TracedExecution) -> wasmtime::Result<()> {
-        use starstream_interleaving_prover::proving::TransactionProofContext;
+        use starstream_interleaving_prover::proving::{
+            ProofConfig, TransactionProofContext, method_dictionary,
+        };
 
         let transaction = &execution.transaction;
         let start = std::time::Instant::now();
-        let context = TransactionProofContext::new(BATCH_SIZE, interleaving_params(), [7; 32])
+        let batch_size = std::env::var("STARSTREAM_PROOF_BATCH_SIZE")
+            .ok()
+            .map(|s| s.parse::<usize>())
+            .transpose()?
+            .unwrap_or(BATCH_SIZE);
+        let segment_batches = std::env::var("STARSTREAM_PROOF_SEGMENT_BATCHES")
+            .ok()
+            .map(|s| s.parse::<usize>())
+            .transpose()?
+            .unwrap_or(8);
+        let mut config = if std::env::var_os("STARSTREAM_PROOF_TIGHT_MEMORY").is_some() {
+            ProofConfig::for_trace_benchmark(&transaction.trace, batch_size, segment_batches)?
+        } else {
+            let mut config = ProofConfig::small(batch_size)?;
+            let g = config.geometry;
+            config.geometry = nightstream::nebula::Geometry::new(
+                g.r,
+                g.mu,
+                g.b_ops,
+                segment_batches,
+                4096usize.checked_div(segment_batches).unwrap_or(0),
+            )
+            .ok_or_else(|| wasmtime::format_err!("invalid segment size"))?;
+            config
+        };
+        config.engine = common::proof_engine();
+        eprintln!(
+            "interleaving: {} rows, batch {batch_size}, {:?}, {:?}",
+            transaction.trace.0.len(),
+            config.geometry,
+            config.engine
+        );
+        let context = TransactionProofContext::new(config, method_dictionary(&transaction.trace))
             .map_err(|error| wasmtime::format_err!("preprocessing failed: {error}"))?;
         eprintln!("interleaving preprocessing: {:?}", start.elapsed());
         let start = std::time::Instant::now();
@@ -654,5 +687,27 @@ async fn storage_counter_transaction_satisfies_the_circuit() -> wasmtime::Result
         &execution.commitments,
     )
     .map_err(|error| wasmtime::format_err!("{error}"))?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn minimal_method_call_runs_through_nebula() -> wasmtime::Result<()> {
+    let execution =
+        common::trace_coordination_script(common::MINIMAL_METHOD_CALL, "example").await?;
+    let mut preload = neo_wasm::preload_from_program_artifacts(&execution.artifacts);
+    neo_wasm::memory_semantics::preload_host_event_tables(
+        &mut preload,
+        &execution.templates.bindings,
+    );
+    for instance in &execution.instances {
+        let size = neo_wasm::nebula::WasmSize::for_run(&preload, &instance.trace)?;
+        let app = size.application()?;
+        let program = app.program(&preload)?;
+        let mut run = nightstream::nebula::Run::new(app, &program, instance.trace[0].state_before);
+        for segment in size.segments(&instance.trace)? {
+            run.segment(&segment)?;
+        }
+        assert_eq!(*run.state(), instance.trace.last().unwrap().state_after);
+    }
     Ok(())
 }

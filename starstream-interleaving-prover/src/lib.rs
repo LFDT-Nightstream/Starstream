@@ -1,4 +1,3 @@
-pub mod audit;
 mod batch;
 pub use batch::proving;
 mod ccs;

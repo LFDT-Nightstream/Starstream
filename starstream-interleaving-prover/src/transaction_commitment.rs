@@ -2,7 +2,7 @@
 //! Records have distinct tags and fixed lengths, padded to eight-field blocks.
 //! Roots are transaction data, not persistent ledger storage. ABI duplicates stay.
 //! The proving API binds initial zero and the expected final digest.
-//! TODO(proof): Prove RAM consistency and initialization, currently host-checked.
+//! Nebula binds memory consistency and the verifier-owned initial memory image.
 use neo_math::F;
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
 use starstream_interleaving_spec::TransactionStatement;

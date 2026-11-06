@@ -1,5 +1,5 @@
 //! Shared compression slots for per-coroutine events and transaction records.
-//! RAM remains host-checked; hashing alone does not prove the memory argument.
+//! Hashing alone does not prove memory consistency; the proving API supplies the Nebula argument.
 use std::collections::BTreeMap;
 
 use neo_application::{EVENT_COMMITMENT_AUX_COLUMNS, EventCommitment, TaggedR1csBuilder};

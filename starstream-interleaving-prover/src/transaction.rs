@@ -353,7 +353,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 
 /// Direct semantic diagnostics alongside the transaction digest endpoint check.
 /// Reads checked row buses, not the source trace or normalization metadata.
-/// TODO(proof): Prove RAM in the proof API; digest endpoints are already bound.
+/// The proving API separately binds these endpoints and memory accesses with Nebula.
 pub(crate) fn check_statement(
     rows: &[Vec<F>],
     statement: &TransactionStatement,
