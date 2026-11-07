@@ -3792,6 +3792,7 @@ dependencies = [
  "tracing",
  "wasm-encoder 0.261.0",
  "wasm-tokio",
+ "wasm-wave",
  "wasmparser 0.261.0",
  "wasmprinter",
  "wasmtime",
@@ -3846,16 +3847,13 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "hex",
- "serde",
  "sha2",
  "starstream-ledger",
  "tokio",
  "toml",
  "tracing",
  "tracing-subscriber",
- "wasm-wave",
  "wasmtime",
- "wasmtime-wizer",
 ]
 
 [[package]]
