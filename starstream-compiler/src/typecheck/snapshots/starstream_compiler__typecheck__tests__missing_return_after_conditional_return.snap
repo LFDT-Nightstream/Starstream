@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn compute(flag: bool) -> i64 {\n    if (flag) {\n        return 1;\n    }\n    let value = 2;\n}\n"
+---
+E0010 (https://starstream.nightstream.dev/errors/E0010)
+
+  x missing return of type `i64`
+   ,-[test.star:1:4]
+ 1 | fn compute(flag: bool) -> i64 {
+   :    ^^^^^^^
+ 2 |     if (flag) {
+   `----
+  help: add a `return` or tail expression to satisfy the signature

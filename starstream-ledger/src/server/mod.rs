@@ -1,5 +1,7 @@
 //! Starstream ledger server.
 
+#![cfg_attr(not(all(feature = "http", feature = "tcp")), allow(dead_code))]
+
 use core::sync::atomic::AtomicU64;
 
 use std::collections::{HashMap, HashSet};
@@ -19,6 +21,7 @@ use wasmtime::error::Context as _;
 use crate::wrpc::bindings;
 use crate::{Block, CardanoCtx, TransactionOutput, encode_digest, parse_digest};
 
+#[cfg(feature = "http")]
 mod http;
 mod runtime;
 mod wit;

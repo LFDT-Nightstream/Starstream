@@ -25,27 +25,7 @@ use starstream_types::{
 
 use crate::parser::{self, ParseError};
 
-/// Stable identifier for a module within a [ModuleGraph].
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub struct ModuleId(u32);
-
-impl ModuleId {
-    /// The entry file of a [`ModuleGraph::from_entry`] graph, which is always
-    /// loaded first. Lets callers attribute errors to it even when building
-    /// the graph fails.
-    pub const ENTRY: ModuleId = ModuleId(0);
-
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-impl std::fmt::Debug for ModuleId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Always put on one line, ignoring alternate formatting.
-        write!(f, "ModuleId({})", self.0)
-    }
-}
+pub use starstream_types::ModuleId;
 
 /// One loaded module node.
 pub struct Module {
@@ -97,7 +77,7 @@ pub struct PathImport {
 pub struct ModuleGraph {
     modules: Vec<Module>,
     topo_order: Vec<ModuleId>,
-    edges: HashMap<u32, Vec<PathImport>>,
+    edges: HashMap<ModuleId, Vec<PathImport>>,
     /// Codegen entries — nodes whose source declares `contract;`. The
     /// single-file `load_from_entry` always populates this with exactly the
     /// entry file (even if the file doesn't actually declare `contract;`).
@@ -189,7 +169,7 @@ impl ModuleGraph {
     }
 
     pub fn edges_of(&self, id: ModuleId) -> &[PathImport] {
-        self.edges.get(&id.0).map(|v| v.as_slice()).unwrap_or(&[])
+        self.edges.get(&id).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
     pub fn contract_entries(&self) -> &[ModuleId] {
@@ -227,7 +207,7 @@ impl ModuleGraph {
     }
 
     pub fn source(&self, id: ModuleId) -> NamedSource<Arc<str>> {
-        self.modules[id.0 as usize].to_named_source()
+        self.modules[id.index()].to_named_source()
     }
 }
 
@@ -271,15 +251,6 @@ pub enum ModuleGraphError {
         source: NamedSource<Arc<str>>,
         error: ParseError,
     },
-    /// An edge in the graph points at a file that also declares `contract;`.
-    /// Cross-contract imports aren't supported yet.
-    CrossContractImport {
-        importer: ModuleId,
-        importer_path: PathBuf,
-        target: ModuleId,
-        target_path: PathBuf,
-        span: Span,
-    },
 }
 
 impl std::fmt::Display for ModuleGraphError {
@@ -296,18 +267,6 @@ impl std::fmt::Display for ModuleGraphError {
                     f,
                     "path import `{path}` has unknown extension, expecting one of `.star`, `.wasm`",
                     path = path.display(),
-                )
-            }
-            ModuleGraphError::CrossContractImport {
-                importer_path,
-                target_path,
-                ..
-            } => {
-                write!(
-                    f,
-                    "not yet implemented: cross-contract call from `{}` to `{}`, which also declares `contract;`",
-                    importer_path.display(),
-                    target_path.display()
                 )
             }
             ModuleGraphError::Cycle { chain } => {
@@ -329,10 +288,7 @@ impl ModuleGraphError {
         match self {
             ModuleGraphError::Io { importer, .. }
             | ModuleGraphError::UnknownExtension { importer, .. } => *importer,
-            ModuleGraphError::NonRelativePath { importer, span, .. }
-            | ModuleGraphError::CrossContractImport { importer, span, .. } => {
-                Some((*importer, *span))
-            }
+            ModuleGraphError::NonRelativePath { importer, span, .. } => Some((*importer, *span)),
             ModuleGraphError::Cycle { .. } | ModuleGraphError::Parse { .. } => None,
         }
     }
@@ -394,7 +350,7 @@ fn walk(fs: &FileSystem, dir: &Path, visit: &mut impl FnMut(&Path)) {
 
 struct Builder<'a> {
     modules: Vec<Module>,
-    edges: HashMap<u32, Vec<PathImport>>,
+    edges: HashMap<ModuleId, Vec<PathImport>>,
     by_path: HashMap<PathBuf, ModuleId>,
     errors: Vec<ModuleGraphError>,
     fs: &'a mut FileSystem,
@@ -418,12 +374,8 @@ impl<'a> Builder<'a> {
         // Resolve imports transitively.
         let mut next = 0;
         while next < self.modules.len() {
-            self.resolve_imports(ModuleId(next as u32));
+            self.resolve_imports(ModuleId::from_index(next));
             next += 1;
-        }
-
-        if let Err(err) = self.validate_cross_contract(force_entry) {
-            self.errors.push(*err);
         }
 
         if !self.errors.is_empty() {
@@ -463,7 +415,7 @@ impl<'a> Builder<'a> {
             return Ok(id);
         }
         let idx = self.modules.len();
-        let id = ModuleId(idx as u32);
+        let id = ModuleId::from_index(idx);
         self.by_path.insert(abs_path.to_path_buf(), id);
         self.modules.push(Module {
             id,
@@ -592,38 +544,8 @@ impl<'a> Builder<'a> {
         }
 
         if !resolved.is_empty() {
-            self.edges.insert(id.0, resolved);
+            self.edges.insert(id, resolved);
         }
-    }
-
-    /// Reject any edge whose target declares `contract;`.
-    ///
-    /// `allow_target` is set in the single-file flow: when callers point at
-    /// a contract file via `wasm -c <contract.star>` the entry file itself
-    /// is allowed to declare `contract;`, but other files pulled in through
-    /// imports still can't.
-    fn validate_cross_contract(
-        &self,
-        allow_target: Option<ModuleId>,
-    ) -> Result<(), Box<ModuleGraphError>> {
-        for (importer_raw, edges) in &self.edges {
-            let importer = ModuleId(*importer_raw);
-            for edge in edges {
-                if Some(edge.target) == allow_target {
-                    continue;
-                }
-                if self.modules[edge.target.index()].declares_contract() {
-                    return Err(Box::new(ModuleGraphError::CrossContractImport {
-                        importer,
-                        importer_path: self.modules[importer.index()].abs_path.clone(),
-                        target: edge.target,
-                        target_path: self.modules[edge.target.index()].abs_path.clone(),
-                        span: edge.span,
-                    }));
-                }
-            }
-        }
-        Ok(())
     }
 
     /// Iterative DFS that returns a topological order over **every** module
@@ -638,7 +560,7 @@ impl<'a> Builder<'a> {
         for seed in seeds
             .iter()
             .copied()
-            .chain((0..n).map(|i| ModuleId(i as u32)))
+            .chain((0..n).map(ModuleId::from_index))
         {
             if color[seed.index()] != DfsColor::White {
                 continue;
@@ -663,7 +585,7 @@ impl<'a> Builder<'a> {
         path_stack.push((start, DUMMY_SPAN));
 
         while let Some(&(node, child_idx)) = stack.last() {
-            let edges = self.edges.get(&node.0).map(|v| v.as_slice()).unwrap_or(&[]);
+            let edges = self.edges.get(&node).map(|v| v.as_slice()).unwrap_or(&[]);
 
             if child_idx >= edges.len() {
                 color[node.index()] = DfsColor::Black;
@@ -769,27 +691,6 @@ mod tests {
     }
 
     #[test]
-    fn single_file_cross_contract_rejected() {
-        let dir = tmp_dir("xc-single");
-        write_file(&dir, "other.star", "contract;\nfn other() { }\n");
-        let entry = write_file(
-            &dir,
-            "main.star",
-            "contract;\nimport { other } from \"./other.star\";\nfn main() { }\n",
-        );
-
-        let mut fs = FileSystem::new();
-        match ModuleGraph::from_entry(&mut fs, &entry)
-            .err()
-            .unwrap_or_default()
-            .as_slice()
-        {
-            [ModuleGraphError::CrossContractImport { .. }] => {}
-            other => panic!("expected CrossContractImport, got {:?}", other),
-        }
-    }
-
-    #[test]
     fn workspace_deduped_shared_helper() {
         let dir = tmp_dir("ws-shared");
         write_file(&dir, "helper.star", "fn util() -> i64 { 9 }\n");
@@ -828,27 +729,6 @@ mod tests {
                 .iter()
                 .any(|m| m.abs_path.ends_with("orphan.star") && !m.declares_contract())
         );
-    }
-
-    #[test]
-    fn workspace_cross_contract_rejected() {
-        let dir = tmp_dir("ws-xc");
-        write_file(&dir, "other.star", "contract;\nfn other() { }\n");
-        write_file(
-            &dir,
-            "main.star",
-            "contract;\nimport { other } from \"./other.star\";\nfn main() { }\n",
-        );
-
-        let mut fs = FileSystem::new();
-        match ModuleGraph::from_workspace(&mut fs, &dir)
-            .err()
-            .unwrap_or_default()
-            .as_slice()
-        {
-            [ModuleGraphError::CrossContractImport { .. }] => {}
-            other => panic!("expected CrossContractImport, got {:?}", other),
-        }
     }
 
     #[test]

@@ -15,6 +15,8 @@ pub use starstream_runtime::configure_wasmtime;
 
 #[cfg(feature = "client")]
 pub mod client;
+#[cfg(feature = "genesis")]
+pub mod genesis;
 #[cfg(feature = "server")]
 pub mod server;
 

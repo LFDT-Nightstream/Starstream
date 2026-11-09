@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nletter = 5;"
+---
+Assignment {
+    target: Identifier {
+        name: "letter",
+        span: 0..6,
+    },
+    value: Spanned {
+        node: Literal(
+            Integer(
+                IntegerLiteral {
+                    digits: "5",
+                    radix: Decimal,
+                },
+            ),
+        ),
+        span: 9..10,
+    },
+}

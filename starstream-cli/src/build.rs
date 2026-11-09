@@ -53,7 +53,7 @@ impl Build {
         let artifacts_dir = self.input.get_artifacts_dir()?;
 
         let mut had_errors = false;
-        for &entry_id in &typed.contract_entries {
+        for entry_id in typed.contract_entries() {
             let entry_module = typed.module(entry_id);
             let stem = entry_module
                 .abs_path

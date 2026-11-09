@@ -10,7 +10,7 @@ ModuleGraph {
         ModuleId(1),
     ],
     edges: {
-        1: [
+        ModuleId(1): [
             PathImport {
                 def_index: 1,
                 target: ModuleId(0),

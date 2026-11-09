@@ -6,8 +6,9 @@ use std::{
 };
 
 use wasm_encoder::{
-    Alias, ComponentExportKind, ComponentOuterAliasKind, ComponentType, ComponentTypeEncoder,
-    ComponentTypeRef, ComponentValType, InstanceType, PrimitiveValType, TypeBounds,
+    Alias, ComponentExportKind, ComponentExternName, ComponentOuterAliasKind, ComponentType,
+    ComponentTypeEncoder, ComponentTypeRef, ComponentValType, InstanceType, PrimitiveValType,
+    TypeBounds,
 };
 
 use crate::{
@@ -157,7 +158,11 @@ impl<T: TypeRegistry> TypeBuilder<T> {
             .insert(ty.clone(), ComponentValType::Type(new_idx));
     }
 
-    pub fn export_fn(&mut self, name: &str, signature: &ComponentAbiFunctionSignature) {
+    pub fn export_fn<'a>(
+        &mut self,
+        name: impl Into<ComponentExternName<'a>>,
+        signature: &ComponentAbiFunctionSignature,
+    ) {
         let type_idx = self.encode_func_sig(signature);
         self.inner.export(name, ComponentTypeRef::Func(type_idx));
     }
@@ -301,7 +306,7 @@ impl TypeBuilder<InstanceType> {
 pub trait TypeRegistry {
     fn ty(&mut self) -> ComponentTypeEncoder<'_>;
     fn alias(&mut self, alias: Alias<'_>);
-    fn export(&mut self, name: &str, ty: ComponentTypeRef);
+    fn export<'a>(&mut self, name: impl Into<ComponentExternName<'a>>, ty: ComponentTypeRef);
     fn import_or_export(&mut self, name: &str, ty: ComponentTypeRef);
     fn type_count(&self) -> u32;
     fn instance_count(&self) -> u32;
@@ -317,7 +322,7 @@ impl TypeRegistry for ComponentType {
         self.alias(alias);
     }
 
-    fn export(&mut self, name: &str, ty: ComponentTypeRef) {
+    fn export<'a>(&mut self, name: impl Into<ComponentExternName<'a>>, ty: ComponentTypeRef) {
         self.export(name, ty);
     }
 
@@ -344,7 +349,7 @@ impl TypeRegistry for InstanceType {
         self.alias(alias);
     }
 
-    fn export(&mut self, name: &str, ty: ComponentTypeRef) {
+    fn export<'a>(&mut self, name: impl Into<ComponentExternName<'a>>, ty: ComponentTypeRef) {
         self.export(name, ty);
     }
 

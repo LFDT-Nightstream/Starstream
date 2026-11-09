@@ -8,7 +8,7 @@ pub fn parser<'a>(
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
     let is_condition = primitives::identifier()
-        .then_ignore(just("is").padded())
+        .then_ignore(text::keyword("is").padded())
         .then(primitives::identifier())
         .map(|(name, abi_name)| IfCondition::Is { name, abi_name });
 
@@ -19,21 +19,21 @@ pub fn parser<'a>(
 
     let condition = choice((is_condition, bool_condition)).boxed();
 
-    just("if")
+    text::keyword("if")
         .padded()
         .ignore_then(condition.clone())
         .then(block.clone())
         .then(
-            just("else")
+            text::keyword("else")
                 .padded()
-                .then(just("if"))
+                .then(text::keyword("if"))
                 .padded()
                 .ignore_then(condition.clone())
                 .then(block.clone())
                 .repeated()
                 .collect::<Vec<_>>(),
         )
-        .then(just("else").padded().ignore_then(block).or_not())
+        .then(text::keyword("else").padded().ignore_then(block).or_not())
         .map(|((first, mut rest), else_branch)| Expr::If {
             branches: {
                 rest.insert(0, first);

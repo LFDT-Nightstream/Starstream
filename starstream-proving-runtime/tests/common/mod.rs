@@ -492,27 +492,6 @@ pub async fn trace_coordination_script(
     })
 }
 
-/// Test-only interleaving-relation parameters matching the prover's own
-/// tests (kappa = 2, λ = 40). Not a security claim.
-pub fn interleaving_params() -> neo_fold_clean::paper::params::Params {
-    use neo_params::goldilocks_paper_b2 as b2;
-    neo_fold_clean::paper::params::Params::test_only_from_neo_params(
-        neo_params::NeoParams::new(
-            b2::Q,
-            b2::ETA as u32,
-            b2::D as u32,
-            2,
-            1 << 24,
-            b2::B_BASE,
-            b2::K_RHO,
-            b2::T,
-            b2::EXTENSION_DEGREE,
-            40,
-        )
-        .expect("test parameters"),
-    )
-}
-
 /// Expected count and suspended constructor state for STORAGE_COUNTER.
 pub fn storage_counter_statement() -> starstream_interleaving_spec::TransactionStatement {
     use starstream_interleaving_spec::{OutputUtxo, TransactionStatement};
@@ -573,17 +552,17 @@ pub fn check_wasm_constraints(execution: &TracedExecution) -> wasmtime::Result<(
     Ok(())
 }
 
-/// Relation-only full-history audits: RAM/ROM and lookups remain host-checked.
-/// TODO: Replace these sanity checks with the Nebula memory/lookup argument.
+/// Prove each Wasm instance with Nebula after the fast diagnostic checks.
 pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()> {
-    use neo_fold_clean::frontends::r1cs_f_prime::preprocess_sparse_seeded_with_params;
-    use neo_fold_clean::lifecycle::verify_uncompressed_audit;
-    use neo_wasm::preprocess::{
-        canonical_wasm_f_prime_shape_batched_with_initial_state_digest, semantic_state_digest,
-    };
+    use neo_wasm::nebula::WasmSize;
+    use nightstream::nebula::Circuit;
 
-    const BATCH_SIZE: usize = 16;
     check_wasm_constraints(execution)?;
+    let mut preload = neo_wasm::preload_from_program_artifacts(&execution.artifacts);
+    neo_wasm::memory_semantics::preload_host_event_tables(
+        &mut preload,
+        &execution.templates.bindings,
+    );
     for (index, instance) in execution.instances.iter().enumerate() {
         let entry_pc = execution
             .templates
@@ -601,48 +580,74 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
             CommChainState::default(),
         )?;
         assert_eq!(instance.trace[0].state_before, initial);
-        let batches = neo_wasm::batch::batch_count(instance.trace.len(), BATCH_SIZE);
+        let size = WasmSize::for_run(&preload, &instance.trace)?;
+        let app = size.application()?;
+        let program = app.program(&preload)?;
+        let segments = size.segments(&instance.trace)?;
         eprintln!(
-            "Wasm instance {index}: {} rows, {batches} batches",
-            instance.trace.len()
+            "Wasm instance {index}: {} rows, {size:?}, {} segments",
+            instance.trace.len(),
+            segments.len()
         );
-        let start = std::time::Instant::now();
-        let shape = canonical_wasm_f_prime_shape_batched_with_initial_state_digest(
-            BATCH_SIZE,
-            semantic_state_digest(initial),
-        )?;
-        let prep = preprocess_sparse_seeded_with_params(
-            &shape.sparse_r1cs,
-            &shape.plan,
-            interleaving_params(),
-            u64::from_le_bytes(*b"SSWASM01"),
-        )?;
-        eprintln!("Wasm instance {index} preprocessing: {:?}", start.elapsed());
-        let start = std::time::Instant::now();
-        let assignments = (0..batches).map(|batch| {
-            neo_wasm::batch::build_batched_witness(&instance.trace, BATCH_SIZE, batch)
-        });
-        let proof = starstream_interleaving_prover::audit::prove(&prep, assignments)?;
-        eprintln!("Wasm instance {index} audit: {:?}", start.elapsed());
-        let start = std::time::Instant::now();
-        verify_uncompressed_audit(&prep.prep, &proof)?;
+        let started = std::time::Instant::now();
+        eprintln!("Wasm instance {index}: compiling circuit");
+        let circuit = Circuit::compile(size.geometry(), app)?;
+        eprintln!(
+            "Wasm instance {index}: circuit compiled in {:?}, {:?}",
+            started.elapsed(),
+            circuit.application_size()
+        );
+        // The supplied Wasm profiles support this statistical-security minimum.
+        let started = std::time::Instant::now();
+        eprintln!("Wasm instance {index}: preparing prover");
+        let prover = circuit.prover(proof_engine(), 109)?;
+        eprintln!(
+            "Wasm instance {index}: prover prepared in {:?}",
+            started.elapsed()
+        );
+        let started = std::time::Instant::now();
+        let verifier = circuit.verifier(proof_engine(), 109)?;
+        eprintln!(
+            "Wasm instance {index}: verifier prepared in {:?}",
+            started.elapsed()
+        );
+        let mut run = prover.start(&program, initial)?;
+        for (segment_index, segment) in segments.iter().enumerate() {
+            let started = std::time::Instant::now();
+            eprintln!("Wasm instance {index}: proving segment {segment_index}");
+            run.segment(segment)?;
+            eprintln!(
+                "Wasm instance {index}: segment {segment_index} proved in {:?}",
+                started.elapsed()
+            );
+        }
+        let proof = run.finish()?;
         let final_state = instance.trace.last().expect("nonempty trace").state_after;
-        assert_eq!(
-            proof.proof.state.semantic_state_digest,
-            semantic_state_digest(final_state)
-        );
         assert!(final_state.is_terminal() && !final_state.trapped);
         assert_eq!(
             final_state.comm_chain,
             execution.commitments[&coroutine_id(index)]
         );
+        let started = std::time::Instant::now();
+        eprintln!("Wasm instance {index}: verifying proof");
+        verifier.verify(&program, &initial, &final_state, &proof)?;
+        eprintln!("Wasm instance {index}: verified in {:?}", started.elapsed());
         let mut changed = final_state;
         changed.comm_chain[0] ^= 1;
-        assert_ne!(
-            proof.proof.state.semantic_state_digest,
-            semantic_state_digest(changed)
+        assert!(
+            verifier
+                .verify(&program, &initial, &changed, &proof)
+                .is_err()
         );
-        eprintln!("Wasm instance {index} verification: {:?}", start.elapsed());
     }
     Ok(())
+}
+
+/// Explicit test engine selection; Metal never silently falls back to CPU.
+pub fn proof_engine() -> nightstream::Engine {
+    if cfg!(feature = "metal") {
+        nightstream::Engine::Metal
+    } else {
+        nightstream::Engine::Optimized
+    }
 }

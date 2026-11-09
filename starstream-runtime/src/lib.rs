@@ -141,6 +141,12 @@ pub trait ContractLookup<T> {
     fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>>;
 }
 
+impl<T> ContractLookup<T> for &dyn ContractLookup<T> {
+    fn get_contract(&self, external_id: &str) -> wasmtime::Result<Contract<T>> {
+        (**self).get_contract(external_id)
+    }
+}
+
 /// Runtime-internal data structures which all implementors of `Host` must include.
 #[derive(Default, Debug)]
 pub struct StarstreamCtx {
@@ -1914,9 +1920,21 @@ impl<T: Host> Contract<T> {
         let types::ComponentExtern { ty, .. } = self
             .ty
             .get_export(self.pre.engine(), name)
+            .with_context(|| {
+                let mut all = String::new();
+                let exports = self.ty.exports(self.pre.engine());
+                for (name, _) in exports {
+                    use std::fmt::Write;
+                    if !all.is_empty() {
+                        all.push_str(", ");
+                    }
+                    _ = write!(all, "`{}`", name);
+                }
+                format!("`{name}` not found in [{all}]")
+            })
             .context("export not found")?;
         let types::ComponentItem::ComponentFunc(ty) = ty else {
-            bail!("export is not a function")
+            bail!("export `{name}` is not a function")
         };
         self.get_coordination_script_typed(name, ty)
     }

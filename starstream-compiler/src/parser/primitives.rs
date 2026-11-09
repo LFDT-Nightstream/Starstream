@@ -82,10 +82,13 @@ pub fn integer_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + C
 }
 
 pub fn boolean_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
-    choice((just("true").to(true), just("false").to(false)))
-        .padded()
-        .map(Literal::Boolean)
-        .boxed()
+    choice((
+        text::keyword("true").to(true),
+        text::keyword("false").to(false),
+    ))
+    .padded()
+    .map(Literal::Boolean)
+    .boxed()
 }
 
 pub fn unit_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {

@@ -10,7 +10,7 @@ pub use errors::{TypeError, TypeErrorKind};
 pub use exhaustiveness::check_match;
 pub use infer::{
     TypecheckFailure, TypecheckModulesFailure, TypecheckOptions, TypecheckSuccess, TypedModule,
-    TypedModuleContents, TypedModuleGraph, typecheck_modules, typecheck_program,
+    TypedModuleContents, TypedModuleExport, TypedModuleGraph, typecheck_modules, typecheck_program,
 };
 pub use tree::InferenceTree;
 pub use warnings::{TypeWarning, TypeWarningKind};

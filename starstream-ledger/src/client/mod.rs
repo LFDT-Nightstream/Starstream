@@ -9,6 +9,7 @@ use wasmtime::component::Val;
 
 use crate::{Envelope, Fund, Message, Publish, Transaction, TransactionInput};
 
+#[cfg(feature = "http")]
 pub mod http;
 pub mod runtime;
 

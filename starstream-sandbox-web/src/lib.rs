@@ -308,20 +308,16 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
     // Load every module in the workspace, or the entry and everything it
     // imports if no module is a contract.
-    let (graph, entries, standalone) =
-        match ModuleGraph::from_workspace(&mut fs, Path::new(&input.root)) {
-            Ok(graph) if graph.contract_entries().is_empty() => {
-                match ModuleGraph::from_entry(&mut fs, Path::new(&input.entry)) {
-                    Ok((graph, entry_id)) => (graph, vec![entry_id], true),
-                    Err(errors) => return write_graph_errors(errors),
-                }
+    let (graph, standalone) = match ModuleGraph::from_workspace(&mut fs, Path::new(&input.root)) {
+        Ok(graph) if graph.contract_entries().is_empty() => {
+            match ModuleGraph::from_entry(&mut fs, Path::new(&input.entry)) {
+                Ok((graph, _)) => (graph, true),
+                Err(errors) => return write_graph_errors(errors),
             }
-            Ok(graph) => {
-                let entries = graph.contract_entries().to_vec();
-                (graph, entries, false)
-            }
-            Err(errors) => return write_graph_errors(errors),
-        };
+        }
+        Ok(graph) => (graph, false),
+        Err(errors) => return write_graph_errors(errors),
+    };
 
     // Typecheck.
     let typed = match typecheck_modules(&graph, Default::default()) {
@@ -344,7 +340,7 @@ pub unsafe extern "C" fn run(input_len: usize) {
         }
     };
 
-    for entry_id in entries {
+    for entry_id in typed.contract_entries() {
         let path = graph.module(entry_id).abs_path.to_string_lossy();
         unsafe { set_contract(path.as_ptr(), path.len(), u32::from(standalone)) };
         compile_contract(&graph, &typed, entry_id);

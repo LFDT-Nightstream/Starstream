@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use starstream_compiler::WasmLinkage;
 use wac_graph::{CompositionGraph, EncodeOptions, types::Package};
 use wit_component::{ComponentEncoder, LibraryInfo};
@@ -5,7 +7,18 @@ use wit_component::{ComponentEncoder, LibraryInfo};
 use crate::CompileResult;
 
 impl CompileResult {
-    pub fn to_component(&self) -> miette::Result<Vec<u8>> {
+    pub fn to_component(&self) -> miette::Result<Rc<[u8]>> {
+        let mut cached = self.component.borrow_mut();
+        if let Some(cached) = &*cached {
+            return Ok(cached.clone());
+        }
+
+        let comp: Rc<[u8]> = self.to_component_inner()?.into();
+        *cached = Some(comp.clone());
+        Ok(comp)
+    }
+
+    fn to_component_inner(&self) -> miette::Result<Vec<u8>> {
         let Some(wasm) = &self.wasm else {
             panic!("CompileResult::to_component has no wasm")
         };

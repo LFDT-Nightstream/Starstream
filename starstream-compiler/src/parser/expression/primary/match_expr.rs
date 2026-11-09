@@ -26,7 +26,7 @@ pub fn parser<'a>(
         )
         .map(|(_, arm)| arm);
 
-    just("match")
+    text::keyword("match")
         .padded()
         .ignore_then(expression)
         .then(

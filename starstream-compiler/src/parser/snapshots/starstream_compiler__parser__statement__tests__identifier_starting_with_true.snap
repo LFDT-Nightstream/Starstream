@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\ntrueish;"
+---
+Expression(
+    Spanned {
+        node: ScopedName(
+            [
+                Identifier {
+                    name: "trueish",
+                    span: 0..7,
+                },
+            ],
+        ),
+        span: 0..7,
+    },
+)

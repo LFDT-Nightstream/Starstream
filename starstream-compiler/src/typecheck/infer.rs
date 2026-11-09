@@ -1,7 +1,8 @@
 #![allow(clippy::result_large_err)]
 
 use std::{
-    collections::{HashMap, HashSet},
+    cell::RefCell,
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     sync::Arc,
 };
@@ -150,6 +151,8 @@ pub struct TypedModule {
     pub source: Arc<str>,
     pub contents: TypedModuleContents,
     pub edges: Vec<ModuleId>,
+    /// Set after the compiler visits a module, for use by its importers.
+    pub export: RefCell<Option<TypedModuleExport>>,
 }
 
 #[derive(Debug, Default)]
@@ -160,6 +163,11 @@ pub enum TypedModuleContents {
     Wasm(Box<TypedWasmModule>),
 }
 
+#[derive(Debug, Clone)]
+pub struct TypedModuleExport {
+    pub hash: String,
+}
+
 /// Typechecked counterpart to `ModuleGraph`. Modules are listed in `id`
 /// order (matching the source graph), with `topo_order` giving the iteration
 /// order callers should use for downstream passes.
@@ -168,7 +176,7 @@ pub struct TypedModuleGraph {
     pub modules: Vec<TypedModule>,
     pub topo_order: Vec<ModuleId>,
     /// Module ids that declare `contract;` — i.e. codegen entries.
-    pub contract_entries: Vec<ModuleId>,
+    pub contract_entries: BTreeSet<ModuleId>,
     pub generic_types: HashMap<String, GenericTypeDef>,
     /// Warnings collected from every module (e.g. unnecessary disclose,
     /// path-import-in-single-file). Carried even on success so callers can
@@ -192,6 +200,14 @@ impl TypedModuleGraph {
             }
             Ok(())
         })
+    }
+
+    /// Iterate contract entry points in topological order.
+    pub fn contract_entries(&self) -> impl Iterator<Item = ModuleId> {
+        self.topo_order
+            .iter()
+            .copied()
+            .filter(|x| self.contract_entries.contains(x))
     }
 }
 
@@ -348,13 +364,14 @@ pub fn typecheck_modules(
                 .iter()
                 .map(|e| e.target)
                 .collect(),
+            export: Default::default(),
         });
     }
 
     Ok(TypedModuleGraph {
         modules,
         topo_order: graph.topo_order().to_vec(),
-        contract_entries: graph.contract_entries().to_vec(),
+        contract_entries: graph.contract_entries().iter().copied().collect(),
         generic_types,
         warnings,
         traces,
@@ -369,8 +386,8 @@ fn resolve_path_imports<'g>(
     graph: &crate::ModuleGraph,
     importer: ModuleId,
     module_exports: &'g HashMap<ModuleId, Namespace>,
-) -> HashMap<usize, &'g Namespace> {
-    let mut result: HashMap<usize, &'g Namespace> = HashMap::new();
+) -> HashMap<usize, (&'g Namespace, ModuleId)> {
+    let mut result = HashMap::new();
 
     for edge in graph.edges_of(importer) {
         let target_id = edge.target;
@@ -378,7 +395,7 @@ fn resolve_path_imports<'g>(
             // Topological order should ensure deps are processed first.
             unreachable!();
         };
-        result.insert(edge.def_index, target_exports);
+        result.insert(edge.def_index, (target_exports, target_id));
     }
 
     result
@@ -423,7 +440,6 @@ struct AbiCallTracker {
 struct FunctionCtx {
     expected_return: Type,
     return_span: Span,
-    saw_return: bool,
     /// Declaration spans for function parameters that are private (non-`pub`).
     private_param_decl_spans: Vec<Span>,
     is_coroutine: bool,
@@ -479,17 +495,17 @@ impl Inferencer {
         &mut self,
         env: &mut TypeEnv,
         definitions: &[Spanned<Definition>],
-        resolved: &HashMap<usize, &Namespace>,
+        resolved: &HashMap<usize, (&Namespace, ModuleId)>,
     ) -> Result<(), TypeError> {
         for (i, def) in definitions.iter().enumerate() {
             if let Definition::Import(import) = &def.node {
                 // Resolve the namespace we're importing from.
                 let source = &import.from.to_string();
-                let namespace = match (resolved.get(&i), &import.from) {
-                    (Some(&ns), _) => {
+                let (namespace, module) = match (resolved.get(&i), &import.from) {
+                    (Some((ns, module)), _) => {
                         // Preresolved import. Common case for path imports which come
                         // from the module graph.
-                        ns
+                        (*ns, Some(*module))
                     }
                     (
                         None,
@@ -500,8 +516,14 @@ impl Inferencer {
                         },
                     ) => {
                         // WIT import.
-                        self.builtins
-                            .get_as_namespace(namespace, package, interface.as_ref())?
+                        (
+                            self.builtins.get_as_namespace(
+                                namespace,
+                                package,
+                                interface.as_ref(),
+                            )?,
+                            None,
+                        )
                     }
                     (None, ImportSource::Path(path)) => {
                         // Non-preresolved path import, usually leftover from
@@ -558,8 +580,10 @@ impl Inferencer {
                 self.typed_definitions.insert(
                     &def.node,
                     TypedDefinition::Import(TypedImportDef {
+                        span: def.span,
                         items: typed_items,
                         from: import.from.clone(),
+                        module,
                     }),
                 );
             }
@@ -2074,7 +2098,6 @@ impl Inferencer {
         let mut ctx = FunctionCtx {
             expected_return: func_ty.result.clone(),
             return_span,
-            saw_return: false,
             private_param_decl_spans,
             is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
         };
@@ -2083,7 +2106,11 @@ impl Inferencer {
 
         env.pop_scope();
 
-        if func_ty.result != Type::unit() && !ctx.saw_return && typed_body.tail_expression.is_none()
+        // Every path must produce a value: either the body ends in a tail
+        // expression or it diverges on every path with `return`/`resume`.
+        if func_ty.result != Type::unit()
+            && typed_body.tail_expression.is_none()
+            && !Self::block_diverges(&typed_body)
         {
             return Err(TypeError::new(
                 TypeErrorKind::MissingReturn {
@@ -2120,7 +2147,6 @@ impl Inferencer {
         let mut ctx = FunctionCtx {
             expected_return: Type::Unit,
             return_span: DUMMY_SPAN,
-            saw_return: false,
             private_param_decl_spans: Default::default(),
             is_coroutine: false,
         };
@@ -2234,12 +2260,8 @@ impl Inferencer {
                 }
 
                 let typed_else_branch = if let Some(block) = else_branch {
-                    let saw_return_before_else = ctx.saw_return;
                     let (typed_block, mut else_traces) =
                         self.infer_block(env, block, ctx, false)?;
-                    // This return is conditional on the pattern failing; it
-                    // does not prove that the success path returns a value.
-                    ctx.saw_return = saw_return_before_else;
                     children.append(&mut else_traces);
                     if !Self::block_diverges(&typed_block) {
                         return Err(TypeError::new(
@@ -2415,7 +2437,6 @@ impl Inferencer {
                                 found: self.apply_for_display(actual_type),
                             },
                         )?;
-                        ctx.saw_return = true;
                         let tree = self.make_trace(
                             "T-Return",
                             env_context,
@@ -2437,7 +2458,6 @@ impl Inferencer {
                                 found: self.apply_for_display(&unit),
                             },
                         )?;
-                        ctx.saw_return = true;
                         let tree = self.make_trace(
                             "T-ReturnUnit",
                             env_context,
@@ -2500,7 +2520,6 @@ impl Inferencer {
                         found: Type::Unit,
                     },
                 )?;
-                ctx.saw_return = true;
                 let tree = self.make_trace("T-Resume", env_context, stmt_repr, result_repr, || {
                     vec![unify_trace]
                 });
@@ -2602,7 +2621,8 @@ impl Inferencer {
 
     /// Whether evaluating this block is guaranteed not to continue with the
     /// statement following it. This is deliberately structural: a `let ...
-    /// else` fallback must make its exit explicit on every control-flow path.
+    /// else` fallback, or a function body without a tail expression, must
+    /// make its exit explicit on every control-flow path.
     fn block_diverges(block: &TypedBlock) -> bool {
         block.statements.iter().any(Self::statement_diverges)
             || block
@@ -2615,6 +2635,8 @@ impl Inferencer {
         match statement {
             TypedStatement::Return(_) | TypedStatement::Resume => true,
             TypedStatement::Expression(expr) => Self::expr_diverges(&expr.node),
+            // Handlers resume at the `raise` point, so only the body matters.
+            TypedStatement::TryWith { subject, .. } => Self::block_diverges(subject),
             _ => false,
         }
     }
@@ -2660,7 +2682,6 @@ impl Inferencer {
             let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
             let mut children = vec![expr_trace];
             if treat_tail_as_return {
-                ctx.saw_return = true;
                 let actual = &typed_expr.node.ty;
                 let (_, unify_trace) = self.unify(
                     actual,
