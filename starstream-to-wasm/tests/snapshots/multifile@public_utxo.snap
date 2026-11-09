@@ -88,10 +88,14 @@ package starstream:events {
 
 package starstream:self {
   interface counter {
+    use starstream:std/builtin.{utxo as s-utxo};
+
     resource utxo {
       new: static func() -> utxo;
       value: func() -> s64;
     }
+
+    upcast: func(self: borrow<utxo>) -> s-utxo;
   }
 }
 

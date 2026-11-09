@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\ntoken MyToken {\n    mint fn mint() {}\n\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n}\n\nscript fn go(to: Utxo) {\n    let t = MyToken::mint();\n    t.transfer(to);\n}\n"
+---
+E0048 (https://starstream.nightstream.dev/errors/E0048)
+
+  x ABI `MyToken` has no method named `transfer`
+    ,-[test.star:12:7]
+ 11 |     let t = MyToken::mint();
+ 12 |     t.transfer(to);
+    :       ^^^^^^^^
+ 13 | }
+    `----

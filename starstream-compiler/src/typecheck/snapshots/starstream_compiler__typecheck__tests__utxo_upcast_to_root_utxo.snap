@@ -1,0 +1,56 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Holder {\n    main fn new() {\n        yield();\n    }\n}\n\nscript fn takes(u: Utxo) {}\n\nscript fn early(flag: bool) -> Utxo {\n    if (flag) {\n        return Holder::new();\n    }\n    Holder::new()\n}\n\nscript fn upcasts() -> Utxo {\n    takes(Holder::new());\n    let a: Utxo = Holder::new();\n    takes(a);\n    let mut b: Utxo = Holder::new();\n    b = Holder::new();\n    b\n}\n"
+---
+T-Utxo: Holder => 
+  T-Fn: new => ()
+    T-Expr: {new: fn() -> ()} ⊢ yield(); ⇒ ()
+
+T-Fn: takes => ()
+
+T-Fn: early => Utxo
+  T-Expr: {early: fn(flag: bool) -> Utxo, flag: bool, takes: fn(u: Utxo) -> ()} ⊢ if (flag) {
+    return Holder::new();
+} ⇒ ()
+    T-If: {early: fn(flag: bool) -> Utxo, flag: bool, takes: fn(u: Utxo) -> ()} ⊢ if (flag) {
+    return Holder::new();
+} ⇒ ()
+      T-Var: {early: fn(flag: bool) -> Utxo, flag: bool, takes: fn(u: Utxo) -> ()} ⊢ flag ⇒ bool
+      Check-Bool: bool => ok
+      T-Return: {early: fn(flag: bool) -> Utxo, flag: bool, takes: fn(u: Utxo) -> ()} ⊢ return Holder::new(); ⇒ Utxo
+        T-Call: {early: fn(flag: bool) -> Utxo, flag: bool, takes: fn(u: Utxo) -> ()} ⊢ Holder::new() ⇒ Holder
+          T-Var: {early: fn(flag: bool) -> Utxo, flag: bool, takes: fn(u: Utxo) -> ()} ⊢ Holder::new ⇒ fn() -> Holder
+        Unify-Const: Utxo ~ Utxo => {}
+      Unify-Const: () ~ () => {}
+  T-ReturnTail: Holder::new() => Utxo
+    T-Call: {early: fn(flag: bool) -> Utxo, flag: bool, takes: fn(u: Utxo) -> ()} ⊢ Holder::new() ⇒ Holder
+      T-Var: {early: fn(flag: bool) -> Utxo, flag: bool, takes: fn(u: Utxo) -> ()} ⊢ Holder::new ⇒ fn() -> Holder
+    Unify-Const: Utxo ~ Utxo => {}
+
+T-Fn: upcasts => Utxo
+  T-Expr: {early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ takes(Holder::new()); ⇒ ()
+    T-Call: {early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ takes(Holder::new()) ⇒ ()
+      T-Var: {early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ takes ⇒ fn(u: Utxo) -> ()
+      T-Call: {early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ Holder::new() ⇒ Holder
+        T-Var: {early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ Holder::new ⇒ fn() -> Holder
+      Unify-Const: Utxo ~ Utxo => {}
+  T-Let: {early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ let a: Utxo = Holder::new(); ⇒ Utxo
+    T-Call: {early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ Holder::new() ⇒ Holder
+      T-Var: {early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ Holder::new ⇒ fn() -> Holder
+    Unify-Const: Utxo ~ Utxo => {}
+  T-Expr: {a: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ takes(a); ⇒ ()
+    T-Call: {a: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ takes(a) ⇒ ()
+      T-Var: {a: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ takes ⇒ fn(u: Utxo) -> ()
+      T-Var: {a: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ a ⇒ Utxo
+      Unify-Const: Utxo ~ Utxo => {}
+  T-Let: {a: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ let mut b: Utxo = Holder::new(); ⇒ Utxo
+    T-Call: {a: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ Holder::new() ⇒ Holder
+      T-Var: {a: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ Holder::new ⇒ fn() -> Holder
+    Unify-Const: Utxo ~ Utxo => {}
+  T-Assign: {a: Utxo, b: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ b = Holder::new(); ⇒ Utxo
+    T-Call: {a: Utxo, b: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ Holder::new() ⇒ Holder
+      T-Var: {a: Utxo, b: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ Holder::new ⇒ fn() -> Holder
+    Unify-Const: Utxo ~ Utxo => {}
+  T-ReturnTail: b => Utxo
+    T-Var: {a: Utxo, b: Utxo, early: fn(flag: bool) -> Utxo, takes: fn(u: Utxo) -> (), upcasts: fn() -> Utxo} ⊢ b ⇒ Utxo
+    Unify-Const: Utxo ~ Utxo => {}

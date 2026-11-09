@@ -449,6 +449,9 @@ displayed in IDE hover tooltips above the type information.
   ordinary functions.
   - `mint fn` items act as this type's constructors (analogous to a `utxo`'s
     `main fn`); each produces a handle to the newly minted token.
+  - The methods of the `impl Token` block (and of any other `impl <Abi>` block)
+    can be called on a handle of the token type: `t.attach(utxo)`,
+    `t.detach(utxo)`.
   - **Work in progress.** Tokens are parsed, type-checked, and compiled to wasm:
     the token resource, `mint` constructors, `burn` functions, the `impl Token`
     methods (`attach`/`detach`, generated exactly like a `utxo`'s `impl <Abi>`,

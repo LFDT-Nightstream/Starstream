@@ -1,0 +1,18 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Holder {\n    main fn new() {\n        yield();\n    }\n}\n\nutxo Other {\n    main fn new() {\n        yield();\n    }\n}\n\nscript fn takes(h: Holder) {}\n\nscript fn wrong() {\n    takes(Other::new());\n}\n"
+---
+E0031 (https://starstream.nightstream.dev/errors/E0031)
+
+  x argument 1 has type `Other` but `Holder` was expected
+    ,-[test.star:16:11]
+ 12 | 
+ 13 | script fn takes(h: Holder) {}
+    :                    ^^^|^^
+    :                       `-- parameter expects `Holder`
+ 14 | 
+ 15 | script fn wrong() {
+ 16 |     takes(Other::new());
+    :           ^^^^^^^^^^^^
+ 17 | }
+    `----

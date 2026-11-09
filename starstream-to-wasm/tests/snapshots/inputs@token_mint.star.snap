@@ -374,6 +374,72 @@ TypedProgram {
                     name: "MyToken",
                     id: NameId(4),
                     methods: [],
+                    abis: [
+                        AbiType {
+                            name: Identifier {
+                                name: "Token",
+                                span: 0..0,
+                            },
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "attach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(0),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(0),
+                                            ),
+                                        ),
+                                    },
+                                },
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "detach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(1),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(1),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
+                    ],
                 },
             },
         ),
@@ -399,13 +465,15 @@ TypedProgram {
   (import "[export]my-token" "[resource-new]token" (func (;7;) (type 4) (param i32) (result i32)))
   (import "[export]my-token" "[resource-drop]token" (func (;8;) (type 0) (param i32)))
   (import "starstream:self/my-token" "[static]token.mint" (func (;9;) (type 5) (result i32)))
+  (import "starstream:self/my-token" "[method]token.attach" (func (;10;) (type 6) (param i32 i32)))
+  (import "starstream:self/my-token" "[method]token.detach" (func (;11;) (type 6) (param i32 i32)))
   (global (;0;) (mut i32) (i32.const 0))
-  (export "my-token#[static]token.mint" (func 10))
-  (export "my-token#[method]token.attach" (func 11))
-  (export "my-token#[method]token.detach" (func 12))
-  (export "my-token#get-storage" (func 13))
-  (export "my-token#set-storage" (func 14))
-  (func (;10;) (type 5) (result i32)
+  (export "my-token#[static]token.mint" (func 12))
+  (export "my-token#[method]token.attach" (func 14))
+  (export "my-token#[method]token.detach" (func 16))
+  (export "my-token#get-storage" (func 17))
+  (export "my-token#set-storage" (func 18))
+  (func (;12;) (type 5) (result i32)
     (local i32)
     (local.set 0
       (call 7
@@ -414,12 +482,26 @@ TypedProgram {
       (i32.const 1))
     (local.get 0)
   )
-  (func (;11;) (type 6) (param i32 i32))
-  (func (;12;) (type 6) (param i32 i32))
-  (func (;13;) (type 4) (param i32) (result i32)
+  (func (;13;) (type 6) (param i32 i32))
+  (func (;14;) (type 6) (param i32 i32)
+    (call 13
+      (local.get 0)
+      (local.get 1))
+    (call 0
+      (local.get 1))
+  )
+  (func (;15;) (type 6) (param i32 i32))
+  (func (;16;) (type 6) (param i32 i32)
+    (call 15
+      (local.get 0)
+      (local.get 1))
+    (call 0
+      (local.get 1))
+  )
+  (func (;17;) (type 4) (param i32) (result i32)
     (global.get 0)
   )
-  (func (;14;) (type 4) (param i32) (result i32)
+  (func (;18;) (type 4) (param i32) (result i32)
     (global.set 0
       (local.get 0))
     (return
@@ -468,6 +550,14 @@ TypedProgram {
                   (type (;2;) (own 0))
                   (type (;3;) (func (result 2)))
                   (export (;0;) "[static]token.mint" (func (type 3)))
+                  (alias outer 1 1 (type (;4;)))
+                  (export (;5;) "s-utxo" (type (eq 4)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
+                  (type (;8;) (func (param "self" 1) (param "to" 6)))
+                  (export (;1;) "[method]token.attach" (func (type 8)))
+                  (type (;9;) (func (param "self" 1) (param "source" 6)))
+                  (export (;2;) "[method]token.detach" (func (type 9)))
                 )
               )
               (import "starstream:self/my-token" (instance (;1;) (type 9)))
@@ -555,8 +645,12 @@ package starstream:std {
 
 package starstream:self {
   interface my-token {
+    use starstream:std/builtin.{utxo as s-utxo};
+
     resource token {
       mint: static func() -> token;
+      attach: func(to: borrow<s-utxo>);
+      detach: func(source: borrow<s-utxo>);
     }
   }
 }
