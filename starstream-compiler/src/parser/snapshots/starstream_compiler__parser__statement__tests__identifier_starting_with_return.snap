@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nreturned;"
+---
+Expression(
+    Spanned {
+        node: ScopedName(
+            [
+                Identifier {
+                    name: "returned",
+                    span: 0..8,
+                },
+            ],
+        ),
+        span: 0..8,
+    },
+)

@@ -30,15 +30,20 @@ pub fn statement<'a>(
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
     expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
-    let variable_declaration = just("let")
+    let variable_declaration = text::keyword("let")
         .padded()
-        .ignore_then(just("pub").padded().or_not())
-        .then(just("mut").padded().or_not())
+        .ignore_then(text::keyword("pub").padded().or_not())
+        .then(text::keyword("mut").padded().or_not())
         .then(pattern())
         .then(just(":").ignore_then(type_annotation::parser()).or_not())
         .then_ignore(just('=').padded())
         .then(expr.clone())
-        .then(just("else").padded().ignore_then(block.clone()).or_not())
+        .then(
+            text::keyword("else")
+                .padded()
+                .ignore_then(block.clone())
+                .or_not(),
+        )
         .then_ignore(just(';').padded())
         .map(
             |(((((public, mutable), pattern), ty), value), else_branch)| {
@@ -59,7 +64,7 @@ pub fn statement<'a>(
         .then_ignore(just(';').padded())
         .map(|(target, value)| Statement::Assignment { target, value });
 
-    let while_statement = just("while")
+    let while_statement = text::keyword("while")
         .padded()
         .ignore_then(
             expr.clone()
@@ -68,7 +73,7 @@ pub fn statement<'a>(
         .then(block.clone())
         .map(|(condition, body)| Statement::While { condition, body });
 
-    let return_statement = just("return")
+    let return_statement = text::keyword("return")
         .padded()
         .ignore_then(
             expr.clone()
@@ -78,14 +83,14 @@ pub fn statement<'a>(
         )
         .map(Statement::Return);
 
-    let resume_statement = just("resume")
+    let resume_statement = text::keyword("resume")
         .ignore_then(just(';').padded().ignored())
         .map(|_| Statement::Resume);
 
-    let try_with_statement = just("try")
+    let try_with_statement = text::keyword("try")
         .ignore_then(block.clone())
         .then(
-            just("with")
+            text::keyword("with")
                 .ignore_then(tuple_pattern(pattern()))
                 .then(block.clone())
                 .repeated()
@@ -210,5 +215,25 @@ mod tests {
     #[test]
     fn return_with_value() {
         assert_statement_snapshot!("return flag;");
+    }
+
+    #[test]
+    fn assignment_to_identifier_starting_with_let() {
+        assert_statement_snapshot!("letter = 5;");
+    }
+
+    #[test]
+    fn identifier_starting_with_return() {
+        assert_statement_snapshot!("returned;");
+    }
+
+    #[test]
+    fn call_starting_with_emit() {
+        assert_statement_snapshot!("emitter(1);");
+    }
+
+    #[test]
+    fn identifier_starting_with_true() {
+        assert_statement_snapshot!("trueish;");
     }
 }

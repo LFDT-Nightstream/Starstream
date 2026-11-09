@@ -4,7 +4,7 @@ use crate::parser::context::Extra;
 
 /// `contract;` — marks the file as a contract entry point.
 pub fn parser<'a>() -> impl Parser<'a, &'a str, (), Extra<'a>> {
-    just("contract")
+    text::keyword("contract")
         .padded()
         .then_ignore(just(';').padded())
         .ignored()

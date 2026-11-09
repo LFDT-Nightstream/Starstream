@@ -4,7 +4,7 @@ use starstream_types::ast::{Expr, Spanned};
 use crate::parser::{ParserExt, context::Extra, primitives::identifier};
 
 pub fn yield_<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    just("yield")
+    text::keyword("yield")
         .padded()
         .ignore_then(
             identifier()

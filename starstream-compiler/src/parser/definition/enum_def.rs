@@ -76,7 +76,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, EnumDef, Extra<'a>> {
             variants
         });
 
-    just("enum")
+    text::keyword("enum")
         .padded()
         .ignore_then(primitives::identifier())
         .then(variants.delimited_by(just('{').padded(), just('}').padded()))

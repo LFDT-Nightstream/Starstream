@@ -1,0 +1,35 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nemitter(1);"
+---
+Expression(
+    Spanned {
+        node: Call {
+            callee: Spanned {
+                node: ScopedName(
+                    [
+                        Identifier {
+                            name: "emitter",
+                            span: 0..7,
+                        },
+                    ],
+                ),
+                span: 0..7,
+            },
+            args: [
+                Spanned {
+                    node: Literal(
+                        Integer(
+                            IntegerLiteral {
+                                digits: "1",
+                                radix: Decimal,
+                            },
+                        ),
+                    ),
+                    span: 8..9,
+                },
+            ],
+        },
+        span: 0..10,
+    },
+)
