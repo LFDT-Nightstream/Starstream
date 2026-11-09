@@ -1,7 +1,6 @@
 use core::error::Error;
 use core::iter::zip;
 use core::sync::atomic::{AtomicU64, Ordering};
-use core::time::Duration;
 
 use std::collections::{HashMap, HashSet, hash_map};
 use std::sync::Arc;
@@ -21,7 +20,6 @@ use sha2::{Digest as _, Sha256};
 use tokio::sync::TryAcquireError;
 use tokio_util::codec::Encoder as _;
 use tokio_util::io::StreamReader;
-use tower_http::timeout::{TimeoutBody, TimeoutError};
 use wasm_tokio::cm::{AsyncReadValue as _, U64Codec};
 use wasm_tokio::{AsyncReadCore as _, AsyncReadLeb128 as _, CoreNameDecoder, CoreVecDecoderBytes};
 use wasmparser::WasmFeatures;
@@ -29,6 +27,7 @@ use wasmtime::component::{ResourceTable, Type, Val};
 
 use crate::cose::read_envelope;
 use crate::runtime::apply_state;
+use crate::server::http::timeout::{TimeoutBody, TimeoutError};
 use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx, wit};
 use crate::wrpc::bindings;
 use crate::wrpc::bindings::starstream::ledger::types::GetError;
@@ -44,9 +43,11 @@ use crate::{
 };
 
 mod accept;
-mod error;
 #[cfg(feature = "tcp")]
 mod tcp;
+mod timeout;
+
+mod error;
 use error::*;
 
 const MAX_ENVELOPE_SIZE: usize = 1 << 24;
@@ -399,19 +400,20 @@ impl Ledger {
             .map_err(TransactionPostError::Http)
     }
 
-    async fn handle_envelope_post<T>(
+    async fn handle_envelope_post<T, S>(
         &self,
         body: T,
-        io_timeout: Duration,
+        timeout: impl Fn() -> S,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, EnvelopePostError>
     where
         T: http_body::Body<Data = Bytes>,
         T::Error: Into<Box<dyn Error + Send + Sync>>,
+        S: Future<Output = ()>,
     {
         if body.size_hint().lower() > MAX_ENVELOPE_SIZE as u64 {
             return Err(EnvelopePostError::BodyTooLarge(MAX_ENVELOPE_SIZE));
         }
-        let body = TimeoutBody::new(io_timeout, body);
+        let body = TimeoutBody::new(timeout, body);
         let body = http_body_util::Limited::new(body, MAX_ENVELOPE_SIZE)
             .collect()
             .await
@@ -545,15 +547,16 @@ impl Ledger {
             .map_err(RpcGetError::Http)
     }
 
-    async fn handle_rpc_post<T>(
+    async fn handle_rpc_post<T, S>(
         &self,
         headers: http::HeaderMap,
         body: T,
-        io_timeout: Duration,
+        timeout: impl Fn() -> S,
     ) -> Result<http::Response<http_body_util::Full<Bytes>>, RpcPostError>
     where
         T: http_body::Body<Data = Bytes>,
         T::Error: Into<Box<dyn Error + Send + Sync>>,
+        S: Future<Output = ()>,
     {
         fn get_by_digest<'a, T>(
             vs: &'a HashMap<[u8; 32], T>,
@@ -582,7 +585,7 @@ impl Ledger {
         let content_type = content_type.essence();
         if content_type == APPLICATION_COSE {
             return self
-                .handle_envelope_post(body, io_timeout)
+                .handle_envelope_post(body, timeout)
                 .await
                 .map_err(RpcPostError::Envelope);
         }
@@ -591,7 +594,7 @@ impl Ledger {
                 content_type.to_string().into(),
             ));
         }
-        let body = TimeoutBody::new(io_timeout, body).into_data_stream();
+        let body = TimeoutBody::new(timeout, body).into_data_stream();
         let body = body.map_err(|err| {
             if err.is::<TimeoutError>() {
                 std::io::Error::new(std::io::ErrorKind::TimedOut, err)
@@ -890,15 +893,17 @@ impl Ledger {
     /// Handle a ledger HTTP API request.
     ///
     /// A request is rejected with 503 if `max_requests` requests are already
-    /// being handled, and with 408 if its body sends no chunk for `io_timeout`.
-    pub async fn handle_http<T>(
+    /// being handled, and with 408 if its body sends no chunk before a future
+    /// returned by `timeout` completes.
+    pub async fn handle_http<T, S>(
         &self,
         req: http::Request<T>,
-        io_timeout: Duration,
+        timeout: impl Fn() -> S,
     ) -> http::Result<http::Response<http_body_util::Full<Bytes>>>
     where
         T: http_body::Body<Data = Bytes>,
         T::Error: Into<Box<dyn Error + Send + Sync>>,
+        S: Future<Output = ()>,
     {
         async {
             let _permit = match self.permits.try_acquire() {
@@ -983,7 +988,7 @@ impl Ledger {
                 }
 
                 ("POST", Some("rpc"), None, ..) => {
-                    match self.handle_rpc_post(headers, body, io_timeout).await {
+                    match self.handle_rpc_post(headers, body, timeout).await {
                         Ok(res) => Ok(res),
                         Err(err) => build_text_response(err.http_status_code(), err.to_string()),
                     }
