@@ -2694,7 +2694,9 @@ impl Compiler {
                 ..
             } => {
                 self.visit_expr_stack(func, bb, locals, span, expr)?;
-                func.instructions(bb).drop();
+                for _ in 0..Self::star_count_core_types(&expr.ty) {
+                    func.instructions(bb).drop();
+                }
             }
             TypedExprKind::Unary {
                 op: UnaryOp::Not,
