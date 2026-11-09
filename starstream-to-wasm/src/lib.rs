@@ -2678,7 +2678,30 @@ impl Compiler {
         match &expr.kind {
             TypedExprKind::Literal(_) => {}
             TypedExprKind::ScopedName { .. } => {}
-            TypedExprKind::Unary { op: _, expr } => {
+            // Arithmetic traps on overflow and division by zero, so it must
+            // run even when the result is unused.
+            TypedExprKind::Unary {
+                op: UnaryOp::Negate,
+                ..
+            }
+            | TypedExprKind::Binary {
+                op:
+                    BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::Remainder,
+                ..
+            } => {
+                self.visit_expr_stack(func, bb, locals, span, expr)?;
+                for _ in 0..Self::star_count_core_types(&expr.ty) {
+                    func.instructions(bb).drop();
+                }
+            }
+            TypedExprKind::Unary {
+                op: UnaryOp::Not,
+                expr,
+            } => {
                 self.visit_expr_drop(func, bb, locals, expr.span, &expr.node)?;
             }
             // _ = lhs && rhs --> if (lhs) { _ = rhs; }
@@ -2737,8 +2760,18 @@ impl Compiler {
 
                 *bb = bb_end;
             }
-            // Other binary operators have no control flow or side effects.
-            TypedExprKind::Binary { op: _, left, right } => {
+            // Comparisons can't trap, so only their operands need evaluating.
+            TypedExprKind::Binary {
+                op:
+                    BinaryOp::Less
+                    | BinaryOp::LessEqual
+                    | BinaryOp::Greater
+                    | BinaryOp::GreaterEqual
+                    | BinaryOp::Equal
+                    | BinaryOp::NotEqual,
+                left,
+                right,
+            } => {
                 self.visit_expr_drop(func, bb, locals, left.span, &left.node)?;
                 self.visit_expr_drop(func, bb, locals, right.span, &right.node)?;
             }

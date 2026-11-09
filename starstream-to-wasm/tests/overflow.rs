@@ -1330,3 +1330,63 @@ fn test_unsigned_division_truncates() {
         assert_int_call(&wasm, ty, "rem", &[max, 16], Some(max % 16));
     }
 }
+
+// ============================================================================
+// Arithmetic whose result is discarded
+// ============================================================================
+
+#[test]
+fn test_discarded_arithmetic_still_traps() {
+    let source = r"
+script fn add(x: i64, y: i64) -> i64 {
+    x + y;
+    0
+}
+script fn sub(x: i64, y: i64) -> i64 {
+    x - y;
+    0
+}
+script fn mul(x: i64, y: i64) -> i64 {
+    x * y;
+    0
+}
+script fn div(x: i64, y: i64) -> i64 {
+    x / y;
+    0
+}
+script fn rem(x: i64, y: i64) -> i64 {
+    x % y;
+    0
+}
+script fn neg(x: i64) -> i64 {
+    -x;
+    0
+}
+script fn compare(x: i64, y: i64) -> i64 {
+    x + y == 0;
+    0
+}
+";
+
+    let wasm = compile_program(source);
+
+    let cases: [(&str, &[i64]); 7] = [
+        ("add", &[i64::MAX, 1]),
+        ("sub", &[i64::MIN, 1]),
+        ("mul", &[i64::MAX, 2]),
+        ("div", &[1, 0]),
+        ("rem", &[1, 0]),
+        ("neg", &[i64::MIN]),
+        ("compare", &[i64::MAX, 1]),
+    ];
+    let not_trapping: Vec<_> = cases
+        .into_iter()
+        .filter(|(func_name, args)| execute_wasm(&wasm, func_name, args).is_ok())
+        .collect();
+    assert!(
+        not_trapping.is_empty(),
+        "discarded results that did not trap: {not_trapping:?}"
+    );
+
+    assert_eq!(execute_wasm(&wasm, "add", &[1, 2]), Ok(vec![0]));
+}
