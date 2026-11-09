@@ -3,7 +3,7 @@
 //! Wasmtime's async support switches native stacks, which a wasm32 program
 //! cannot do itself. With the `custom-fiber` feature wasmtime instead calls two
 //! hooks, `wasmtime_fiber_init` and `wasmtime_fiber_switch`, which the embedder
-//! (e.g. `website/src/run.worker.ts`) implements with JSPI
+//! (e.g. `starstream-js/src/runtime-web.ts`) implements with JSPI
 //! (`WebAssembly.Suspending` / `WebAssembly.promising`): the host
 //! switches the wasm stack, and the embedder swaps this module's shadow-stack
 //! pointer (`__stack_pointer`, exported via the embedding crate's `build.rs`).
