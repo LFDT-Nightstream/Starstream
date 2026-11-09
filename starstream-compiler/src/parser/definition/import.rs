@@ -6,7 +6,7 @@ use crate::parser::{context::Extra, primitives};
 pub fn parser<'a>() -> impl Parser<'a, &'a str, ImportDef, Extra<'a>> {
     let named_item = primitives::identifier()
         .then(
-            just("as")
+            text::keyword("as")
                 .padded()
                 .ignore_then(primitives::identifier())
                 .or_not(),
@@ -39,10 +39,10 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, ImportDef, Extra<'a>> {
 
     let import_source = choice((wit_source, path_source));
 
-    just("import")
+    text::keyword("import")
         .padded()
         .ignore_then(choice((named_items, namespace_import)))
-        .then_ignore(just("from").padded())
+        .then_ignore(text::keyword("from").padded())
         .then(import_source)
         .then_ignore(just(';').padded())
         .map(|(items, from)| ImportDef { items, from })

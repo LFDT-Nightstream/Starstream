@@ -19,7 +19,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, AbiDef, Extra<'a>> {
         )))
         .map(|(_, part)| part);
 
-    just("abi")
+    text::keyword("abi")
         .padded()
         .ignore_then(primitives::identifier())
         .then(
@@ -36,7 +36,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, AbiDef, Extra<'a>> {
 fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
 
-    let parameter = just("pub")
+    let parameter = text::keyword("pub")
         .padded()
         .or_not()
         .then(primitives::identifier())
@@ -48,7 +48,7 @@ fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
             ty,
         });
 
-    just("event")
+    text::keyword("event")
         .padded()
         .ignore_then(primitives::identifier())
         .then(
@@ -69,7 +69,7 @@ fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
 fn effect_definition<'a>() -> impl Parser<'a, &'a str, EffectDef, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
 
-    let parameter = just("pub")
+    let parameter = text::keyword("pub")
         .padded()
         .or_not()
         .then(primitives::identifier())
@@ -81,7 +81,7 @@ fn effect_definition<'a>() -> impl Parser<'a, &'a str, EffectDef, Extra<'a>> {
             ty,
         });
 
-    just("effect")
+    text::keyword("effect")
         .padded()
         .ignore_then(primitives::identifier())
         .then(
@@ -113,7 +113,7 @@ fn fn_decl_definition<'a>() -> impl Parser<'a, &'a str, AbiMethodDecl, Extra<'a>
             ty,
         });
 
-    just("fn")
+    text::keyword("fn")
         .padded()
         .ignore_then(primitives::identifier())
         .then(

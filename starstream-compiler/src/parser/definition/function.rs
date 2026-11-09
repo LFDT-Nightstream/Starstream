@@ -7,7 +7,7 @@ use starstream_types::{
 use crate::parser::{context::Extra, primitives, type_annotation};
 
 fn parameter<'a>() -> impl Parser<'a, &'a str, FunctionParam, Extra<'a>> {
-    just("pub")
+    text::keyword("pub")
         .padded()
         .or_not()
         .then(primitives::identifier())
@@ -40,7 +40,7 @@ fn return_type<'a>() -> impl Parser<'a, &'a str, Option<TypeAnnotation>, Extra<'
 pub fn function<'a>(
     block: impl Parser<'a, &'a str, Block, Extra<'a>>,
 ) -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
-    just("fn")
+    text::keyword("fn")
         .padded()
         .ignore_then(primitives::identifier())
         .then(parameter_list())
@@ -69,7 +69,7 @@ pub fn function_with_export<'a>(
 }
 
 fn function_export<'a>() -> impl Parser<'a, &'a str, FunctionExport, Extra<'a>> {
-    choice((just("script").map(|_| FunctionExport::Script),))
+    choice((text::keyword("script").map(|_| FunctionExport::Script),))
 }
 
 #[cfg(test)]

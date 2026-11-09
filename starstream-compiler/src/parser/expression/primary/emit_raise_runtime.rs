@@ -6,7 +6,7 @@ use crate::parser::{ParserExt, context::Extra, expression::postfix::arguments};
 pub fn emit<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    just("emit")
+    text::keyword("emit")
         .padded()
         // TODO: spec says any primary expression, we support only scoped names here
         .ignore_then(super::scoped_name_expr())
@@ -21,7 +21,7 @@ pub fn emit<'a>(
 pub fn raise<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    just("raise")
+    text::keyword("raise")
         .padded()
         // TODO: spec says any primary expression, we support only scoped names here
         .ignore_then(super::scoped_name_expr())
@@ -36,7 +36,7 @@ pub fn raise<'a>(
 pub fn runtime<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    just("runtime")
+    text::keyword("runtime")
         .padded()
         // TODO: spec says any primary expression, we support only scoped names here
         .ignore_then(super::scoped_name_expr())
@@ -49,7 +49,7 @@ pub fn runtime<'a>(
 }
 
 pub fn error<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    just("error").to(Expr::Error).spanned()
+    text::keyword("error").to(Expr::Error).spanned()
 }
 
 #[cfg(test)]

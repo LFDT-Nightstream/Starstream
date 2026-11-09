@@ -48,7 +48,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, StructDef, Extra<'a>> {
             fields
         });
 
-    just("struct")
+    text::keyword("struct")
         .padded()
         .ignore_then(primitives::identifier())
         .then(fields.delimited_by(just('{').padded(), just('}').padded()))

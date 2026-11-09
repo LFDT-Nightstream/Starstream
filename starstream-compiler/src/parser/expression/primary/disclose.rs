@@ -6,7 +6,7 @@ use crate::parser::{ParserExt, context::Extra};
 pub fn parser<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    just("disclose")
+    text::keyword("disclose")
         .padded()
         .ignore_then(expression.delimited_by(just('(').padded(), just(')').padded()))
         .map(|expr| Expr::Disclose {

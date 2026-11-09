@@ -11,10 +11,15 @@ use crate::parser::{
 pub fn token<'a>(
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone,
 ) -> impl Parser<'a, &'a str, TokenDef, Extra<'a>> {
-    let token_global = just("indexed")
+    let token_global = text::keyword("indexed")
         .padded()
         .or_not()
-        .then_ignore(just("let").padded().then(just("mut")).padded())
+        .then_ignore(
+            text::keyword("let")
+                .padded()
+                .then(text::keyword("mut"))
+                .padded(),
+        )
         .then(primitives::identifier())
         .then(just(":").ignore_then(type_annotation::parser()))
         .then_ignore(just(';').padded())
@@ -28,14 +33,14 @@ pub fn token<'a>(
         .repeated()
         .collect::<Vec<_>>()
         .delimited_by(
-            just("storage").padded().then(just('{')).padded(),
+            text::keyword("storage").padded().then(just('{')).padded(),
             just('}').padded(),
         )
         .map(TokenPart::Storage);
 
     let fn_part = choice((
-        just("mint").to(FunctionExport::TokenMint),
-        just("burn").to(FunctionExport::TokenBurn),
+        text::keyword("mint").to(FunctionExport::TokenMint),
+        text::keyword("burn").to(FunctionExport::TokenBurn),
     ))
     .padded()
     .or_not()
@@ -50,7 +55,7 @@ pub fn token<'a>(
         )
     });
 
-    let abi_impl_part = just("impl")
+    let abi_impl_part = text::keyword("impl")
         .padded()
         .ignore_then(identifier())
         .padded()
@@ -64,7 +69,7 @@ pub fn token<'a>(
 
     let part = choice((storage_part, fn_part, abi_impl_part));
 
-    just("token")
+    text::keyword("token")
         .padded()
         .ignore_then(primitives::identifier())
         .then(

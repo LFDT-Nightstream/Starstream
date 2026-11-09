@@ -11,9 +11,9 @@ use crate::parser::{
 pub fn utxo<'a>(
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone,
 ) -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
-    let utxo_global = just("let")
+    let utxo_global = text::keyword("let")
         .padded()
-        .then(just("mut"))
+        .then(text::keyword("mut"))
         .padded()
         .ignore_then(primitives::identifier())
         .then(just(":").ignore_then(type_annotation::parser()))
@@ -24,21 +24,21 @@ pub fn utxo<'a>(
         .repeated()
         .collect::<Vec<_>>()
         .delimited_by(
-            just("storage").padded().then(just('{')).padded(),
+            text::keyword("storage").padded().then(just('{')).padded(),
             just('}').padded(),
         )
         .map(UtxoPart::Storage);
 
     let fn_part = choice((
-        just("main").to(FunctionExport::UtxoMain),
-        just("pub").to(FunctionExport::UtxoPublic),
+        text::keyword("main").to(FunctionExport::UtxoMain),
+        text::keyword("pub").to(FunctionExport::UtxoPublic),
     ))
     .padded()
     .or_not()
     .then(function(block.clone()))
     .map(|(export, def)| UtxoPart::Function(FunctionDef { export, ..def }.into()));
 
-    let abi_impl_part = just("impl")
+    let abi_impl_part = text::keyword("impl")
         .padded()
         .ignore_then(identifier())
         .padded()
@@ -52,7 +52,7 @@ pub fn utxo<'a>(
 
     let part = choice((storage_part, fn_part, abi_impl_part));
 
-    just("utxo")
+    text::keyword("utxo")
         .padded()
         .ignore_then(primitives::identifier())
         .then(
