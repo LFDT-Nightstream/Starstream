@@ -53,6 +53,7 @@ miette = "7.6.0"
 minicbor = { version = "2.3.0", default-features = false }
 multibase = { version = "0.9", default-features = false }
 multihash = { version = "0.19", default-features = false }
+pin-project-lite = "0.2"
 rand_core = { version = "0.6", default-features = false }
 sha2 = "0.10.9"
 serde = "1.0.219"
@@ -76,7 +77,6 @@ thiserror = "2.0.17"
 tokio = { version = "1.47.1", default-features = false }
 tokio-io-timeout = { version = "1.2.1", default-features = false }
 tokio-util = { version = "0.7", default-features = false }
-tower-http = { version = "0.7.1", default-features = false }
 tower-lsp-server = { version = "0.22.1", default-features = false, features = [
   "runtime-agnostic",
 ] }

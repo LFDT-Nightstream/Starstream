@@ -22,7 +22,7 @@ http = [
     "dep:form_urlencoded",
     "dep:http-body",
     "dep:http-body-util",
-    "dep:tower-http",
+    "dep:pin-project-lite",
 ]
 genesis = ["client", "dep:wasm-wave", "wasmtime/wave"]
 proving = ["client", "dep:starstream-proving-runtime"]
@@ -64,6 +64,7 @@ mediatype = { workspace = true }
 minicbor = { workspace = true, features = ["derive", "std"] }
 multibase = { workspace = true, features = ["std"] }
 multihash = { workspace = true, features = ["std"] }
+pin-project-lite = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 sha2 = { workspace = true }
 starstream-proving-runtime = { workspace = true, optional = true }
@@ -72,7 +73,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "sync"] }
 tokio-io-timeout = { workspace = true, optional = true }
 tokio-util = { workspace = true, features = ["codec", "io"] }
-tower-http = { workspace = true, optional = true, features = ["timeout"] }
 tracing = { workspace = true, features = ["attributes"] }
 wasm-tokio = { workspace = true }
 wasm-wave = { workspace = true, optional = true }
