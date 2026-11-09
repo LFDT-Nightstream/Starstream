@@ -20,3 +20,14 @@ export type {
 } from "./bindings/starstream/ledger/types.js";
 
 export { digest } from "./digest.ts";
+
+// ----------------------------------------------------------------------------
+// Wasm embedding
+
+export {
+  promising,
+  RuntimeWeb,
+  type RuntimeWebExports,
+  type RuntimeWebImports,
+  unusedImports,
+} from "./runtime-web.ts";
