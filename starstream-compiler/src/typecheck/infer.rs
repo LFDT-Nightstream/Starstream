@@ -1284,7 +1284,11 @@ impl Inferencer {
 
         let mut abis = Vec::new();
         for part in &def.parts {
-            if let TokenPart::AbiImpl { abi, .. } = part {
+            // Only the built-in `Token` ABI is callable on a token handle for
+            // now; the runtime has no linking for other `impl <Abi>` blocks.
+            if let TokenPart::AbiImpl { abi, .. } = part
+                && abi.as_str() == "Token"
+            {
                 abis.push(env.root.get_abi(abi)?.clone());
             }
         }

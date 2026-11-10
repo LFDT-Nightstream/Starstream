@@ -725,18 +725,7 @@ fn link_typed_utxo_instance<T: Host>(
                     },
                 )?;
             }
-            // `upcast` returns the built-in `utxo` resource, which the
-            // interface re-exports as `s-utxo`.
-            types::ComponentItem::Resource(..) if name == "s-utxo" => {
-                linker.resource(
-                    "s-utxo",
-                    ResourceType::host::<Utxo<T::UtxoContext>>(),
-                    |store, rep| T::drop_utxo(store, Resource::new_own(rep)),
-                )?;
-            }
-            types::ComponentItem::Resource(..) => {
-                bail!("typed UTXO instance resource imports unsupported")
-            }
+            types::ComponentItem::Resource(..) => {}
         }
     }
     Ok(())
@@ -877,44 +866,30 @@ fn link_typed_token_burn<T: Host>(
     })
 }
 
-/// Link typed token method (e.g. `attach`/`detach`) in a [`LinkerInstance`]
+/// Link the built-in `Token` ABI `attach`/`detach` method in a [`LinkerInstance`]
 #[instrument(level = "trace", skip_all)]
-fn link_typed_token_method<T: Host>(
+fn link_typed_token_attach_detach<T: Host>(
     linker: &mut LinkerInstance<T>,
-    ty: types::ComponentFunc,
     idx: ComponentExportIndex,
     name: &str,
 ) -> wasmtime::Result<()> {
-    let Some((_, Type::Borrow(..))) = ty.params().next() else {
-        bail!("function does not take borrowed resource type as first parameter");
-    };
-    linker.func_new_async(name, move |mut store, _ty, params, results| {
-        Box::new(async move {
-            let Some(Val::Resource(token)) = params.first() else {
-                bail!("first parameter is not a resource")
-            };
-            let token = token.try_into_resource::<Token>(&mut store)?;
-            let &Token { instance, resource } = store.data_mut().table().get(&token)?;
-            let args = {
-                let mut ps = Vec::with_capacity(params.len());
-                ps.push(Val::Resource(resource));
-                for p in &params[1..] {
-                    ps.push(p.clone());
-                }
-                ps
-            };
-            call_func(&mut store, &instance, idx, &args, results).await?;
-            // Resource arguments (e.g. the `utxo` passed to `attach`/`detach`)
-            // are lent to us by the caller only for the duration of this
-            // call, so release them once the token has returned.
-            for p in &params[1..] {
-                if let Val::Resource(resource) = p {
-                    resource.resource_drop_async(&mut store).await?;
-                }
-            }
-            Ok(())
-        })
-    })
+    linker.func_wrap_async(
+        name,
+        move |mut store, (token, utxo): (Resource<Token>, Resource<Utxo<T::UtxoContext>>)| {
+            Box::new(async move {
+                let &Token { instance, resource } = store.data_mut().table().get(&token)?;
+                let utxo = utxo.try_into_resource_any(&mut store)?;
+                call_func(
+                    &mut store,
+                    &instance,
+                    idx,
+                    &[Val::Resource(resource), Val::Resource(utxo)],
+                    &mut [],
+                )
+                .await
+            })
+        },
+    )
 }
 
 /// Link typed token [`types::ComponentFunc`] in a [`LinkerInstance`]
@@ -951,7 +926,9 @@ fn link_typed_token_function<T: Host>(
                 _ => bail!("failed to classify typed token function"),
             }
         }
-        Some(("[method", ..)) => link_typed_token_method(linker, ty, idx, name),
+        _ if matches!(name, "[method]token.attach" | "[method]token.detach") => {
+            link_typed_token_attach_detach(linker, idx, name)
+        }
         _ => bail!("unexpected typed token instance function import `{name}`"),
     }
 }
@@ -992,18 +969,7 @@ fn link_typed_token_instance<T: Host>(
                     T::drop_token(store, Resource::new_own(rep))
                 })?;
             }
-            // Token methods such as `attach`/`detach` take the built-in
-            // `utxo` resource, which the interface re-exports as `s-utxo`.
-            types::ComponentItem::Resource(..) if name == "s-utxo" => {
-                linker.resource(
-                    "s-utxo",
-                    ResourceType::host::<Utxo<T::UtxoContext>>(),
-                    |store, rep| T::drop_utxo(store, Resource::new_own(rep)),
-                )?;
-            }
-            types::ComponentItem::Resource(..) => {
-                bail!("typed token instance resource imports unsupported")
-            }
+            types::ComponentItem::Resource(..) => {}
         }
     }
     Ok(())

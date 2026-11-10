@@ -2227,15 +2227,16 @@ impl Compiler {
                         iface.export_fn(&wit_name, &sig);
                     }
                 }
-                // Tokens never yield, so every `impl <Abi>` method (including
-                // the built-in `Token` ABI's `attach`/`detach`) is always
-                // callable on the token handle.
+                // Tokens never yield, so the built-in `Token` ABI's
+                // `attach`/`detach` are always callable on the token handle.
+                // TODO: other Token ABI impls
                 TypedTokenPart::AbiImpl {
                     span: _,
                     abi,
                     parts,
                 } => {
-                    for function in parts {
+                    let callable = token.ty.abis.iter().any(|a| a == abi);
+                    for function in parts.iter().filter(|_| callable) {
                         let method_id = abi
                             .methods
                             .iter()

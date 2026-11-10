@@ -179,9 +179,9 @@ pub struct TokenType {
     // TODO: ownership/linearity not reflected here
     /// Methods declared with `burn fn`.
     pub methods: Vec<TypedAbiMethodDecl>,
-    /// [AbiType]s implemented by this token's `impl` blocks, including the
-    /// built-in `Token` ABI (`attach`/`detach`). Tokens never yield, so these
-    /// are always callable.
+    /// [AbiType]s whose methods can be called on a handle of this token.
+    /// Currently only the built-in `Token` ABI (`attach`/`detach`); tokens
+    /// never yield, so it is always callable.
     pub abis: Vec<Arc<AbiType>>,
 }
 
