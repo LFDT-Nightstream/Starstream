@@ -113,17 +113,6 @@ pub fn typecheck_program(
         }
     };
 
-    // Default any unresolved integer type variables to i64.
-    inferencer.default_int_vars();
-
-    // Check integer literals and negations against their resolved types.
-    if let Err(errors) = inferencer.check_resolved_int_vars() {
-        return Err(TypecheckFailure {
-            errors,
-            warnings: inferencer.warnings,
-        });
-    }
-
     inferencer.apply_substitutions_program(&mut program);
 
     let traces = if options.capture_traces {
@@ -320,28 +309,6 @@ pub fn typecheck_modules(
         });
     }
 
-    inferencer.default_int_vars();
-    if let Err(errors) = inferencer.check_resolved_int_vars() {
-        // `check_resolved_int_vars` doesn't know which module each literal or
-        // negation came from. Best effort: attribute to the first contract entry, or
-        // (if no contract entries exist) the first module.
-        let fallback = graph
-            .contract_entries()
-            .first()
-            .copied()
-            .unwrap_or_else(|| {
-                graph
-                    .modules()
-                    .first()
-                    .map(|m| m.id)
-                    .expect("graph must have at least one module")
-            });
-        return Err(TypecheckModulesFailure {
-            errors: errors.into_iter().map(|e| (fallback, e)).collect(),
-            warnings,
-        });
-    }
-
     // Apply substitutions per module.
     for typed_program in typed_modules.values_mut() {
         if let TypedModuleContents::Starstream(typed_program) = typed_program {
@@ -418,7 +385,7 @@ struct Inferencer {
     /// Tracks the literal value associated with each integer type variable for range checking.
     int_literal_values: HashMap<TypeVarId, (IntegerLiteral, Span)>,
     /// Integer type variables negated before their type was known, checked for
-    /// signedness once every integer type is resolved.
+    /// signedness at the end of the body.
     negated_int_vars: Vec<(TypeVarId, Span)>,
 
     /// Builtin package registry for `import`s, and the prelude.
@@ -2106,7 +2073,10 @@ impl Inferencer {
             is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
         };
 
-        let (typed_body, body_traces) = self.infer_block(env, &function.body, &mut ctx, true)?;
+        let body = self.infer_block(env, &function.body, &mut ctx, true);
+        let int_checks = self.settle_int_vars();
+        let (typed_body, body_traces) = body?;
+        int_checks?;
 
         env.pop_scope();
 
@@ -2155,7 +2125,10 @@ impl Inferencer {
             is_coroutine: false,
         };
 
-        let (typed_body, body_traces) = self.infer_block(env, &test.body, &mut ctx, true)?;
+        let body = self.infer_block(env, &test.body, &mut ctx, true);
+        let int_checks = self.settle_int_vars();
+        let (typed_body, body_traces) = body?;
+        int_checks?;
 
         env.pop_scope();
 
@@ -2835,7 +2808,7 @@ impl Inferencer {
                             }
                             Type::Var(id) if self.int_vars.contains(id) => {
                                 // Int-constrained var (polymorphic literal) — allow for now,
-                                // signedness is checked in `check_resolved_int_vars`
+                                // signedness is checked in `settle_int_vars`
                                 self.negated_int_vars.push((*id, inner.span));
                                 let subject =
                                     self.maybe_string(|| self.format_type(&inner_ty).to_string());
@@ -4363,37 +4336,41 @@ impl Inferencer {
         self.int_vars.clear();
     }
 
-    /// Run the integer checks that need every integer type resolved: literals
-    /// must fit their type, and negated values must be signed.
-    fn check_resolved_int_vars(&self) -> Result<(), Vec<TypeError>> {
+    /// Settle the integer types of the body just checked, then run the checks
+    /// that had to wait for them: literals must fit their type, and negated
+    /// values must be signed. Signatures are always annotated, so a body's
+    /// integer types are final once the body is checked. The recorded literals
+    /// and negations are consumed so they don't carry into the next body.
+    fn settle_int_vars(&mut self) -> Result<(), TypeError> {
+        self.default_int_vars();
         let mut errors = Vec::new();
-        for (&id, (literal, span)) in &self.int_literal_values {
-            let resolved = self.apply(&Type::Var(id));
-            if let Type::Int(w) = resolved
+        for (id, (literal, span)) in std::mem::take(&mut self.int_literal_values) {
+            if let Type::Int(w) = self.apply(&Type::Var(id))
                 // `value()` is `None` when the digits overflow `i128`, which no
                 // supported integer type can hold either.
                 && !literal.value().is_some_and(|value| w.fits(value))
             {
-                errors.push(TypeError::new(
+                let error = TypeError::new(
                     TypeErrorKind::LiteralOutOfRange {
                         literal: literal.to_string(),
                         ty: Type::Int(w),
                     },
-                    *span,
-                ));
+                    span,
+                );
+                errors.push((span.start, error));
             }
         }
-        for &(id, span) in &self.negated_int_vars {
+        for (id, span) in std::mem::take(&mut self.negated_int_vars) {
             if let Type::Int(w) = self.apply(&Type::Var(id))
                 && !w.is_signed()
             {
-                errors.push(Self::unsigned_negation_error(w, span));
+                errors.push((span.start, Self::unsigned_negation_error(w, span)));
             }
         }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
+        // Report the first in source order, like other errors in a body.
+        match errors.into_iter().min_by_key(|(start, _)| *start) {
+            Some((_, error)) => Err(error),
+            None => Ok(()),
         }
     }
 
