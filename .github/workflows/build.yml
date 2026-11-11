@@ -31,9 +31,6 @@ jobs:
         working-directory: starstream-js
       - run: npx tsc --noEmit
         working-directory: starstream-js
-      - name: Require that `npm run bindgen` output was committed
-        run: rm -rf src/bindings && npm run bindgen && git add --intent-to-add src/bindings && git diff --exit-code src/bindings && echo "OK"
-        working-directory: starstream-js
       - run: cargo build -p starstream-cli
       - name: Test starstream-js
         run: npx vitest run

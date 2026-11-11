@@ -20,6 +20,7 @@
   },
   "scripts": {
     "bindgen": "wit-bindgen-wrpc js --out-dir src/bindings ../starstream-ledger/wit",
+    "prepare": "npm run bindgen",
     "prepack": "tsdown",
     "test": "vitest"
   },
