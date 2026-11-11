@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let bad = !42;\n}\n"
+---
+E0005 (https://starstream.nightstream.dev/errors/E0005)
+
+  x unary `!` expects type `bool` but found `i64`
+   ,-[test.star:2:16]
+ 1 | fn test() {
+ 2 |     let bad = !42;
+   :                ^^
+ 3 | }
+   `----

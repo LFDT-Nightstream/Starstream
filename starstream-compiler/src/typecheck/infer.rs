@@ -25,7 +25,7 @@ use starstream_types::{
         TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
         TypedStructPatternField,
     },
-    types::{EnumType, EnumVariantKind, EnumVariantType, RecordFieldType, RecordType},
+    types::{EnumType, EnumVariantKind, EnumVariantType, IntWidth, RecordFieldType, RecordType},
 };
 
 use super::{
@@ -116,8 +116,8 @@ pub fn typecheck_program(
     // Default any unresolved integer type variables to i64.
     inferencer.default_int_vars();
 
-    // Check range validity of integer literals against their resolved types.
-    if let Err(errors) = inferencer.check_int_literal_ranges() {
+    // Check integer literals and negations against their resolved types.
+    if let Err(errors) = inferencer.check_resolved_int_vars() {
         return Err(TypecheckFailure {
             errors,
             warnings: inferencer.warnings,
@@ -321,9 +321,9 @@ pub fn typecheck_modules(
     }
 
     inferencer.default_int_vars();
-    if let Err(errors) = inferencer.check_int_literal_ranges() {
-        // `check_int_literal_ranges` doesn't know which module each literal
-        // came from. Best effort: attribute to the first contract entry, or
+    if let Err(errors) = inferencer.check_resolved_int_vars() {
+        // `check_resolved_int_vars` doesn't know which module each literal or
+        // negation came from. Best effort: attribute to the first contract entry, or
         // (if no contract entries exist) the first module.
         let fallback = graph
             .contract_entries()
@@ -417,6 +417,9 @@ struct Inferencer {
     int_vars: HashSet<TypeVarId>,
     /// Tracks the literal value associated with each integer type variable for range checking.
     int_literal_values: HashMap<TypeVarId, (IntegerLiteral, Span)>,
+    /// Integer type variables negated before their type was known, checked for
+    /// signedness once every integer type is resolved.
+    negated_int_vars: Vec<(TypeVarId, Span)>,
 
     /// Builtin package registry for `import`s, and the prelude.
     builtins: BuiltinRegistry,
@@ -455,6 +458,7 @@ impl Inferencer {
             subst: Default::default(),
             int_vars: Default::default(),
             int_literal_values: Default::default(),
+            negated_int_vars: Default::default(),
             builtins,
             next_name_id,
             function_names: Default::default(),
@@ -2827,22 +2831,12 @@ impl Inferencer {
                             }
                             Type::Int(w) => {
                                 // Unsigned int — error
-                                return Err(TypeError::new(
-                                    TypeErrorKind::UnaryMismatch {
-                                        op: *op,
-                                        expected: Type::int(),
-                                        found: Type::Int(*w),
-                                    },
-                                    inner.span,
-                                )
-                                .with_primary_message(format!(
-                                    "cannot negate unsigned type `{}`",
-                                    w.display_name()
-                                )));
+                                return Err(Self::unsigned_negation_error(*w, inner.span));
                             }
                             Type::Var(id) if self.int_vars.contains(id) => {
                                 // Int-constrained var (polymorphic literal) — allow for now,
-                                // signedness will be checked when the type resolves
+                                // signedness is checked in `check_resolved_int_vars`
+                                self.negated_int_vars.push((*id, inner.span));
                                 let subject =
                                     self.maybe_string(|| self.format_type(&inner_ty).to_string());
                                 let result = self.maybe_string(|| "ok (int var)".to_string());
@@ -2852,7 +2846,6 @@ impl Inferencer {
                                 return Err(TypeError::new(
                                     TypeErrorKind::UnaryMismatch {
                                         op: *op,
-                                        expected: Type::int(),
                                         found: inner_ty,
                                     },
                                     inner.span,
@@ -2867,7 +2860,6 @@ impl Inferencer {
                         inner.span,
                         TypeErrorKind::UnaryMismatch {
                             op: *op,
-                            expected: Type::bool(),
                             found: self.apply_for_display(&typed_inner.node.ty),
                         },
                     )?,
@@ -4371,8 +4363,9 @@ impl Inferencer {
         self.int_vars.clear();
     }
 
-    /// Check that all integer literals fit within the range of their resolved type.
-    fn check_int_literal_ranges(&self) -> Result<(), Vec<TypeError>> {
+    /// Run the integer checks that need every integer type resolved: literals
+    /// must fit their type, and negated values must be signed.
+    fn check_resolved_int_vars(&self) -> Result<(), Vec<TypeError>> {
         let mut errors = Vec::new();
         for (&id, (literal, span)) in &self.int_literal_values {
             let resolved = self.apply(&Type::Var(id));
@@ -4390,11 +4383,32 @@ impl Inferencer {
                 ));
             }
         }
+        for &(id, span) in &self.negated_int_vars {
+            if let Type::Int(w) = self.apply(&Type::Var(id))
+                && !w.is_signed()
+            {
+                errors.push(Self::unsigned_negation_error(w, span));
+            }
+        }
         if errors.is_empty() {
             Ok(())
         } else {
             Err(errors)
         }
+    }
+
+    fn unsigned_negation_error(width: IntWidth, span: Span) -> TypeError {
+        TypeError::new(
+            TypeErrorKind::UnaryMismatch {
+                op: UnaryOp::Negate,
+                found: Type::Int(width),
+            },
+            span,
+        )
+        .with_primary_message(format!(
+            "cannot negate unsigned type `{}`",
+            width.display_name()
+        ))
     }
 
     /// Render the current environment snapshot into a deterministic string.
@@ -5022,8 +5036,23 @@ impl Inferencer {
                     }
                 }
                 _ => {
-                    return Err(TypeError::new(kind, var_span)
-                        .with_secondary(other_span, "expected an integer type"));
+                    // Label both sides like a general mismatch, then point at
+                    // the literal that made this an integer.
+                    let mut err = TypeError::new(kind, var_span);
+                    if var_span != other_span {
+                        err = err
+                            .with_primary_message("has an integer type")
+                            .with_secondary(
+                                other_span,
+                                format!("has type `{}`", self.format_type(ty)),
+                            );
+                    }
+                    if let Some((_, literal_span)) = self.int_literal_values.get(&var)
+                        && ![var_span, other_span].contains(literal_span)
+                    {
+                        err = err.with_secondary(*literal_span, "integer literal");
+                    }
+                    return Err(err);
                 }
             }
         }
