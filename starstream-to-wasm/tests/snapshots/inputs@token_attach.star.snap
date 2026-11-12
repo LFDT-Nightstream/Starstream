@@ -1,0 +1,2880 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/token_attach.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "MyTokenEvents",
+                        span: 4..17,
+                    },
+                    parts: [
+                        Event(
+                            EventDef {
+                                name: Identifier {
+                                    name: "Attached",
+                                    span: 30..38,
+                                },
+                                params: [
+                                    FunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "count",
+                                            span: 39..44,
+                                        },
+                                        ty: Named {
+                                            name: [
+                                                Identifier {
+                                                    name: "u64",
+                                                    span: 46..49,
+                                                },
+                                            ],
+                                            generics: [],
+                                        },
+                                    },
+                                ],
+                                span: 24..56,
+                            },
+                        ),
+                        Event(
+                            EventDef {
+                                name: Identifier {
+                                    name: "Detached",
+                                    span: 62..70,
+                                },
+                                params: [
+                                    FunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "count",
+                                            span: 71..76,
+                                        },
+                                        ty: Named {
+                                            name: [
+                                                Identifier {
+                                                    name: "u64",
+                                                    span: 78..81,
+                                                },
+                                            ],
+                                            generics: [],
+                                        },
+                                    },
+                                ],
+                                span: 56..84,
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..87,
+        },
+        Spanned {
+            node: Token(
+                TokenDef {
+                    name: Identifier {
+                        name: "MyToken",
+                        span: 93..100,
+                    },
+                    parts: [
+                        Storage(
+                            [
+                                TokenGlobal {
+                                    indexed: false,
+                                    name: Identifier {
+                                        name: "attached",
+                                        span: 133..141,
+                                    },
+                                    ty: Named {
+                                        name: [
+                                            Identifier {
+                                                name: "u64",
+                                                span: 143..146,
+                                            },
+                                        ],
+                                        generics: [],
+                                    },
+                                },
+                            ],
+                        ),
+                        Function(
+                            FunctionDef {
+                                export: Some(
+                                    TokenMint,
+                                ),
+                                name: Identifier {
+                                    name: "my_mint",
+                                    span: 167..174,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Assignment {
+                                                target: Identifier {
+                                                    name: "attached",
+                                                    span: 187..195,
+                                                },
+                                                value: Spanned {
+                                                    node: Literal(
+                                                        Integer(
+                                                            IntegerLiteral {
+                                                                digits: "0",
+                                                                radix: Decimal,
+                                                            },
+                                                        ),
+                                                    ),
+                                                    span: 198..199,
+                                                },
+                                            },
+                                            span: 187..205,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 177..212,
+                                },
+                            },
+                        ),
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "Token",
+                                span: 217..222,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "attach",
+                                        span: 236..242,
+                                    },
+                                    params: [
+                                        FunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "to",
+                                                span: 243..245,
+                                            },
+                                            ty: Named {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Utxo",
+                                                        span: 247..251,
+                                                    },
+                                                ],
+                                                generics: [],
+                                            },
+                                        },
+                                    ],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [
+                                            Spanned {
+                                                node: Assignment {
+                                                    target: Identifier {
+                                                        name: "attached",
+                                                        span: 267..275,
+                                                    },
+                                                    value: Spanned {
+                                                        node: Binary {
+                                                            op: Add,
+                                                            left: Spanned {
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "attached",
+                                                                            span: 278..286,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                                span: 278..287,
+                                                            },
+                                                            right: Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        IntegerLiteral {
+                                                                            digits: "1",
+                                                                            radix: Decimal,
+                                                                        },
+                                                                    ),
+                                                                ),
+                                                                span: 289..290,
+                                                            },
+                                                        },
+                                                        span: 278..290,
+                                                    },
+                                                },
+                                                span: 267..304,
+                                            },
+                                            Spanned {
+                                                node: Expression(
+                                                    Spanned {
+                                                        node: Emit {
+                                                            callee: Spanned {
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "Attached",
+                                                                            span: 309..317,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                                span: 309..317,
+                                                            },
+                                                            args: [
+                                                                Spanned {
+                                                                    node: ScopedName(
+                                                                        [
+                                                                            Identifier {
+                                                                                name: "attached",
+                                                                                span: 318..326,
+                                                                            },
+                                                                        ],
+                                                                    ),
+                                                                    span: 318..326,
+                                                                },
+                                                            ],
+                                                        },
+                                                        span: 304..327,
+                                                    },
+                                                ),
+                                                span: 304..337,
+                                            },
+                                        ],
+                                        tail_expression: None,
+                                        span: 253..347,
+                                    },
+                                },
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "detach",
+                                        span: 350..356,
+                                    },
+                                    params: [
+                                        FunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "source",
+                                                span: 357..363,
+                                            },
+                                            ty: Named {
+                                                name: [
+                                                    Identifier {
+                                                        name: "Utxo",
+                                                        span: 365..369,
+                                                    },
+                                                ],
+                                                generics: [],
+                                            },
+                                        },
+                                    ],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [
+                                            Spanned {
+                                                node: Assignment {
+                                                    target: Identifier {
+                                                        name: "attached",
+                                                        span: 385..393,
+                                                    },
+                                                    value: Spanned {
+                                                        node: Binary {
+                                                            op: Subtract,
+                                                            left: Spanned {
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "attached",
+                                                                            span: 396..404,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                                span: 396..405,
+                                                            },
+                                                            right: Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        IntegerLiteral {
+                                                                            digits: "1",
+                                                                            radix: Decimal,
+                                                                        },
+                                                                    ),
+                                                                ),
+                                                                span: 407..408,
+                                                            },
+                                                        },
+                                                        span: 396..408,
+                                                    },
+                                                },
+                                                span: 385..422,
+                                            },
+                                            Spanned {
+                                                node: Expression(
+                                                    Spanned {
+                                                        node: Emit {
+                                                            callee: Spanned {
+                                                                node: ScopedName(
+                                                                    [
+                                                                        Identifier {
+                                                                            name: "Detached",
+                                                                            span: 427..435,
+                                                                        },
+                                                                    ],
+                                                                ),
+                                                                span: 427..435,
+                                                            },
+                                                            args: [
+                                                                Spanned {
+                                                                    node: ScopedName(
+                                                                        [
+                                                                            Identifier {
+                                                                                name: "attached",
+                                                                                span: 436..444,
+                                                                            },
+                                                                        ],
+                                                                    ),
+                                                                    span: 436..444,
+                                                                },
+                                                            ],
+                                                        },
+                                                        span: 422..445,
+                                                    },
+                                                ),
+                                                span: 422..455,
+                                            },
+                                        ],
+                                        tail_expression: None,
+                                        span: 371..461,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 87..466,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "Holder",
+                        span: 471..477,
+                    },
+                    parts: [
+                        Function(
+                            FunctionDef {
+                                export: Some(
+                                    UtxoMain,
+                                ),
+                                name: Identifier {
+                                    name: "new",
+                                    span: 492..495,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Yield {
+                                                        abis: [],
+                                                    },
+                                                    span: 508..515,
+                                                },
+                                            ),
+                                            span: 508..521,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 498..523,
+                                },
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 466..526,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "move_token",
+                        span: 536..546,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "source",
+                                span: 547..553,
+                            },
+                            ty: Named {
+                                name: [
+                                    Identifier {
+                                        name: "Utxo",
+                                        span: 555..559,
+                                    },
+                                ],
+                                generics: [],
+                            },
+                        },
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "dest",
+                                span: 561..565,
+                            },
+                            ty: Named {
+                                name: [
+                                    Identifier {
+                                        name: "Utxo",
+                                        span: 567..571,
+                                    },
+                                ],
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: None,
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: VariableDeclaration {
+                                    public: false,
+                                    mutable: false,
+                                    pattern: Name(
+                                        [
+                                            Identifier {
+                                                name: "t",
+                                                span: 583..584,
+                                            },
+                                        ],
+                                    ),
+                                    ty: None,
+                                    value: Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "MyToken",
+                                                            span: 587..594,
+                                                        },
+                                                        Identifier {
+                                                            name: "my_mint",
+                                                            span: 596..603,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 587..603,
+                                            },
+                                            args: [],
+                                        },
+                                        span: 587..605,
+                                    },
+                                    else_branch: None,
+                                },
+                                span: 579..611,
+                            },
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: FieldAccess {
+                                                    target: Spanned {
+                                                        node: ScopedName(
+                                                            [
+                                                                Identifier {
+                                                                    name: "t",
+                                                                    span: 611..612,
+                                                                },
+                                                            ],
+                                                        ),
+                                                        span: 611..612,
+                                                    },
+                                                    field: Identifier {
+                                                        name: "attach",
+                                                        span: 613..619,
+                                                    },
+                                                },
+                                                span: 611..619,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: ScopedName(
+                                                        [
+                                                            Identifier {
+                                                                name: "source",
+                                                                span: 620..626,
+                                                            },
+                                                        ],
+                                                    ),
+                                                    span: 620..626,
+                                                },
+                                            ],
+                                        },
+                                        span: 611..627,
+                                    },
+                                ),
+                                span: 611..633,
+                            },
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: FieldAccess {
+                                                    target: Spanned {
+                                                        node: ScopedName(
+                                                            [
+                                                                Identifier {
+                                                                    name: "t",
+                                                                    span: 633..634,
+                                                                },
+                                                            ],
+                                                        ),
+                                                        span: 633..634,
+                                                    },
+                                                    field: Identifier {
+                                                        name: "detach",
+                                                        span: 635..641,
+                                                    },
+                                                },
+                                                span: 633..641,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: ScopedName(
+                                                        [
+                                                            Identifier {
+                                                                name: "source",
+                                                                span: 642..648,
+                                                            },
+                                                        ],
+                                                    ),
+                                                    span: 642..648,
+                                                },
+                                            ],
+                                        },
+                                        span: 633..649,
+                                    },
+                                ),
+                                span: 633..655,
+                            },
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: FieldAccess {
+                                                    target: Spanned {
+                                                        node: ScopedName(
+                                                            [
+                                                                Identifier {
+                                                                    name: "t",
+                                                                    span: 655..656,
+                                                                },
+                                                            ],
+                                                        ),
+                                                        span: 655..656,
+                                                    },
+                                                    field: Identifier {
+                                                        name: "attach",
+                                                        span: 657..663,
+                                                    },
+                                                },
+                                                span: 655..663,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: ScopedName(
+                                                        [
+                                                            Identifier {
+                                                                name: "dest",
+                                                                span: 664..668,
+                                                            },
+                                                        ],
+                                                    ),
+                                                    span: 664..668,
+                                                },
+                                            ],
+                                        },
+                                        span: 655..669,
+                                    },
+                                ),
+                                span: 655..671,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 573..674,
+                    },
+                },
+            ),
+            span: 526..674,
+        },
+        Spanned {
+            node: Test(
+                TestDef {
+                    description: Some(
+                        StringLiteral {
+                            value: "Attach a token to concrete utxos",
+                            span: 679..713,
+                        },
+                    ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: ScopedName(
+                                                    [
+                                                        Identifier {
+                                                            name: "move_token",
+                                                            span: 720..730,
+                                                        },
+                                                    ],
+                                                ),
+                                                span: 720..730,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: Call {
+                                                        callee: Spanned {
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "Holder",
+                                                                        span: 731..737,
+                                                                    },
+                                                                    Identifier {
+                                                                        name: "new",
+                                                                        span: 739..742,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                            span: 731..742,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 731..744,
+                                                },
+                                                Spanned {
+                                                    node: Call {
+                                                        callee: Spanned {
+                                                            node: ScopedName(
+                                                                [
+                                                                    Identifier {
+                                                                        name: "Holder",
+                                                                        span: 746..752,
+                                                                    },
+                                                                    Identifier {
+                                                                        name: "new",
+                                                                        span: 754..757,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                            span: 746..757,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 746..759,
+                                                },
+                                            ],
+                                        },
+                                        span: 720..760,
+                                    },
+                                ),
+                                span: 720..762,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 713..764,
+                    },
+                },
+            ),
+            span: 674..764,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Token: MyToken => 
+  T-Fn: my_mint => ()
+    T-Assign: {attached: u64, my_mint: fn() -> ()} ⊢ attached = 0; ⇒ u64
+      T-Int: {attached: u64, my_mint: fn() -> ()} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ u64 => {u64/t3}
+  T-Fn: attach => ()
+    T-Assign: {attach: fn(to: Utxo) -> (), attached: u64, my_mint: fn() -> (), to: Utxo} ⊢ attached = attached + 1; ⇒ u64
+      T-Bin-Add: {attach: fn(to: Utxo) -> (), attached: u64, my_mint: fn() -> (), to: Utxo} ⊢ attached + 1 ⇒ u64
+        T-Var: {attach: fn(to: Utxo) -> (), attached: u64, my_mint: fn() -> (), to: Utxo} ⊢ attached ⇒ u64
+        T-Int: {attach: fn(to: Utxo) -> (), attached: u64, my_mint: fn() -> (), to: Utxo} ⊢ 1 ⇒ i64
+        Unify-Var: u64 ~ i64 => {u64/t4}
+      Unify-Const: u64 ~ u64 => {}
+    T-Expr: {attach: fn(to: Utxo) -> (), attached: u64, my_mint: fn() -> (), to: Utxo} ⊢ emit Attached(attached); ⇒ ()
+      T-Call: {attach: fn(to: Utxo) -> (), attached: u64, my_mint: fn() -> (), to: Utxo} ⊢ emit Attached(attached) ⇒ ()
+        T-Var: {attach: fn(to: Utxo) -> (), attached: u64, my_mint: fn() -> (), to: Utxo} ⊢ Attached ⇒ event(count: u64) -> ()
+        T-Var: {attach: fn(to: Utxo) -> (), attached: u64, my_mint: fn() -> (), to: Utxo} ⊢ attached ⇒ u64
+        Unify-Const: u64 ~ u64 => {}
+  T-Fn: detach => ()
+    T-Assign: {attach: fn(to: Utxo) -> (), attached: u64, detach: fn(source: Utxo) -> (), my_mint: fn() -> (), source: Utxo} ⊢ attached = attached - 1; ⇒ u64
+      T-Bin-Sub: {attach: fn(to: Utxo) -> (), attached: u64, detach: fn(source: Utxo) -> (), my_mint: fn() -> (), source: Utxo} ⊢ attached - 1 ⇒ u64
+        T-Var: {attach: fn(to: Utxo) -> (), attached: u64, detach: fn(source: Utxo) -> (), my_mint: fn() -> (), source: Utxo} ⊢ attached ⇒ u64
+        T-Int: {attach: fn(to: Utxo) -> (), attached: u64, detach: fn(source: Utxo) -> (), my_mint: fn() -> (), source: Utxo} ⊢ 1 ⇒ i64
+        Unify-Var: u64 ~ i64 => {u64/t5}
+      Unify-Const: u64 ~ u64 => {}
+    T-Expr: {attach: fn(to: Utxo) -> (), attached: u64, detach: fn(source: Utxo) -> (), my_mint: fn() -> (), source: Utxo} ⊢ emit Detached(attached); ⇒ ()
+      T-Call: {attach: fn(to: Utxo) -> (), attached: u64, detach: fn(source: Utxo) -> (), my_mint: fn() -> (), source: Utxo} ⊢ emit Detached(attached) ⇒ ()
+        T-Var: {attach: fn(to: Utxo) -> (), attached: u64, detach: fn(source: Utxo) -> (), my_mint: fn() -> (), source: Utxo} ⊢ Detached ⇒ event(count: u64) -> ()
+        T-Var: {attach: fn(to: Utxo) -> (), attached: u64, detach: fn(source: Utxo) -> (), my_mint: fn() -> (), source: Utxo} ⊢ attached ⇒ u64
+        Unify-Const: u64 ~ u64 => {}
+
+T-Utxo: Holder => 
+  T-Fn: new => ()
+    T-Expr: {new: fn() -> ()} ⊢ yield(); ⇒ ()
+
+T-Fn: move_token => ()
+  T-Let: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo} ⊢ let t = MyToken::my_mint(); ⇒ MyToken
+    T-Call: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo} ⊢ MyToken::my_mint() ⇒ MyToken
+      T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo} ⊢ MyToken::my_mint ⇒ fn() -> MyToken
+  T-Expr: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach(source); ⇒ ()
+    T-Call: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach(source) ⇒ ()
+      T-FieldAccess: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach ⇒ fn(utxo: Utxo) -> ()
+        T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t ⇒ MyToken
+      T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ source ⇒ Utxo
+      Unify-Const: Utxo ~ Utxo => {}
+  T-Expr: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.detach(source); ⇒ ()
+    T-Call: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.detach(source) ⇒ ()
+      T-FieldAccess: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.detach ⇒ fn(utxo: Utxo) -> ()
+        T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t ⇒ MyToken
+      T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ source ⇒ Utxo
+      Unify-Const: Utxo ~ Utxo => {}
+  T-Expr: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach(dest); ⇒ ()
+    T-Call: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach(dest) ⇒ ()
+      T-FieldAccess: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach ⇒ fn(utxo: Utxo) -> ()
+        T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t ⇒ MyToken
+      T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ dest ⇒ Utxo
+      Unify-Const: Utxo ~ Utxo => {}
+
+T-Test: "Attach a token to concrete utxos" => ()
+  T-Expr: {move_token: fn(source: Utxo, dest: Utxo) -> ()} ⊢ move_token(Holder::new(), Holder::new()); ⇒ ()
+    T-Call: {move_token: fn(source: Utxo, dest: Utxo) -> ()} ⊢ move_token(Holder::new(), Holder::new()) ⇒ ()
+      T-Var: {move_token: fn(source: Utxo, dest: Utxo) -> ()} ⊢ move_token ⇒ fn(source: Utxo, dest: Utxo) -> ()
+      T-Call: {move_token: fn(source: Utxo, dest: Utxo) -> ()} ⊢ Holder::new() ⇒ Holder
+        T-Var: {move_token: fn(source: Utxo, dest: Utxo) -> ()} ⊢ Holder::new ⇒ fn() -> Holder
+      Unify-Const: Utxo ~ Utxo => {}
+      T-Call: {move_token: fn(source: Utxo, dest: Utxo) -> ()} ⊢ Holder::new() ⇒ Holder
+        T-Var: {move_token: fn(source: Utxo, dest: Utxo) -> ()} ⊢ Holder::new ⇒ fn() -> Holder
+      Unify-Const: Utxo ~ Utxo => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                ty: AbiType {
+                    name: Identifier {
+                        name: "MyTokenEvents",
+                        span: 4..17,
+                    },
+                    methods: [],
+                },
+                functions: [
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "Attached",
+                            span: 30..38,
+                        },
+                        id: NameId(4),
+                        ty: FunctionType {
+                            kind: Emit,
+                            name_span: 30..38,
+                            params: [
+                                TypedFunctionParam {
+                                    public: true,
+                                    name: Identifier {
+                                        name: "count",
+                                        span: 39..44,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                    ty_span: 46..49,
+                                },
+                            ],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(4),
+                                ),
+                            ),
+                        },
+                    },
+                    TypedAbiMethodDecl {
+                        name: Identifier {
+                            name: "Detached",
+                            span: 62..70,
+                        },
+                        id: NameId(5),
+                        ty: FunctionType {
+                            kind: Emit,
+                            name_span: 62..70,
+                            params: [
+                                TypedFunctionParam {
+                                    public: true,
+                                    name: Identifier {
+                                        name: "count",
+                                        span: 71..76,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                    ty_span: 78..81,
+                                },
+                            ],
+                            result: Unit,
+                            callee: Some(
+                                Named(
+                                    NameId(5),
+                                ),
+                            ),
+                        },
+                    },
+                ],
+            },
+        ),
+        Token(
+            TypedTokenDef {
+                name: Identifier {
+                    name: "MyToken",
+                    span: 93..100,
+                },
+                parts: [
+                    Storage(
+                        [
+                            TypedTokenGlobal {
+                                indexed: false,
+                                name: Identifier {
+                                    name: "attached",
+                                    span: 133..141,
+                                },
+                                ty: Int(
+                                    U64,
+                                ),
+                            },
+                        ],
+                    ),
+                    Function(
+                        TypedFunctionDef {
+                            export: Some(
+                                TokenMint,
+                            ),
+                            name: Identifier {
+                                name: "my_mint",
+                                span: 167..174,
+                            },
+                            id: NameId(7),
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 167..174,
+                                params: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(7),
+                                    ),
+                                ),
+                            },
+                            body: TypedBlock {
+                                statements: [
+                                    Assignment {
+                                        target: Identifier {
+                                            name: "attached",
+                                            span: 187..195,
+                                        },
+                                        value: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                                kind: Literal(
+                                                    Integer(
+                                                        IntegerLiteral {
+                                                            digits: "0",
+                                                            radix: Decimal,
+                                                        },
+                                                    ),
+                                                ),
+                                            },
+                                            span: 198..199,
+                                        },
+                                    },
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                    AbiImpl {
+                        span: 217..222,
+                        abi: AbiType {
+                            name: Identifier {
+                                name: "Token",
+                                span: 0..0,
+                            },
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "attach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(0),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(0),
+                                            ),
+                                        ),
+                                    },
+                                },
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "detach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(1),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(1),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
+                        parts: [
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "attach",
+                                    span: 236..242,
+                                },
+                                id: NameId(11),
+                                ty: FunctionType {
+                                    kind: Normal,
+                                    name_span: 236..242,
+                                    params: [
+                                        TypedFunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "to",
+                                                span: 243..245,
+                                            },
+                                            ty: UtxoAny,
+                                            ty_span: 247..251,
+                                        },
+                                    ],
+                                    result: Unit,
+                                    callee: Some(
+                                        Named(
+                                            NameId(11),
+                                        ),
+                                    ),
+                                },
+                                body: TypedBlock {
+                                    statements: [
+                                        Assignment {
+                                            target: Identifier {
+                                                name: "attached",
+                                                span: 267..275,
+                                            },
+                                            value: Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        U64,
+                                                    ),
+                                                    kind: Binary {
+                                                        op: Add,
+                                                        left: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: ScopedName {
+                                                                    name: [
+                                                                        Identifier {
+                                                                            name: "attached",
+                                                                            span: 278..286,
+                                                                        },
+                                                                    ],
+                                                                    constant: None,
+                                                                },
+                                                            },
+                                                            span: 278..287,
+                                                        },
+                                                        right: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: Literal(
+                                                                    Integer(
+                                                                        IntegerLiteral {
+                                                                            digits: "1",
+                                                                            radix: Decimal,
+                                                                        },
+                                                                    ),
+                                                                ),
+                                                            },
+                                                            span: 289..290,
+                                                        },
+                                                    },
+                                                },
+                                                span: 278..290,
+                                            },
+                                        },
+                                        Expression(
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Unit,
+                                                    kind: Call {
+                                                        callee: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Function(
+                                                                    FunctionType {
+                                                                        kind: Emit,
+                                                                        name_span: 30..38,
+                                                                        params: [
+                                                                            TypedFunctionParam {
+                                                                                public: true,
+                                                                                name: Identifier {
+                                                                                    name: "count",
+                                                                                    span: 39..44,
+                                                                                },
+                                                                                ty: Int(
+                                                                                    U64,
+                                                                                ),
+                                                                                ty_span: 46..49,
+                                                                            },
+                                                                        ],
+                                                                        result: Unit,
+                                                                        callee: Some(
+                                                                            Named(
+                                                                                NameId(4),
+                                                                            ),
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                                kind: ScopedName {
+                                                                    name: [
+                                                                        Identifier {
+                                                                            name: "Attached",
+                                                                            span: 309..317,
+                                                                        },
+                                                                    ],
+                                                                    constant: Some(
+                                                                        0,
+                                                                    ),
+                                                                },
+                                                            },
+                                                            span: 309..317,
+                                                        },
+                                                        args: [
+                                                            Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Int(
+                                                                        U64,
+                                                                    ),
+                                                                    kind: ScopedName {
+                                                                        name: [
+                                                                            Identifier {
+                                                                                name: "attached",
+                                                                                span: 318..326,
+                                                                            },
+                                                                        ],
+                                                                        constant: None,
+                                                                    },
+                                                                },
+                                                                span: 318..326,
+                                                            },
+                                                        ],
+                                                    },
+                                                },
+                                                span: 309..317,
+                                            },
+                                        ),
+                                    ],
+                                    tail_expression: None,
+                                },
+                            },
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "detach",
+                                    span: 350..356,
+                                },
+                                id: NameId(12),
+                                ty: FunctionType {
+                                    kind: Normal,
+                                    name_span: 350..356,
+                                    params: [
+                                        TypedFunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "source",
+                                                span: 357..363,
+                                            },
+                                            ty: UtxoAny,
+                                            ty_span: 365..369,
+                                        },
+                                    ],
+                                    result: Unit,
+                                    callee: Some(
+                                        Named(
+                                            NameId(12),
+                                        ),
+                                    ),
+                                },
+                                body: TypedBlock {
+                                    statements: [
+                                        Assignment {
+                                            target: Identifier {
+                                                name: "attached",
+                                                span: 385..393,
+                                            },
+                                            value: Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        U64,
+                                                    ),
+                                                    kind: Binary {
+                                                        op: Subtract,
+                                                        left: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: ScopedName {
+                                                                    name: [
+                                                                        Identifier {
+                                                                            name: "attached",
+                                                                            span: 396..404,
+                                                                        },
+                                                                    ],
+                                                                    constant: None,
+                                                                },
+                                                            },
+                                                            span: 396..405,
+                                                        },
+                                                        right: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: Literal(
+                                                                    Integer(
+                                                                        IntegerLiteral {
+                                                                            digits: "1",
+                                                                            radix: Decimal,
+                                                                        },
+                                                                    ),
+                                                                ),
+                                                            },
+                                                            span: 407..408,
+                                                        },
+                                                    },
+                                                },
+                                                span: 396..408,
+                                            },
+                                        },
+                                        Expression(
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Unit,
+                                                    kind: Call {
+                                                        callee: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Function(
+                                                                    FunctionType {
+                                                                        kind: Emit,
+                                                                        name_span: 62..70,
+                                                                        params: [
+                                                                            TypedFunctionParam {
+                                                                                public: true,
+                                                                                name: Identifier {
+                                                                                    name: "count",
+                                                                                    span: 71..76,
+                                                                                },
+                                                                                ty: Int(
+                                                                                    U64,
+                                                                                ),
+                                                                                ty_span: 78..81,
+                                                                            },
+                                                                        ],
+                                                                        result: Unit,
+                                                                        callee: Some(
+                                                                            Named(
+                                                                                NameId(5),
+                                                                            ),
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                                kind: ScopedName {
+                                                                    name: [
+                                                                        Identifier {
+                                                                            name: "Detached",
+                                                                            span: 427..435,
+                                                                        },
+                                                                    ],
+                                                                    constant: Some(
+                                                                        0,
+                                                                    ),
+                                                                },
+                                                            },
+                                                            span: 427..435,
+                                                        },
+                                                        args: [
+                                                            Spanned {
+                                                                node: TypedExpr {
+                                                                    ty: Int(
+                                                                        U64,
+                                                                    ),
+                                                                    kind: ScopedName {
+                                                                        name: [
+                                                                            Identifier {
+                                                                                name: "attached",
+                                                                                span: 436..444,
+                                                                            },
+                                                                        ],
+                                                                        constant: None,
+                                                                    },
+                                                                },
+                                                                span: 436..444,
+                                                            },
+                                                        ],
+                                                    },
+                                                },
+                                                span: 427..435,
+                                            },
+                                        ),
+                                    ],
+                                    tail_expression: None,
+                                },
+                            },
+                        ],
+                    },
+                ],
+                ty: TokenType {
+                    name: "MyToken",
+                    id: NameId(6),
+                    methods: [],
+                    abis: [
+                        AbiType {
+                            name: Identifier {
+                                name: "Token",
+                                span: 0..0,
+                            },
+                            methods: [
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "attach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(0),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(0),
+                                            ),
+                                        ),
+                                    },
+                                },
+                                TypedAbiMethodDecl {
+                                    name: Identifier {
+                                        name: "detach",
+                                        span: 0..0,
+                                    },
+                                    id: NameId(1),
+                                    ty: FunctionType {
+                                        kind: Normal,
+                                        name_span: 0..0,
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "utxo",
+                                                    span: 0..0,
+                                                },
+                                                ty: UtxoAny,
+                                                ty_span: 0..0,
+                                            },
+                                        ],
+                                        result: Unit,
+                                        callee: Some(
+                                            Named(
+                                                NameId(1),
+                                            ),
+                                        ),
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        ),
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "Holder",
+                    span: 471..477,
+                },
+                parts: [
+                    Function(
+                        TypedFunctionDef {
+                            export: Some(
+                                UtxoMain,
+                            ),
+                            name: Identifier {
+                                name: "new",
+                                span: 492..495,
+                            },
+                            id: NameId(9),
+                            ty: FunctionType {
+                                kind: Normal,
+                                name_span: 492..495,
+                                params: [],
+                                result: Unit,
+                                callee: Some(
+                                    Named(
+                                        NameId(9),
+                                    ),
+                                ),
+                            },
+                            body: TypedBlock {
+                                statements: [
+                                    Expression(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Unit,
+                                                kind: Yield {
+                                                    abis: [],
+                                                },
+                                            },
+                                            span: 508..515,
+                                        },
+                                    ),
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                ],
+                ty: UtxoType {
+                    name: "Holder",
+                    id: NameId(8),
+                    public_methods: [],
+                    possible_abis: [],
+                    always_abis: [],
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "move_token",
+                    span: 536..546,
+                },
+                id: NameId(10),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 536..546,
+                    params: [
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "source",
+                                span: 547..553,
+                            },
+                            ty: UtxoAny,
+                            ty_span: 555..559,
+                        },
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "dest",
+                                span: 561..565,
+                            },
+                            ty: UtxoAny,
+                            ty_span: 567..571,
+                        },
+                    ],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(10),
+                        ),
+                    ),
+                },
+                body: TypedBlock {
+                    statements: [
+                        VariableDeclaration {
+                            public: false,
+                            mutable: false,
+                            pattern: Binding(
+                                Identifier {
+                                    name: "t",
+                                    span: 583..584,
+                                },
+                            ),
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Token(
+                                        TokenType {
+                                            name: "MyToken",
+                                            id: NameId(6),
+                                            methods: [],
+                                            abis: [
+                                                AbiType {
+                                                    name: Identifier {
+                                                        name: "Token",
+                                                        span: 0..0,
+                                                    },
+                                                    methods: [
+                                                        TypedAbiMethodDecl {
+                                                            name: Identifier {
+                                                                name: "attach",
+                                                                span: 0..0,
+                                                            },
+                                                            id: NameId(0),
+                                                            ty: FunctionType {
+                                                                kind: Normal,
+                                                                name_span: 0..0,
+                                                                params: [
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "utxo",
+                                                                            span: 0..0,
+                                                                        },
+                                                                        ty: UtxoAny,
+                                                                        ty_span: 0..0,
+                                                                    },
+                                                                ],
+                                                                result: Unit,
+                                                                callee: Some(
+                                                                    Named(
+                                                                        NameId(0),
+                                                                    ),
+                                                                ),
+                                                            },
+                                                        },
+                                                        TypedAbiMethodDecl {
+                                                            name: Identifier {
+                                                                name: "detach",
+                                                                span: 0..0,
+                                                            },
+                                                            id: NameId(1),
+                                                            ty: FunctionType {
+                                                                kind: Normal,
+                                                                name_span: 0..0,
+                                                                params: [
+                                                                    TypedFunctionParam {
+                                                                        public: false,
+                                                                        name: Identifier {
+                                                                            name: "utxo",
+                                                                            span: 0..0,
+                                                                        },
+                                                                        ty: UtxoAny,
+                                                                        ty_span: 0..0,
+                                                                    },
+                                                                ],
+                                                                result: Unit,
+                                                                callee: Some(
+                                                                    Named(
+                                                                        NameId(1),
+                                                                    ),
+                                                                ),
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ),
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 167..174,
+                                                        params: [],
+                                                        result: Token(
+                                                            TokenType {
+                                                                name: "MyToken",
+                                                                id: NameId(6),
+                                                                methods: [],
+                                                                abis: [
+                                                                    AbiType {
+                                                                        name: Identifier {
+                                                                            name: "Token",
+                                                                            span: 0..0,
+                                                                        },
+                                                                        methods: [
+                                                                            TypedAbiMethodDecl {
+                                                                                name: Identifier {
+                                                                                    name: "attach",
+                                                                                    span: 0..0,
+                                                                                },
+                                                                                id: NameId(0),
+                                                                                ty: FunctionType {
+                                                                                    kind: Normal,
+                                                                                    name_span: 0..0,
+                                                                                    params: [
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "utxo",
+                                                                                                span: 0..0,
+                                                                                            },
+                                                                                            ty: UtxoAny,
+                                                                                            ty_span: 0..0,
+                                                                                        },
+                                                                                    ],
+                                                                                    result: Unit,
+                                                                                    callee: Some(
+                                                                                        Named(
+                                                                                            NameId(0),
+                                                                                        ),
+                                                                                    ),
+                                                                                },
+                                                                            },
+                                                                            TypedAbiMethodDecl {
+                                                                                name: Identifier {
+                                                                                    name: "detach",
+                                                                                    span: 0..0,
+                                                                                },
+                                                                                id: NameId(1),
+                                                                                ty: FunctionType {
+                                                                                    kind: Normal,
+                                                                                    name_span: 0..0,
+                                                                                    params: [
+                                                                                        TypedFunctionParam {
+                                                                                            public: false,
+                                                                                            name: Identifier {
+                                                                                                name: "utxo",
+                                                                                                span: 0..0,
+                                                                                            },
+                                                                                            ty: UtxoAny,
+                                                                                            ty_span: 0..0,
+                                                                                        },
+                                                                                    ],
+                                                                                    result: Unit,
+                                                                                    callee: Some(
+                                                                                        Named(
+                                                                                            NameId(1),
+                                                                                        ),
+                                                                                    ),
+                                                                                },
+                                                                            },
+                                                                        ],
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ),
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(7),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "MyToken",
+                                                            span: 587..594,
+                                                        },
+                                                        Identifier {
+                                                            name: "my_mint",
+                                                            span: 596..603,
+                                                        },
+                                                    ],
+                                                    constant: Some(
+                                                        0,
+                                                    ),
+                                                },
+                                            },
+                                            span: 587..603,
+                                        },
+                                        args: [],
+                                    },
+                                },
+                                span: 587..603,
+                            },
+                            else_branch: None,
+                        },
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Unit,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 0..0,
+                                                        params: [
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "utxo",
+                                                                    span: 0..0,
+                                                                },
+                                                                ty: UtxoAny,
+                                                                ty_span: 0..0,
+                                                            },
+                                                        ],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(0),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: FieldAccess {
+                                                    target: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Token(
+                                                                TokenType {
+                                                                    name: "MyToken",
+                                                                    id: NameId(6),
+                                                                    methods: [],
+                                                                    abis: [
+                                                                        AbiType {
+                                                                            name: Identifier {
+                                                                                name: "Token",
+                                                                                span: 0..0,
+                                                                            },
+                                                                            methods: [
+                                                                                TypedAbiMethodDecl {
+                                                                                    name: Identifier {
+                                                                                        name: "attach",
+                                                                                        span: 0..0,
+                                                                                    },
+                                                                                    id: NameId(0),
+                                                                                    ty: FunctionType {
+                                                                                        kind: Normal,
+                                                                                        name_span: 0..0,
+                                                                                        params: [
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "utxo",
+                                                                                                    span: 0..0,
+                                                                                                },
+                                                                                                ty: UtxoAny,
+                                                                                                ty_span: 0..0,
+                                                                                            },
+                                                                                        ],
+                                                                                        result: Unit,
+                                                                                        callee: Some(
+                                                                                            Named(
+                                                                                                NameId(0),
+                                                                                            ),
+                                                                                        ),
+                                                                                    },
+                                                                                },
+                                                                                TypedAbiMethodDecl {
+                                                                                    name: Identifier {
+                                                                                        name: "detach",
+                                                                                        span: 0..0,
+                                                                                    },
+                                                                                    id: NameId(1),
+                                                                                    ty: FunctionType {
+                                                                                        kind: Normal,
+                                                                                        name_span: 0..0,
+                                                                                        params: [
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "utxo",
+                                                                                                    span: 0..0,
+                                                                                                },
+                                                                                                ty: UtxoAny,
+                                                                                                ty_span: 0..0,
+                                                                                            },
+                                                                                        ],
+                                                                                        result: Unit,
+                                                                                        callee: Some(
+                                                                                            Named(
+                                                                                                NameId(1),
+                                                                                            ),
+                                                                                        ),
+                                                                                    },
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "t",
+                                                                        span: 611..612,
+                                                                    },
+                                                                ],
+                                                                constant: None,
+                                                            },
+                                                        },
+                                                        span: 611..612,
+                                                    },
+                                                    field: Identifier {
+                                                        name: "attach",
+                                                        span: 613..619,
+                                                    },
+                                                },
+                                            },
+                                            span: 611..619,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: UtxoAny,
+                                                    kind: ScopedName {
+                                                        name: [
+                                                            Identifier {
+                                                                name: "source",
+                                                                span: 620..626,
+                                                            },
+                                                        ],
+                                                        constant: None,
+                                                    },
+                                                },
+                                                span: 620..626,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 611..619,
+                            },
+                        ),
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Unit,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 0..0,
+                                                        params: [
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "utxo",
+                                                                    span: 0..0,
+                                                                },
+                                                                ty: UtxoAny,
+                                                                ty_span: 0..0,
+                                                            },
+                                                        ],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(1),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: FieldAccess {
+                                                    target: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Token(
+                                                                TokenType {
+                                                                    name: "MyToken",
+                                                                    id: NameId(6),
+                                                                    methods: [],
+                                                                    abis: [
+                                                                        AbiType {
+                                                                            name: Identifier {
+                                                                                name: "Token",
+                                                                                span: 0..0,
+                                                                            },
+                                                                            methods: [
+                                                                                TypedAbiMethodDecl {
+                                                                                    name: Identifier {
+                                                                                        name: "attach",
+                                                                                        span: 0..0,
+                                                                                    },
+                                                                                    id: NameId(0),
+                                                                                    ty: FunctionType {
+                                                                                        kind: Normal,
+                                                                                        name_span: 0..0,
+                                                                                        params: [
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "utxo",
+                                                                                                    span: 0..0,
+                                                                                                },
+                                                                                                ty: UtxoAny,
+                                                                                                ty_span: 0..0,
+                                                                                            },
+                                                                                        ],
+                                                                                        result: Unit,
+                                                                                        callee: Some(
+                                                                                            Named(
+                                                                                                NameId(0),
+                                                                                            ),
+                                                                                        ),
+                                                                                    },
+                                                                                },
+                                                                                TypedAbiMethodDecl {
+                                                                                    name: Identifier {
+                                                                                        name: "detach",
+                                                                                        span: 0..0,
+                                                                                    },
+                                                                                    id: NameId(1),
+                                                                                    ty: FunctionType {
+                                                                                        kind: Normal,
+                                                                                        name_span: 0..0,
+                                                                                        params: [
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "utxo",
+                                                                                                    span: 0..0,
+                                                                                                },
+                                                                                                ty: UtxoAny,
+                                                                                                ty_span: 0..0,
+                                                                                            },
+                                                                                        ],
+                                                                                        result: Unit,
+                                                                                        callee: Some(
+                                                                                            Named(
+                                                                                                NameId(1),
+                                                                                            ),
+                                                                                        ),
+                                                                                    },
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "t",
+                                                                        span: 633..634,
+                                                                    },
+                                                                ],
+                                                                constant: None,
+                                                            },
+                                                        },
+                                                        span: 633..634,
+                                                    },
+                                                    field: Identifier {
+                                                        name: "detach",
+                                                        span: 635..641,
+                                                    },
+                                                },
+                                            },
+                                            span: 633..641,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: UtxoAny,
+                                                    kind: ScopedName {
+                                                        name: [
+                                                            Identifier {
+                                                                name: "source",
+                                                                span: 642..648,
+                                                            },
+                                                        ],
+                                                        constant: None,
+                                                    },
+                                                },
+                                                span: 642..648,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 633..641,
+                            },
+                        ),
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Unit,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 0..0,
+                                                        params: [
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "utxo",
+                                                                    span: 0..0,
+                                                                },
+                                                                ty: UtxoAny,
+                                                                ty_span: 0..0,
+                                                            },
+                                                        ],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(0),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: FieldAccess {
+                                                    target: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Token(
+                                                                TokenType {
+                                                                    name: "MyToken",
+                                                                    id: NameId(6),
+                                                                    methods: [],
+                                                                    abis: [
+                                                                        AbiType {
+                                                                            name: Identifier {
+                                                                                name: "Token",
+                                                                                span: 0..0,
+                                                                            },
+                                                                            methods: [
+                                                                                TypedAbiMethodDecl {
+                                                                                    name: Identifier {
+                                                                                        name: "attach",
+                                                                                        span: 0..0,
+                                                                                    },
+                                                                                    id: NameId(0),
+                                                                                    ty: FunctionType {
+                                                                                        kind: Normal,
+                                                                                        name_span: 0..0,
+                                                                                        params: [
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "utxo",
+                                                                                                    span: 0..0,
+                                                                                                },
+                                                                                                ty: UtxoAny,
+                                                                                                ty_span: 0..0,
+                                                                                            },
+                                                                                        ],
+                                                                                        result: Unit,
+                                                                                        callee: Some(
+                                                                                            Named(
+                                                                                                NameId(0),
+                                                                                            ),
+                                                                                        ),
+                                                                                    },
+                                                                                },
+                                                                                TypedAbiMethodDecl {
+                                                                                    name: Identifier {
+                                                                                        name: "detach",
+                                                                                        span: 0..0,
+                                                                                    },
+                                                                                    id: NameId(1),
+                                                                                    ty: FunctionType {
+                                                                                        kind: Normal,
+                                                                                        name_span: 0..0,
+                                                                                        params: [
+                                                                                            TypedFunctionParam {
+                                                                                                public: false,
+                                                                                                name: Identifier {
+                                                                                                    name: "utxo",
+                                                                                                    span: 0..0,
+                                                                                                },
+                                                                                                ty: UtxoAny,
+                                                                                                ty_span: 0..0,
+                                                                                            },
+                                                                                        ],
+                                                                                        result: Unit,
+                                                                                        callee: Some(
+                                                                                            Named(
+                                                                                                NameId(1),
+                                                                                            ),
+                                                                                        ),
+                                                                                    },
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ),
+                                                            kind: ScopedName {
+                                                                name: [
+                                                                    Identifier {
+                                                                        name: "t",
+                                                                        span: 655..656,
+                                                                    },
+                                                                ],
+                                                                constant: None,
+                                                            },
+                                                        },
+                                                        span: 655..656,
+                                                    },
+                                                    field: Identifier {
+                                                        name: "attach",
+                                                        span: 657..663,
+                                                    },
+                                                },
+                                            },
+                                            span: 655..663,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: UtxoAny,
+                                                    kind: ScopedName {
+                                                        name: [
+                                                            Identifier {
+                                                                name: "dest",
+                                                                span: 664..668,
+                                                            },
+                                                        ],
+                                                        constant: None,
+                                                    },
+                                                },
+                                                span: 664..668,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 655..663,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+        Test(
+            TypedTestDef {
+                description: Some(
+                    StringLiteral {
+                        value: "Attach a token to concrete utxos",
+                        span: 679..713,
+                    },
+                ),
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Unit,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function(
+                                                    FunctionType {
+                                                        kind: Normal,
+                                                        name_span: 536..546,
+                                                        params: [
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "source",
+                                                                    span: 547..553,
+                                                                },
+                                                                ty: UtxoAny,
+                                                                ty_span: 555..559,
+                                                            },
+                                                            TypedFunctionParam {
+                                                                public: false,
+                                                                name: Identifier {
+                                                                    name: "dest",
+                                                                    span: 561..565,
+                                                                },
+                                                                ty: UtxoAny,
+                                                                ty_span: 567..571,
+                                                            },
+                                                        ],
+                                                        result: Unit,
+                                                        callee: Some(
+                                                            Named(
+                                                                NameId(10),
+                                                            ),
+                                                        ),
+                                                    },
+                                                ),
+                                                kind: ScopedName {
+                                                    name: [
+                                                        Identifier {
+                                                            name: "move_token",
+                                                            span: 720..730,
+                                                        },
+                                                    ],
+                                                    constant: None,
+                                                },
+                                            },
+                                            span: 720..730,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: UtxoAny,
+                                                    kind: UtxoUpcast {
+                                                        expr: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Utxo(
+                                                                    UtxoType {
+                                                                        name: "Holder",
+                                                                        id: NameId(8),
+                                                                        public_methods: [],
+                                                                        possible_abis: [],
+                                                                        always_abis: [],
+                                                                    },
+                                                                ),
+                                                                kind: Call {
+                                                                    callee: Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Function(
+                                                                                FunctionType {
+                                                                                    kind: Normal,
+                                                                                    name_span: 492..495,
+                                                                                    params: [],
+                                                                                    result: Utxo(
+                                                                                        UtxoType {
+                                                                                            name: "Holder",
+                                                                                            id: NameId(8),
+                                                                                            public_methods: [],
+                                                                                            possible_abis: [],
+                                                                                            always_abis: [],
+                                                                                        },
+                                                                                    ),
+                                                                                    callee: Some(
+                                                                                        Named(
+                                                                                            NameId(9),
+                                                                                        ),
+                                                                                    ),
+                                                                                },
+                                                                            ),
+                                                                            kind: ScopedName {
+                                                                                name: [
+                                                                                    Identifier {
+                                                                                        name: "Holder",
+                                                                                        span: 731..737,
+                                                                                    },
+                                                                                    Identifier {
+                                                                                        name: "new",
+                                                                                        span: 739..742,
+                                                                                    },
+                                                                                ],
+                                                                                constant: Some(
+                                                                                    0,
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                        span: 731..742,
+                                                                    },
+                                                                    args: [],
+                                                                },
+                                                            },
+                                                            span: 731..742,
+                                                        },
+                                                    },
+                                                },
+                                                span: 731..742,
+                                            },
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: UtxoAny,
+                                                    kind: UtxoUpcast {
+                                                        expr: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Utxo(
+                                                                    UtxoType {
+                                                                        name: "Holder",
+                                                                        id: NameId(8),
+                                                                        public_methods: [],
+                                                                        possible_abis: [],
+                                                                        always_abis: [],
+                                                                    },
+                                                                ),
+                                                                kind: Call {
+                                                                    callee: Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Function(
+                                                                                FunctionType {
+                                                                                    kind: Normal,
+                                                                                    name_span: 492..495,
+                                                                                    params: [],
+                                                                                    result: Utxo(
+                                                                                        UtxoType {
+                                                                                            name: "Holder",
+                                                                                            id: NameId(8),
+                                                                                            public_methods: [],
+                                                                                            possible_abis: [],
+                                                                                            always_abis: [],
+                                                                                        },
+                                                                                    ),
+                                                                                    callee: Some(
+                                                                                        Named(
+                                                                                            NameId(9),
+                                                                                        ),
+                                                                                    ),
+                                                                                },
+                                                                            ),
+                                                                            kind: ScopedName {
+                                                                                name: [
+                                                                                    Identifier {
+                                                                                        name: "Holder",
+                                                                                        span: 746..752,
+                                                                                    },
+                                                                                    Identifier {
+                                                                                        name: "new",
+                                                                                        span: 754..757,
+                                                                                    },
+                                                                                ],
+                                                                                constant: Some(
+                                                                                    0,
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                        span: 746..757,
+                                                                    },
+                                                                    args: [],
+                                                                },
+                                                            },
+                                                            span: 746..757,
+                                                        },
+                                                    },
+                                                },
+                                                span: 746..757,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 720..730,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;2;) (func (param i64 i64 i64 i64)))
+  (type (;3;) (func))
+  (type (;4;) (func (param i32 i64 i64 i64 i64)))
+  (type (;5;) (func (param i64)))
+  (type (;6;) (func (param i32) (result i32)))
+  (type (;7;) (func (result i32)))
+  (type (;8;) (func (param i32 i32)))
+  (type (;9;) (func (param i64 i64) (result i64)))
+  (type (;10;) (func (param i32) (result i64)))
+  (type (;11;) (func (param i32 i64) (result i32)))
+  (type (;12;) (func (param i32) (result i32 i32 i32)))
+  (type (;13;) (func (param i32 i32 i32 i32) (result i32)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0) (param i32)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1) (param i32 i64 i64 i64 i64) (result i32)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0) (param i32)))
+  (import "starstream:std/builtin" "push-effect-handler-frame" (func (;3;) (type 0) (param i32)))
+  (import "starstream:std/builtin" "add-effect-handler" (func (;4;) (type 2) (param i64 i64 i64 i64)))
+  (import "starstream:std/builtin" "pop-effect-handler-frame" (func (;5;) (type 3)))
+  (import "starstream:std/utxo-context" "[resource-drop]utxo-context" (func (;6;) (type 0) (param i32)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.resume" (func (;7;) (type 0) (param i32)))
+  (import "starstream:std/utxo-context" "[method]utxo-context.implements-method" (func (;8;) (type 4) (param i32 i64 i64 i64 i64)))
+  (import "starstream:events/my-token-events" "attached" (func (;9;) (type 5) (param i64)))
+  (import "starstream:events/my-token-events" "detached" (func (;10;) (type 5) (param i64)))
+  (import "starstream:self/my-token" "[resource-drop]token" (func (;11;) (type 0) (param i32)))
+  (import "[export]my-token" "[resource-new]token" (func (;12;) (type 6) (param i32) (result i32)))
+  (import "[export]my-token" "[resource-drop]token" (func (;13;) (type 0) (param i32)))
+  (import "starstream:self/my-token" "[static]token.my-mint" (func (;14;) (type 7) (result i32)))
+  (import "starstream:self/my-token" "[method]token.attach" (func (;15;) (type 8) (param i32 i32)))
+  (import "starstream:self/my-token" "[method]token.detach" (func (;16;) (type 8) (param i32 i32)))
+  (import "starstream:self/holder" "[resource-drop]utxo" (func (;17;) (type 0) (param i32)))
+  (import "[export]holder" "[resource-new]utxo" (func (;18;) (type 6) (param i32) (result i32)))
+  (import "[export]holder" "[resource-drop]utxo" (func (;19;) (type 0) (param i32)))
+  (import "starstream:self/holder" "upcast" (func (;20;) (type 6) (param i32) (result i32)))
+  (import "starstream:self/holder" "[static]utxo.new" (func (;21;) (type 7) (result i32)))
+  (memory (;0;) 1)
+  (global (;0;) (mut i32) (i32.const 0))
+  (global (;1;) (mut i32) (i32.const 0))
+  (global (;2;) (mut i64) (i64.const 0))
+  (global (;3;) (mut i32) (i32.const 0))
+  (global (;4;) (mut i32) (i32.const 0))
+  (export "my-token#[static]token.my-mint" (func 22))
+  (export "my-token#[method]token.attach" (func 25))
+  (export "my-token#[method]token.detach" (func 28))
+  (export "my-token#get-storage" (func 29))
+  (export "my-token#set-storage" (func 30))
+  (export "holder#[static]utxo.new" (func 32))
+  (export "holder#get-storage" (func 35))
+  (export "holder#set-storage" (func 36))
+  (export "move-token" (func 38))
+  (export "test17" (func 39))
+  (export "memory" (memory 0))
+  (func (;22;) (type 7) (result i32)
+    (local i32)
+    (local.set 0
+      (call 12
+        (i32.const 0)))
+    (global.set 2
+      (i64.const 0))
+    (local.get 0)
+  )
+  (func (;23;) (type 9) (param i64 i64) (result i64)
+    (local i64)
+    (local.tee 2
+      (i64.add
+        (local.get 0)
+        (local.get 1)))
+    (if ;; label = @1
+      (i64.lt_u
+        (local.get 2)
+        (local.get 0))
+      (then
+        (unreachable)))
+  )
+  (func (;24;) (type 8) (param i32 i32)
+    (global.set 2
+      (call 23
+        (global.get 2)
+        (i64.const 1)))
+    (call 9
+      (global.get 2))
+  )
+  (func (;25;) (type 8) (param i32 i32)
+    (call 24
+      (local.get 0)
+      (local.get 1))
+    (call 0
+      (local.get 1))
+  )
+  (func (;26;) (type 9) (param i64 i64) (result i64)
+    (i64.sub
+      (local.get 0)
+      (local.get 1))
+    (if ;; label = @1
+      (i64.lt_u
+        (local.get 0)
+        (local.get 1))
+      (then
+        (unreachable)))
+  )
+  (func (;27;) (type 8) (param i32 i32)
+    (global.set 2
+      (call 26
+        (global.get 2)
+        (i64.const 1)))
+    (call 10
+      (global.get 2))
+  )
+  (func (;28;) (type 8) (param i32 i32)
+    (call 27
+      (local.get 0)
+      (local.get 1))
+    (call 0
+      (local.get 1))
+  )
+  (func (;29;) (type 10) (param i32) (result i64)
+    (global.get 2)
+  )
+  (func (;30;) (type 11) (param i32 i64) (result i32)
+    (global.set 1
+      (local.get 0))
+    (global.set 2
+      (local.get 1))
+    (return
+      (call 12
+        (i32.const 0)))
+  )
+  (func (;31;) (type 3)
+    (call 7
+      (global.get 1))
+    (block ;; label = @1
+      (br_if 0 (;@1;)
+        (i32.ne
+          (global.get 0)
+          (i32.const 1)))
+      (return_call 33))
+    (unreachable)
+  )
+  (func (;32;) (type 6) (param i32) (result i32)
+    (local i32)
+    (local.set 1
+      (call 18
+        (i32.const 0)))
+    (global.set 1
+      (local.get 0))
+    (global.set 0
+      (i32.const 1))
+    (global.set 3
+      (local.get 0))
+    (global.set 4
+      (local.get 1))
+    (local.get 1)
+  )
+  (func (;33;) (type 3)
+    (local i32)
+    (local.set 0
+      (global.get 3))
+    (global.set 3
+      (i32.const 0))
+    (global.set 4
+      (i32.const 0))
+    (call 6
+      (local.get 0))
+  )
+  (func (;34;) (type 12) (param i32) (result i32 i32 i32)
+    (global.get 0)
+    (global.get 3)
+    (global.get 4)
+  )
+  (func (;35;) (type 6) (param i32) (result i32)
+    (local i32 i32 i32 i32)
+    (i32.const 4)
+    (call 34
+      (local.get 0))
+    (local.set 4)
+    (local.set 3)
+    (local.set 2)
+    (local.tee 1)
+    (local.get 2)
+    (i32.store)
+    (i32.store offset=4
+      (local.get 1)
+      (local.get 3))
+    (i32.store offset=8
+      (local.get 1)
+      (local.get 4))
+    (i32.const 4)
+  )
+  (func (;36;) (type 13) (param i32 i32 i32 i32) (result i32)
+    (global.set 1
+      (local.get 0))
+    (global.set 0
+      (local.get 1))
+    (global.set 3
+      (local.get 2))
+    (global.set 4
+      (local.get 3))
+    (return
+      (call 18
+        (i32.const 0)))
+  )
+  (func (;37;) (type 8) (param i32 i32)
+    (local i32)
+    (call 15
+      (local.tee 2
+        (call 14))
+      (local.get 0))
+    (call 16
+      (local.get 2)
+      (local.get 0))
+    (call 15
+      (local.get 2)
+      (local.get 1))
+  )
+  (func (;38;) (type 8) (param i32 i32)
+    (call 37
+      (local.get 0)
+      (local.get 1))
+    (call 0
+      (local.get 0))
+    (call 0
+      (local.get 1))
+  )
+  (func (;39;) (type 3)
+    (call 37
+      (call 20
+        (call 21))
+      (call 20
+        (call 21)))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (type (;3;) (tuple u64 u64 u64 u64))
+                  (type (;4;) (func (param "self" 1) (param "hash" 3) (result bool)))
+                  (export (;0;) "[method]utxo.has-method" (func (type 4)))
+                  (export (;5;) "token" (type (sub resource)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
+                  (type (;8;) (func (param "frame-id" u32)))
+                  (export (;1;) "push-effect-handler-frame" (func (type 8)))
+                  (type (;9;) (func (param "hash" 3)))
+                  (export (;2;) "add-effect-handler" (func (type 9)))
+                  (type (;10;) (func))
+                  (export (;3;) "pop-effect-handler-frame" (func (type 10)))
+                )
+              )
+              (import "starstream:std/builtin" (instance (;0;) (type 0)))
+              (alias export 0 "utxo" (type (;1;)))
+              (import "s-utxo" (type (;2;) (eq 1)))
+              (type (;3;) (borrow 2))
+              (type (;4;) (own 2))
+              (alias export 0 "token" (type (;5;)))
+              (import "s-token" (type (;6;) (eq 5)))
+              (type (;7;) (borrow 6))
+              (type (;8;) (own 6))
+              (type (;9;)
+                (instance
+                  (export (;0;) "utxo-context" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (type (;3;) (func (param "self" 1)))
+                  (export (;0;) "[method]utxo-context.resume" (func (type 3)))
+                  (type (;4;) (tuple u64 u64 u64 u64))
+                  (type (;5;) (func (param "self" 1) (param "hash" 4)))
+                  (export (;1;) "[method]utxo-context.implements-method" (func (type 5)))
+                )
+              )
+              (import "starstream:std/utxo-context" (instance (;1;) (type 9)))
+              (alias export 1 "utxo-context" (type (;10;)))
+              (import "s-utxo-context" (type (;11;) (eq 10)))
+              (type (;12;) (borrow 11))
+              (type (;13;) (own 11))
+              (type (;14;)
+                (instance
+                  (type (;0;) (func (param "count" u64)))
+                  (export (;0;) "attached" (func (type 0)))
+                  (type (;1;) (func (param "count" u64)))
+                  (export (;1;) "detached" (func (type 1)))
+                )
+              )
+              (import "starstream:events/my-token-events" (instance (;2;) (type 14)))
+              (type (;15;)
+                (instance
+                  (export (;0;) "token" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (type (;3;) (func (result 2)))
+                  (export (;0;) "[static]token.my-mint" (func (type 3)))
+                  (alias outer 1 1 (type (;4;)))
+                  (export (;5;) "s-utxo" (type (eq 4)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
+                  (type (;8;) (func (param "self" 1) (param "to" 6)))
+                  (export (;1;) "[method]token.attach" (func (type 8)))
+                  (type (;9;) (func (param "self" 1) (param "source" 6)))
+                  (export (;2;) "[method]token.detach" (func (type 9)))
+                )
+              )
+              (import "starstream:self/my-token" (instance (;3;) (type 15)))
+              (alias export 3 "token" (type (;16;)))
+              (import "t-my-token" (type (;17;) (eq 16)))
+              (type (;18;) (borrow 17))
+              (type (;19;) (own 17))
+              (type (;20;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (alias outer 1 1 (type (;3;)))
+                  (export (;4;) "s-utxo" (type (eq 3)))
+                  (type (;5;) (borrow 4))
+                  (type (;6;) (own 4))
+                  (type (;7;) (func (param "self" 1) (result 6)))
+                  (export (;0;) "upcast" (func (type 7)))
+                  (type (;8;) (func (result 2)))
+                  (export (;1;) "[static]utxo.new" (func (type 8)))
+                )
+              )
+              (import "starstream:self/holder" (instance (;4;) (type 20)))
+              (alias export 4 "utxo" (type (;21;)))
+              (import "u-holder" (type (;22;) (eq 21)))
+              (type (;23;) (borrow 22))
+              (type (;24;) (own 22))
+              (type (;25;)
+                (instance
+                  (export (;0;) "token" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (type (;3;) (func (result 2)))
+                  (export (;0;) "[static]token.my-mint" (func (type 3)))
+                  (alias outer 1 1 (type (;4;)))
+                  (export (;5;) "s-utxo" (type (eq 4)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
+                  (type (;8;) (func (param "self" 1) (param "to" 6)))
+                  (export (;1;) "[method]token.attach" (func (type 8)))
+                  (type (;9;) (func (param "self" 1) (param "source" 6)))
+                  (export (;2;) "[method]token.detach" (func (type 9)))
+                  (type (;10;) (record (field "attached" s64)))
+                  (export (;11;) "storage" (type (eq 10)))
+                  (type (;12;) (func (param "self" 1) (result 11)))
+                  (export (;3;) "get-storage" (func (type 12)))
+                  (alias outer 1 10 (type (;13;)))
+                  (export (;14;) "s-utxo-context" (type (eq 13)))
+                  (type (;15;) (borrow 14))
+                  (type (;16;) (own 14))
+                  (type (;17;) (func (param "ctx" 16) (param "storage" 11) (result 2)))
+                  (export (;4;) "set-storage" (func (type 17)))
+                )
+              )
+              (export (;5;) "my-token" (instance (type 25)))
+              (type (;26;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (alias outer 1 10 (type (;3;)))
+                  (export (;4;) "s-utxo-context" (type (eq 3)))
+                  (type (;5;) (borrow 4))
+                  (type (;6;) (own 4))
+                  (type (;7;) (func (param "utxo-context" 6) (result 2)))
+                  (export (;0;) "[static]utxo.new" (func (type 7)))
+                  (type (;8;) (record (field "yield" s32) (field "yield1" s32) (field "yield1-v1" s32)))
+                  (export (;9;) "storage" (type (eq 8)))
+                  (type (;10;) (func (param "self" 1) (result 9)))
+                  (export (;1;) "get-storage" (func (type 10)))
+                  (type (;11;) (func (param "ctx" 6) (param "storage" 9) (result 2)))
+                  (export (;2;) "set-storage" (func (type 11)))
+                )
+              )
+              (export (;6;) "holder" (instance (type 26)))
+              (type (;27;) (func (param "source" 3) (param "dest" 3)))
+              (export (;0;) "move-token" (func (type 27)))
+              (type (;28;) (func))
+              (export (;1;) "test17" (external-id "starstream:test:Attach a token to concrete utxos") (func (type 28)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  import starstream:std/utxo-context;
+  import starstream:events/my-token-events;
+  import starstream:self/my-token;
+  import starstream:self/holder;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+  use starstream:std/utxo-context.{utxo-context as s-utxo-context};
+  use starstream:self/my-token.{token as t-my-token};
+  use starstream:self/holder.{utxo as u-holder};
+
+  export move-token: func(source: borrow<s-utxo>, dest: borrow<s-utxo>);
+  @external-id("starstream:test:Attach a token to concrete utxos")
+  export test17: func();
+  export my-token: interface {
+    use starstream:std/builtin.{utxo as s-utxo};
+    use starstream:std/utxo-context.{utxo-context as s-utxo-context};
+
+    resource token {
+      my-mint: static func() -> token;
+      attach: func(to: borrow<s-utxo>);
+      detach: func(source: borrow<s-utxo>);
+    }
+
+    record storage {
+      attached: s64,
+    }
+
+    get-storage: func(self: borrow<token>) -> storage;
+
+    set-storage: func(ctx: s-utxo-context, storage: storage) -> token;
+  }
+  export holder: interface {
+    use starstream:std/utxo-context.{utxo-context as s-utxo-context};
+
+    resource utxo {
+      new: static func(utxo-context: s-utxo-context) -> utxo;
+    }
+
+    record storage {
+      yield: s32,
+      yield1: s32,
+      yield1-v1: s32,
+    }
+
+    get-storage: func(self: borrow<utxo>) -> storage;
+
+    set-storage: func(ctx: s-utxo-context, storage: storage) -> utxo;
+  }
+}
+package starstream:std {
+  interface builtin {
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
+
+    resource token;
+
+    push-effect-handler-frame: func(frame-id: u32);
+
+    add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
+
+    pop-effect-handler-frame: func();
+  }
+  interface utxo-context {
+    resource utxo-context {
+      resume: func();
+      implements-method: func(hash: tuple<u64, u64, u64, u64>);
+    }
+  }
+}
+
+
+package starstream:events {
+  interface my-token-events {
+    attached: func(count: u64);
+
+    detached: func(count: u64);
+  }
+}
+
+
+package starstream:self {
+  interface my-token {
+    use starstream:std/builtin.{utxo as s-utxo};
+
+    resource token {
+      my-mint: static func() -> token;
+      attach: func(to: borrow<s-utxo>);
+      detach: func(source: borrow<s-utxo>);
+    }
+  }
+  interface holder {
+    use starstream:std/builtin.{utxo as s-utxo};
+
+    resource utxo {
+      new: static func() -> utxo;
+    }
+
+    upcast: func(self: borrow<utxo>) -> s-utxo;
+  }
+}
+
+==== Test: Attach a token to concrete utxos ====
+events: [
+    Event {
+        abi_name: "my-token-events",
+        name: "attached",
+        params: [
+            U64(
+                1,
+            ),
+        ],
+    },
+    Event {
+        abi_name: "my-token-events",
+        name: "detached",
+        params: [
+            U64(
+                0,
+            ),
+        ],
+    },
+    Event {
+        abi_name: "my-token-events",
+        name: "attached",
+        params: [
+            U64(
+                1,
+            ),
+        ],
+    },
+]
+outputs: [
+    Ok(
+        UtxoCtx {
+            methods: [],
+            dropped: false,
+        },
+    ),
+    Ok(
+        UtxoCtx {
+            methods: [],
+            dropped: false,
+        },
+    ),
+]

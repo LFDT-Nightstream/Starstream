@@ -111,6 +111,27 @@ Token `mint fn`s work like UTXO `main fn`s and have the signature `static func(.
 
 Token `burn fn`s have the signature `static func(this: token) -> ...`.
 
+Every token implements the built-in `Token` ABI, so the exported `resource token`
+always has `attach` and `detach` methods taking a borrowed builtin `utxo`
+and returning nothing.
+
+For example:
+
+```wit
+world root {
+    export my-token: interface {
+        use starstream:std/builtin.{utxo as builtin-utxo};
+
+        resource token {
+            my-mint-fn: static func() -> token;
+            my-burn-fn: static func(this: token);
+            attach: func(utxo: borrow<builtin-utxo>);
+            detach: func(utxo: borrow<builtin-utxo>);
+        }
+    }
+}
+```
+
 ## Importing tokens
 
 Importing tokens is similar to importing Utxos, but the imported resource is named `token`.
@@ -118,6 +139,30 @@ Importing tokens is similar to importing Utxos, but the imported resource is nam
 Token `mint fn`s work like UTXO `main fn`s and have the signature `static func(...) -> token`.
 
 Token `burn fn`s have the signature `static func(this: token) -> ...`.
+
+The import may also include the `attach` and `detach` methods of the built-in
+`Token` ABI, with the same signatures as the export. The runtime forwards each
+call to the token's own `attach` or `detach` export, lending it the same `utxo`.
+
+For example:
+
+```wit
+world root {
+    import starstream:self/my-token;
+}
+
+package starstream:self {
+    interface my-token {
+        use starstream:std/builtin.{utxo as builtin-utxo};
+
+        resource token {
+            my-mint-fn: static func() -> token;
+            attach: func(utxo: borrow<builtin-utxo>);
+            detach: func(utxo: borrow<builtin-utxo>);
+        }
+    }
+}
+```
 
 ## Importing ABIs
 

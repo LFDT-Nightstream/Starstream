@@ -1282,10 +1282,22 @@ impl Inferencer {
             }
         }
 
+        let mut abis = Vec::new();
+        for part in &def.parts {
+            // Only the built-in `Token` ABI is callable on a token handle for
+            // now; the runtime has no linking for other `impl <Abi>` blocks.
+            if let TokenPart::AbiImpl { abi, .. } = part
+                && abi.as_str() == "Token"
+            {
+                abis.push(env.root.get_abi(abi)?.clone());
+            }
+        }
+
         let ty = Type::Token(Arc::new(TokenType {
             name: def.name.to_string(),
             id,
             methods,
+            abis,
         }));
         env.root.insert_type(
             &def.name,
@@ -2207,13 +2219,15 @@ impl Inferencer {
                     .with_secondary(previous_decl.decl_span, "previously defined here"));
                 }
 
-                let (typed_value, value_trace) = self.infer_expr(env, value, ctx)?;
+                let (mut typed_value, value_trace) = self.infer_expr(env, value, ctx)?;
                 let mut children = vec![value_trace];
                 let mut value_type = self.apply(&typed_value.node.ty);
 
                 if let Some(ty) = ty {
                     // Binding has a type annotation, so unify it with the initial value.
                     let expected_type = self.type_from_annotation(env, ty)?;
+                    typed_value = self.coerce_utxo_upcast(typed_value, &expected_type);
+                    value_type = self.apply(&typed_value.node.ty);
                     let (new_value_type, unify_trace) = self.unify(
                         &expected_type,
                         &value_type,
@@ -2390,6 +2404,7 @@ impl Inferencer {
                     )
                     .with_help(help));
                 }
+                let typed_value = self.coerce_utxo_upcast(typed_value, &expected_type);
                 let actual_type = &typed_value.node.ty;
 
                 let (_, unify_trace) = self.unify(
@@ -2426,6 +2441,7 @@ impl Inferencer {
                 match value {
                     Some(expr) => {
                         let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
+                        let typed_expr = self.coerce_utxo_upcast(typed_expr, &ctx.expected_return);
                         let actual_type = &typed_expr.node.ty;
                         let (_, unify_trace) = self.unify(
                             actual_type,
@@ -2679,9 +2695,10 @@ impl Inferencer {
 
         let mut tail_expression = None;
         if let Some(expr) = &block.tail_expression {
-            let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
+            let (mut typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
             let mut children = vec![expr_trace];
             if treat_tail_as_return {
+                typed_expr = self.coerce_utxo_upcast(typed_expr, &ctx.expected_return);
                 let actual = &typed_expr.node.ty;
                 let (_, unify_trace) = self.unify(
                     actual,
@@ -3246,8 +3263,11 @@ impl Inferencer {
                         ));
                     }
                     Type::Token(token) => 'method: {
-                        if let Some(method) =
-                            token.methods.iter().find(|m| m.name.as_str() == field.name)
+                        if let Some(method) = token
+                            .methods
+                            .iter()
+                            .chain(token.abis.iter().flat_map(|abi| &abi.methods))
+                            .find(|method| method.name.as_str() == field.name)
                         {
                             break 'method Type::Function(method.ty.clone());
                         }
@@ -3754,6 +3774,7 @@ impl Inferencer {
 
         for (index, (arg, param)) in args.iter().zip(func.params.iter()).enumerate() {
             let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
+            let typed_arg = self.coerce_utxo_upcast(typed_arg, &param.ty);
             let actual_ty = &typed_arg.node.ty;
 
             let (_, unify_trace) = self.unify(
@@ -3798,6 +3819,28 @@ impl Inferencer {
         });
 
         Ok((typed, tree))
+    }
+
+    /// Implicitly upcast a concrete `utxo Foo` handle to the root `Utxo` handle
+    /// when the surrounding context expects a `Utxo`. Applied at checked
+    /// positions (arguments, annotated bindings, assignments, returns) rather
+    /// than inside unification, so inference stays strict everywhere else.
+    fn coerce_utxo_upcast(&self, typed: Spanned<TypedExpr>, expected: &Type) -> Spanned<TypedExpr> {
+        if !matches!(self.apply(expected), Type::UtxoAny)
+            || !matches!(self.apply(&typed.node.ty), Type::Utxo(_))
+        {
+            return typed;
+        }
+        let span = typed.span;
+        Spanned::new(
+            TypedExpr::new(
+                Type::UtxoAny,
+                TypedExprKind::UtxoUpcast {
+                    expr: Box::new(typed),
+                },
+            ),
+            span,
+        )
     }
 
     fn private_parameter_rhs_name(
@@ -4314,7 +4357,9 @@ impl Inferencer {
                 }
             }
             TypedExprKind::Error => {}
-            TypedExprKind::Disclose { expr } => self.apply_expr(expr),
+            TypedExprKind::Disclose { expr } | TypedExprKind::UtxoUpcast { expr } => {
+                self.apply_expr(expr)
+            }
         }
     }
 

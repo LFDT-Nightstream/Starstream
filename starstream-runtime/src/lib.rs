@@ -725,9 +725,7 @@ fn link_typed_utxo_instance<T: Host>(
                     },
                 )?;
             }
-            types::ComponentItem::Resource(..) => {
-                bail!("typed UTXO instance resource imports unsupported")
-            }
+            types::ComponentItem::Resource(..) => {}
         }
     }
     Ok(())
@@ -868,6 +866,32 @@ fn link_typed_token_burn<T: Host>(
     })
 }
 
+/// Link the built-in `Token` ABI `attach`/`detach` method in a [`LinkerInstance`]
+#[instrument(level = "trace", skip_all)]
+fn link_typed_token_attach_detach<T: Host>(
+    linker: &mut LinkerInstance<T>,
+    idx: ComponentExportIndex,
+    name: &str,
+) -> wasmtime::Result<()> {
+    linker.func_wrap_async(
+        name,
+        move |mut store, (token, utxo): (Resource<Token>, Resource<Utxo<T::UtxoContext>>)| {
+            Box::new(async move {
+                let &Token { instance, resource } = store.data_mut().table().get(&token)?;
+                let utxo = utxo.try_into_resource_any(&mut store)?;
+                call_func(
+                    &mut store,
+                    &instance,
+                    idx,
+                    &[Val::Resource(resource), Val::Resource(utxo)],
+                    &mut [],
+                )
+                .await
+            })
+        },
+    )
+}
+
 /// Link typed token [`types::ComponentFunc`] in a [`LinkerInstance`]
 #[instrument(level = "trace", skip(target, linker, ty, instance_idx))]
 fn link_typed_token_function<T: Host>(
@@ -901,6 +925,9 @@ fn link_typed_token_function<T: Host>(
                 ((Some(Type::Own(..)), None), (..)) => link_typed_token_burn(linker, ty, idx, name),
                 _ => bail!("failed to classify typed token function"),
             }
+        }
+        _ if matches!(name, "[method]token.attach" | "[method]token.detach") => {
+            link_typed_token_attach_detach(linker, idx, name)
         }
         _ => bail!("unexpected typed token instance function import `{name}`"),
     }
@@ -942,9 +969,7 @@ fn link_typed_token_instance<T: Host>(
                     T::drop_token(store, Resource::new_own(rep))
                 })?;
             }
-            types::ComponentItem::Resource(..) => {
-                bail!("typed token instance resource imports unsupported")
-            }
+            types::ComponentItem::Resource(..) => {}
         }
     }
     Ok(())

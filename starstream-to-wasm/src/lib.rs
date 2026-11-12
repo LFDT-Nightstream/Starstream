@@ -269,6 +269,9 @@ struct Compiler {
     callables: HashMap<NameId, u32>,
     /// Map from (this type, name) to function index, for calling ABI methods on concrete UTXOs.
     method_callables: HashMap<(Type, NameId), u32>,
+    /// Imported `upcast` function of each concrete `utxo` type, converting a
+    /// handle of that type into a handle to the root `Utxo`.
+    utxo_upcast_fns: HashMap<Type, u32>,
     intrinsics: intrinsics::Intrinsics,
     builtins: world_spec::Builtins,
     effect_handlers: BTreeMap<NameId, Effect>,
@@ -771,6 +774,32 @@ impl Compiler {
             );
             None
         }
+    }
+
+    /// Find the borrowed handles to imported resources among an exported
+    /// function's parameters. The Component Model requires the callee to drop
+    /// each of them before returning. Yields `(flat param index, drop fn)`
+    /// pairs, with flat indices starting at `first_flat_idx`.
+    fn param_borrow_drops(
+        &mut self,
+        params: &[TypedFunctionParam],
+        first_flat_idx: u32,
+    ) -> Vec<(u32, u32)> {
+        let mut borrow_drops = Vec::new();
+        let mut flat_idx = first_flat_idx;
+        for p in params {
+            if let Some(ty) = self.star_to_component_type(&p.ty)
+                && let ComponentAbiType::Borrow { resource } = &*ty
+                && let Some((_, drop_fn)) = self
+                    .resource_drop_fns
+                    .iter()
+                    .find(|(r, _)| Rc::ptr_eq(r, resource))
+            {
+                borrow_drops.push((flat_idx, *drop_fn));
+            }
+            flat_idx += Self::star_count_core_types(&p.ty);
+        }
+        borrow_drops
     }
 
     fn export_component_fn(
@@ -1277,20 +1306,7 @@ impl Compiler {
                             &func.ty.params,
                             &func.ty.result,
                         );
-                        let mut borrow_drops = Vec::new();
-                        let mut flat_idx = 0;
-                        for p in &func.ty.params {
-                            if let Some(ty) = self.star_to_component_type(&p.ty)
-                                && let ComponentAbiType::Borrow { resource } = &*ty
-                                && let Some((_, drop_fn)) = self
-                                    .resource_drop_fns
-                                    .iter()
-                                    .find(|(r, _)| Rc::ptr_eq(r, resource))
-                            {
-                                borrow_drops.push((flat_idx, *drop_fn));
-                            }
-                            flat_idx += Self::star_count_core_types(&p.ty);
-                        }
+                        let borrow_drops = self.param_borrow_drops(&func.ty.params, 0);
                         self.export_component_fn(
                             &to_kebab_case(func.name.as_str()),
                             func.name.span,
@@ -1769,6 +1785,19 @@ impl Compiler {
         self.resource_abi_fns
             .insert(this_ty.clone(), (new_fn, drop_fn));
 
+        // `upcast`: borrow a handle of this type, return a handle to the root
+        // `Utxo`. Provided by the runtime for every typed UTXO interface.
+        let upcast_fn = self.import_function(
+            &import_interface_name,
+            "upcast",
+            &FuncType::new([ValType::I32], [ValType::I32]),
+        );
+        self.utxo_upcast_fns.insert(this_ty.clone(), upcast_fn);
+        iface.export_fn(
+            "upcast",
+            &self.star_to_component_signature(Some(&this_ty), &[], &Type::UtxoAny),
+        );
+
         // Allocate imports for `main fn`s and always-implemented ABI fns.
         for part in &utxo.parts {
             match part {
@@ -1809,9 +1838,10 @@ impl Compiler {
                             &self.star_to_component_signature(None, &function.ty.params, &this_ty),
                         );
                     } else if function.export == Some(FunctionExport::UtxoPublic) {
-                        self.import_utxo_method(
+                        self.import_resource_method(
                             &mut iface,
                             &import_interface_name,
+                            resource_name,
                             &this_ty,
                             function,
                             function.id,
@@ -1832,9 +1862,10 @@ impl Compiler {
                                 .find(|method| method.name == function.name)
                                 .unwrap()
                                 .id;
-                            self.import_utxo_method(
+                            self.import_resource_method(
                                 &mut iface,
                                 &import_interface_name,
+                                resource_name,
                                 &this_ty,
                                 function,
                                 method_id,
@@ -1850,11 +1881,13 @@ impl Compiler {
             .import_interface(&import_interface_name, &iface);
     }
 
-    /// Import a method on a concrete UTXO, whether public or provided by an ABI.
-    fn import_utxo_method(
+    /// Import a method on a concrete UTXO or token resource, whether public
+    /// or provided by an ABI.
+    fn import_resource_method(
         &mut self,
         iface: &mut TypeBuilder<InstanceType>,
         import_interface_name: &str,
+        resource_name: &str,
         this_ty: &Type,
         function: &TypedFunctionDef,
         method_id: NameId,
@@ -1868,7 +1901,10 @@ impl Compiler {
         let mut results = Vec::with_capacity(1);
         _ = self.star_to_core_types(function.name.span(), &mut results, &function.ty.result);
 
-        let wit_name = format!("[method]utxo.{}", to_kebab_case(function.name.as_str()));
+        let wit_name = format!(
+            "[method]{resource_name}.{}",
+            to_kebab_case(function.name.as_str())
+        );
         let idx = self.import_function(
             import_interface_name,
             &wit_name,
@@ -2106,9 +2142,7 @@ impl Compiler {
         self.resource_abi_fns
             .insert(this_ty.clone(), (new_fn, drop_fn));
 
-        // When it's possible to call functions on tokens, this is where they'd
-        // be inserted into `callables`.
-        // Allocate imports for `main fn`s and always-implemented ABI fns.
+        // Allocate imports for `mint fn`s, `burn fn`s, and ABI impl fns.
         for part in &token.parts {
             match part {
                 TypedTokenPart::Storage(..) => {}
@@ -2193,8 +2227,32 @@ impl Compiler {
                         iface.export_fn(&wit_name, &sig);
                     }
                 }
-                // TODO: Token ABI impls
-                TypedTokenPart::AbiImpl { .. } => {}
+                // Tokens never yield, so the built-in `Token` ABI's
+                // `attach`/`detach` are always callable on the token handle.
+                // TODO: other Token ABI impls
+                TypedTokenPart::AbiImpl {
+                    span: _,
+                    abi,
+                    parts,
+                } => {
+                    let callable = token.ty.abis.iter().any(|a| a == abi);
+                    for function in parts.iter().filter(|_| callable) {
+                        let method_id = abi
+                            .methods
+                            .iter()
+                            .find(|method| method.name == function.name)
+                            .unwrap()
+                            .id;
+                        self.import_resource_method(
+                            &mut iface,
+                            &import_interface_name,
+                            resource_name,
+                            &this_ty,
+                            function,
+                            method_id,
+                        );
+                    }
+                }
             }
         }
 
@@ -2356,12 +2414,18 @@ impl Compiler {
                             "[method]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())
                         );
+                        // Skip the implicit `self` handle, which is this
+                        // component's own resource and needs no drop.
+                        let borrow_drops = self.param_borrow_drops(
+                            &function.ty.params,
+                            Self::star_count_core_types(&this_ty),
+                        );
                         if let Some(func_idx) = self.make_component_export_wrapper_fn(
                             function.name.span,
                             &sig,
                             core.idx,
                             &core.ty,
-                            Vec::new(),
+                            borrow_drops,
                         ) {
                             self.export_core_fn(
                                 &format!("{export_interface_name}#{wit_name}"),
@@ -2858,7 +2922,8 @@ impl Compiler {
                 func.cfg.seal(bb_end, BlockType::Empty);
                 *bb = bb_end;
             }
-            TypedExprKind::Disclose { expr: inner } => {
+            // An unused upcast has no effect of its own, so skip the call.
+            TypedExprKind::Disclose { expr: inner } | TypedExprKind::UtxoUpcast { expr: inner } => {
                 self.visit_expr_drop(func, bb, locals, inner.span, &inner.node)?;
             }
             // Function calls
@@ -3561,6 +3626,17 @@ impl Compiler {
             }
             TypedExprKind::Disclose { expr: inner } => {
                 self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)
+            }
+            TypedExprKind::UtxoUpcast { expr: inner } => {
+                let Some(&upcast_fn) = self.utxo_upcast_fns.get(&inner.node.ty) else {
+                    return Err(self.push_error(
+                        inner.span,
+                        format!("no upcast function found for type {}", inner.node.ty),
+                    ));
+                };
+                self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)?;
+                func.instructions(bb).call(upcast_fn);
+                Ok(())
             }
             // Data constructors
             TypedExprKind::Tuple(items) => {
