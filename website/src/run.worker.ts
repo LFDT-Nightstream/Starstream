@@ -385,6 +385,9 @@ function getWasmInstance(): Promise<RunWasm> {
     };
     return wasm;
   });
+  wasmPromise.catch(() => {
+    wasmPromise = null;
+  });
   return wasmPromise;
 }
 
