@@ -34,9 +34,9 @@ utxo PayToPublicKey {
 }
 
 // A coordination script for interaction with the PayToPublicKey utxo.
-// This coordination script assumes that the `t: Token` is either detached prior or brand new.
-// This coordination script does not need to leave in the same module, it's here for
-// readability and to demonstrate how to use the utxo definition above.
+// The `t: Token` type enforces that the token is either detached prior or brand new.
+// PayToPublicKey does not enforce that its callers must be defined in this
+// contract, but this serves as a demonstration and standard entry point.
 script fn send_single_token(pub recipient: PublicKey, t: Token) {
     let send_to = PayToPublicKey::start(recipient);
     t.attach(send_to);
@@ -46,6 +46,7 @@ script fn send_with_change(input: PayToPublicKey, to: PublicKey, amount: u64, ch
     try {
         input.consume();
     } with TokenReleased(t) {
+        // NOTE: only works sensibly if there is exactly one token on `input`.
         let s = t.subtract(amount);
         send_single_token(to, s.amount);
         send_single_token(change_recipient, s.change);
