@@ -177,11 +177,12 @@ impl Ledger {
         let hash_map::Entry::Vacant(entry) = contracts.entry(digest) else {
             return Err(PublishPostError::AlreadyExists(digest));
         };
-        {
+        let mut blocks = {
             let accounts = self.accounts.read().await;
             let Some(account) = accounts.get(&account) else {
                 return Err(PublishPostError::AccountNotFound(account));
             };
+            let blocks = self.blocks.write().await;
             if let Err(last_nonce) = try_update_nonce(&account.last_nonce, nonce) {
                 return Err(PublishPostError::NonceTooLow { last_nonce, nonce });
             }
@@ -198,19 +199,17 @@ impl Ledger {
                     available,
                 });
             }
-        }
+            blocks
+        };
         // TODO: Split component
         entry.insert(Arc::new(Contract {
             wasm: wasm.into(),
             envelope: envelope.clone(),
             utxo_wits,
         }));
-        {
-            let mut blocks = self.blocks.write().await;
-            blocks.push(Block {
-                actions: Box::from([Action::UploadContract(envelope)]),
-            });
-        }
+        blocks.push(Block {
+            actions: Box::from([Action::UploadContract(envelope)]),
+        });
         let digest = encode_digest(&digest);
         http::Response::builder()
             .status(http::StatusCode::CREATED)
@@ -242,24 +241,20 @@ impl Ledger {
         if key != self.admin.key {
             return Err(FundPostError::NotAdmin(key));
         }
+        let mut accounts = self.accounts.write().await;
+        let mut blocks = self.blocks.write().await;
         if let Err(last_nonce) = try_update_nonce(&self.admin.last_nonce, nonce) {
             return Err(FundPostError::NonceTooLow { last_nonce, nonce });
         }
-        {
-            let mut accounts = self.accounts.write().await;
-            let account = accounts.entry(account).or_default();
-            account
-                .balance
-                .update(Ordering::Relaxed, Ordering::Relaxed, |balance| {
-                    balance.saturating_add(amount)
-                });
-        }
-        {
-            let mut blocks = self.blocks.write().await;
-            blocks.push(Block {
-                actions: Box::from([Action::FundAccount(envelope)]),
+        let account = accounts.entry(account).or_default();
+        account
+            .balance
+            .update(Ordering::Relaxed, Ordering::Relaxed, |balance| {
+                balance.saturating_add(amount)
             });
-        }
+        blocks.push(Block {
+            actions: Box::from([Action::FundAccount(envelope)]),
+        });
         build_text_response(http::StatusCode::OK, "").map_err(FundPostError::Http)
     }
 
@@ -348,6 +343,7 @@ impl Ledger {
             return Err(TransactionPostError::AlreadyExists(digest));
         }
         let mut genesis = self.genesis.outputs.write().await;
+        let mut blocks = self.blocks.write().await;
         for (tx, i) in &resolved_inputs {
             // TODO: Verify transaction signatures
             if let Some(tx) = tx {
@@ -390,13 +386,9 @@ impl Ledger {
             encoded: encoded.freeze(),
         };
         txs.insert(digest, tx);
-
-        {
-            let mut blocks = self.blocks.write().await;
-            blocks.push(Block {
-                actions: Box::from([Action::Transaction(envelope)]),
-            });
-        }
+        blocks.push(Block {
+            actions: Box::from([Action::Transaction(envelope)]),
+        });
         let digest = encode_digest(&digest);
         http::Response::builder()
             .status(http::StatusCode::CREATED)
