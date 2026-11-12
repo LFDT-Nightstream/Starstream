@@ -1,0 +1,31 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\ntoken MyToken {\n    mint fn mint() {}\n\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n}\n\nscript fn move_token(source: Utxo, dest: Utxo) {\n    let t = MyToken::mint();\n    t.attach(source);\n    t.detach(source);\n    t.attach(dest);\n}\n"
+---
+T-Token: MyToken => 
+  T-Fn: mint => ()
+  T-Fn: attach => ()
+  T-Fn: detach => ()
+
+T-Fn: move_token => ()
+  T-Let: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo} ⊢ let t = MyToken::mint(); ⇒ MyToken
+    T-Call: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo} ⊢ MyToken::mint() ⇒ MyToken
+      T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo} ⊢ MyToken::mint ⇒ fn() -> MyToken
+  T-Expr: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach(source); ⇒ ()
+    T-Call: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach(source) ⇒ ()
+      T-FieldAccess: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach ⇒ fn(utxo: Utxo) -> ()
+        T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t ⇒ MyToken
+      T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ source ⇒ Utxo
+      Unify-Const: Utxo ~ Utxo => {}
+  T-Expr: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.detach(source); ⇒ ()
+    T-Call: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.detach(source) ⇒ ()
+      T-FieldAccess: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.detach ⇒ fn(utxo: Utxo) -> ()
+        T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t ⇒ MyToken
+      T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ source ⇒ Utxo
+      Unify-Const: Utxo ~ Utxo => {}
+  T-Expr: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach(dest); ⇒ ()
+    T-Call: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach(dest) ⇒ ()
+      T-FieldAccess: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t.attach ⇒ fn(utxo: Utxo) -> ()
+        T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ t ⇒ MyToken
+      T-Var: {dest: Utxo, move_token: fn(source: Utxo, dest: Utxo) -> (), source: Utxo, t: MyToken} ⊢ dest ⇒ Utxo
+      Unify-Const: Utxo ~ Utxo => {}

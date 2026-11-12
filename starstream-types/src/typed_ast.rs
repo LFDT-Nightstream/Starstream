@@ -262,6 +262,11 @@ pub enum TypedExprKind {
     Disclose {
         expr: Box<Spanned<TypedExpr>>,
     },
+    /// Implicit upcast of a concrete `utxo Foo` handle to the root `Utxo`
+    /// handle, inserted by the type checker where a `Utxo` is expected.
+    UtxoUpcast {
+        expr: Box<Spanned<TypedExpr>>,
+    },
     /// Event emission expression: `emit some_emit_fn(args...)`
     Emit {
         callee: Box<Spanned<TypedExpr>>,

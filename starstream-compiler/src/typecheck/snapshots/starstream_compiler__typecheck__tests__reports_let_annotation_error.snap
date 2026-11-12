@@ -8,7 +8,8 @@ E0003 (https://starstream.nightstream.dev/errors/E0003)
    ,-[test.star:2:23]
  1 | fn test() {
  2 |     let wrong: bool = 1;
-   :         ^^|^^         ^
-   :           `-- expected an integer type
+   :         ^^|^^         |
+   :           |           `-- has an integer type
+   :           `-- has type `bool`
  3 | }
    `----

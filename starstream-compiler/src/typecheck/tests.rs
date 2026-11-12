@@ -320,6 +320,18 @@ fn reports_let_annotation_error() {
 }
 
 #[test]
+fn reports_let_annotation_error_through_variable() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let count = 1;
+            let wrong: bool = count;
+        }
+        "#
+    );
+}
+
+#[test]
 fn unknown_variable_error() {
     assert_typecheck_snapshot!(
         r#"
@@ -360,6 +372,17 @@ fn unary_mismatch_error() {
         r#"
         fn test() {
             let bad = -true;
+        }
+        "#
+    );
+}
+
+#[test]
+fn unary_not_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let bad = !42;
         }
         "#
     );
@@ -1775,6 +1798,123 @@ fn token_valid() {
 }
 
 #[test]
+fn utxo_upcast_to_root_utxo() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Holder {
+            main fn new() {
+                yield();
+            }
+        }
+
+        script fn takes(u: Utxo) {}
+
+        script fn early(flag: bool) -> Utxo {
+            if (flag) {
+                return Holder::new();
+            }
+            Holder::new()
+        }
+
+        script fn upcasts() -> Utxo {
+            takes(Holder::new());
+            let a: Utxo = Holder::new();
+            takes(a);
+            let mut b: Utxo = Holder::new();
+            b = Holder::new();
+            b
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_no_implicit_downcast_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Holder {
+            main fn new() {
+                yield();
+            }
+        }
+
+        script fn narrow(u: Utxo) {
+            let h: Holder = u;
+        }
+        "#
+    );
+}
+
+#[test]
+fn utxo_upcast_between_concrete_utxos_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Holder {
+            main fn new() {
+                yield();
+            }
+        }
+
+        utxo Other {
+            main fn new() {
+                yield();
+            }
+        }
+
+        script fn takes(h: Holder) {}
+
+        script fn wrong() {
+            takes(Other::new());
+        }
+        "#
+    );
+}
+
+#[test]
+fn token_attach_detach_call() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            mint fn mint() {}
+
+            impl Token {
+                fn attach(to: Utxo) {}
+                fn detach(source: Utxo) {}
+            }
+        }
+
+        script fn move_token(source: Utxo, dest: Utxo) {
+            let t = MyToken::mint();
+            t.attach(source);
+            t.detach(source);
+            t.attach(dest);
+        }
+        "#
+    );
+}
+
+#[test]
+fn token_unknown_method_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            mint fn mint() {}
+
+            impl Token {
+                fn attach(to: Utxo) {}
+                fn detach(source: Utxo) {}
+            }
+        }
+
+        script fn go(to: Utxo) {
+            let t = MyToken::mint();
+            t.transfer(to);
+        }
+        "#
+    );
+}
+
+#[test]
 fn token_missing_mint_error() {
     assert_typecheck_snapshot!(
         r#"
@@ -2145,6 +2285,39 @@ fn integer_literal_hex_out_of_range_error() {
         r#"
         fn test() {
             let x: u8 = 0x100;
+        }
+        "#
+    );
+}
+
+#[test]
+fn negate_unsigned_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(x: u8) -> u8 {
+            -x
+        }
+        "#
+    );
+}
+
+#[test]
+fn negate_literal_inferred_unsigned_from_return_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() -> u8 {
+            -1
+        }
+        "#
+    );
+}
+
+#[test]
+fn negate_literal_inferred_unsigned_from_annotation_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: u32 = -(2 + 3);
         }
         "#
     );

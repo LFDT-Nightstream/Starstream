@@ -3,3 +3,4 @@ zed-starstream/grammars/
 .docusaurus/
 tree-sitter-starstream/bindings/
 tree-sitter-starstream/node-types.json
+starstream-js/src/bindings/

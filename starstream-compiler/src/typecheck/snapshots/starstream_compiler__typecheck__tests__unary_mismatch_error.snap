@@ -4,7 +4,7 @@ description: "Source:\n\nfn test() {\n    let bad = -true;\n}\n"
 ---
 E0005 (https://starstream.nightstream.dev/errors/E0005)
 
-  x unary `-` expects type `i64` but found `bool`
+  x unary `-` expects a signed integer type but found `bool`
    ,-[test.star:2:16]
  1 | fn test() {
  2 |     let bad = -true;

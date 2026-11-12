@@ -25,7 +25,7 @@ use starstream_types::{
         TypedProgram, TypedStatement, TypedStructDef, TypedStructFieldInitializer,
         TypedStructPatternField,
     },
-    types::{EnumType, EnumVariantKind, EnumVariantType, RecordFieldType, RecordType},
+    types::{EnumType, EnumVariantKind, EnumVariantType, IntWidth, RecordFieldType, RecordType},
 };
 
 use super::{
@@ -112,17 +112,6 @@ pub fn typecheck_program(
             });
         }
     };
-
-    // Default any unresolved integer type variables to i64.
-    inferencer.default_int_vars();
-
-    // Check range validity of integer literals against their resolved types.
-    if let Err(errors) = inferencer.check_int_literal_ranges() {
-        return Err(TypecheckFailure {
-            errors,
-            warnings: inferencer.warnings,
-        });
-    }
 
     inferencer.apply_substitutions_program(&mut program);
 
@@ -320,28 +309,6 @@ pub fn typecheck_modules(
         });
     }
 
-    inferencer.default_int_vars();
-    if let Err(errors) = inferencer.check_int_literal_ranges() {
-        // `check_int_literal_ranges` doesn't know which module each literal
-        // came from. Best effort: attribute to the first contract entry, or
-        // (if no contract entries exist) the first module.
-        let fallback = graph
-            .contract_entries()
-            .first()
-            .copied()
-            .unwrap_or_else(|| {
-                graph
-                    .modules()
-                    .first()
-                    .map(|m| m.id)
-                    .expect("graph must have at least one module")
-            });
-        return Err(TypecheckModulesFailure {
-            errors: errors.into_iter().map(|e| (fallback, e)).collect(),
-            warnings,
-        });
-    }
-
     // Apply substitutions per module.
     for typed_program in typed_modules.values_mut() {
         if let TypedModuleContents::Starstream(typed_program) = typed_program {
@@ -417,6 +384,9 @@ struct Inferencer {
     int_vars: HashSet<TypeVarId>,
     /// Tracks the literal value associated with each integer type variable for range checking.
     int_literal_values: HashMap<TypeVarId, (IntegerLiteral, Span)>,
+    /// Integer type variables negated before their type was known, checked for
+    /// signedness at the end of the body.
+    negated_int_vars: Vec<(TypeVarId, Span)>,
 
     /// Builtin package registry for `import`s, and the prelude.
     builtins: BuiltinRegistry,
@@ -455,6 +425,7 @@ impl Inferencer {
             subst: Default::default(),
             int_vars: Default::default(),
             int_literal_values: Default::default(),
+            negated_int_vars: Default::default(),
             builtins,
             next_name_id,
             function_names: Default::default(),
@@ -1282,10 +1253,22 @@ impl Inferencer {
             }
         }
 
+        let mut abis = Vec::new();
+        for part in &def.parts {
+            // Only the built-in `Token` ABI is callable on a token handle for
+            // now; the runtime has no linking for other `impl <Abi>` blocks.
+            if let TokenPart::AbiImpl { abi, .. } = part
+                && abi.as_str() == "Token"
+            {
+                abis.push(env.root.get_abi(abi)?.clone());
+            }
+        }
+
         let ty = Type::Token(Arc::new(TokenType {
             name: def.name.to_string(),
             id,
             methods,
+            abis,
         }));
         env.root.insert_type(
             &def.name,
@@ -2102,7 +2085,10 @@ impl Inferencer {
             is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
         };
 
-        let (typed_body, body_traces) = self.infer_block(env, &function.body, &mut ctx, true)?;
+        let body = self.infer_block(env, &function.body, &mut ctx, true);
+        let int_checks = self.settle_int_vars();
+        let (typed_body, body_traces) = body?;
+        int_checks?;
 
         env.pop_scope();
 
@@ -2151,7 +2137,10 @@ impl Inferencer {
             is_coroutine: false,
         };
 
-        let (typed_body, body_traces) = self.infer_block(env, &test.body, &mut ctx, true)?;
+        let body = self.infer_block(env, &test.body, &mut ctx, true);
+        let int_checks = self.settle_int_vars();
+        let (typed_body, body_traces) = body?;
+        int_checks?;
 
         env.pop_scope();
 
@@ -2207,13 +2196,15 @@ impl Inferencer {
                     .with_secondary(previous_decl.decl_span, "previously defined here"));
                 }
 
-                let (typed_value, value_trace) = self.infer_expr(env, value, ctx)?;
+                let (mut typed_value, value_trace) = self.infer_expr(env, value, ctx)?;
                 let mut children = vec![value_trace];
                 let mut value_type = self.apply(&typed_value.node.ty);
 
                 if let Some(ty) = ty {
                     // Binding has a type annotation, so unify it with the initial value.
                     let expected_type = self.type_from_annotation(env, ty)?;
+                    typed_value = self.coerce_utxo_upcast(typed_value, &expected_type);
+                    value_type = self.apply(&typed_value.node.ty);
                     let (new_value_type, unify_trace) = self.unify(
                         &expected_type,
                         &value_type,
@@ -2390,6 +2381,7 @@ impl Inferencer {
                     )
                     .with_help(help));
                 }
+                let typed_value = self.coerce_utxo_upcast(typed_value, &expected_type);
                 let actual_type = &typed_value.node.ty;
 
                 let (_, unify_trace) = self.unify(
@@ -2426,6 +2418,7 @@ impl Inferencer {
                 match value {
                     Some(expr) => {
                         let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
+                        let typed_expr = self.coerce_utxo_upcast(typed_expr, &ctx.expected_return);
                         let actual_type = &typed_expr.node.ty;
                         let (_, unify_trace) = self.unify(
                             actual_type,
@@ -2679,9 +2672,10 @@ impl Inferencer {
 
         let mut tail_expression = None;
         if let Some(expr) = &block.tail_expression {
-            let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
+            let (mut typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
             let mut children = vec![expr_trace];
             if treat_tail_as_return {
+                typed_expr = self.coerce_utxo_upcast(typed_expr, &ctx.expected_return);
                 let actual = &typed_expr.node.ty;
                 let (_, unify_trace) = self.unify(
                     actual,
@@ -2827,22 +2821,12 @@ impl Inferencer {
                             }
                             Type::Int(w) => {
                                 // Unsigned int — error
-                                return Err(TypeError::new(
-                                    TypeErrorKind::UnaryMismatch {
-                                        op: *op,
-                                        expected: Type::int(),
-                                        found: Type::Int(*w),
-                                    },
-                                    inner.span,
-                                )
-                                .with_primary_message(format!(
-                                    "cannot negate unsigned type `{}`",
-                                    w.display_name()
-                                )));
+                                return Err(Self::unsigned_negation_error(*w, inner.span));
                             }
                             Type::Var(id) if self.int_vars.contains(id) => {
                                 // Int-constrained var (polymorphic literal) — allow for now,
-                                // signedness will be checked when the type resolves
+                                // signedness is checked in `settle_int_vars`
+                                self.negated_int_vars.push((*id, inner.span));
                                 let subject =
                                     self.maybe_string(|| self.format_type(&inner_ty).to_string());
                                 let result = self.maybe_string(|| "ok (int var)".to_string());
@@ -2852,7 +2836,6 @@ impl Inferencer {
                                 return Err(TypeError::new(
                                     TypeErrorKind::UnaryMismatch {
                                         op: *op,
-                                        expected: Type::int(),
                                         found: inner_ty,
                                     },
                                     inner.span,
@@ -2867,7 +2850,6 @@ impl Inferencer {
                         inner.span,
                         TypeErrorKind::UnaryMismatch {
                             op: *op,
-                            expected: Type::bool(),
                             found: self.apply_for_display(&typed_inner.node.ty),
                         },
                     )?,
@@ -3246,8 +3228,11 @@ impl Inferencer {
                         ));
                     }
                     Type::Token(token) => 'method: {
-                        if let Some(method) =
-                            token.methods.iter().find(|m| m.name.as_str() == field.name)
+                        if let Some(method) = token
+                            .methods
+                            .iter()
+                            .chain(token.abis.iter().flat_map(|abi| &abi.methods))
+                            .find(|method| method.name.as_str() == field.name)
                         {
                             break 'method Type::Function(method.ty.clone());
                         }
@@ -3754,6 +3739,7 @@ impl Inferencer {
 
         for (index, (arg, param)) in args.iter().zip(func.params.iter()).enumerate() {
             let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
+            let typed_arg = self.coerce_utxo_upcast(typed_arg, &param.ty);
             let actual_ty = &typed_arg.node.ty;
 
             let (_, unify_trace) = self.unify(
@@ -3798,6 +3784,28 @@ impl Inferencer {
         });
 
         Ok((typed, tree))
+    }
+
+    /// Implicitly upcast a concrete `utxo Foo` handle to the root `Utxo` handle
+    /// when the surrounding context expects a `Utxo`. Applied at checked
+    /// positions (arguments, annotated bindings, assignments, returns) rather
+    /// than inside unification, so inference stays strict everywhere else.
+    fn coerce_utxo_upcast(&self, typed: Spanned<TypedExpr>, expected: &Type) -> Spanned<TypedExpr> {
+        if !matches!(self.apply(expected), Type::UtxoAny)
+            || !matches!(self.apply(&typed.node.ty), Type::Utxo(_))
+        {
+            return typed;
+        }
+        let span = typed.span;
+        Spanned::new(
+            TypedExpr::new(
+                Type::UtxoAny,
+                TypedExprKind::UtxoUpcast {
+                    expr: Box::new(typed),
+                },
+            ),
+            span,
+        )
     }
 
     fn private_parameter_rhs_name(
@@ -4314,7 +4322,9 @@ impl Inferencer {
                 }
             }
             TypedExprKind::Error => {}
-            TypedExprKind::Disclose { expr } => self.apply_expr(expr),
+            TypedExprKind::Disclose { expr } | TypedExprKind::UtxoUpcast { expr } => {
+                self.apply_expr(expr)
+            }
         }
     }
 
@@ -4371,30 +4381,56 @@ impl Inferencer {
         self.int_vars.clear();
     }
 
-    /// Check that all integer literals fit within the range of their resolved type.
-    fn check_int_literal_ranges(&self) -> Result<(), Vec<TypeError>> {
+    /// Settle the integer types of the body just checked, then run the checks
+    /// that had to wait for them: literals must fit their type, and negated
+    /// values must be signed. Signatures are always annotated, so a body's
+    /// integer types are final once the body is checked. The recorded literals
+    /// and negations are consumed so they don't carry into the next body.
+    fn settle_int_vars(&mut self) -> Result<(), TypeError> {
+        self.default_int_vars();
         let mut errors = Vec::new();
-        for (&id, (literal, span)) in &self.int_literal_values {
-            let resolved = self.apply(&Type::Var(id));
-            if let Type::Int(w) = resolved
+        for (id, (literal, span)) in std::mem::take(&mut self.int_literal_values) {
+            if let Type::Int(w) = self.apply(&Type::Var(id))
                 // `value()` is `None` when the digits overflow `i128`, which no
                 // supported integer type can hold either.
                 && !literal.value().is_some_and(|value| w.fits(value))
             {
-                errors.push(TypeError::new(
+                let error = TypeError::new(
                     TypeErrorKind::LiteralOutOfRange {
                         literal: literal.to_string(),
                         ty: Type::Int(w),
                     },
-                    *span,
-                ));
+                    span,
+                );
+                errors.push((span.start, error));
             }
         }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
+        for (id, span) in std::mem::take(&mut self.negated_int_vars) {
+            if let Type::Int(w) = self.apply(&Type::Var(id))
+                && !w.is_signed()
+            {
+                errors.push((span.start, Self::unsigned_negation_error(w, span)));
+            }
         }
+        // Report the first in source order, like other errors in a body.
+        match errors.into_iter().min_by_key(|(start, _)| *start) {
+            Some((_, error)) => Err(error),
+            None => Ok(()),
+        }
+    }
+
+    fn unsigned_negation_error(width: IntWidth, span: Span) -> TypeError {
+        TypeError::new(
+            TypeErrorKind::UnaryMismatch {
+                op: UnaryOp::Negate,
+                found: Type::Int(width),
+            },
+            span,
+        )
+        .with_primary_message(format!(
+            "cannot negate unsigned type `{}`",
+            width.display_name()
+        ))
     }
 
     /// Render the current environment snapshot into a deterministic string.
@@ -5022,8 +5058,23 @@ impl Inferencer {
                     }
                 }
                 _ => {
-                    return Err(TypeError::new(kind, var_span)
-                        .with_secondary(other_span, "expected an integer type"));
+                    // Label both sides like a general mismatch, then point at
+                    // the literal that made this an integer.
+                    let mut err = TypeError::new(kind, var_span);
+                    if var_span != other_span {
+                        err = err
+                            .with_primary_message("has an integer type")
+                            .with_secondary(
+                                other_span,
+                                format!("has type `{}`", self.format_type(ty)),
+                            );
+                    }
+                    if let Some((_, literal_span)) = self.int_literal_values.get(&var)
+                        && ![var_span, other_span].contains(literal_span)
+                    {
+                        err = err.with_secondary(*literal_span, "integer literal");
+                    }
+                    return Err(err);
                 }
             }
         }

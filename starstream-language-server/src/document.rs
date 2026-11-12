@@ -1406,7 +1406,7 @@ impl DocumentState {
                     self.collect_expr(arg, scopes);
                 }
             }
-            TypedExprKind::Disclose { expr: inner } => {
+            TypedExprKind::Disclose { expr: inner } | TypedExprKind::UtxoUpcast { expr: inner } => {
                 self.collect_expr(inner, scopes);
             }
             TypedExprKind::Emit { callee, args } => {

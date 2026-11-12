@@ -110,3 +110,41 @@ fn helper_codegen_error_names_helper() {
     );
     assert_eq!(&module.source[error.span.into_range()], "wide");
 }
+
+#[test]
+fn helper_type_error_names_helper() {
+    // `-1` is only known to be a `u8` once the helper's body is checked. The
+    // error must point into the helper, not the entry.
+    let entry = fixture("helper_type_error").join("main.star");
+    let mut tracker = starstream_types::FileSystem::new();
+    let (graph, _) =
+        starstream_compiler::ModuleGraph::from_entry(&mut tracker, &entry).expect("graph");
+    let Err(failure) = starstream_compiler::typecheck_modules(&graph, Default::default()) else {
+        panic!("expected a type error");
+    };
+    // The failed helper also exports nothing, so the entry's import of
+    // `minus_one` fails too. Only the negation error matters here.
+    let (module, error) = failure
+        .errors
+        .iter()
+        .find(|(_, error)| {
+            matches!(
+                **error,
+                starstream_compiler::typecheck::TypeErrorKind::UnaryMismatch { .. }
+            )
+        })
+        .unwrap_or_else(|| panic!("no negation error in {:?}", failure.errors));
+    let module = graph.module(*module);
+    assert!(
+        module.abs_path.ends_with("helpers/negate.star"),
+        "error attributed to {:?}",
+        module.abs_path
+    );
+    let label = miette::Diagnostic::labels(error)
+        .and_then(|mut labels| labels.find(|label| label.primary()))
+        .expect("primary label");
+    assert_eq!(
+        &module.source[label.offset()..label.offset() + label.len()],
+        "1"
+    );
+}

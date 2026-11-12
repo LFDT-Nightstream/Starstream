@@ -1,0 +1,15 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Holder {\n    main fn new() {\n        yield();\n    }\n}\n\nscript fn narrow(u: Utxo) {\n    let h: Holder = u;\n}\n"
+---
+E0003 (https://starstream.nightstream.dev/errors/E0003)
+
+  x cannot assign value of type `Utxo` to variable `h` of type `Holder`
+   ,-[test.star:8:9]
+ 7 | script fn narrow(u: Utxo) {
+ 8 |     let h: Holder = u;
+   :         |           |
+   :         |           `-- has type `Utxo`
+   :         `-- has type `Holder`
+ 9 | }
+   `----

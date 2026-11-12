@@ -1,0 +1,44 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/multifile/helper_type_error
+---
+==== Workspace ====
+ModuleGraph {
+    modules.len(): 2,
+    topo_order: [
+        ModuleId(0),
+        ModuleId(1),
+    ],
+    edges: {
+        ModuleId(1): [
+            PathImport {
+                def_index: 1,
+                target: ModuleId(0),
+                span: 37..60,
+            },
+        ],
+    },
+    contract_entries: [
+        ModuleId(1),
+    ],
+}
+==== Type error ====
+]8;;https://starstream.nightstream.dev/errors/E0005\E0005 (link)]8;;\
+
+  x unary `-` expects a signed integer type but found `u8`
+   ,-[$PWD/tests/multifile/helper_type_error/helpers/negate.star:2:6]
+ 1 | fn minus_one() -> u8 {
+ 2 |     -1
+   :      |
+   :      `-- cannot negate unsigned type `u8`
+ 3 | }
+   `----
+]8;;https://starstream.nightstream.dev/errors/E0037\E0037 (link)]8;;\
+
+  x unknown function `minus_one` in `"./helpers/negate.star"`
+   ,-[$PWD/tests/multifile/helper_type_error/main.star:3:10]
+ 2 | 
+ 3 | import { minus_one } from "./helpers/negate.star";
+   :          ^^^^^^^^^
+ 4 | 
+   `----
