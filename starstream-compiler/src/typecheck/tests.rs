@@ -320,6 +320,18 @@ fn reports_let_annotation_error() {
 }
 
 #[test]
+fn reports_let_annotation_error_through_variable() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let count = 1;
+            let wrong: bool = count;
+        }
+        "#
+    );
+}
+
+#[test]
 fn unknown_variable_error() {
     assert_typecheck_snapshot!(
         r#"
@@ -360,6 +372,17 @@ fn unary_mismatch_error() {
         r#"
         fn test() {
             let bad = -true;
+        }
+        "#
+    );
+}
+
+#[test]
+fn unary_not_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let bad = !42;
         }
         "#
     );
@@ -2262,6 +2285,39 @@ fn integer_literal_hex_out_of_range_error() {
         r#"
         fn test() {
             let x: u8 = 0x100;
+        }
+        "#
+    );
+}
+
+#[test]
+fn negate_unsigned_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(x: u8) -> u8 {
+            -x
+        }
+        "#
+    );
+}
+
+#[test]
+fn negate_literal_inferred_unsigned_from_return_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() -> u8 {
+            -1
+        }
+        "#
+    );
+}
+
+#[test]
+fn negate_literal_inferred_unsigned_from_annotation_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: u32 = -(2 + 3);
         }
         "#
     );

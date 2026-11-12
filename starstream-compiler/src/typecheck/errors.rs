@@ -29,7 +29,6 @@ pub enum TypeErrorKind {
     },
     UnaryMismatch {
         op: UnaryOp,
-        expected: Type,
         found: Type,
     },
     BinaryOperandMismatch {
@@ -408,17 +407,18 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::AssignmentToImmutable { name } => {
                 write!(f, "cannot assign to immutable variable `{name}`")
             }
-            TypeErrorKind::UnaryMismatch {
-                op,
-                expected,
-                found,
-            } => write!(
-                f,
-                "unary `{}` expects type `{}` but found `{}`",
-                op.as_str(),
-                expected.compact_display(),
-                found.compact_display()
-            ),
+            TypeErrorKind::UnaryMismatch { op, found } => {
+                let expected = match op {
+                    UnaryOp::Negate => "a signed integer type",
+                    UnaryOp::Not => "type `bool`",
+                };
+                write!(
+                    f,
+                    "unary `{}` expects {expected} but found `{}`",
+                    op.as_str(),
+                    found.compact_display()
+                )
+            }
             TypeErrorKind::BinaryOperandMismatch { op, left, right } => write!(
                 f,
                 "binary `{}` operands must match; found `{}` and `{}`",

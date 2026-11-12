@@ -1,0 +1,18 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let count = 1;\n    let wrong: bool = count;\n}\n"
+---
+E0003 (https://starstream.nightstream.dev/errors/E0003)
+
+  x cannot assign value of type `i64` to variable `wrong` of type `bool`
+   ,-[test.star:3:23]
+ 1 | fn test() {
+ 2 |     let count = 1;
+   :                 |
+   :                 `-- integer literal
+ 3 |     let wrong: bool = count;
+   :         ^^|^^         ^^|^^
+   :           |             `-- has an integer type
+   :           `-- has type `bool`
+ 4 | }
+   `----

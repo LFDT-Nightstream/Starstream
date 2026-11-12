@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let x: u32 = -(2 + 3);\n}\n"
+---
+E0005 (https://starstream.nightstream.dev/errors/E0005)
+
+  x unary `-` expects a signed integer type but found `u32`
+   ,-[test.star:2:19]
+ 1 | fn test() {
+ 2 |     let x: u32 = -(2 + 3);
+   :                   ^^^|^^^
+   :                      `-- cannot negate unsigned type `u32`
+ 3 | }
+   `----

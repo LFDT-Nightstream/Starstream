@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() -> u8 {\n    -1\n}\n"
+---
+E0005 (https://starstream.nightstream.dev/errors/E0005)
+
+  x unary `-` expects a signed integer type but found `u8`
+   ,-[test.star:2:6]
+ 1 | fn test() -> u8 {
+ 2 |     -1
+   :      |
+   :      `-- cannot negate unsigned type `u8`
+ 3 | }
+   `----
