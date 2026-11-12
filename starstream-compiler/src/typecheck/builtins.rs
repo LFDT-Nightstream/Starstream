@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use starstream_types::{
     AbiType, DUMMY_SPAN, EnumType, EnumVariantKind, EnumVariantType, FunctionKind, FunctionType,
-    Identifier, IntWidth, NameId, StaticFunction, Type, TypeParam, TypeVarId, TypedAbiMethodDecl,
-    TypedFunctionParam,
+    Identifier, IntWidth, NameId, RecordFieldType, RecordType, StaticFunction, Type, TypeParam,
+    TypeVarId, TypedAbiMethodDecl, TypedFunctionParam,
 };
 
 use crate::typecheck::{
@@ -32,8 +32,18 @@ impl BuiltinRegistry {
         let mut next_name_id = NameId(0);
         register_prelude(&mut registry.prelude, &mut next_type_var, &mut next_name_id);
         let starstream = registry.wit_tree.add_child("starstream".to_owned());
+
         let std = starstream.add_child("std".to_owned());
         register_std_cardano(std.add_child("cardano".to_owned()), &mut next_name_id);
+        register_std_ledger(std.add_child("ledger".to_owned()), &mut next_name_id);
+
+        let effects = starstream.add_child("effects".to_owned());
+        register_effects_std(
+            effects.add_child("std".to_owned()),
+            &mut next_name_id,
+            &registry.prelude,
+        );
+
         (registry, next_type_var, next_name_id)
     }
 
@@ -303,6 +313,66 @@ fn register_std_cardano(cardano: &mut Namespace, next_name_id: &mut NameId) {
                 callee: Some(StaticFunction::Named(next_name_id.fresh())),
             }),
         ),
+    );
+}
+
+fn register_std_ledger(ledger: &mut Namespace, next_name_id: &mut NameId) {
+    let public_key = Type::Record(Arc::new(RecordType {
+        name: Identifier::anon("PublicKey"),
+        fields: vec![RecordFieldType {
+            name: Identifier::anon("dummy"),
+            ty: Type::Int(IntWidth::U64),
+        }],
+    }));
+    ledger
+        .types
+        .insert("PublicKey".to_owned(), TypeEntry::from(public_key.clone()));
+    ledger.struct_constructors.insert(
+        "PublicKey".to_owned(),
+        StructConstructor {
+            span: DUMMY_SPAN,
+            ty: public_key.clone(),
+            type_params: vec![],
+            enum_variant: 0,
+        },
+    );
+
+    let assert_transaction_signed_by = Type::Function(Arc::new(FunctionType {
+        kind: FunctionKind::Runtime,
+        name_span: DUMMY_SPAN,
+        params: vec![TypedFunctionParam {
+            public: true,
+            name: Identifier::anon("key"),
+            ty: public_key,
+            ty_span: DUMMY_SPAN,
+        }],
+        result: Type::Unit,
+        callee: Some(StaticFunction::Named(next_name_id.fresh())),
+    }));
+    ledger.constants.insert(
+        "assert_transaction_signed_by".to_owned(),
+        ConstantInfo::new(DUMMY_SPAN, assert_transaction_signed_by),
+    );
+}
+
+fn register_effects_std(effects: &mut Namespace, next_name_id: &mut NameId, prelude: &Namespace) {
+    let token = prelude.types.get("Token").unwrap().ty.clone();
+
+    let token_released = Type::Function(Arc::new(FunctionType {
+        kind: FunctionKind::Raise,
+        name_span: DUMMY_SPAN,
+        params: vec![TypedFunctionParam {
+            public: false,
+            name: Identifier::anon("token"),
+            ty: token,
+            ty_span: DUMMY_SPAN,
+        }],
+        result: Type::Unit,
+        callee: Some(StaticFunction::Named(next_name_id.fresh())),
+    }));
+    effects.constants.insert(
+        "TokenReleased".to_owned(),
+        ConstantInfo::new(DUMMY_SPAN, token_released),
     );
 }
 

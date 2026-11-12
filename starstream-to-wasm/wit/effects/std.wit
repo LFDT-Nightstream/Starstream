@@ -1,0 +1,9 @@
+package starstream:effects;
+
+interface std {
+    use starstream:std/builtin.{token};
+
+    /// Built-in effect that is raised when a Utxo's lifetime ends for each
+    /// token still attached to it.
+    token-released: func(token: token);
+}

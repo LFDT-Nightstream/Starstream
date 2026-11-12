@@ -2,13 +2,6 @@ package starstream:std;
 
 /// Methods that are applicable in any ledger-like context.
 interface ledger {
-    use builtin.{token};
-
-    /// Built-in effect that is raised when a Utxo's lifetime ends for each
-    /// token still attached to it.
-    @external-id("starstream:effect:builtin/token-released")
-    token-released: func(token: token);
-
     /// A generic public key type, matching that used to sign ledger transactions.
     record public-key {
         /// TODO: Change to a list<u8, N> with N large enough to hold real public keys of extant systems.

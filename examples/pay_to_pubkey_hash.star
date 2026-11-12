@@ -5,8 +5,8 @@ contract;
 // 3. coordination script runs off chain producing a proof which includes the PayToPublicKey utxo in it's output set
 // 4. a transaction is submitted to the ledger with this proof attached to it
 // 5. ledger verifies proof and transitions it's ledger state and `someone_to_send_to` now has the tokens
-//import { PublicKey, TokenReleased, assert_transaction_signed_by } from "../starstream-to-wasm/wit/ledger.wit";
-import { PublicKey, TokenReleased, assert_transaction_signed_by } from starstream:std/ledger;
+import { PublicKey, assert_transaction_signed_by } from starstream:std/ledger;
+import { TokenReleased } from starstream:effects/std;
 
 abi IPayToPublicKey {
     // TODO: / [TokenReleased]
@@ -18,7 +18,7 @@ utxo PayToPublicKey {
         let mut _recipient: PublicKey;
     }
 
-    main fn start(recipient: PublicKey) {
+    main fn start(pub recipient: PublicKey) {
         _recipient = recipient;
         yield(IPayToPublicKey);
     }
@@ -37,7 +37,7 @@ utxo PayToPublicKey {
 // This coordination script assumes that the `t: Token` is either detached prior or brand new.
 // This coordination script does not need to leave in the same module, it's here for
 // readability and to demonstrate how to use the utxo definition above.
-script fn send_single_token(recipient: PublicKey, t: Token) {
+script fn send_single_token(pub recipient: PublicKey, t: Token) {
     let send_to = PayToPublicKey::start(recipient);
     t.attach(send_to);
 }
