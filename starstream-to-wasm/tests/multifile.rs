@@ -114,7 +114,9 @@ fn helper_codegen_error_names_helper() {
 #[test]
 fn helper_type_error_names_helper() {
     // `-1` is only known to be a `u8` once the helper's body is checked. The
-    // error must point into the helper, not the entry.
+    // error must point into the helper, not the entry, and the entry's import
+    // of `minus_one` must still resolve: only the body failed, not its
+    // signature.
     let entry = fixture("helper_type_error").join("main.star");
     let mut tracker = starstream_types::FileSystem::new();
     let (graph, _) =
@@ -122,18 +124,9 @@ fn helper_type_error_names_helper() {
     let Err(failure) = starstream_compiler::typecheck_modules(&graph, Default::default()) else {
         panic!("expected a type error");
     };
-    // The failed helper also exports nothing, so the entry's import of
-    // `minus_one` fails too. Only the negation error matters here.
-    let (module, error) = failure
-        .errors
-        .iter()
-        .find(|(_, error)| {
-            matches!(
-                **error,
-                starstream_compiler::typecheck::TypeErrorKind::UnaryMismatch { .. }
-            )
-        })
-        .unwrap_or_else(|| panic!("no negation error in {:?}", failure.errors));
+    let [(module, error)] = failure.errors.as_slice() else {
+        panic!("expected one type error, got {:?}", failure.errors);
+    };
     let module = graph.module(*module);
     assert!(
         module.abs_path.ends_with("helpers/negate.star"),
