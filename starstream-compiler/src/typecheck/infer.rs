@@ -253,10 +253,12 @@ pub fn typecheck_modules(
                     match inferencer.process_definitions(&mut env, &program.definitions) {
                         Ok(x) => x,
                         Err(errors) => {
-                            // Capture a partial export table to try to continue to typecheck other modules.
+                            // Export whatever was registered so importers can keep
+                            // typechecking. Signatures are registered before any body,
+                            // so a body error leaves every export intact.
                             all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
                             warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
-                            module_exports.insert(module_id, Namespace::default());
+                            module_exports.insert(module_id, env.root);
                             continue;
                         }
                     };
