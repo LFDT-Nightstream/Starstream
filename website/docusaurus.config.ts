@@ -92,6 +92,10 @@ const config: Config = {
           to: "/sandbox/",
           label: "Sandbox",
         },
+        {
+          to: "/ledger-client/",
+          label: "Ledger",
+        },
       ],
     },
     footer: {
