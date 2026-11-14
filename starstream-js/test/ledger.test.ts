@@ -1,5 +1,11 @@
 import { execFile } from "node:child_process";
-import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  sign,
+  type KeyObject,
+} from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -14,25 +20,33 @@ import * as starstream from "../src/index.ts";
 const root = resolve(import.meta.dirname, "../..");
 const STARSTREAM = process.env.STARSTREAM!;
 const STARSTREAM_LEDGER_WASM = process.env.STARSTREAM_LEDGER_WASM!;
+const STARSTREAM_LEDGER_CLIENT_WASM =
+  process.env.STARSTREAM_LEDGER_CLIENT_WASM!;
+
+function ed25519PrivateKey(seed: Buffer): KeyObject {
+  return createPrivateKey({
+    key: Buffer.concat([
+      Buffer.from("302e020100300506032b657004220420", "hex"),
+      seed,
+    ]),
+    format: "der",
+    type: "pkcs8",
+  });
+}
 
 function ed25519PublicKey(seed: Buffer): Buffer {
   return Buffer.from(
-    createPublicKey(
-      createPrivateKey({
-        key: Buffer.concat([
-          Buffer.from("302e020100300506032b657004220420", "hex"),
-          seed,
-        ]),
-        format: "der",
-        type: "pkcs8",
-      }),
-    ).export({ format: "jwk" }).x!,
+    createPublicKey(ed25519PrivateKey(seed)).export({ format: "jwk" }).x!,
     "base64url",
   );
 }
 
 const ADMIN_SEED = createHash("sha256").update("admin").digest();
 const ADMIN_PUBLIC_KEY = ed25519PublicKey(ADMIN_SEED);
+const ADMIN: starstream.Signer = {
+  publicKey: ADMIN_PUBLIC_KEY,
+  sign: async (data) => sign(null, data, ed25519PrivateKey(ADMIN_SEED)),
+};
 const WASM_MAGIC = Uint8Array.of(0x00, 0x61, 0x73, 0x6d);
 
 const run = promisify(execFile);
@@ -399,23 +413,23 @@ test("contract and UTXO method calls", async () => {
     ledger.callUtxoMethod(genesis, "missing", {}, []),
   ).rejects.toThrow("status 404");
 
-  const txPath = join(dir, "update.tx");
-  expect(
-    await cli(
-      "contract",
-      "script",
-      "call",
-      "--key",
-      join(dir, "admin.key"),
-      "--output-transaction",
-      txPath,
-      contract,
-      "update",
-      ":0",
-    ),
-  ).toBe("()");
-  const transaction = await starstream.digest(await readFile(txPath));
+  const client = await starstream.WasmClient.instantiate(
+    await WebAssembly.compile(await readFile(STARSTREAM_LEDGER_CLIENT_WASM)),
+    ledger,
+  );
+  const call = await client.callCoordinationScript(
+    contract,
+    "update",
+    { params: [starstream.TransactionInput] },
+    [genesis],
+  );
+  expect(call.result).toBeUndefined();
+  const transaction = await ledger.submitTransaction(ADMIN, call.transaction);
+  await expect(
+    ledger.submitTransaction(ADMIN, call.transaction),
+  ).rejects.toThrow("failed to submit transaction");
   const tx = await ledger.getTransaction(transaction);
+  expect(tx).toEqual(call.transaction);
   expect(tx?.inputs).toEqual([genesis]);
   expect(tx?.outputs).toHaveLength(1);
   expect(tx?.outputs[0].contract).toBe(contract);
