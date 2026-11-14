@@ -3783,6 +3783,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "starstream-ledger-client-web"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "futures",
+ "starstream-ledger",
+ "starstream-runtime",
+ "starstream-runtime-web",
+ "tokio-util",
+ "wasmtime",
+ "wasmtime-wizer",
+ "wrpc-transport 0.30.0",
+]
+
+[[package]]
 name = "starstream-ledger-node"
 version = "0.0.0"
 dependencies = [
