@@ -2658,6 +2658,40 @@ impl Inferencer {
     /// statement following it. This is deliberately structural: a `let ...
     /// else` fallback, or a function body without a tail expression, must
     /// make its exit explicit on every control-flow path.
+    /// Merge one `if` branch into the type of the branches before it, given
+    /// with the span of the branch it came from. A branch's type is its tail
+    /// expression's, or `()` without one. Returns the merged type and the span
+    /// to report it at.
+    fn merge_if_branch(
+        &mut self,
+        current: Option<(Type, Span)>,
+        branch: &TypedBlock,
+        block_span: Span,
+        children: &mut Vec<InferenceTree>,
+    ) -> Result<(Type, Span), TypeError> {
+        let (ty, span) = branch
+            .tail_expression
+            .as_ref()
+            .map_or((Type::Unit, block_span), |tail| {
+                (tail.node.ty.clone(), tail.span)
+            });
+        let Some((current, current_span)) = current else {
+            return Ok((ty, span));
+        };
+        let (merged, unify_trace) = self.unify(
+            &current,
+            &ty,
+            current_span,
+            span,
+            TypeErrorKind::GeneralMismatch {
+                expected: self.apply_for_display(&current),
+                found: self.apply_for_display(&ty),
+            },
+        )?;
+        children.push(unify_trace);
+        Ok((merged, current_span))
+    }
+
     fn block_diverges(block: &TypedBlock) -> bool {
         block.statements.iter().any(Self::statement_diverges)
             || block
@@ -2716,7 +2750,29 @@ impl Inferencer {
         if let Some(expr) = &block.tail_expression {
             let (mut typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
             let mut children = vec![expr_trace];
-            if treat_tail_as_return {
+            // A tail that returns on every path never produces the function's
+            // value, so its own type can't contradict the return type.
+            if treat_tail_as_return && !Self::expr_diverges(&typed_expr.node) {
+                // An `if` without `else` evaluates to `()`, so in a function
+                // that returns a value the real problem is the path where no
+                // branch runs. Report it like any other missing return.
+                let expected = self.apply_for_display(&ctx.expected_return);
+                if let TypedExprKind::If {
+                    else_branch: None, ..
+                } = &typed_expr.node.kind
+                    && expected != Type::unit()
+                {
+                    let ty = self.format_type(&expected).to_string();
+                    return Err(TypeError::new(
+                        TypeErrorKind::MissingReturn { expected },
+                        expr.span,
+                    )
+                    .with_primary_message(
+                        "this `if` has no `else`, so nothing is returned when no branch runs",
+                    )
+                    .with_secondary(ctx.return_span, format!("returns `{ty}`"))
+                    .with_help(format!("add an `else` that returns or evaluates to `{ty}`")));
+                }
                 typed_expr = self.coerce_utxo_upcast(typed_expr, &ctx.expected_return);
                 let actual = &typed_expr.node.ty;
                 let (_, unify_trace) = self.unify(
@@ -3353,7 +3409,8 @@ impl Inferencer {
             } => {
                 let mut children = Vec::new();
                 let mut typed_branches = Vec::with_capacity(branches.len());
-                let mut result_ty: Option<Type> = None;
+                // The branches' type so far, and the branch it came from.
+                let mut result: Option<(Type, Span)> = None;
 
                 for (condition, then_branch) in branches {
                     let typed_condition = match condition {
@@ -3423,31 +3480,12 @@ impl Inferencer {
                             self.abi_call_trackers.pop();
                             env.pop_scope();
 
-                            let then_ty = typed_then
-                                .tail_expression
-                                .as_ref()
-                                .map_or(&Type::Unit, |tail| &tail.node.ty);
-
-                            result_ty = if let Some(current) = result_ty {
-                                let (merged, unify_trace) = self.unify(
-                                    &current,
-                                    then_ty,
-                                    typed_then
-                                        .tail_expression
-                                        .as_ref()
-                                        .map(|expr| expr.span)
-                                        .unwrap_or(expr.span),
-                                    expr.span,
-                                    TypeErrorKind::GeneralMismatch {
-                                        expected: current.clone(),
-                                        found: self.apply_for_display(then_ty),
-                                    },
-                                )?;
-                                children.push(unify_trace);
-                                Some(merged)
-                            } else {
-                                Some(then_ty.clone())
-                            };
+                            result = Some(self.merge_if_branch(
+                                result,
+                                &typed_then,
+                                then_branch.span,
+                                &mut children,
+                            )?);
 
                             typed_branches.push((
                                 TypedIfCondition::Is {
@@ -3466,31 +3504,12 @@ impl Inferencer {
                         self.infer_block(env, then_branch, ctx, false)?;
                     children.extend(then_traces);
 
-                    let then_ty = typed_then
-                        .tail_expression
-                        .as_ref()
-                        .map_or(&Type::Unit, |tail| &tail.node.ty);
-
-                    result_ty = if let Some(current) = result_ty {
-                        let (merged, unify_trace) = self.unify(
-                            &current,
-                            then_ty,
-                            typed_then
-                                .tail_expression
-                                .as_ref()
-                                .map(|expr| expr.span)
-                                .unwrap_or(expr.span),
-                            expr.span,
-                            TypeErrorKind::GeneralMismatch {
-                                expected: current.clone(),
-                                found: self.apply_for_display(then_ty),
-                            },
-                        )?;
-                        children.push(unify_trace);
-                        Some(merged)
-                    } else {
-                        Some(then_ty.clone())
-                    };
+                    result = Some(self.merge_if_branch(
+                        result,
+                        &typed_then,
+                        then_branch.span,
+                        &mut children,
+                    )?);
 
                     typed_branches.push((typed_condition, typed_then));
                 }
@@ -3498,34 +3517,43 @@ impl Inferencer {
                 let typed_else_block = if let Some(block) = else_branch {
                     let (typed_block, else_traces) = self.infer_block(env, block, ctx, false)?;
                     children.extend(else_traces);
+                    result = Some(self.merge_if_branch(
+                        result,
+                        &typed_block,
+                        block.span,
+                        &mut children,
+                    )?);
                     Some(typed_block)
                 } else {
                     None
                 };
 
-                let (else_ty, else_span) = typed_else_block
-                    .as_ref()
-                    .and_then(|b| {
-                        b.tail_expression
-                            .as_ref()
-                            .map(|tail| (&tail.node.ty, tail.span))
-                    })
-                    .unwrap_or((&Type::Unit, expr.span));
-                let result_ty = if let Some(current) = result_ty {
-                    let (merged, unify_trace) = self.unify(
-                        &current,
-                        else_ty,
-                        else_span,
-                        expr.span,
-                        TypeErrorKind::GeneralMismatch {
-                            expected: current.clone(),
-                            found: self.apply_for_display(else_ty),
-                        },
-                    )?;
+                let (result_ty, result_span) = result.expect("an `if` has at least one branch");
+                // Without an `else`, the `if` evaluates to `()` when no branch
+                // runs, so no branch can produce a value.
+                let result_ty = if typed_else_block.is_none() {
+                    let (merged, unify_trace) = self
+                        .unify(
+                            &result_ty,
+                            &Type::Unit,
+                            result_span,
+                            expr.span,
+                            TypeErrorKind::IfWithoutElseValue,
+                        )
+                        .map_err(|_| {
+                            TypeError::new(TypeErrorKind::IfWithoutElseValue, result_span)
+                                .with_primary_message(
+                                    "this branch produces a value, but the `if` has no `else`",
+                                )
+                                .with_help(
+                                    "an `if` without `else` evaluates to `()`; add an `else` \
+                                     that produces a value too, or `return` this value",
+                                )
+                        })?;
                     children.push(unify_trace);
                     merged
                 } else {
-                    else_ty.clone()
+                    result_ty
                 };
 
                 let unit_result = self.maybe_string(|| "()".to_string());

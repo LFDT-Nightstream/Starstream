@@ -451,6 +451,118 @@ fn missing_return_after_loop_return() {
 }
 
 #[test]
+fn return_on_every_path_in_tail() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn branches(flag: bool) -> i64 {
+            if (flag) {
+                return 1;
+            } else {
+                return 2;
+            }
+        }
+
+        fn chain(x: i64) -> i64 {
+            if (x == 0) {
+                return 1;
+            } else if (x == 1) {
+                return 2;
+            } else {
+                return 3;
+            }
+        }
+
+        fn arms(x: i64) -> i64 {
+            match x {
+                0 => {
+                    return 1;
+                },
+                _ => {
+                    return 2;
+                },
+            }
+        }
+
+        fn block() -> i64 {
+            {
+                return 1;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn tail_if_without_else_missing_return_error() {
+    // `unit` is fine: an `if` without `else` evaluates to `()`.
+    assert_typecheck_snapshot!(
+        r#"
+        fn compute(flag: bool) -> i64 {
+            if (flag) {
+                return 1;
+            }
+        }
+
+        fn chain(x: i64) -> i64 {
+            if (x == 0) {
+                return 1;
+            } else if (x == 1) {
+                return 2;
+            }
+        }
+
+        fn unit(flag: bool) {
+            if (flag) {
+                return;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_without_else_value_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn tail(flag: bool) -> i64 {
+            if (flag) {
+                42
+            }
+        }
+
+        fn in_let(flag: bool) -> i64 {
+            let x: i64 = if (flag) {
+                42
+            };
+            x
+        }
+
+        fn statement(flag: bool) -> i64 {
+            if (flag) {
+                42
+            }
+            0
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_branch_mismatch_with_integer_literal_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(flag: bool) {
+            let x = if (flag) {
+                1
+            } else {
+                true
+            };
+        }
+        "#
+    );
+}
+
+#[test]
 fn return_on_every_path() {
     assert_typecheck_snapshot!(
         r#"
