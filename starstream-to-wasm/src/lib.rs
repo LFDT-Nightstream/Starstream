@@ -2283,8 +2283,8 @@ impl Compiler {
         let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&this_ty).unwrap();
 
         // Tokens have no coroutine/`yield` semantics, so there is no `resume;`
-        // function to reserve (unlike `utxo`). `resume_fn` is never read because
-        // a `mint fn` body cannot yield.
+        // function to reserve (unlike `utxo`). `resume_fn` is never read: the
+        // type checker rejects `resume` in a token (E0061).
         self.current_resource = Some(ResourceContext {
             resume_fn: u32::MAX,
             public_methods: Vec::new(),
@@ -2653,7 +2653,8 @@ impl Compiler {
                             },
                         );
                     } else {
-                        // TODO: track span to here.
+                        // The type checker rejects `resume` outside a `utxo`
+                        // (E0061), so reaching this is a compiler bug.
                         self.push_error(DUMMY_SPAN, "`resume;` can only be used in a utxo method");
                         func.cfg.fill(*bb, Out::Unreachable);
                     }

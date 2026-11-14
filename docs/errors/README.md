@@ -41,3 +41,4 @@ Looking for non-fatal diagnostics? See [Warning Codes](../warnings/README.md).
 | [E0045](./E0045.md) | Explicit disclosure required for public binding |
 | [E0057](./E0057.md) | Refutable pattern in `let` binding |
 | [E0058](./E0058.md) | `let ... else` fallback does not diverge |
+| [E0061](./E0061.md) | `resume` outside a `utxo` |

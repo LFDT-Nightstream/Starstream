@@ -584,7 +584,12 @@ pub enum Statement {
     },
     Expression(Spanned<Expr>),
     Return(Option<Spanned<Expr>>),
-    Resume,
+    Resume {
+        /// The `resume` keyword. Statement spans run on through the whitespace
+        /// after the `;`, so errors point here instead.
+        #[serde(skip)]
+        span: Span,
+    },
     TryWith {
         subject: Block,
         effects: Vec<EffectHandler>,

@@ -109,7 +109,9 @@ UtxoDef {
                 body: Block {
                     statements: [
                         Spanned {
-                            node: Resume,
+                            node: Resume {
+                                span: 107..113,
+                            },
                             span: 107..115,
                         },
                     ],

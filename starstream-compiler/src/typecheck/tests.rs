@@ -2505,6 +2505,77 @@ fn utxo_public_method_resume_return_type_error() {
 }
 
 #[test]
+fn resume_inside_utxo_methods() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi Step {
+            fn step();
+        }
+
+        utxo Counter {
+            main fn new() {
+                yield(Step);
+            }
+
+            impl Step {
+                fn step() {
+                    resume;
+                }
+            }
+
+            pub fn advance() {
+                resume;
+            }
+
+            fn helper() {
+                resume;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn resume_outside_utxo_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn f() {
+            resume;
+        }
+        "#
+    );
+}
+
+#[test]
+fn resume_in_token_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            mint fn mint() {
+                resume;
+            }
+
+            impl Token {
+                fn attach(to: Utxo) {}
+                fn detach(source: Utxo) {}
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn resume_in_test_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        test "resumes" {
+            resume;
+        }
+        "#
+    );
+}
+
+#[test]
 fn utxo_public_method_return_type_error() {
     assert_typecheck_snapshot!(
         r#"

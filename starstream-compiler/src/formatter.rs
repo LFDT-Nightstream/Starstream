@@ -795,7 +795,7 @@ fn statement_to_doc<'a>(
             }))
             .append(RcDoc::text(";")),
         Statement::Return(None) => RcDoc::text("return;"),
-        Statement::Resume => RcDoc::text("resume;"),
+        Statement::Resume { .. } => RcDoc::text("resume;"),
         Statement::TryWith { subject, effects } => RcDoc::text("try")
             .append(RcDoc::space())
             .append(block_to_doc(subject, source, comments))
