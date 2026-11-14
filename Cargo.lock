@@ -3747,6 +3747,7 @@ dependencies = [
  "wit-parser 0.263.0",
  "wrpc-http",
  "wrpc-transport 0.30.0",
+ "wrpc-wave",
 ]
 
 [[package]]
@@ -3770,16 +3771,30 @@ dependencies = [
  "starstream-types",
  "tempfile",
  "tokio",
- "tokio-util",
  "toml",
  "tracing",
  "tracing-subscriber",
  "wasm-wave",
  "wasmtime",
  "wit-component 0.263.0",
- "wit-parser 0.263.0",
- "wrpc-wave",
  "zeroize",
+]
+
+[[package]]
+name = "starstream-ledger-client-web"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "futures",
+ "starstream-ledger",
+ "starstream-runtime",
+ "starstream-runtime-web",
+ "tokio-util",
+ "wasm-wave",
+ "wasmtime",
+ "wasmtime-wizer",
+ "wrpc-transport 0.30.0",
 ]
 
 [[package]]

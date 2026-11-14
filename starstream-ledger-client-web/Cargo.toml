@@ -1,0 +1,28 @@
+[package]
+name = "starstream-ledger-client-web"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+test = false
+crate-type = ["cdylib"]
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+anyhow = { workspace = true, features = ["std"] }
+bytes = { workspace = true }
+futures = { workspace = true, features = ["alloc"] }
+starstream-ledger = { workspace = true, features = ["wave"] }
+starstream-runtime = { workspace = true, features = [
+    "wasmtime-custom-fiber",
+    "wasmtime-custom-virtual-memory",
+] }
+starstream-runtime-web = { workspace = true }
+tokio-util = { workspace = true, features = ["codec"] }
+wasm-wave = { workspace = true }
+wasmtime = { workspace = true, features = ["wave"] }
+wasmtime-wizer = { workspace = true }
+wrpc-transport = { workspace = true }

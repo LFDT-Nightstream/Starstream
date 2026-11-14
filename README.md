@@ -115,6 +115,10 @@ instance management
 - `starstream-ledger-web/` - Compiles the ledger to Wasm (freestanding):
     `cargo build -p starstream-ledger-web --release --target
     wasm32-unknown-unknown`.
+- `starstream-ledger-client-web/` - Compiles the ledger client's coordination
+    script execution to Wasm (freestanding), used by `WasmClient` in
+    `starstream-js/`: `cargo build -p starstream-ledger-client-web --release
+    --target wasm32-unknown-unknown`.
 
 With the Starstream specific proving side in:
 

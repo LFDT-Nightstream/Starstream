@@ -1,15 +1,13 @@
 //! Starstream ledger client.
 
-use core::iter::zip;
 use core::pin::pin;
 use core::time::Duration;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use anyhow::{Context as _, bail, ensure};
-use bytes::{Bytes, BytesMut};
+use anyhow::Context as _;
+use bytes::Bytes;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::Uri;
@@ -18,20 +16,21 @@ use hyper_util::rt::{TokioExecutor, TokioTimer};
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::http::ClientBuilder;
-use starstream_ledger::client::runtime::UtxoCtx;
-use starstream_ledger::client::runtime::{Client, Ctx, call_coordination_script, compile_contract};
+use starstream_ledger::client::runtime::{
+    Client, Ctx, call_coordination_script, compile_contract, resolve_utxo_results,
+};
+use starstream_ledger::client::wave::{
+    encode_utxo_args, parse_digest, parse_script_args, read_utxo_results, utxo_method_type,
+};
 use starstream_ledger::{
     APPLICATION_WASM, CardanoCtx, Transaction, TransactionInput, TransactionOutput, encode_digest,
 };
-use starstream_runtime::Utxo;
 use tokio::fs;
-use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
+use tokio::io::{AsyncWriteExt as _, stdout};
 use tokio::try_join;
-use tokio_util::codec::Encoder as _;
 use tracing::{info, warn};
-use wasm_wave::wasm::WasmFunc as _;
 use wasmtime::Store;
-use wasmtime::component::{Val, types};
+use wasmtime::component::Val;
 use zeroize::Zeroizing;
 
 #[derive(Debug, Parser)]
@@ -315,46 +314,6 @@ enum UtxoCommand {
     },
 }
 
-/// Encode WAVE-encoded `args` as parameters of type `ty`.
-fn encode_args(
-    ty: &wasm_wave::value::FuncType,
-    args: impl IntoIterator<Item = Box<str>>,
-) -> anyhow::Result<Bytes> {
-    let params_ty = zip(ty.param_names(), ty.params());
-    let mut args = args.into_iter();
-    let mut buf = BytesMut::new();
-    for (name, ty) in params_ty {
-        let v = args
-            .next()
-            .with_context(|| format!("missing value for parameter `{name}`"))?;
-        let v = wasm_wave::from_str::<wasm_wave::value::Value>(&ty, &v)
-            .with_context(|| format!("failed to parse value for parameter `{name}`"))?;
-        wrpc_wave::ValueEncoder::new(&ty)
-            .encode(&v, &mut buf)
-            .with_context(|| format!("failed to encode value of parameter `{name}`"))?;
-    }
-    ensure!(args.next().is_none(), "trailing arguments");
-    Ok(buf.freeze())
-}
-
-async fn write_results(
-    ty: &wasm_wave::value::FuncType,
-    results: impl AsyncRead + Unpin,
-) -> anyhow::Result<()> {
-    let mut results = pin!(results);
-    if let Some(ty) = wasm_wave::value::Type::tuple(ty.results().collect::<Box<_>>()) {
-        let v = wrpc_wave::read_value::<wasm_wave::value::Value, _>(&mut results, &ty)
-            .await
-            .context("failed to read result tuple")?;
-        let mut s = wasm_wave::to_string(&v).context("failed to encode result tuple")?;
-        s.push('\n');
-        stdout().write_all(s.as_bytes()).await
-    } else {
-        stdout().write_all(b"()\n").await
-    }
-    .context("failed to write result tuple to stdout")
-}
-
 async fn read_signing_key(path: &Path) -> anyhow::Result<SigningKey> {
     let key = fs::read_to_string(path)
         .await
@@ -363,29 +322,6 @@ async fn read_signing_key(path: &Path) -> anyhow::Result<SigningKey> {
     let mut buf = Zeroizing::new([0u8; 32]);
     hex::decode_to_slice(key.trim(), &mut *buf).context("key hex is not valid")?;
     Ok(SigningKey::from_bytes(&buf))
-}
-
-fn parse_digest(s: &str) -> anyhow::Result<[u8; 32]> {
-    if let Some(hex) = s.strip_prefix("sha256:") {
-        let mut buf = [0u8; 32];
-        hex::decode_to_slice(hex, &mut buf).context("sha256 digest hex is not valid")?;
-        return Ok(buf);
-    }
-    let digest =
-        starstream_ledger::parse_digest(s).context("digest is not a valid multibase multihash")?;
-    Ok(digest)
-}
-
-fn parse_input(s: &str) -> anyhow::Result<TransactionInput> {
-    let (transaction, index) = s
-        .rsplit_once(':')
-        .context("input must be formatted as `[TRANSACTION]:INDEX`")?;
-    let index = index.parse().context("input index is not valid")?;
-    if transaction.is_empty() {
-        return Ok(TransactionInput::genesis(index));
-    }
-    let transaction = parse_digest(transaction).context("transaction digest is not valid")?;
-    Ok(TransactionInput::new(transaction, index))
 }
 
 fn parse_verifying_key(s: &str) -> anyhow::Result<VerifyingKey> {
@@ -583,31 +519,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let script = contract.get_coordination_script(&script)?;
 
             let ty = script.ty();
-            let params_ty = ty.params();
-            let mut params = Vec::with_capacity(params_ty.len());
-            let mut args = args.into_iter();
-            for (name, ty) in params_ty {
-                let v = args
-                    .next()
-                    .with_context(|| format!("missing value for parameter `{name}`"))?;
-                let v = v.as_ref();
-                let v = match ty {
-                    types::Type::Own(..) | types::Type::Borrow(..) => {
-                        let utxo = parse_input(v).with_context(|| {
-                            format!("failed to parse UTXO input for parameter `{name}`")
-                        })?;
-                        utxo.into()
-                    }
-                    ty => {
-                        let v = wasm_wave::from_str::<Val>(&ty, v).with_context(|| {
-                            format!("failed to parse value for parameter `{name}`")
-                        })?;
-                        v.into()
-                    }
-                };
-                params.push(v);
-            }
-            ensure!(args.next().is_none(), "trailing arguments");
+            let params = parse_script_args(ty, args)?;
             let mut results = vec![Val::Bool(false); ty.results().len()];
 
             let mut utxos = Vec::default();
@@ -635,26 +547,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             if let Err(err) = execution {
                 warn!(?err, "failed to check execution trace");
             }
-            'outer: for result in &mut results {
-                if let &mut Val::Resource(utxo) = result {
-                    let utxo = utxo
-                        .try_into_resource(&mut store)
-                        .map_err(anyhow::Error::from)
-                        .context("result resource is not a UTXO")?;
-                    let utxo: &Utxo<Arc<std::sync::Mutex<UtxoCtx>>> = store
-                        .data()
-                        .table
-                        .get(&utxo)
-                        .context("result UTXO not found")?;
-                    for (i, out) in zip(0.., &utxos) {
-                        if utxo.resource() == out.resource() {
-                            *result = Val::U32(i);
-                            continue 'outer;
-                        }
-                    }
-                    bail!("failed to identify result resource");
-                }
-            }
+            resolve_utxo_results(&mut store, &utxos, &mut results)?;
             let mut results = wasm_wave::to_string(&Val::Tuple(results))
                 .context("failed to encode result tuple")?;
             if let Some(path) = output_transaction {
@@ -714,28 +607,17 @@ async fn exec(args: Args) -> anyhow::Result<()> {
         }
         Command::Utxo(UtxoCommand::Call { utxo, method, args }) => {
             let input = TransactionInput::from(utxo);
-            let wasm = client.get_utxo_wit(&input, Some(APPLICATION_WASM)).await?;
-            let wasm = wit_parser::decoding::decode(&wasm).context("failed to decode UTXO WIT")?;
-            let wit_parser::decoding::DecodedWasm::WitPackage(resolve, pkg) = wasm else {
-                bail!("UTXO WIT is not a WIT package")
-            };
-            let utxo = resolve.packages[pkg]
-                .interfaces
-                .get("utxo")
-                .context("`utxo` interface not found")?;
-            let ty = resolve.interfaces[*utxo]
-                .functions
-                .get(&*method)
-                .with_context(|| format!("method `{method}` not found"))?;
-            let ty = wit_parser::Function {
-                params: ty.params.iter().skip(2).cloned().collect(),
-                ..ty.clone()
-            };
-            let ty = wasm_wave::value::resolve_wit_func_type(&resolve, &ty)
-                .context("failed to resolve method type")?;
-            let args = encode_args(&ty, args)?;
+            let wit = client.get_utxo_wit(&input, Some(APPLICATION_WASM)).await?;
+            let ty = utxo_method_type(&wit, &method)?;
+            let args = encode_utxo_args(&ty, args)?;
             let rx = client.call_utxo_method(&input, &method, &args).await?;
-            write_results(&ty, rx).await
+            let mut rx = pin!(rx);
+            let mut results = read_utxo_results(&ty, &mut rx).await?;
+            results.push('\n');
+            stdout()
+                .write_all(results.as_bytes())
+                .await
+                .context("failed to write result tuple to stdout")
         }
         Command::Utxo(UtxoCommand::Wit { utxo }) => {
             let input = TransactionInput::from(utxo);

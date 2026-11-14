@@ -12,6 +12,8 @@ use crate::{Envelope, Fund, Message, Publish, Transaction, TransactionInput};
 #[cfg(feature = "http")]
 pub mod http;
 pub mod runtime;
+#[cfg(feature = "wave")]
+pub mod wave;
 
 /// Build a signed `COSE_Sign` envelope.
 fn build_sign_envelope(key: SigningKey, payload: impl Into<Vec<u8>>) -> anyhow::Result<Vec<u8>> {
