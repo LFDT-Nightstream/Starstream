@@ -56,7 +56,7 @@ impl Ledger {
         let ledger = Arc::clone(&self);
         let svc = service_fn(move |req: http::Request<hyper::body::Incoming>| {
             let ledger = Arc::clone(&ledger);
-            async move { ledger.handle_http(req, io_timeout).await }
+            async move { ledger.handle_http(req, || sleep(io_timeout)).await }
         });
         let shutdown: Arc<Notify> = Arc::default();
         let mut srv = hyper::server::conn::http1::Builder::new();

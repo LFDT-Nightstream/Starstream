@@ -4,6 +4,12 @@
 // Ledgers
 
 export { Ledger, type FuncType } from "./ledger.ts";
+export {
+  WasmLedger,
+  type Genesis,
+  type GenesisScript,
+  type WasmLedgerOptions,
+} from "./wasm-ledger.ts";
 export { t, type Type } from "@bytecodealliance/wrpc";
 
 // ----------------------------------------------------------------------------
@@ -20,3 +26,14 @@ export type {
 } from "./bindings/starstream/ledger/types.js";
 
 export { digest } from "./digest.ts";
+
+// ----------------------------------------------------------------------------
+// Wasm embedding
+
+export {
+  promising,
+  RuntimeWeb,
+  type RuntimeWebExports,
+  type RuntimeWebImports,
+  unusedImports,
+} from "./runtime-web.ts";
