@@ -450,6 +450,8 @@ struct FunctionCtx {
     /// Declaration spans for function parameters that are private (non-`pub`).
     private_param_decl_spans: Vec<Span>,
     is_coroutine: bool,
+    /// Declared inside a `utxo`, where `resume` is allowed.
+    in_utxo: bool,
 }
 
 impl Inferencer {
@@ -680,7 +682,7 @@ impl Inferencer {
                     }
                     Err(e) => errors.push(e),
                 },
-                Definition::Function(def) => match self.infer_function(env, def) {
+                Definition::Function(def) => match self.infer_function(env, def, false) {
                     Ok((def2, trace)) => {
                         self.typed_definitions
                             .insert(&definition.node, TypedDefinition::Function(def2));
@@ -1194,7 +1196,7 @@ impl Inferencer {
                         Self::collect_yields_expr(dest, &expr.node);
                     }
                 }
-                Statement::Resume => {}
+                Statement::Resume { .. } => {}
                 Statement::TryWith { subject, effects } => {
                     Self::collect_yields(dest, subject);
                     for handler in effects {
@@ -1376,7 +1378,7 @@ impl Inferencer {
                             function.name.span(),
                         ));
                     }
-                    let (func, trace) = self.infer_function(env, function)?;
+                    let (func, trace) = self.infer_function(env, function, true)?;
                     traces.push(trace);
                     TypedUtxoPart::Function(func.into())
                 }
@@ -1386,7 +1388,7 @@ impl Inferencer {
                     let parts = parts
                         .iter()
                         .map(|function| {
-                            let (func, trace) = self.infer_function(env, function)?;
+                            let (func, trace) = self.infer_function(env, function, true)?;
                             traces.push(trace);
                             Ok(func)
                         })
@@ -1502,7 +1504,7 @@ impl Inferencer {
                             function.name.span(),
                         ));
                     }
-                    let (func, trace) = self.infer_function(env, function)?;
+                    let (func, trace) = self.infer_function(env, function, false)?;
                     traces.push(trace);
                     TypedTokenPart::Function(func.into())
                 }
@@ -1512,7 +1514,7 @@ impl Inferencer {
                     let parts = parts
                         .iter()
                         .map(|function| {
-                            let (func, trace) = self.infer_function(env, function)?;
+                            let (func, trace) = self.infer_function(env, function, false)?;
                             traces.push(trace);
                             Ok(func)
                         })
@@ -2073,6 +2075,7 @@ impl Inferencer {
         &mut self,
         env: &mut TypeEnv,
         function: &FunctionDef,
+        in_utxo: bool,
     ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
         let func_ty = Arc::new(self.function_def_to_type(env, function)?);
         let return_span = function.return_span();
@@ -2117,6 +2120,7 @@ impl Inferencer {
             return_span,
             private_param_decl_spans,
             is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
+            in_utxo,
         };
 
         let body = self.infer_block(env, &function.body, &mut ctx, true);
@@ -2169,6 +2173,7 @@ impl Inferencer {
             return_span: DUMMY_SPAN,
             private_param_decl_spans: Default::default(),
             is_coroutine: false,
+            in_utxo: false,
         };
 
         let body = self.infer_block(env, &test.body, &mut ctx, true);
@@ -2534,7 +2539,10 @@ impl Inferencer {
                 });
                 Ok((TypedStatement::Expression(typed_expr), tree))
             }
-            Statement::Resume => {
+            Statement::Resume { span } => {
+                if !ctx.in_utxo {
+                    return Err(TypeError::new(TypeErrorKind::ResumeOutsideUtxo, *span));
+                }
                 // Do like `return ();`
                 let result_repr = self.maybe_string(|| self.format_type(&ctx.expected_return));
                 let (_, unify_trace) = self.unify(

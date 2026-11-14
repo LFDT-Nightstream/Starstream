@@ -240,6 +240,8 @@ pub enum TypeErrorKind {
     },
     /// `yield` appears outside Utxo `main fn`.
     YieldOutsideMainFn,
+    /// `resume` appears outside a `utxo`.
+    ResumeOutsideUtxo,
     /// A `token` definition has no `mint fn`.
     TokenMissingMintFn {
         name: String,
@@ -325,6 +327,7 @@ impl TypeErrorKind {
             TypeErrorKind::TokenDuplicateImpl { .. } => error_code!(E0054),
             TypeErrorKind::ReservedAbiName { .. } => error_code!(E0055),
             TypeErrorKind::ImportWasm { .. } => error_code!(E0060),
+            TypeErrorKind::ResumeOutsideUtxo => error_code!(E0061),
         }
     }
 }
@@ -718,6 +721,9 @@ impl fmt::Display for TypeErrorKind {
             }
             TypeErrorKind::YieldOutsideMainFn => {
                 write!(f, "`yield` can only be used inside a `main fn`")
+            }
+            TypeErrorKind::ResumeOutsideUtxo => {
+                write!(f, "`resume` can only be used inside a `utxo`")
             }
             TypeErrorKind::TokenMissingMintFn { name } => {
                 write!(f, "token `{name}` must have at least one `mint fn`")

@@ -111,7 +111,9 @@ Program {
                                 body: Block {
                                     statements: [
                                         Spanned {
-                                            node: Resume,
+                                            node: Resume {
+                                                span: 177..183,
+                                            },
                                             span: 177..189,
                                         },
                                     ],
