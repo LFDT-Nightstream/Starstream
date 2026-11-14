@@ -31,6 +31,15 @@ server = [
     "dep:wit-component",
     "dep:wit-parser",
 ]
+wave = [
+    "client",
+    "dep:wasm-wave",
+    "dep:wit-parser",
+    "dep:wrpc-wave",
+    "wasm-wave/wit",
+    "wasmtime/wave",
+    "wit-parser/decoding",
+]
 tcp = [
     "dep:hyper",
     "dep:hyper-util",
@@ -94,6 +103,7 @@ wit-component = { workspace = true, optional = true }
 wit-parser = { workspace = true, optional = true }
 wrpc-http = { workspace = true, optional = true }
 wrpc-transport = { workspace = true }
+wrpc-wave = { workspace = true, optional = true }
 
 [build-dependencies]
 anyhow = { workspace = true, optional = true }
