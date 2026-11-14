@@ -42,6 +42,7 @@ export { digest } from "./digest.ts";
 export {
   promising,
   RuntimeWeb,
+  suspending,
   type RuntimeWebExports,
   type RuntimeWebImports,
   unusedImports,

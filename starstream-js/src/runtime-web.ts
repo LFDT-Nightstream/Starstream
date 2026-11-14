@@ -49,6 +49,17 @@ interface Fiber {
   slot: Parked | undefined;
 }
 
+/** Wrap an async function in `WebAssembly.Suspending`, as an import. */
+export function suspending(
+  fn: (...args: never[]) => Promise<unknown>,
+): WebAssembly.ImportValue {
+  const { Suspending } = jspi();
+  if (typeof Suspending !== "function") {
+    throw new Error("JSPI (WebAssembly.Suspending) is unavailable");
+  }
+  return new Suspending(fn);
+}
+
 /** Wrap an export in `WebAssembly.promising`. */
 export function promising<A extends unknown[], R>(
   fn: (...args: A) => R,

@@ -375,3 +375,48 @@
 .sandbox-tabs__hint {
   color: var(--ifm-color-emphasis-600);
 }
+
+/* Ledger terminal */
+
+.ledger {
+  display: flex;
+  flex-wrap: wrap;
+  height: calc(100vh - 60px);
+}
+.ledger-terminal {
+  flex: 1 1 480px;
+  min-width: 0;
+  height: 100%;
+  padding: 12px;
+  background: #1a1b26;
+  overflow: hidden;
+}
+.ledger-node {
+  flex: 0 1 380px;
+  height: 100%;
+  padding: 12px 16px;
+  overflow-y: auto;
+  border-left: 1px solid var(--ifm-color-emphasis-300);
+}
+.ledger-node__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.ledger-node__value {
+  display: grid;
+  grid-template-columns: 7em minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.ledger-node__value code {
+  overflow-wrap: anywhere;
+}
+.ledger-node__field {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  border: 0;
+  padding: 0;
+}
