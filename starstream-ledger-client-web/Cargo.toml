@@ -15,13 +15,14 @@ crate-type = ["cdylib"]
 anyhow = { workspace = true, features = ["std"] }
 bytes = { workspace = true }
 futures = { workspace = true, features = ["alloc"] }
-starstream-ledger = { workspace = true, features = ["client"] }
+starstream-ledger = { workspace = true, features = ["wave"] }
 starstream-runtime = { workspace = true, features = [
     "wasmtime-custom-fiber",
     "wasmtime-custom-virtual-memory",
 ] }
 starstream-runtime-web = { workspace = true }
 tokio-util = { workspace = true, features = ["codec"] }
-wasmtime = { workspace = true }
+wasm-wave = { workspace = true }
+wasmtime = { workspace = true, features = ["wave"] }
 wasmtime-wizer = { workspace = true }
 wrpc-transport = { workspace = true }

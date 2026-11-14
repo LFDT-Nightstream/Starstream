@@ -372,6 +372,18 @@ test("contract and UTXO method calls", async () => {
     [genesis],
   );
   expect(call.result).toBeUndefined();
+  expect(
+    await client.callCoordinationScriptWave(contract, "update", [":0"]),
+  ).toEqual({ transaction: call.transaction, result: "()" });
+  expect(await client.callUtxoMethodWave(genesis, "get-chips", [])).toBe(
+    "(42)",
+  );
+  expect(await client.callUtxoMethodWave(genesis, "plus-chips", ["1"])).toBe(
+    "()",
+  );
+  await expect(
+    client.callUtxoMethodWave(genesis, "plus-chips", []),
+  ).rejects.toThrow("missing value for parameter `arg-chips2`");
   const transaction = await ledger.submitTransaction(ADMIN, call.transaction);
   await expect(
     ledger.submitTransaction(ADMIN, call.transaction),

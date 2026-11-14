@@ -3791,6 +3791,7 @@ dependencies = [
  "starstream-runtime",
  "starstream-runtime-web",
  "tokio-util",
+ "wasm-wave",
  "wasmtime",
  "wasmtime-wizer",
  "wrpc-transport 0.30.0",

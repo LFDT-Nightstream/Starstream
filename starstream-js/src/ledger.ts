@@ -19,9 +19,12 @@ import type {
   TransactionOutput,
 } from "./bindings/starstream/ledger/types.js";
 import {
+  encodeValue,
   fromFetch,
   invoke,
+  Mux,
   t,
+  Writer,
   type InputValue,
   type Transport,
   type Type,
@@ -342,5 +345,43 @@ export class Ledger {
     );
     await finished;
     return results[0] as unknown;
+  }
+
+  /**
+   * Call the method `name` of the UTXO created by `output` with the
+   * wRPC-encoded `params`, discarding the resulting state, and return its
+   * wRPC-encoded results. The method must not take or return streams or
+   * futures.
+   */
+  async callUtxoMethodEncoded(
+    output: TransactionInput,
+    name: string,
+    params: Uint8Array,
+  ): Promise<Uint8Array> {
+    const w = new Writer();
+    encodeValue(w, t.option(t.string), output.transaction || undefined);
+    encodeValue(w, t.u32, output.index);
+    w.bytes(params);
+    const mux = new Mux(this.transport());
+    try {
+      await mux.writeHeader(LEDGER_UTXO_INSTANCE, name);
+      mux.restrict([], 0);
+      mux.start();
+      await mux.outgoing([]).write(w.finish());
+      await mux.closeWrite();
+      const root = mux.incoming([]);
+      const results = new Writer();
+      while (await root.fill(1)) {
+        const chunk = root.remaining();
+        results.bytes(chunk);
+        root.consume(chunk.length);
+      }
+      mux.finish([], root);
+      await mux.ended;
+      return results.finish();
+    } catch (err) {
+      mux.abort(err);
+      throw err;
+    }
   }
 }

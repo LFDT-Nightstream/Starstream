@@ -2,14 +2,22 @@
 //!
 //! `client_call` executes a coordination script of a published contract and
 //! passes the resulting transaction to the `client_result` import, without
-//! signing or submitting it. Contracts and the outputs spent by the
+//! signing or submitting it. `client_call_wave` does the same with
+//! WAVE-encoded arguments and results. Contracts and the outputs spent by the
 //! transaction are requested from the embedder through the
 //! `client_get_contract` and `client_get_output` imports, which it answers by
 //! calling `client_reply_ok` or `client_reply_error`.
 //! A call to `client_call` made while another is in progress, or after one
 //! trapped, fails. `client_call` must be entered through
-//! `WebAssembly.promising`, see [`starstream_runtime_web`]. The other exports
-//! do not suspend, so the embedder may call them while it is suspended.
+//! `WebAssembly.promising`, see [`starstream_runtime_web`], and so must
+//! `client_call_wave`. `client_alloc` and the `client_reply_*` exports do not
+//! suspend, so the embedder may call them while it is suspended.
+//!
+//! `client_call_utxo_method_wave` calls a method of a UTXO on the ledger with
+//! WAVE-encoded arguments through the `client_get_utxo_wit` and
+//! `client_call_utxo_method` imports, answered the same way, and passes the
+//! WAVE-encoded results to the `client_value` import. It must also be entered
+//! through `WebAssembly.promising`.
 
 #![cfg(target_family = "wasm")]
 
@@ -19,18 +27,20 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use std::collections::HashMap;
 use std::panic;
-use std::sync::{Arc, Once, OnceLock};
+use std::sync::{Once, OnceLock};
 
-use anyhow::{Context as _, bail, ensure};
+use anyhow::{Context as _, ensure};
 use bytes::{Bytes, BytesMut};
 use futures::channel::oneshot;
 use starstream_ledger::client::runtime::{
-    Client, Ctx, UtxoCtx, call_coordination_script, compile_contract,
+    Client, Ctx, call_coordination_script, compile_contract, resolve_utxo_results,
+};
+use starstream_ledger::client::wave::{
+    encode_utxo_args, parse_digest, parse_script_args, read_utxo_results, utxo_method_type,
 };
 use starstream_ledger::wrpc::bindings::starstream::ledger::types;
 use starstream_ledger::wrpc::codec::{ValEncoder, read_value};
 use starstream_ledger::{CardanoCtx, TransactionInput, TransactionOutput, encode_digest};
-use starstream_runtime::Utxo;
 use starstream_runtime_web::{block_on, disable_cranelift_profiler};
 use tokio_util::codec::Encoder as _;
 use wasmtime::Store;
@@ -41,6 +51,7 @@ use wasmtime_wizer::Wizer;
 unsafe extern "C" {
     fn client_error(ptr: *const u8, len: usize);
     fn client_result(tx: *const u8, tx_len: usize, results: *const u8, results_len: usize);
+    fn client_value(ptr: *const u8, len: usize);
     /// Fetches the Wasm of the contract with `digest`, then passes it to
     /// `client_reply_ok(reply, ..)` or fails `reply`.
     fn client_get_contract(digest: *const u8, digest_len: usize, reply: *mut u8);
@@ -50,6 +61,30 @@ unsafe extern "C" {
         transaction: *const u8,
         transaction_len: usize,
         index: u32,
+        reply: *mut u8,
+    );
+    /// Fetches the UTXO WIT, encoded as Wasm, of the output `index` of
+    /// `transaction`, empty for genesis, then passes it to
+    /// `client_reply_ok(reply, ..)` or fails `reply`.
+    fn client_get_utxo_wit(
+        transaction: *const u8,
+        transaction_len: usize,
+        index: u32,
+        reply: *mut u8,
+    );
+    /// Calls the method `method` of the UTXO created by the output `index` of
+    /// `transaction`, empty for genesis, on the ledger with wRPC-encoded
+    /// `params`, then passes its wRPC-encoded results to
+    /// `client_reply_ok(reply, ..)` or fails `reply`.
+    #[allow(clippy::too_many_arguments)]
+    fn client_call_utxo_method(
+        transaction: *const u8,
+        transaction_len: usize,
+        index: u32,
+        method: *const u8,
+        method_len: usize,
+        params: *const u8,
+        params_len: usize,
         reply: *mut u8,
     );
 }
@@ -101,14 +136,7 @@ fn init() {
     });
 }
 
-fn report(res: impl FnOnce() -> anyhow::Result<()>) -> i32 {
-    init();
-    if ENTERED.swap(true, Ordering::Relaxed) {
-        report_error("client is busy or trapped");
-        return -1;
-    }
-    let res = res();
-    ENTERED.store(false, Ordering::Relaxed);
+fn report(res: anyhow::Result<()>) -> i32 {
     match res {
         Ok(()) => 0,
         Err(err) => {
@@ -118,9 +146,30 @@ fn report(res: impl FnOnce() -> anyhow::Result<()>) -> i32 {
     }
 }
 
+fn enter(f: impl FnOnce() -> anyhow::Result<()>) -> i32 {
+    init();
+    if ENTERED.swap(true, Ordering::Relaxed) {
+        report_error("client is busy or trapped");
+        return -1;
+    }
+    let res = f();
+    ENTERED.store(false, Ordering::Relaxed);
+    report(res)
+}
+
 unsafe fn take(ptr: *mut u8, len: usize) -> Vec<u8> {
     let buf = unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(ptr, len)) };
     buf.into_vec()
+}
+
+/// Arguments of a coordination script call.
+enum Args {
+    /// wRPC-encoded, each UTXO as the transaction digest, empty for genesis,
+    /// followed by the output index.
+    Encoded(Vec<u8>),
+    /// WAVE-encoded, each UTXO as `[TRANSACTION]:INDEX`, with an empty
+    /// `TRANSACTION` for genesis.
+    Wave(Vec<String>),
 }
 
 fn engine() -> anyhow::Result<&'static wasmtime::Engine> {
@@ -134,17 +183,11 @@ fn engine() -> anyhow::Result<&'static wasmtime::Engine> {
     Ok(ENGINE.get_or_init(|| engine))
 }
 
-async fn call(
-    contract: &str,
-    script: &str,
-    mut args: &[u8],
-    cardano: CardanoCtx,
-) -> anyhow::Result<()> {
+async fn call(contract: &str, script: &str, args: Args, cardano: CardanoCtx) -> anyhow::Result<()> {
     let engine = engine()?;
     let wizer = Wizer::new();
 
-    let digest = starstream_ledger::parse_digest(contract)
-        .with_context(|| format!("failed to parse `{contract}` as multibase multihash"))?;
+    let digest = parse_digest(contract)?;
     let wasm = EmbedderClient.get_contract(digest).await?;
     let mut contracts = HashMap::default();
     let contract =
@@ -152,38 +195,52 @@ async fn call(
     let script = contract.get_coordination_script(script)?;
 
     let ty = script.ty();
-    let mut params = Vec::with_capacity(ty.params().len());
-    for (name, ty) in ty.params() {
-        let mut v = Val::Bool(false);
-        match ty {
-            Type::Own(..) | Type::Borrow(..) => {
-                let mut index = Val::Bool(false);
-                read_value(&mut args, &mut v, &Type::String)
-                    .await
-                    .with_context(|| format!("failed to decode input of parameter `{name}`"))?;
-                read_value(&mut args, &mut index, &Type::U32)
-                    .await
-                    .with_context(|| format!("failed to decode input of parameter `{name}`"))?;
-                let (Val::String(transaction), Val::U32(index)) = (v, index) else {
-                    unreachable!("decoded value type mismatch");
-                };
-                params.push(
-                    TransactionInput {
-                        transaction: transaction.into(),
-                        index,
+    let (params, wave) = match args {
+        Args::Encoded(args) => {
+            let mut params = Vec::with_capacity(ty.params().len());
+            let mut args = &args[..];
+            for (name, ty) in ty.params() {
+                let mut v = Val::Bool(false);
+                match ty {
+                    Type::Own(..) | Type::Borrow(..) => {
+                        let mut index = Val::Bool(false);
+                        read_value(&mut args, &mut v, &Type::String)
+                            .await
+                            .with_context(|| {
+                                format!("failed to decode input of parameter `{name}`")
+                            })?;
+                        read_value(&mut args, &mut index, &Type::U32)
+                            .await
+                            .with_context(|| {
+                                format!("failed to decode input of parameter `{name}`")
+                            })?;
+                        let (Val::String(transaction), Val::U32(index)) = (v, index) else {
+                            unreachable!("decoded value type mismatch");
+                        };
+                        params.push(
+                            TransactionInput {
+                                transaction: transaction.into(),
+                                index,
+                            }
+                            .into(),
+                        );
                     }
-                    .into(),
-                );
+                    ty => {
+                        read_value(&mut args, &mut v, &ty)
+                            .await
+                            .with_context(|| format!("failed to decode parameter `{name}`"))?;
+                        params.push(v.into());
+                    }
+                }
             }
-            ty => {
-                read_value(&mut args, &mut v, &ty)
-                    .await
-                    .with_context(|| format!("failed to decode parameter `{name}`"))?;
-                params.push(v.into());
-            }
+            ensure!(args.is_empty(), "trailing arguments");
+            (params, false)
         }
-    }
-    ensure!(args.is_empty(), "trailing arguments");
+        Args::Wave(args) => {
+            let params = parse_script_args(ty, args)?;
+            (params, true)
+        }
+    };
 
     let mut results = vec![Val::Bool(false); ty.results().len()];
     let ctx = Ctx {
@@ -206,34 +263,25 @@ async fn call(
     )
     .await?;
 
-    let mut buf = BytesMut::default();
-    'outer: for (result, ty) in zip(results, ty.results()) {
-        if let Val::Resource(utxo) = result {
-            let utxo = utxo
-                .try_into_resource(&mut store)
+    resolve_utxo_results(&mut store, &utxos, &mut results)?;
+    let buf = if wave {
+        let results =
+            wasm_wave::to_string(&Val::Tuple(results)).context("failed to encode result tuple")?;
+        BytesMut::from(results.as_bytes())
+    } else {
+        let mut buf = BytesMut::default();
+        for (result, ty) in zip(&results, ty.results()) {
+            let ty = match ty {
+                Type::Own(..) | Type::Borrow(..) => Type::U32,
+                ty => ty,
+            };
+            ValEncoder::new(&ty)
+                .encode(result, &mut buf)
                 .map_err(anyhow::Error::from)
-                .context("result resource is not a UTXO")?;
-            let utxo: &Utxo<Arc<std::sync::Mutex<UtxoCtx>>> = store
-                .data()
-                .table
-                .get(&utxo)
-                .context("result UTXO not found")?;
-            for (i, out) in zip(0u32.., &utxos) {
-                if utxo.resource() == out.resource() {
-                    ValEncoder::new(&Type::U32)
-                        .encode(&Val::U32(i), &mut buf)
-                        .map_err(anyhow::Error::from)
-                        .context("failed to encode result")?;
-                    continue 'outer;
-                }
-            }
-            bail!("failed to identify result resource");
+                .context("failed to encode result")?;
         }
-        ValEncoder::new(&ty)
-            .encode(&result, &mut buf)
-            .map_err(anyhow::Error::from)
-            .context("failed to encode result")?;
-    }
+        buf
+    };
     let mut tx_buf = BytesMut::default();
     wrpc_transport::pack_ready(types::Transaction::from(tx), &mut tx_buf)
         .context("failed to encode transaction")?;
@@ -274,14 +322,118 @@ pub unsafe extern "C" fn client_call(
     let contract = unsafe { take(contract, contract_len) };
     let script = unsafe { take(script, script_len) };
     let args = unsafe { take(args, args_len) };
-    report(|| {
+    enter(|| {
         let contract = str::from_utf8(&contract).context("contract digest is not UTF-8")?;
         let script = str::from_utf8(&script).context("script name is not UTF-8")?;
         let cardano = CardanoCtx {
             block_height: cardano_block_height,
             current_slot: cardano_current_slot,
         };
-        block_on(call(contract, script, &args, cardano))
+        block_on(call(contract, script, Args::Encoded(args), cardano))
+    })
+}
+
+/// Like `client_call`, but with `args` given as a wRPC-encoded `list<string>`
+/// of WAVE-encoded arguments, each UTXO argument as `[TRANSACTION]:INDEX`
+/// with an empty `TRANSACTION` for genesis, and the results passed to the
+/// `client_result` import as a WAVE-encoded tuple.
+///
+/// # Safety
+///
+/// `contract`, `script` and `args` must each be the result of
+/// `client_alloc(len)`, written in full.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn client_call_wave(
+    contract: *mut u8,
+    contract_len: usize,
+    script: *mut u8,
+    script_len: usize,
+    args: *mut u8,
+    args_len: usize,
+    cardano_block_height: i64,
+    cardano_current_slot: i64,
+) -> i32 {
+    let contract = unsafe { take(contract, contract_len) };
+    let script = unsafe { take(script, script_len) };
+    let args = unsafe { take(args, args_len) };
+    enter(|| {
+        let contract = str::from_utf8(&contract).context("contract digest is not UTF-8")?;
+        let script = str::from_utf8(&script).context("script name is not UTF-8")?;
+        let args = wrpc_transport::unpack::<Vec<String>>(&mut BytesMut::from(&args[..]))
+            .context("failed to decode arguments")?;
+        let cardano = CardanoCtx {
+            block_height: cardano_block_height,
+            current_slot: cardano_current_slot,
+        };
+        block_on(call(contract, script, Args::Wave(args), cardano))
+    })
+}
+
+async fn call_utxo_method(
+    transaction: &str,
+    index: u32,
+    method: &str,
+    args: Vec<String>,
+) -> anyhow::Result<()> {
+    let wit = request(|reply| unsafe {
+        client_get_utxo_wit(transaction.as_ptr(), transaction.len(), index, reply)
+    })
+    .await
+    .with_context(|| format!("failed to get WIT of UTXO `{transaction}:{index}`"))?;
+    let ty = utxo_method_type(&wit, method)?;
+    let params = encode_utxo_args(&ty, args)?;
+    let results = request(|reply| unsafe {
+        client_call_utxo_method(
+            transaction.as_ptr(),
+            transaction.len(),
+            index,
+            method.as_ptr(),
+            method.len(),
+            params.as_ptr(),
+            params.len(),
+            reply,
+        )
+    })
+    .await
+    .with_context(|| format!("failed to call method `{method}` of UTXO `{transaction}:{index}`"))?;
+    let mut rx = &results[..];
+    let results = read_utxo_results(&ty, &mut rx).await?;
+    ensure!(rx.is_empty(), "trailing results");
+    unsafe { client_value(results.as_ptr(), results.len()) };
+    Ok(())
+}
+
+/// Call the method `method` of the UTXO created by the output `index` of
+/// `transaction`, an encoded digest or empty for genesis, on the ledger with
+/// `args` given as a wRPC-encoded `list<string>` of WAVE-encoded arguments,
+/// discarding the resulting state, and pass its results to the
+/// `client_value` import as a WAVE-encoded tuple.
+///
+/// # Safety
+///
+/// `transaction`, `method` and `args` must each be the result of
+/// `client_alloc(len)`, written in full.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn client_call_utxo_method_wave(
+    transaction: *mut u8,
+    transaction_len: usize,
+    index: u32,
+    method: *mut u8,
+    method_len: usize,
+    args: *mut u8,
+    args_len: usize,
+) -> i32 {
+    let transaction = unsafe { take(transaction, transaction_len) };
+    let method = unsafe { take(method, method_len) };
+    let args = unsafe { take(args, args_len) };
+    enter(|| {
+        let transaction =
+            str::from_utf8(&transaction).context("transaction digest is not UTF-8")?;
+        let method = str::from_utf8(&method).context("method name is not UTF-8")?;
+        let args = wrpc_transport::unpack::<Vec<String>>(&mut BytesMut::from(&args[..]))
+            .context("failed to decode arguments")?;
+        block_on(call_utxo_method(transaction, index, method, args))
     })
 }
 
