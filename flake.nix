@@ -2,11 +2,18 @@
   description = "Starstream development environment";
 
   inputs.nixify.url = "github:rvolosatovs/nixify";
+  inputs.nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
-    { nixify, ... }:
+    { nixify, nixpkgs-unstable, ... }:
     with nixify.lib;
     mkFlake {
+      overlays = [
+        (final: prev: {
+          pkgsUnstable = nixpkgs-unstable.legacyPackages.${final.stdenv.hostPlatform.system};
+        })
+      ];
+
       withDevShells =
         { devShells, pkgs, ... }:
         extendDerivations {
@@ -20,7 +27,7 @@
             pkgs.python3
             pkgs.rustup
             pkgs.wabt
-            pkgs.wasm-bindgen-cli_0_2_105
+            pkgs.pkgsUnstable.wasm-bindgen-cli_0_2_129
             pkgs.wasm-tools
           ];
 
