@@ -1801,18 +1801,15 @@ impl Inferencer {
             Pattern::Literal { value, span } => {
                 // Literal patterns must match the expected type
                 let literal_ty = match value {
+                    // Like an integer literal expression: the scrutinee decides
+                    // the type, and `settle_int_vars` checks the value fits.
                     Literal::Integer(literal) => {
-                        // Digits overflowing `i128` cannot fit any integer type.
-                        if literal.value().is_none() {
-                            return Err(TypeError::new(
-                                TypeErrorKind::LiteralOutOfRange {
-                                    literal: literal.to_string(),
-                                    ty: Type::int(),
-                                },
-                                *span,
-                            ));
+                        let ty = self.fresh_int_var();
+                        if let Type::Var(id) = &ty {
+                            self.int_literal_values
+                                .insert(*id, (literal.clone(), *span));
                         }
-                        Type::int()
+                        ty
                     }
                     Literal::Boolean(_) => Type::Bool,
                     Literal::Unit => Type::Unit,
@@ -1824,7 +1821,7 @@ impl Inferencer {
                     *span,
                     TypeErrorKind::GeneralMismatch {
                         expected: self.apply_for_display(expected_ty),
-                        found: literal_ty.clone(),
+                        found: self.apply_for_display(&literal_ty),
                     },
                 )?;
                 Ok((TypedPattern::Literal(value.clone()), vec![unify_trace]))

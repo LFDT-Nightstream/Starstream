@@ -1,0 +1,29 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(n: u8) -> u8 {\n    match n {\n        1 => {\n            10\n        },\n        _ => {\n            0\n        },\n    }\n}\n"
+---
+T-Fn: test => u8
+  T-ReturnTail: match n {
+    1 => {
+        10
+    },
+    _ => {
+        0
+    },
+} => u8
+    T-Match: {n: u8, test: fn(n: u8) -> u8} ⊢ match n {
+    1 => {
+        10
+    },
+    _ => {
+        0
+    },
+} ⇒ i64
+      T-Var: {n: u8, test: fn(n: u8) -> u8} ⊢ n ⇒ u8
+      Unify-Var: u8 ~ i64 => {u8/t3}
+      T-Tail: 10 => i64
+        T-Int: {n: u8, test: fn(n: u8) -> u8} ⊢ 10 ⇒ i64
+      T-Tail: 0 => i64
+        T-Int: {n: u8, test: fn(n: u8) -> u8} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
+    Unify-Var: i64 ~ u8 => {u8/t4}

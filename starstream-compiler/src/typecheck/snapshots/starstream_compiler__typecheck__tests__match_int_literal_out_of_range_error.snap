@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(n: u8) -> u8 {\n    match n {\n        300 => {\n            10\n        },\n        _ => {\n            0\n        },\n    }\n}\n"
+---
+E0044 (https://starstream.nightstream.dev/errors/E0044)
+
+  x integer literal `300` does not fit in type `u8`
+   ,-[test.star:3:9]
+ 2 |     match n {
+ 3 |         300 => {
+   :         ^^^
+ 4 |             10
+   `----
