@@ -1,4 +1,5 @@
 import { digest as computeDigest } from "./digest.ts";
+import { buildTransactionEnvelope, type Signer } from "./envelope.ts";
 import * as accountRpc from "./bindings/starstream/ledger/account.js";
 import * as adminRpc from "./bindings/starstream/ledger/admin.js";
 import * as blockRpc from "./bindings/starstream/ledger/block.js";
@@ -21,6 +22,7 @@ import {
   type Type,
 } from "@bytecodealliance/wrpc";
 
+const APPLICATION_COSE = "application/cose";
 const APPLICATION_WASM = "application/wasm";
 const APPLICATION_WRPC = "application/x.wrpc";
 const TEXT_PLAIN = "text/plain";
@@ -147,6 +149,30 @@ export class Ledger {
   ): Promise<Uint8Array | undefined> {
     const res = await transactionRpc.getEnvelope(this.transport(), digest);
     return unwrapGet(res, "digest");
+  }
+
+  /**
+   * Sign `tx` by `signer` for `network`, defaulting to the ledger's, submit it
+   * and return its digest.
+   */
+  async submitTransaction(
+    signer: Signer,
+    tx: Transaction,
+    options?: { network?: string },
+  ): Promise<string> {
+    const network = options?.network ?? (await this.getNetworkName());
+    const envelope = await buildTransactionEnvelope(signer, network, tx);
+    const post = this.fetch ?? fetch;
+    const res = await post(this.url, {
+      method: "POST",
+      headers: { "content-type": APPLICATION_COSE },
+      body: envelope,
+    });
+    const body = await res.text();
+    if (!res.ok) {
+      throw new Error(`failed to submit transaction: ${body}`);
+    }
+    return body;
   }
 
   /** Get the outputs of the genesis block. */
