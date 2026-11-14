@@ -219,7 +219,7 @@ interface RunWasm {
 // ----------------------------------------------------------------------------
 
 // State the Wasm imports below read and write; set per incoming message.
-let input = new Uint8Array();
+let input: Uint8Array = new Uint8Array();
 let request_id = 0;
 let describeJson: Describe | undefined;
 let callResult: unknown[] | undefined;
