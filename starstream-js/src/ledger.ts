@@ -1,5 +1,10 @@
 import { digest as computeDigest } from "./digest.ts";
-import { buildTransactionEnvelope, type Signer } from "./envelope.ts";
+import {
+  buildFundEnvelope,
+  buildPublishEnvelope,
+  buildTransactionEnvelope,
+  type Signer,
+} from "./envelope.ts";
 import * as accountRpc from "./bindings/starstream/ledger/account.js";
 import * as adminRpc from "./bindings/starstream/ledger/admin.js";
 import * as blockRpc from "./bindings/starstream/ledger/block.js";
@@ -151,6 +156,72 @@ export class Ledger {
     return unwrapGet(res, "digest");
   }
 
+  private async submit(
+    envelope: Uint8Array<ArrayBuffer>,
+    what: string,
+  ): Promise<string> {
+    const post = this.fetch ?? fetch;
+    const res = await post(this.url, {
+      method: "POST",
+      headers: { "content-type": APPLICATION_COSE },
+      body: envelope,
+    });
+    const body = await res.text();
+    if (!res.ok) {
+      throw new Error(`failed to ${what}: ${body}`);
+    }
+    return body;
+  }
+
+  /**
+   * Credit the account with the Ed25519 public key `account` with `amount`,
+   * signed by the admin `signer` for `network`, defaulting to the ledger's,
+   * with `nonce`, defaulting to the one following the last admin nonce.
+   */
+  async fund(
+    signer: Signer,
+    account: Uint8Array,
+    amount: bigint,
+    options?: { network?: string; nonce?: bigint },
+  ): Promise<void> {
+    const [network, nonce] = await Promise.all([
+      options?.network ?? this.getNetworkName(),
+      options?.nonce ?? this.getAdminNonce().then((nonce) => nonce + 1n),
+    ]);
+    const envelope = await buildFundEnvelope(
+      signer,
+      network,
+      nonce,
+      account,
+      amount,
+    );
+    await this.submit(envelope, "fund account");
+  }
+
+  /**
+   * Publish the contract `wasm`, signed by `signer` for `network`, defaulting
+   * to the ledger's, with `nonce`, defaulting to the one following the last
+   * nonce of `signer`, and return its digest.
+   */
+  async publishContract(
+    signer: Signer,
+    wasm: Uint8Array,
+    options?: { network?: string; nonce?: bigint },
+  ): Promise<string> {
+    const [network, nonce] = await Promise.all([
+      options?.network ?? this.getNetworkName(),
+      options?.nonce ??
+        this.getAccountNonce(signer.publicKey).then((nonce) => {
+          if (nonce === undefined) {
+            throw new Error("account not found");
+          }
+          return nonce + 1n;
+        }),
+    ]);
+    const envelope = await buildPublishEnvelope(signer, network, nonce, wasm);
+    return this.submit(envelope, "publish contract");
+  }
+
   /**
    * Sign `tx` by `signer` for `network`, defaulting to the ledger's, submit it
    * and return its digest.
@@ -162,17 +233,7 @@ export class Ledger {
   ): Promise<string> {
     const network = options?.network ?? (await this.getNetworkName());
     const envelope = await buildTransactionEnvelope(signer, network, tx);
-    const post = this.fetch ?? fetch;
-    const res = await post(this.url, {
-      method: "POST",
-      headers: { "content-type": APPLICATION_COSE },
-      body: envelope,
-    });
-    const body = await res.text();
-    if (!res.ok) {
-      throw new Error(`failed to submit transaction: ${body}`);
-    }
-    return body;
+    return this.submit(envelope, "submit transaction");
   }
 
   /** Get the outputs of the genesis block. */

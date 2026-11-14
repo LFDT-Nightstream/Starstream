@@ -4,8 +4,11 @@ import type {
 } from "./bindings/starstream/ledger/types.js";
 import { Writer } from "@bytecodealliance/wrpc";
 
+const FUND_CONTEXT = 0;
+const PUBLISH_CONTEXT = 1;
 const TRANSACTION_CONTEXT = 2;
 
+const COSE_SIGN1_TAG = 18;
 const COSE_SIGN_TAG = 98;
 const COSE_HEADER_ALG = 1;
 const COSE_HEADER_KID = 4;
@@ -127,6 +130,95 @@ function encodeTransaction(w: Writer, tx: Transaction): void {
   bytes(w, tx.proof);
 }
 
+function encodePayload(
+  network: string,
+  context: number,
+  message: (w: Writer) => void,
+): Uint8Array {
+  const w = new Writer();
+  array(w, 3);
+  text(w, network);
+  int(w, context);
+  message(w);
+  return w.finish();
+}
+
+function encodeProtectedHeader(signer: Signer): Uint8Array {
+  const w = new Writer();
+  map(w, 2);
+  int(w, COSE_HEADER_ALG);
+  int(w, COSE_ALG_EDDSA);
+  int(w, COSE_HEADER_KID);
+  bytes(w, signer.publicKey);
+  return w.finish();
+}
+
+async function buildSign1Envelope(
+  signer: Signer,
+  payload: Uint8Array,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const protectedBytes = encodeProtectedHeader(signer);
+
+  const toBeSigned = new Writer();
+  array(toBeSigned, 4);
+  text(toBeSigned, "Signature1");
+  bytes(toBeSigned, protectedBytes);
+  bytes(toBeSigned, new Uint8Array());
+  bytes(toBeSigned, payload);
+  const signature = await signer.sign(
+    toBeSigned.finish() as Uint8Array<ArrayBuffer>,
+  );
+
+  const envelope = new Writer();
+  head(envelope, 6, COSE_SIGN1_TAG);
+  array(envelope, 4);
+  bytes(envelope, protectedBytes);
+  map(envelope, 0);
+  bytes(envelope, payload);
+  bytes(envelope, signature);
+  return envelope.finish() as Uint8Array<ArrayBuffer>;
+}
+
+/**
+ * Build a `COSE_Sign1` envelope crediting `account` with `amount` for
+ * `network`, signed by the admin `signer` with `nonce`, encoded like
+ * `starstream_ledger::client::build_fund_envelope`.
+ */
+export function buildFundEnvelope(
+  signer: Signer,
+  network: string,
+  nonce: bigint,
+  account: Uint8Array,
+  amount: bigint,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const payload = encodePayload(network, FUND_CONTEXT, (w) => {
+    array(w, 3);
+    int(w, nonce);
+    bytes(w, account);
+    int(w, amount);
+  });
+  return buildSign1Envelope(signer, payload);
+}
+
+/**
+ * Build a `COSE_Sign1` envelope publishing the contract `wasm` for `network`,
+ * signed by `signer` with `nonce`, encoded like
+ * `starstream_ledger::client::build_publish_envelope`.
+ */
+export function buildPublishEnvelope(
+  signer: Signer,
+  network: string,
+  nonce: bigint,
+  wasm: Uint8Array,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const payload = encodePayload(network, PUBLISH_CONTEXT, (w) => {
+    array(w, 2);
+    int(w, nonce);
+    bytes(w, wasm);
+  });
+  return buildSign1Envelope(signer, payload);
+}
+
 /**
  * Build a `COSE_Sign` envelope of `tx` for `network`, signed by `signer`,
  * encoded like `starstream_ledger::client::build_transaction_envelope`.
@@ -136,20 +228,10 @@ export async function buildTransactionEnvelope(
   network: string,
   tx: Transaction,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  const payload = new Writer();
-  array(payload, 3);
-  text(payload, network);
-  int(payload, TRANSACTION_CONTEXT);
-  encodeTransaction(payload, tx);
-  const payloadBytes = payload.finish();
-
-  const protectedHeader = new Writer();
-  map(protectedHeader, 2);
-  int(protectedHeader, COSE_HEADER_ALG);
-  int(protectedHeader, COSE_ALG_EDDSA);
-  int(protectedHeader, COSE_HEADER_KID);
-  bytes(protectedHeader, signer.publicKey);
-  const protectedBytes = protectedHeader.finish();
+  const payloadBytes = encodePayload(network, TRANSACTION_CONTEXT, (w) =>
+    encodeTransaction(w, tx),
+  );
+  const protectedBytes = encodeProtectedHeader(signer);
 
   const toBeSigned = new Writer();
   array(toBeSigned, 5);
