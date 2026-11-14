@@ -1267,6 +1267,15 @@ fn test_overflow_traps_for_every_width() {
 }
 
 #[test]
+fn test_negative_literal_minimum_for_every_width() {
+    for (ty, min, _) in INT_TYPES.into_iter().filter(|(ty, ..)| ty.starts_with('i')) {
+        // `{min}` prints as `-128` etc.: a negated literal, not `0 - MIN`.
+        let wasm = compile_program(&format!("script fn min() -> {ty} {{\n    {min}\n}}\n"));
+        assert_int_call(&wasm, ty, "min", &[], Some(min));
+    }
+}
+
+#[test]
 fn test_unchecked_arithmetic_wraps_for_every_width() {
     let options = CompileOptions {
         check_overflows: false,

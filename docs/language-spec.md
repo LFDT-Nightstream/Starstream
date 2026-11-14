@@ -670,6 +670,7 @@ visibility modifier:
 ## Expressions
 
 - Integer literals are polymorphic: an unadorned numeric literal like `42` adopts the integer type determined by context (e.g. a type annotation or function parameter type). When no context constrains the type, the literal defaults to `i64`. A compile-time error is emitted if the literal value does not fit in the resolved type (e.g. `let x: i8 = 300` is an error).
+- A unary `-` applied directly to an integer literal makes a negative literal, which must fit as a negative value: `let x: i8 = -128` is allowed and `let x: i8 = -129` is an error. Parentheses in between leave the literal on its own, so `let x: i8 = -(128)` is an error because `128` does not fit in `i8`.
 - Integer literals may be written in decimal (`42`), hexadecimal (`0xFF`), octal (`0o17`), or binary (`0b1010`) notation. The notation only affects how the literal is written (and how the formatter prints it back); the value and typing rules are identical across notations.
 - Boolean literals work in the obvious way.
 - Struct literals `TypeName { field: expr, ... }` evaluate each field expression once and produce a record value. Field names must be unique; order is irrelevant.

@@ -1,0 +1,34 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let a: i8 = -128;\n    let b: i16 = -32768;\n    let c: i32 = -2147483648;\n    let d: i64 = -9223372036854775808;\n    let e = -9223372036854775808;\n    let f: i8 = -0x80;\n}\n"
+---
+T-Fn: test => ()
+  T-Let: {test: fn() -> ()} ⊢ let a: i8 = -128; ⇒ i8
+    T-Unary-Neg: {test: fn() -> ()} ⊢ -128 ⇒ i64
+      T-Int: {test: fn() -> ()} ⊢ 128 ⇒ i64
+      Check-Negate: i64 => ok (int var)
+    Unify-Var: i8 ~ i64 => {i8/t3}
+  T-Let: {a: i8, test: fn() -> ()} ⊢ let b: i16 = -32768; ⇒ i16
+    T-Unary-Neg: {a: i8, test: fn() -> ()} ⊢ -32768 ⇒ i64
+      T-Int: {a: i8, test: fn() -> ()} ⊢ 32768 ⇒ i64
+      Check-Negate: i64 => ok (int var)
+    Unify-Var: i16 ~ i64 => {i16/t4}
+  T-Let: {a: i8, b: i16, test: fn() -> ()} ⊢ let c: i32 = -2147483648; ⇒ i32
+    T-Unary-Neg: {a: i8, b: i16, test: fn() -> ()} ⊢ -2147483648 ⇒ i64
+      T-Int: {a: i8, b: i16, test: fn() -> ()} ⊢ 2147483648 ⇒ i64
+      Check-Negate: i64 => ok (int var)
+    Unify-Var: i32 ~ i64 => {i32/t5}
+  T-Let: {a: i8, b: i16, c: i32, test: fn() -> ()} ⊢ let d: i64 = -9223372036854775808; ⇒ i64
+    T-Unary-Neg: {a: i8, b: i16, c: i32, test: fn() -> ()} ⊢ -9223372036854775808 ⇒ i64
+      T-Int: {a: i8, b: i16, c: i32, test: fn() -> ()} ⊢ 9223372036854775808 ⇒ i64
+      Check-Negate: i64 => ok (int var)
+    Unify-Var: i64 ~ i64 => {i64/t6}
+  T-Let: {a: i8, b: i16, c: i32, d: i64, test: fn() -> ()} ⊢ let e = -9223372036854775808; ⇒ i64
+    T-Unary-Neg: {a: i8, b: i16, c: i32, d: i64, test: fn() -> ()} ⊢ -9223372036854775808 ⇒ i64
+      T-Int: {a: i8, b: i16, c: i32, d: i64, test: fn() -> ()} ⊢ 9223372036854775808 ⇒ i64
+      Check-Negate: i64 => ok (int var)
+  T-Let: {a: i8, b: i16, c: i32, d: i64, e: i64, test: fn() -> ()} ⊢ let f: i8 = -0x80; ⇒ i8
+    T-Unary-Neg: {a: i8, b: i16, c: i32, d: i64, e: i64, test: fn() -> ()} ⊢ -0x80 ⇒ i64
+      T-Int: {a: i8, b: i16, c: i32, d: i64, e: i64, test: fn() -> ()} ⊢ 0x80 ⇒ i64
+      Check-Negate: i64 => ok (int var)
+    Unify-Var: i8 ~ i64 => {i8/t8}

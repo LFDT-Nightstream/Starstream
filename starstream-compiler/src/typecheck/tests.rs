@@ -2360,6 +2360,33 @@ fn negate_literal_inferred_unsigned_from_annotation_error() {
 }
 
 #[test]
+fn negative_literal_minimums_fit() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let a: i8 = -128;
+            let b: i16 = -32768;
+            let c: i32 = -2147483648;
+            let d: i64 = -9223372036854775808;
+            let e = -9223372036854775808;
+            let f: i8 = -0x80;
+        }
+        "#
+    );
+}
+
+#[test]
+fn negative_literal_below_minimum_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: i8 = -129;
+        }
+        "#
+    );
+}
+
+#[test]
 fn integer_literal_overflowing_i128_error() {
     // Used to panic the parser; now flows through as a range error against
     // the literal's resolved type.

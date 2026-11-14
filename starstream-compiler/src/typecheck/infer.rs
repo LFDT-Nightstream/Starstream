@@ -370,6 +370,41 @@ fn resolve_path_imports<'g>(
     result
 }
 
+/// An integer literal whose type is not known yet, kept so `settle_int_vars`
+/// can check that its value fits once it is.
+#[derive(Clone)]
+struct PendingIntLiteral {
+    literal: IntegerLiteral,
+    /// Written as `-literal`, so `-128` fits `i8` even though `128` doesn't.
+    negated: bool,
+    span: Span,
+}
+
+impl PendingIntLiteral {
+    fn new(literal: IntegerLiteral, span: Span) -> Self {
+        Self {
+            literal,
+            negated: false,
+            span,
+        }
+    }
+
+    /// `None` when the digits overflow `i128`.
+    fn value(&self) -> Option<i128> {
+        let value = self.literal.value()?;
+        Some(if self.negated { -value } else { value })
+    }
+}
+
+impl std::fmt::Display for PendingIntLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.negated {
+            write!(f, "-")?;
+        }
+        write!(f, "{}", self.literal)
+    }
+}
+
 /// Internal stateful helper that owns the substitution map and generates fresh
 /// type variables while walking the AST.
 struct Inferencer {
@@ -385,7 +420,7 @@ struct Inferencer {
     /// Type variables constrained to integer types (from polymorphic integer literals).
     int_vars: HashSet<TypeVarId>,
     /// Tracks the literal value associated with each integer type variable for range checking.
-    int_literal_values: HashMap<TypeVarId, (IntegerLiteral, Span)>,
+    int_literal_values: HashMap<TypeVarId, PendingIntLiteral>,
     /// Integer type variables negated before their type was known, checked for
     /// signedness at the end of the body.
     negated_int_vars: Vec<(TypeVarId, Span)>,
@@ -1807,7 +1842,7 @@ impl Inferencer {
                         let ty = self.fresh_int_var();
                         if let Type::Var(id) = &ty {
                             self.int_literal_values
-                                .insert(*id, (literal.clone(), *span));
+                                .insert(*id, PendingIntLiteral::new(literal.clone(), *span));
                         }
                         ty
                     }
@@ -2753,7 +2788,7 @@ impl Inferencer {
                         let ty = self.fresh_int_var();
                         if let Type::Var(id) = &ty {
                             self.int_literal_values
-                                .insert(*id, (value.clone(), expr.span));
+                                .insert(*id, PendingIntLiteral::new(value.clone(), expr.span));
                         }
                         (
                             ty,
@@ -2826,6 +2861,15 @@ impl Inferencer {
                                 // Int-constrained var (polymorphic literal) — allow for now,
                                 // signedness is checked in `settle_int_vars`
                                 self.negated_int_vars.push((*id, inner.span));
+                                // `-128` is one literal for range checking. Only
+                                // when written directly: in `-x`, `x`'s var may
+                                // belong to a literal that must fit unnegated.
+                                if let Expr::Literal(Literal::Integer(_)) = &inner.node
+                                    && let Some(literal) = self.int_literal_values.get_mut(id)
+                                {
+                                    literal.negated = true;
+                                    literal.span = expr.span;
+                                }
                                 let subject =
                                     self.maybe_string(|| self.format_type(&inner_ty).to_string());
                                 let result = self.maybe_string(|| "ok (int var)".to_string());
@@ -4388,8 +4432,11 @@ impl Inferencer {
     fn settle_int_vars(&mut self) -> Result<(), TypeError> {
         self.default_int_vars();
         let mut errors = Vec::new();
-        for (id, (literal, span)) in std::mem::take(&mut self.int_literal_values) {
+        for (id, literal) in std::mem::take(&mut self.int_literal_values) {
             if let Type::Int(w) = self.apply(&Type::Var(id))
+                // A negated literal in an unsigned type is reported below as
+                // the negation, not as a range error.
+                && !(literal.negated && !w.is_signed())
                 // `value()` is `None` when the digits overflow `i128`, which no
                 // supported integer type can hold either.
                 && !literal.value().is_some_and(|value| w.fits(value))
@@ -4399,9 +4446,9 @@ impl Inferencer {
                         literal: literal.to_string(),
                         ty: Type::Int(w),
                     },
-                    span,
+                    literal.span,
                 );
-                errors.push((span.start, error));
+                errors.push((literal.span.start, error));
             }
         }
         for (id, span) in std::mem::take(&mut self.negated_int_vars) {
@@ -5068,10 +5115,10 @@ impl Inferencer {
                                 format!("has type `{}`", self.format_type(ty)),
                             );
                     }
-                    if let Some((_, literal_span)) = self.int_literal_values.get(&var)
-                        && ![var_span, other_span].contains(literal_span)
+                    if let Some(literal) = self.int_literal_values.get(&var)
+                        && ![var_span, other_span].contains(&literal.span)
                     {
-                        err = err.with_secondary(*literal_span, "integer literal");
+                        err = err.with_secondary(literal.span, "integer literal");
                     }
                     return Err(err);
                 }
