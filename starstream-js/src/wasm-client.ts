@@ -92,6 +92,7 @@ export class WasmClient {
   private callUtxoMethod!: (
     ...args: Parameters<Exports["client_call_utxo_method_wave"]>
   ) => Promise<number>;
+  private disposed = false;
   private error: string | undefined;
   private result: { transaction: Uint8Array; results: Uint8Array } | undefined;
   private value: Uint8Array | undefined;
@@ -198,6 +199,15 @@ export class WasmClient {
       client.exports.client_call_utxo_method_wave,
     );
     return client;
+  }
+
+  /**
+   * Cancel the timers of the instance and fail later calls. Calls in flight
+   * still complete.
+   */
+  dispose(): void {
+    this.disposed = true;
+    this.runtime.dispose();
   }
 
   /**
@@ -308,6 +318,9 @@ export class WasmClient {
   }
 
   private enqueue<T>(f: () => Promise<T>): Promise<T> {
+    if (this.disposed) {
+      return Promise.reject(new Error("client disposed"));
+    }
     const call = this.queue.then(f);
     this.queue = call.catch(() => {});
     return call;
