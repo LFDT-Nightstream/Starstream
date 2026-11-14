@@ -65,3 +65,56 @@ script fn unmatched() -> i64 {
     assert_eq!(call_i64(&wasm, "matched"), 42);
     assert_eq!(call_i64(&wasm, "unmatched"), 7);
 }
+
+#[test]
+fn integer_literal_patterns_match_narrow_integers() {
+    let wasm = compile(
+        r#"
+script fn u8_hit() -> i64 {
+    let x: u8 = 200;
+    match x {
+        200 => {
+            1
+        },
+        _ => {
+            0
+        },
+    }
+}
+
+script fn u8_miss() -> i64 {
+    let x: u8 = 7;
+    match x {
+        200 => {
+            1
+        },
+        _ => {
+            0
+        },
+    }
+}
+
+script fn u32_above_i32_max() -> i64 {
+    let x: u32 = 4000000000;
+    match x {
+        4000000000 => {
+            1
+        },
+        _ => {
+            0
+        },
+    }
+}
+
+script fn u8_let_else() -> i64 {
+    let x: u8 = 5;
+    let 5 = x else { return 0; };
+    1
+}
+"#,
+    );
+    assert_eq!(call_i64(&wasm, "u8-hit"), 1);
+    assert_eq!(call_i64(&wasm, "u8-miss"), 0);
+    assert_eq!(call_i64(&wasm, "u32-above-i32-max"), 1);
+    assert_eq!(call_i64(&wasm, "u8-let-else"), 1);
+}

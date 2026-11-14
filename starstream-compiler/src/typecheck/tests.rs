@@ -1016,6 +1016,42 @@ fn match_int_literal_with_wildcard() {
 }
 
 #[test]
+fn match_int_literal_takes_scrutinee_type() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(n: u8) -> u8 {
+            match n {
+                1 => {
+                    10
+                },
+                _ => {
+                    0
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_int_literal_out_of_range_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(n: u8) -> u8 {
+            match n {
+                300 => {
+                    10
+                },
+                _ => {
+                    0
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
 fn call_expression_traces() {
     assert_typecheck_snapshot!(
         r#"
