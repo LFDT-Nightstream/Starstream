@@ -211,7 +211,6 @@ T-Fn: main => ()
       T-ReturnUnit: {flag: bool, main: fn() -> ()} ⊢ return; ⇒ ()
         Unify-Const: () ~ () => {}
       Unify-Const: () ~ () => {}
-    Unify-Const: () ~ () => {}
 
 T-Fn: compute => i64
   T-Let: {compute: fn() -> i64, main: fn() -> ()} ⊢ let base = 41; ⇒ i64
