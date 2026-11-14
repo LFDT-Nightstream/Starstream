@@ -6,12 +6,8 @@ import {
   sign,
   type KeyObject,
 } from "node:crypto";
-import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
-import { type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { Readable } from "node:stream";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
@@ -54,16 +50,9 @@ const run = promisify(execFile);
 let dir: string;
 let module: WebAssembly.Module;
 let node: starstream.WasmLedger;
-let server: Server;
-let url: string;
 let ledger: starstream.Ledger;
 let wasm: Uint8Array;
 let contract: string;
-
-async function cli(...args: string[]): Promise<string> {
-  const { stdout } = await run(STARSTREAM, ["ledger", "--url", url, ...args]);
-  return stdout.trim();
-}
 
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "starstream-js-"));
@@ -83,8 +72,6 @@ beforeAll(async () => {
   wasm = new Uint8Array(await readFile(wasmPath));
   contract = await starstream.digest(wasm);
 
-  await writeFile(join(dir, "admin.key"), ADMIN_SEED.toString("hex"));
-
   module = await WebAssembly.compile(await readFile(STARSTREAM_LEDGER_WASM));
   node = await starstream.WasmLedger.start(module, {
     network: "dev",
@@ -93,33 +80,10 @@ beforeAll(async () => {
     imports: [wasm],
   });
   ledger = new starstream.Ledger("http://ledger", { fetch: node.fetch });
-
-  server = createServer(async (req, res) => {
-    const hasBody = req.method !== "GET" && req.method !== "HEAD";
-    try {
-      const response = await node.fetch(`http://ledger${req.url}`, {
-        method: req.method,
-        headers: req.headers as HeadersInit,
-        body: hasBody ? (Readable.toWeb(req) as ReadableStream) : undefined,
-        duplex: "half",
-      } as RequestInit);
-      const body = Buffer.from(await response.arrayBuffer());
-      res.writeHead(response.status, Object.fromEntries(response.headers));
-      res.end(body);
-    } catch (err) {
-      res.writeHead(500);
-      res.end(String(err));
-    }
-  });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const { port } = server.address() as AddressInfo;
-  url = `http://127.0.0.1:${port}`;
 }, 600_000);
 
 afterAll(async () => {
   try {
-    server?.close();
     node?.dispose();
   } finally {
     if (dir) {
@@ -303,32 +267,16 @@ test("contract and UTXO method calls", async () => {
   const adminNonce = await ledger.getAdminNonce();
   const balance = (await ledger.getAccountBalance(ADMIN_PUBLIC_KEY)) ?? 0n;
   const nonce = (await ledger.getAccountNonce(ADMIN_PUBLIC_KEY)) ?? 0n;
-  await cli(
-    "account",
-    "fund",
-    "--key",
-    join(dir, "admin.key"),
-    "--nonce",
-    String(adminNonce + 1n),
-    ADMIN_PUBLIC_KEY.toString("hex"),
-    "1000000000",
-  );
+  await ledger.fund(ADMIN, ADMIN_PUBLIC_KEY, 1000000000n);
   expect(await ledger.getAdminNonce()).toBe(adminNonce + 1n);
   expect(await ledger.getAccountBalance(ADMIN_PUBLIC_KEY)).toBe(
     balance + 1000000000n,
   );
   expect(await ledger.getAccountNonce(ADMIN_PUBLIC_KEY)).toBe(nonce);
-  expect(
-    await cli(
-      "contract",
-      "publish",
-      "--key",
-      join(dir, "admin.key"),
-      "--nonce",
-      String(nonce + 1n),
-      join(dir, "score.wasm"),
-    ),
-  ).toBe(contract);
+  expect(await ledger.publishContract(ADMIN, wasm)).toBe(contract);
+  await expect(ledger.publishContract(ADMIN, wasm)).rejects.toThrow(
+    "failed to publish contract",
+  );
   expect(await ledger.getAccountNonce(ADMIN_PUBLIC_KEY)).toBe(nonce + 1n);
   expect(await ledger.getBlockHeight()).toBe(height + 2n);
   expect(await ledger.getBlock(height + 1n)).toHaveLength(1);
