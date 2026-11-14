@@ -412,4 +412,8 @@ test("contract and UTXO method calls", async () => {
       [],
     ),
   ).toBe(47n);
+  client.dispose();
+  await expect(
+    client.callUtxoMethodWave(genesis, "get-chips", []),
+  ).rejects.toThrow("client disposed");
 }, 600_000);
