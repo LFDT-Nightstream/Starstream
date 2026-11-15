@@ -12,6 +12,7 @@ mod diagnostics;
 mod docs;
 mod explain;
 mod format;
+#[cfg(not(target_family = "wasm"))]
 mod lsp;
 mod run;
 mod style;
@@ -23,13 +24,13 @@ pub use check::Check;
 pub use docs::Docs;
 pub use explain::Explain;
 pub use format::Format;
-pub use lsp::Lsp;
 pub use run::Run;
 pub use test::Test;
 pub use wasm::Wasm;
 
 /// The Starstream language and toolchain CLI.
 #[derive(Debug, clap::Subcommand)]
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     Docs(Docs),
     Wasm(Wasm),
@@ -38,11 +39,13 @@ pub enum Command {
     Format(Format),
     Check(Check),
     Explain(Explain),
+    #[cfg(not(target_family = "wasm"))]
     #[clap(hide = true)]
-    Lsp(Lsp),
+    Lsp(lsp::Lsp),
     Run(Run),
     Test(Test),
     Ledger(starstream_ledger_cli::Args),
+    #[cfg(not(target_family = "wasm"))]
     Node(starstream_ledger_node::Args),
 }
 
@@ -64,10 +67,12 @@ impl Cli {
             Command::Format(f) => f.exec(),
             Command::Check(c) => c.exec(),
             Command::Explain(e) => e.exec(),
+            #[cfg(not(target_family = "wasm"))]
             Command::Lsp(l) => l.exec().await,
             Command::Run(r) => r.exec().await,
             Command::Test(t) => t.exec().await,
             Command::Ledger(l) => l.exec().await.map_err(|err| miette::miette!("{err}")),
+            #[cfg(not(target_family = "wasm"))]
             Command::Node(n) => n.exec().await.map_err(|err| miette::miette!("{err}")),
         }
     }

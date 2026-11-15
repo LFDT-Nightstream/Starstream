@@ -6,8 +6,20 @@ use std::process::ExitCode;
 use clap::Parser;
 use starstream_cli::Cli;
 
+#[cfg(not(target_family = "wasm"))]
 #[tokio::main]
 async fn main() -> ExitCode {
+    init();
+    report(Cli::parse().exec().await)
+}
+
+#[cfg(target_family = "wasm")]
+fn main() -> ExitCode {
+    init();
+    report(starstream_runtime_web::block_on(Cli::parse().exec()))
+}
+
+fn init() {
     miette::set_panic_hook();
 
     tracing_subscriber::fmt()
@@ -18,8 +30,10 @@ async fn main() -> ExitCode {
         )
         .with_writer(std::io::stderr)
         .init();
+}
 
-    match Cli::parse().exec().await {
+fn report(res: miette::Result<()>) -> ExitCode {
+    match res {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("{e:?}");

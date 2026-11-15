@@ -2,6 +2,7 @@ use core::iter::zip;
 use core::pin::Pin;
 
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +11,6 @@ use sha2::{Digest as _, Sha256};
 use starstream_runtime::{
     Contract, ContractLookup, Host, StarstreamCtx, Token, Utxo, UtxoExport, bindings,
 };
-use tokio::fs;
 use tracing::{debug, info, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val, types};
 use wasmtime::error::Context as _;
@@ -190,12 +190,13 @@ pub async fn load(
 ) -> wasmtime::Result<(wasmtime::Engine, Contract<Ctx>)> {
     let mut engine_config = wasmtime::Config::default();
     starstream_runtime::configure_wasmtime(&mut engine_config);
+    #[cfg(target_family = "wasm")]
+    starstream_runtime_web::configure_wasmtime(&mut engine_config)?;
     let engine = wasmtime::Engine::new(&engine_config)?;
 
     let mut lookup = Imports::default();
     for import in imports {
-        let wasm = fs::read(&import)
-            .await
+        let wasm = fs::read(import)
             .with_context(|| format!("failed to read import contract `{}`", import.display()))?;
         let component =
             Component::new(&engine, &wasm).context("failed to compile import contract")?;
@@ -207,7 +208,7 @@ pub async fn load(
         lookup.0.insert(digest, contract);
     }
 
-    let wasm = fs::read(&wasm).await.context("failed to read contract")?;
+    let wasm = fs::read(wasm).context("failed to read contract")?;
     let component = Component::new(&engine, &wasm).context("failed to compile contract")?;
     let contract = Contract::new(&component, None, &lookup).context("failed to load contract")?;
     Ok((engine, contract))

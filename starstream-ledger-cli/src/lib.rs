@@ -1,9 +1,10 @@
 //! Starstream ledger client.
 
 use core::iter::zip;
-use core::time::Duration;
 
 use std::collections::HashMap;
+use std::fs;
+use std::io::{Write as _, stdout};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail, ensure};
@@ -11,20 +12,16 @@ use bytes::{Bytes, BytesMut};
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::Uri;
-use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::{TokioExecutor, TokioTimer};
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
-use starstream_ledger::client::http::ClientBuilder;
+use starstream_ledger::client::http::{Client, Transport};
 use starstream_ledger::client::runtime::{
-    Client, Ctx, call_coordination_script, compile_contract, resolve_utxo_results,
+    self, Client as _, Ctx, call_coordination_script, compile_contract, resolve_utxo_results,
 };
 use starstream_ledger::{
     APPLICATION_WASM, CardanoCtx, Transaction, TransactionInput, TransactionNonce,
     TransactionOutput, encode_digest,
 };
-use tokio::fs;
-use tokio::io::{AsyncWriteExt as _, stdout};
 use tokio::try_join;
 use tokio_util::codec::Encoder as _;
 use tracing::{info, warn};
@@ -32,6 +29,12 @@ use wasm_wave::wasm::WasmFunc as _;
 use wasmtime::Store;
 use wasmtime::component::{Val, types};
 use zeroize::Zeroizing;
+
+#[cfg(feature = "tcp")]
+mod tcp;
+
+#[cfg(target_os = "wasi")]
+mod wasi;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -42,11 +45,13 @@ pub struct Args {
         long,
         global = true,
         value_name = "URL",
+        env = "STARSTREAM_LEDGER_URL",
         default_value = "http://[::1]:9000/"
     )]
     url: Uri,
 
     /// Time an idle connection to the node is kept open for reuse, in seconds.
+    #[cfg(feature = "tcp")]
     #[arg(long, global = true, value_name = "SECONDS", default_value_t = 15)]
     pool_idle_timeout: u64,
 
@@ -205,6 +210,7 @@ enum ScriptCommand {
         /// Attach and verify an execution proof. Circuit setup takes about a minute.
         //
         // TODO: cache the circuits?
+        #[cfg(feature = "proving")]
         #[arg(long)]
         prove: bool,
 
@@ -244,7 +250,7 @@ struct ImportClient<'a, T> {
     client: &'a T,
 }
 
-impl<T: Client> Client for ImportClient<'_, T> {
+impl<T: runtime::Client> runtime::Client for ImportClient<'_, T> {
     async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
         if let Some(wasm) = self.imports.get(&digest) {
             return Ok(wasm.clone());
@@ -346,26 +352,24 @@ fn encode_args(
     Ok(buf.freeze())
 }
 
-async fn write_results(ty: &wasm_wave::value::FuncType, results: Bytes) -> anyhow::Result<()> {
+fn write_results(ty: &wasm_wave::value::FuncType, results: Bytes) -> anyhow::Result<()> {
     if let Some(ty) = wasm_wave::value::Type::tuple(ty.results().collect::<Box<_>>()) {
         let v = wrpc::unpack_with(
             wrpc::wave::ValueDecoder::<wasm_wave::value::Value>::new(ty),
             results,
         )
         .context("failed to decode result tuple")?;
-        let mut s = wasm_wave::to_string(&v).context("failed to encode result tuple")?;
-        s.push('\n');
-        stdout().write_all(s.as_bytes()).await
+        let s = wasm_wave::to_string(&v).context("failed to encode result tuple")?;
+        writeln!(stdout(), "{s}")
     } else {
         ensure!(results.is_empty(), "unexpected result data");
-        stdout().write_all(b"()\n").await
+        writeln!(stdout(), "()")
     }
     .context("failed to write result tuple to stdout")
 }
 
-async fn read_signing_key(path: &Path) -> anyhow::Result<SigningKey> {
+fn read_signing_key(path: &Path) -> anyhow::Result<SigningKey> {
     let key = fs::read_to_string(path)
-        .await
         .with_context(|| format!("failed to read signing key from `{}`", path.display()))?;
     let key = Zeroizing::new(key);
     let mut buf = Zeroizing::new([0u8; 32]);
@@ -403,33 +407,19 @@ fn parse_verifying_key(s: &str) -> anyhow::Result<VerifyingKey> {
     Ok(key)
 }
 
-impl Args {
-    pub async fn exec(self) -> anyhow::Result<()> {
-        exec(self).await
-    }
-}
-
-async fn exec(args: Args) -> anyhow::Result<()> {
-    let Args {
-        url,
-        pool_idle_timeout,
-        command,
-    } = args;
-
-    let mut http = hyper_util::client::legacy::Client::builder(TokioExecutor::new());
-    http.pool_timer(TokioTimer::new())
-        .pool_idle_timeout(Duration::from_secs(pool_idle_timeout));
-    let client = ClientBuilder::from_hyper(http, HttpConnector::new(), url).build();
+async fn exec<W, H>(command: Command, client: &Client<W, H>) -> anyhow::Result<()>
+where
+    W: Clone,
+    wrpc::http::Client<W>: wrpc::Invoke,
+    H: Transport,
+{
     match command {
         Command::Account(AccountCommand::Balance { account }) => {
             let balance = client.get_account_balance(&account).await?;
             let balance = balance.with_context(|| {
                 format!("account `{}` not found", hex::encode(account.as_bytes()))
             })?;
-            stdout()
-                .write_all(format!("{balance}\n").as_bytes())
-                .await
-                .context("failed to write balance to stdout")
+            writeln!(stdout(), "{balance}").context("failed to write balance to stdout")
         }
         Command::Account(AccountCommand::Fund {
             key,
@@ -438,7 +428,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             account,
             amount,
         }) => {
-            let key = read_signing_key(&key).await?;
+            let key = read_signing_key(&key)?;
             let (network, nonce) = try_join!(client.resolve_network(network), async {
                 match nonce {
                     Some(nonce) => Ok(nonce),
@@ -452,46 +442,31 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let nonce = nonce.with_context(|| {
                 format!("account `{}` not found", hex::encode(account.as_bytes()))
             })?;
-            stdout()
-                .write_all(format!("{nonce}\n").as_bytes())
-                .await
-                .context("failed to write nonce to stdout")
+            writeln!(stdout(), "{nonce}").context("failed to write nonce to stdout")
         }
         Command::Admin(AdminCommand::Nonce) => {
             let nonce = client.get_admin_nonce().await?;
-            stdout()
-                .write_all(format!("{nonce}\n").as_bytes())
-                .await
-                .context("failed to write nonce to stdout")
+            writeln!(stdout(), "{nonce}").context("failed to write nonce to stdout")
         }
         Command::Block(BlockCommand::Get { height }) => {
             let envelopes = client.get_block(height).await?;
             let envelopes = envelopes.with_context(|| format!("block {height} not found"))?;
-            let mut out = String::default();
+            let mut stdout = stdout().lock();
             for envelope in envelopes {
-                out.push_str(&hex::encode(envelope));
-                out.push('\n');
+                writeln!(stdout, "{}", hex::encode(envelope))
+                    .context("failed to write envelopes to stdout")?;
             }
-            stdout()
-                .write_all(out.as_bytes())
-                .await
-                .context("failed to write envelopes to stdout")
+            Ok(())
         }
         Command::Block(BlockCommand::Height) => {
             let height = client.block_height().await?;
-            stdout()
-                .write_all(format!("{height}\n").as_bytes())
-                .await
-                .context("failed to write height to stdout")
+            writeln!(stdout(), "{height}").context("failed to write height to stdout")
         }
         Command::Digest { path } => {
-            let buf = fs::read(&path)
-                .await
-                .with_context(|| format!("failed to read `{}`", path.display()))?;
+            let buf =
+                fs::read(&path).with_context(|| format!("failed to read `{}`", path.display()))?;
             let digest = Sha256::digest(&buf);
-            stdout()
-                .write_all(format!("{}\n", encode_digest(&digest.into())).as_bytes())
-                .await
+            writeln!(stdout(), "{}", encode_digest(&digest.into()))
                 .context("failed to write digest to stdout")
         }
         Command::Genesis => {
@@ -499,10 +474,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let outputs = toml::Value::try_from(outputs).context("failed to encode TOML")?;
             let genesis = toml::Table::from_iter([("outputs".to_string(), outputs)]);
             let genesis = toml::to_string_pretty(&genesis).context("failed to encode TOML")?;
-            stdout()
-                .write_all(genesis.as_bytes())
-                .await
-                .context("failed to write genesis to stdout")
+            write!(stdout(), "{genesis}").context("failed to write genesis to stdout")
         }
         Command::Contract(ContractCommand::Publish {
             key,
@@ -510,10 +482,9 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             nonce,
             wasm,
         }) => {
-            let key = read_signing_key(&key).await?;
-            let wasm = fs::read(&wasm)
-                .await
-                .with_context(|| format!("failed to read `{}`", wasm.display()))?;
+            let key = read_signing_key(&key)?;
+            let wasm =
+                fs::read(&wasm).with_context(|| format!("failed to read `{}`", wasm.display()))?;
             let (network, nonce) = try_join!(client.resolve_network(network), async {
                 match nonce {
                     Some(nonce) => Ok(nonce),
@@ -521,9 +492,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 }
             })?;
             let digest = client.publish_contract(key, &network, nonce, wasm).await?;
-            stdout()
-                .write_all(format!("{}\n", encode_digest(&digest)).as_bytes())
-                .await
+            writeln!(stdout(), "{}", encode_digest(&digest))
                 .context("failed to write digest to stdout")
         }
         Command::Contract(ContractCommand::Script(ScriptCommand::Call {
@@ -531,6 +500,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             network,
             nonce,
             simulate,
+            #[cfg(feature = "proving")]
             prove,
             output_transaction,
             imports,
@@ -544,19 +514,18 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 None
             } else {
                 let key = key.context("`--key` is required to submit the transaction")?;
-                let key = read_signing_key(&key).await?;
+                let key = read_signing_key(&key)?;
                 Some(key)
             };
             let mut imported = HashMap::with_capacity(imports.len());
             for path in imports {
                 let wasm = fs::read(&path)
-                    .await
                     .with_context(|| format!("failed to read `{}`", path.display()))?;
                 imported.insert(Sha256::digest(&wasm).into(), Bytes::from(wasm));
             }
             let imports = ImportClient {
                 imports: imported,
-                client: &client,
+                client,
             };
             let mut contracts = HashMap::default();
             let wasm = imports.get_contract(digest).await?;
@@ -609,10 +578,11 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 ..Ctx::default()
             };
             let mut store = Store::new(client.engine(), ctx);
-            use starstream_ledger::client::runtime::{
-                ProofEngine, TransactionProver, verify_transaction_proof,
-            };
-            let mut prover = prove.then(|| TransactionProver::new(ProofEngine::Optimized));
+            #[cfg(feature = "proving")]
+            let mut prover =
+                prove.then(|| runtime::TransactionProver::new(runtime::ProofEngine::Optimized));
+            #[cfg(not(feature = "proving"))]
+            let mut prover = None;
             let (mut tx, execution) = call_coordination_script(
                 &mut store,
                 &imports,
@@ -627,11 +597,18 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 prover.as_mut(),
             )
             .await?;
+            #[cfg(feature = "proving")]
             if let Some(prover) = prover.as_mut() {
                 let call = execution?;
-                verify_transaction_proof(prover, &tx, &imports, client.engine(), client.wizer())
-                    .await
-                    .context("the attached transaction proof does not verify")?;
+                runtime::verify_transaction_proof(
+                    prover,
+                    &tx,
+                    &imports,
+                    client.engine(),
+                    client.wizer(),
+                )
+                .await
+                .context("the attached transaction proof does not verify")?;
                 let (timings, _) = call.proof_stats.context("missing proof timings")?;
                 for instance in &timings.wasm {
                     info!(coroutine = ?instance.coroutine, size = ?instance.size,
@@ -653,8 +630,12 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             } else if let Err(err) = execution {
                 warn!(?err, "failed to check execution trace");
             }
+            #[cfg(not(feature = "proving"))]
+            if let Err(err) = execution {
+                warn!(?err, "failed to check execution trace");
+            }
             resolve_utxo_results(&mut store, &utxos, &mut results)?;
-            let mut results = wasm_wave::to_string(&Val::Tuple(results))
+            let results = wasm_wave::to_string(&Val::Tuple(results))
                 .context("failed to encode result tuple")?;
             if let Some(key) = &key {
                 let account = key.verifying_key();
@@ -674,7 +655,6 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             if let Some(path) = output_transaction {
                 let tx = minicbor::to_vec(&tx).context("failed to encode transaction")?;
                 fs::write(&path, &tx)
-                    .await
                     .with_context(|| format!("failed to write `{}`", path.display()))?;
             }
             if let Some(key) = key {
@@ -682,11 +662,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 let digest = client.transact(key, &network, tx).await?;
                 info!(digest = %encode_digest(&digest), "submitted transaction");
             }
-            results.push('\n');
-            stdout()
-                .write_all(results.as_bytes())
-                .await
-                .context("failed to write result tuple to stdout")
+            writeln!(stdout(), "{results}").context("failed to write result tuple to stdout")
         }
         Command::Key(KeyCommand::Generate) => {
             let key = SigningKey::generate(&mut OsRng);
@@ -694,37 +670,25 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 public_key = hex::encode(key.verifying_key().to_bytes()),
                 "generated key pair"
             );
-            stdout()
-                .write_all(format!("{}\n", hex::encode(key.to_bytes())).as_bytes())
-                .await
+            writeln!(stdout(), "{}", hex::encode(key.to_bytes()))
                 .context("failed to write signing key to stdout")
         }
         Command::Network(NetworkCommand::Name) => {
             let name = client.get_network().await?;
-            stdout()
-                .write_all(format!("{name}\n").as_bytes())
-                .await
-                .context("failed to write network name to stdout")
+            writeln!(stdout(), "{name}").context("failed to write network name to stdout")
         }
         Command::Transaction(TransactionCommand::Get { digest }) => {
             let tx = client.get_transaction(digest).await?;
             let tx = tx.context("transaction not found")?;
             let tx = toml::to_string_pretty(&tx).context("failed to encode TOML")?;
-            stdout()
-                .write_all(tx.as_bytes())
-                .await
-                .context("failed to write transaction to stdout")
+            write!(stdout(), "{tx}").context("failed to write transaction to stdout")
         }
         Command::Transaction(TransactionCommand::Show { path }) => {
-            let buf = fs::read(&path)
-                .await
-                .with_context(|| format!("failed to read `{}`", path.display()))?;
+            let buf =
+                fs::read(&path).with_context(|| format!("failed to read `{}`", path.display()))?;
             let tx: Transaction = minicbor::decode(&buf).context("failed to decode transaction")?;
             let tx = toml::to_string_pretty(&tx).context("failed to encode TOML")?;
-            stdout()
-                .write_all(tx.as_bytes())
-                .await
-                .context("failed to write transaction to stdout")
+            write!(stdout(), "{tx}").context("failed to write transaction to stdout")
         }
         Command::Utxo(UtxoCommand::Call { utxo, method, args }) => {
             let input = TransactionInput::from(utxo);
@@ -745,14 +709,13 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 .context("failed to resolve method type")?;
             let args = encode_args(&ty, args)?;
             let rx = client.call_utxo_method(&input, &method, &args).await?;
-            write_results(&ty, rx).await
+            write_results(&ty, rx)
         }
         Command::Utxo(UtxoCommand::Wit { utxo }) => {
             let input = TransactionInput::from(utxo);
             let wit = client.get_utxo_wit(&input, None).await?;
             stdout()
                 .write_all(&wit)
-                .await
                 .context("failed to write WIT to stdout")
         }
     }
