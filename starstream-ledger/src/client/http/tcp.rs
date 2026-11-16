@@ -12,6 +12,7 @@ use tracing::instrument;
 use wrpc::http::{OutgoingParams, Service};
 
 use crate::client::http::{ClientBuilder, Transport};
+use crate::configure_wasmtime;
 
 const MAX_ERROR_BODY_SIZE: usize = 1 << 16;
 
@@ -69,7 +70,10 @@ where
         api_base: impl Into<Uri>,
     ) -> Self {
         let http = http.build(connect);
-        Self::new(WrpcService(http.clone()), http, api_base)
+        let mut engine_config = wasmtime::Config::default();
+        configure_wasmtime(&mut engine_config);
+        let engine = wasmtime::Engine::new(&engine_config).unwrap();
+        Self::new(WrpcService(http.clone()), http, api_base, engine)
     }
 }
 

@@ -5,7 +5,6 @@ use core::time::Duration;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use anyhow::{Context as _, bail, ensure};
 use bytes::{Bytes, BytesMut};
@@ -17,13 +16,13 @@ use hyper_util::rt::{TokioExecutor, TokioTimer};
 use rand_core::OsRng;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::client::http::ClientBuilder;
-use starstream_ledger::client::runtime::UtxoCtx;
-use starstream_ledger::client::runtime::{Client, Ctx, call_coordination_script, compile_contract};
+use starstream_ledger::client::runtime::{
+    Client, Ctx, call_coordination_script, compile_contract, resolve_utxo_results,
+};
 use starstream_ledger::{
     APPLICATION_WASM, CardanoCtx, Transaction, TransactionInput, TransactionNonce,
     TransactionOutput, encode_digest,
 };
-use starstream_runtime::Utxo;
 use tokio::fs;
 use tokio::io::{AsyncWriteExt as _, stdout};
 use tokio::try_join;
@@ -410,16 +409,6 @@ impl Args {
     }
 }
 
-async fn resolve_network(
-    client: &starstream_ledger::client::http::tcp::Client<HttpConnector>,
-    network: Option<String>,
-) -> anyhow::Result<String> {
-    match network {
-        Some(network) => Ok(network),
-        None => client.get_network().await,
-    }
-}
-
 async fn exec(args: Args) -> anyhow::Result<()> {
     let Args {
         url,
@@ -450,13 +439,10 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             amount,
         }) => {
             let key = read_signing_key(&key).await?;
-            let (network, nonce) = try_join!(resolve_network(&client, network), async {
+            let (network, nonce) = try_join!(client.resolve_network(network), async {
                 match nonce {
                     Some(nonce) => Ok(nonce),
-                    None => {
-                        let nonce = client.get_admin_nonce().await?;
-                        nonce.checked_add(1).context("admin nonce exhausted")
-                    }
+                    None => client.next_admin_nonce().await,
                 }
             })?;
             client.fund(key, &network, nonce, &account, amount).await
@@ -528,17 +514,10 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             let wasm = fs::read(&wasm)
                 .await
                 .with_context(|| format!("failed to read `{}`", wasm.display()))?;
-            let (network, nonce) = try_join!(resolve_network(&client, network), async {
+            let (network, nonce) = try_join!(client.resolve_network(network), async {
                 match nonce {
                     Some(nonce) => Ok(nonce),
-                    None => {
-                        let account = key.verifying_key();
-                        let nonce = client.get_account_nonce(&account).await?;
-                        let nonce = nonce.with_context(|| {
-                            format!("account `{}` not found", hex::encode(account.as_bytes()))
-                        })?;
-                        nonce.checked_add(1).context("account nonce exhausted")
-                    }
+                    None => client.next_account_nonce(&key.verifying_key()).await,
                 }
             })?;
             let digest = client.publish_contract(key, &network, nonce, wasm).await?;
@@ -674,26 +653,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             } else if let Err(err) = execution {
                 warn!(?err, "failed to check execution trace");
             }
-            'outer: for result in &mut results {
-                if let &mut Val::Resource(utxo) = result {
-                    let utxo = utxo
-                        .try_into_resource(&mut store)
-                        .map_err(anyhow::Error::from)
-                        .context("result resource is not a UTXO")?;
-                    let utxo: &Utxo<Arc<std::sync::Mutex<UtxoCtx>>> = store
-                        .data()
-                        .table
-                        .get(&utxo)
-                        .context("result UTXO not found")?;
-                    for (i, out) in zip(0.., &utxos) {
-                        if utxo.resource() == out.resource() {
-                            *result = Val::U32(i);
-                            continue 'outer;
-                        }
-                    }
-                    bail!("failed to identify result resource");
-                }
-            }
+            resolve_utxo_results(&mut store, &utxos, &mut results)?;
             let mut results = wasm_wave::to_string(&Val::Tuple(results))
                 .context("failed to encode result tuple")?;
             if let Some(key) = &key {
@@ -718,7 +678,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                     .with_context(|| format!("failed to write `{}`", path.display()))?;
             }
             if let Some(key) = key {
-                let network = resolve_network(&client, network).await?;
+                let network = client.resolve_network(network).await?;
                 let digest = client.transact(key, &network, tx).await?;
                 info!(digest = %encode_digest(&digest), "submitted transaction");
             }
