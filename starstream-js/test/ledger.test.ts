@@ -1,14 +1,11 @@
-import { execFile } from "node:child_process";
 import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import * as starstream from "../src/index.ts";
 
 const root = resolve(import.meta.dirname, "../..");
-const STARSTREAM = process.env.STARSTREAM!;
+const STARSTREAM_COMPILER_WASM = process.env.STARSTREAM_COMPILER_WASM!;
 const STARSTREAM_LEDGER_WASM = process.env.STARSTREAM_LEDGER_WASM!;
 const STARSTREAM_LEDGER_CLIENT_WASM =
   process.env.STARSTREAM_LEDGER_CLIENT_WASM!;
@@ -33,9 +30,7 @@ const ADMIN_SEED = createHash("sha256").update("admin").digest();
 const ADMIN_PUBLIC_KEY = ed25519PublicKey(ADMIN_SEED);
 const WASM_MAGIC = Uint8Array.of(0x00, 0x61, 0x73, 0x6d);
 
-const run = promisify(execFile);
-
-let dir: string;
+let compiler: starstream.WasmCompiler;
 let module: WebAssembly.Module;
 let node: starstream.WasmLedger;
 let ledger: starstream.Ledger;
@@ -43,21 +38,13 @@ let wasm: Uint8Array;
 let contract: string;
 
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), "starstream-js-"));
-  const sourcePath = join(dir, "score.star");
-  await writeFile(
-    sourcePath,
-    `${await readFile(join(root, "examples/score.star"), "utf8")}\nscript fn update(prog: ScoreProgress) { prog.plus_chips(5); }\n\nstruct Item {\n    amount: i64,\n    price: i64,\n}\n\nscript fn total_value(item: Item) -> i64 {\n    item.amount * item.price\n}\n`,
+  compiler = await starstream.WasmCompiler.instantiate(
+    await WebAssembly.compile(await readFile(STARSTREAM_COMPILER_WASM)),
   );
-  const wasmPath = join(dir, "score.wasm");
-  await run(STARSTREAM, [
-    "wasm",
-    "-c",
-    sourcePath,
-    "--output-component",
-    wasmPath,
-  ]);
-  wasm = new Uint8Array(await readFile(wasmPath));
+  const source = await readFile(join(root, "examples/score.star"), "utf8");
+  ({ component: wasm } = compiler.compile("score.star", {
+    "score.star": `${source}\nscript fn update(prog: ScoreProgress) { prog.plus_chips(5); }\n\nstruct Item {\n    amount: i64,\n    price: i64,\n}\n\nscript fn total_value(item: Item) -> i64 {\n    item.amount * item.price\n}\n`,
+  }));
   contract = await starstream.digest(wasm);
 
   module = await WebAssembly.compile(await readFile(STARSTREAM_LEDGER_WASM));
@@ -70,14 +57,8 @@ beforeAll(async () => {
   ledger = new starstream.Ledger("http://ledger", { fetch: node.fetch });
 }, 600_000);
 
-afterAll(async () => {
-  try {
-    node?.dispose();
-  } finally {
-    if (dir) {
-      await rm(dir, { recursive: true, force: true });
-    }
-  }
+afterAll(() => {
+  node?.dispose();
 });
 
 test("genesis", async () => {
@@ -196,6 +177,12 @@ test("genesis failure", async () => {
       },
     }),
   ).rejects.toThrow("unknown field `arg`");
+});
+
+test("compile failure", () => {
+  expect(() =>
+    compiler.compile("broken.star", { "broken.star": "script fn" }),
+  ).toThrow("broken.star");
 });
 
 test("base URL", () => {

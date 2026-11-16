@@ -3682,6 +3682,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "starstream-compiler-web"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "miette",
+ "starstream-compiler",
+ "starstream-to-wasm",
+ "starstream-types",
+]
+
+[[package]]
 name = "starstream-interleaving-prover"
 version = "0.0.0"
 dependencies = [

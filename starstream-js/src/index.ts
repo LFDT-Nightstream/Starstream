@@ -10,6 +10,7 @@ export {
   type GenesisScript,
   type WasmLedgerOptions,
 } from "./wasm-ledger.ts";
+export { WasmCompiler, type Compiled } from "./wasm-compiler.ts";
 export {
   WasmClient,
   type CoordinationScriptCall,
