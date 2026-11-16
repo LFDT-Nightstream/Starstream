@@ -202,7 +202,6 @@ test("options", async () => {
     admin: ADMIN_PUBLIC_KEY,
     maxRequests: 1,
     fuel: 1n,
-    ioTimeout: 1,
     cardanoBlockHeight: 1n,
     cardanoCurrentSlot: -1n,
   });

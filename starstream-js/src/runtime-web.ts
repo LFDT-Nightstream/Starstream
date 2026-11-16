@@ -17,8 +17,6 @@ export interface RuntimeWebImports extends WebAssembly.ModuleImports {
   wasmtime_fiber_switch: WebAssembly.ImportValue;
   host_park: WebAssembly.ImportValue;
   host_unpark: WebAssembly.ImportValue;
-  host_set_timeout: WebAssembly.ImportValue;
-  host_clear_timeout: WebAssembly.ImportValue;
 }
 
 /**
@@ -30,15 +28,12 @@ export const unusedImports: RuntimeWebImports = {
   wasmtime_fiber_switch() {},
   host_park() {},
   host_unpark() {},
-  host_set_timeout() {},
-  host_clear_timeout() {},
 };
 
 /** Exports of a Wasm module built with `starstream-runtime-web`. */
 export interface RuntimeWebExports {
   __stack_pointer: WebAssembly.Global;
   starstream_fiber_enter(entry: number, arg0: number, top: number): void;
-  starstream_timer_fire(timer: number): void;
 }
 
 interface Parked {
@@ -64,7 +59,7 @@ export function promising<A extends unknown[], R>(
 /**
  * The embedder half of the imports of a Wasm module built with
  * `starstream-runtime-web`: Wasmtime's `custom-fiber` hooks and the
- * `block_on` parking hooks, implemented with JSPI, and timers.
+ * `block_on` parking hooks, implemented with JSPI.
  *
  * Each fiber's `slot` holds the parked other side of a switch to it: a switch
  * parks the caller, swaps the shadow-stack pointer and wakes the other side,
@@ -84,20 +79,11 @@ export class RuntimeWeb {
     top: number,
   ) => Promise<void>;
   private readonly fibers = new Map<number, Fiber>();
-  private readonly timers = new Map<number, ReturnType<typeof setTimeout>>();
   private parked: (() => void) | undefined;
   private wakePending = false;
-  private disposed = false;
 
-  /**
-   * Throws if JSPI is unavailable. `onTrap` is called with the error once a
-   * timer traps, after all timers are cancelled, and rethrows it by default.
-   */
-  constructor(
-    onTrap: (err: unknown) => void = (err) => {
-      throw err;
-    },
-  ) {
+  /** Throws if JSPI is unavailable. */
+  constructor() {
     const { Suspending } = jspi();
     if (typeof Suspending !== "function") {
       throw new Error(
@@ -115,27 +101,6 @@ export class RuntimeWeb {
       host_unpark: () => {
         this.unpark();
       },
-      host_set_timeout: (timer: number, ms: number) => {
-        if (this.disposed) {
-          return;
-        }
-        this.timers.set(
-          timer,
-          setTimeout(() => {
-            this.timers.delete(timer);
-            try {
-              this.exports.starstream_timer_fire(timer);
-            } catch (err) {
-              this.dispose();
-              onTrap(err);
-            }
-          }, ms),
-        );
-      },
-      host_clear_timeout: (timer: number) => {
-        clearTimeout(this.timers.get(timer));
-        this.timers.delete(timer);
-      },
     };
   }
 
@@ -143,15 +108,6 @@ export class RuntimeWeb {
   init(exports: RuntimeWebExports): void {
     this.exports = exports;
     this.enterFiber = promising(exports.starstream_fiber_enter);
-  }
-
-  /** Cancel all timers and arm no new ones, e.g. once the instance trapped. */
-  dispose(): void {
-    this.disposed = true;
-    for (const timeout of this.timers.values()) {
-      clearTimeout(timeout);
-    }
-    this.timers.clear();
   }
 
   private fiberSwitch(top: number): Promise<void> {
