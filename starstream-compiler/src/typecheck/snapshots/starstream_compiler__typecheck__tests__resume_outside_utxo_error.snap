@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn f() {\n    resume;\n}\n"
+---
+E0061 (https://starstream.nightstream.dev/errors/E0061)
+
+  x `resume` can only be used inside a `utxo`
+   ,-[test.star:2:5]
+ 1 | fn f() {
+ 2 |     resume;
+   :     ^^^^^^
+ 3 | }
+   `----

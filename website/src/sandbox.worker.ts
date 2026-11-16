@@ -1,5 +1,9 @@
 import starstreamSandboxWasm from "file-loader!../starstream_sandbox_web.wasm";
 import { encode } from "cbor2";
+import {
+  type RuntimeWebImports,
+  unusedImports,
+} from "../../starstream-js/src/runtime-web";
 
 export interface SandboxWorkerRequest {
   request_id: number;
@@ -58,7 +62,7 @@ interface SandboxInput {
   entry: string;
 }
 
-interface SandboxWasmImports extends WebAssembly.ModuleImports {
+interface SandboxWasmImports extends RuntimeWebImports {
   read_input(ptr: number, len: number): void;
 
   sandbox_log(
@@ -79,11 +83,6 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   set_storage(ptr: number, len: number): void;
   set_implemented(ptr: number, len: number): void;
   set_events(ptr: number, len: number): void;
-
-  wasmtime_fiber_init(top: number, entry: number, arg0: number): void;
-  wasmtime_fiber_switch(top: number): void;
-  host_park(): void;
-  host_unpark(): void;
 }
 
 interface SandboxWasmExports {
@@ -176,10 +175,7 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
     set_events() {},
     // Fibers only run under the run worker's JSPI glue; compiling never
     // touches them.
-    wasmtime_fiber_init() {},
-    wasmtime_fiber_switch() {},
-    host_park() {},
-    host_unpark() {},
+    ...unusedImports,
   });
   try {
     wasm.run(input.length);

@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi Step {\n    fn step();\n}\n\nutxo Counter {\n    main fn new() {\n        yield(Step);\n    }\n\n    impl Step {\n        fn step() {\n            resume;\n        }\n    }\n\n    pub fn advance() {\n        resume;\n    }\n\n    fn helper() {\n        resume;\n    }\n}\n"
+---
+T-Utxo: Counter => 
+  T-Fn: new => ()
+    T-Expr: {new: fn() -> ()} ⊢ yield(Step); ⇒ ()
+  T-Fn: step => ()
+    T-Resume: {new: fn() -> (), step: fn() -> ()} ⊢ resume; ⇒ ()
+      Unify-Const: () ~ () => {}
+  T-Fn: advance => ()
+    T-Resume: {advance: fn() -> (), new: fn() -> (), step: fn() -> ()} ⊢ resume; ⇒ ()
+      Unify-Const: () ~ () => {}
+  T-Fn: helper => ()
+    T-Resume: {advance: fn() -> (), helper: fn() -> (), new: fn() -> (), step: fn() -> ()} ⊢ resume; ⇒ ()
+      Unify-Const: () ~ () => {}

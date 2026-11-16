@@ -5,10 +5,10 @@ description: "Source:\n\nstruct A {\n    x: i64,\n    y: bool,\n}\n\nstruct B {\
 E0008 (https://starstream.nightstream.dev/errors/E0008)
 
   x expected type `A`, found `B`
-    ,-[test.star:12:25]
+    ,-[test.star:12:14]
  11 | fn pick(c: bool, a: A, b: B) -> A {
  12 |     if (c) { a } else { b }
-    :     ^^^^^^^^^^^^|^^^^^^^^^^^^
-    :                 `-- struct field mismatch
+    :              ^^         ^|
+    :               |          `-- struct field mismatch
  13 | }
     `----

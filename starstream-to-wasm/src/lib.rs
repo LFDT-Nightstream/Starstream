@@ -13,12 +13,12 @@ use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_compiler::{TypedModuleExport, TypedWasmModule, WasmLinkage};
 use starstream_types::{
     AbiType, BinaryOp, DUMMY_SPAN, EnumType, EnumVariantKind, FunctionExport, FunctionKind,
-    FunctionType, ImportSource, IntWidth, Literal, NameId, Span, Spanned, StaticFunction, Type,
-    TypedAbiDef, TypedAbiMethodDecl, TypedBlock, TypedDefinition, TypedEffectHandler, TypedEnumDef,
-    TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition,
-    TypedImportDef, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
-    TypedTestDef, TypedTokenDef, TypedTokenPart, TypedUtxoDef, TypedUtxoPart, UnaryOp,
-    ast::Identifier,
+    FunctionType, ImportSource, IntWidth, IntegerLiteral, Literal, NameId, Span, Spanned,
+    StaticFunction, Type, TypedAbiDef, TypedAbiMethodDecl, TypedBlock, TypedDefinition,
+    TypedEffectHandler, TypedEnumDef, TypedExpr, TypedExprKind, TypedFunctionDef,
+    TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm, TypedPattern,
+    TypedProgram, TypedStatement, TypedStructDef, TypedTestDef, TypedTokenDef, TypedTokenPart,
+    TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
 };
 use starstream_types::{ModuleId, TypedImportItem};
 use thiserror::Error;
@@ -2283,8 +2283,8 @@ impl Compiler {
         let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&this_ty).unwrap();
 
         // Tokens have no coroutine/`yield` semantics, so there is no `resume;`
-        // function to reserve (unlike `utxo`). `resume_fn` is never read because
-        // a `mint fn` body cannot yield.
+        // function to reserve (unlike `utxo`). `resume_fn` is never read: the
+        // type checker rejects `resume` in a token (E0061).
         self.current_resource = Some(ResourceContext {
             resume_fn: u32::MAX,
             public_methods: Vec::new(),
@@ -2653,7 +2653,8 @@ impl Compiler {
                             },
                         );
                     } else {
-                        // TODO: track span to here.
+                        // The type checker rejects `resume` outside a `utxo`
+                        // (E0061), so reaching this is a compiler bug.
                         self.push_error(DUMMY_SPAN, "`resume;` can only be used in a utxo method");
                         func.cfg.fill(*bb, Out::Unreachable);
                     }
@@ -2949,6 +2950,36 @@ impl Compiler {
         Ok(())
     }
 
+    /// Push the constant for integer literal `literal` (as `-literal` when
+    /// `negated`) of type `ty`.
+    fn emit_int_literal(
+        &mut self,
+        func: &mut StFunction,
+        bb: &mut usize,
+        span: Span,
+        ty: &Type,
+        literal: &IntegerLiteral,
+        negated: bool,
+    ) -> Result<()> {
+        // The type checker's range check guarantees the value fits the
+        // resolved type, so a missing value here is a compiler bug.
+        let Some(value) = literal.value() else {
+            return Err(self.push_error(span, format!("integer literal `{literal}` out of range")));
+        };
+        let value = if negated { -value } else { value };
+        match ty {
+            Type::Int(w) if w.is_64bit() => {
+                func.instructions(bb).i64_const(value as i64);
+                Ok(())
+            }
+            Type::Int(_) | Type::Utxo(_) => {
+                func.instructions(bb).i32_const(value as i32);
+                Ok(())
+            }
+            ty => Err(self.push_error(span, format!("unknown type for integer literal: {:?}", ty))),
+        }
+    }
+
     /// Compile a single [Expr] into the current function, returning an
     /// [Intermediate] representing that expression's output on the stack.
     fn visit_expr_stack(
@@ -2999,25 +3030,7 @@ impl Compiler {
             }
             // Literals
             TypedExprKind::Literal(Literal::Integer(i)) => {
-                // The type checker's range check guarantees the value fits the
-                // resolved type, so a missing value here is a compiler bug.
-                let Some(value) = i.value() else {
-                    return Err(
-                        self.push_error(span, format!("integer literal `{i}` out of range"))
-                    );
-                };
-                match &expr.ty {
-                    Type::Int(w) if w.is_64bit() => {
-                        func.instructions(bb).i64_const(value as i64);
-                        Ok(())
-                    }
-                    Type::Int(_) | Type::Utxo(_) => {
-                        func.instructions(bb).i32_const(value as i32);
-                        Ok(())
-                    }
-                    ty => Err(self
-                        .push_error(span, format!("unknown type for integer literal: {:?}", ty))),
-                }
+                self.emit_int_literal(func, bb, span, &expr.ty, i, false)
             }
             TypedExprKind::Literal(Literal::Boolean(b)) => {
                 func.instructions(bb).i32_const(i32::from(*b));
@@ -3169,6 +3182,14 @@ impl Compiler {
                         Err(self.push_error(span, format!("TODO: Remainder({lhs:?}, {rhs:?})")))
                     }
                 }
+            }
+            // A negated literal is one constant: `-128` is `i8`'s minimum, not
+            // `0 - 128`, and `0 - i32::MIN` would overflow.
+            TypedExprKind::Unary {
+                op: UnaryOp::Negate,
+                expr: inner,
+            } if let TypedExprKind::Literal(Literal::Integer(i)) = &inner.node.kind => {
+                self.emit_int_literal(func, bb, span, &expr.ty, i, true)
             }
             TypedExprKind::Unary {
                 op: UnaryOp::Negate,

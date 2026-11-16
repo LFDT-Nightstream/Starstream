@@ -1,0 +1,32 @@
+[package]
+name = "starstream-ledger-web"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+test = false
+crate-type = ["cdylib"]
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+anyhow = { workspace = true, features = ["std"] }
+bytes = { workspace = true }
+ed25519-dalek = { workspace = true }
+futures = { workspace = true, features = ["alloc"] }
+hex = { workspace = true, features = ["serde"] }
+http = { workspace = true, features = ["std"] }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+starstream-ledger = { workspace = true, features = ["genesis", "http", "server"] }
+starstream-runtime = { workspace = true, features = [
+    "wasmtime-custom-fiber",
+    "wasmtime-custom-virtual-memory",
+] }
+starstream-runtime-web = { workspace = true }
+wasmtime = { workspace = true }

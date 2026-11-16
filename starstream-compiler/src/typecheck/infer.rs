@@ -254,10 +254,12 @@ pub fn typecheck_modules(
                     match inferencer.process_definitions(&mut env, &program.definitions) {
                         Ok(x) => x,
                         Err(errors) => {
-                            // Capture a partial export table to try to continue to typecheck other modules.
+                            // Export whatever was registered so importers can keep
+                            // typechecking. Signatures are registered before any body,
+                            // so a body error leaves every export intact.
                             all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
                             warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
-                            module_exports.insert(module_id, Namespace::default());
+                            module_exports.insert(module_id, env.root);
                             continue;
                         }
                     };
@@ -369,6 +371,41 @@ fn resolve_path_imports<'g>(
     result
 }
 
+/// An integer literal whose type is not known yet, kept so `settle_int_vars`
+/// can check that its value fits once it is.
+#[derive(Clone)]
+struct PendingIntLiteral {
+    literal: IntegerLiteral,
+    /// Written as `-literal`, so `-128` fits `i8` even though `128` doesn't.
+    negated: bool,
+    span: Span,
+}
+
+impl PendingIntLiteral {
+    fn new(literal: IntegerLiteral, span: Span) -> Self {
+        Self {
+            literal,
+            negated: false,
+            span,
+        }
+    }
+
+    /// `None` when the digits overflow `i128`.
+    fn value(&self) -> Option<i128> {
+        let value = self.literal.value()?;
+        Some(if self.negated { -value } else { value })
+    }
+}
+
+impl std::fmt::Display for PendingIntLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.negated {
+            write!(f, "-")?;
+        }
+        write!(f, "{}", self.literal)
+    }
+}
+
 /// Internal stateful helper that owns the substitution map and generates fresh
 /// type variables while walking the AST.
 struct Inferencer {
@@ -384,7 +421,7 @@ struct Inferencer {
     /// Type variables constrained to integer types (from polymorphic integer literals).
     int_vars: HashSet<TypeVarId>,
     /// Tracks the literal value associated with each integer type variable for range checking.
-    int_literal_values: HashMap<TypeVarId, (IntegerLiteral, Span)>,
+    int_literal_values: HashMap<TypeVarId, PendingIntLiteral>,
     /// Integer type variables negated before their type was known, checked for
     /// signedness at the end of the body.
     negated_int_vars: Vec<(TypeVarId, Span)>,
@@ -414,6 +451,8 @@ struct FunctionCtx {
     /// Declaration spans for function parameters that are private (non-`pub`).
     private_param_decl_spans: Vec<Span>,
     is_coroutine: bool,
+    /// Declared inside a `utxo`, where `resume` is allowed.
+    in_utxo: bool,
 }
 
 impl Inferencer {
@@ -644,7 +683,7 @@ impl Inferencer {
                     }
                     Err(e) => errors.push(e),
                 },
-                Definition::Function(def) => match self.infer_function(env, def) {
+                Definition::Function(def) => match self.infer_function(env, def, false) {
                     Ok((def2, trace)) => {
                         self.typed_definitions
                             .insert(&definition.node, TypedDefinition::Function(def2));
@@ -1158,7 +1197,7 @@ impl Inferencer {
                         Self::collect_yields_expr(dest, &expr.node);
                     }
                 }
-                Statement::Resume => {}
+                Statement::Resume { .. } => {}
                 Statement::TryWith { subject, effects } => {
                     Self::collect_yields(dest, subject);
                     for handler in effects {
@@ -1340,7 +1379,7 @@ impl Inferencer {
                             function.name.span(),
                         ));
                     }
-                    let (func, trace) = self.infer_function(env, function)?;
+                    let (func, trace) = self.infer_function(env, function, true)?;
                     traces.push(trace);
                     TypedUtxoPart::Function(func.into())
                 }
@@ -1350,7 +1389,7 @@ impl Inferencer {
                     let parts = parts
                         .iter()
                         .map(|function| {
-                            let (func, trace) = self.infer_function(env, function)?;
+                            let (func, trace) = self.infer_function(env, function, true)?;
                             traces.push(trace);
                             Ok(func)
                         })
@@ -1466,7 +1505,7 @@ impl Inferencer {
                             function.name.span(),
                         ));
                     }
-                    let (func, trace) = self.infer_function(env, function)?;
+                    let (func, trace) = self.infer_function(env, function, false)?;
                     traces.push(trace);
                     TypedTokenPart::Function(func.into())
                 }
@@ -1476,7 +1515,7 @@ impl Inferencer {
                     let parts = parts
                         .iter()
                         .map(|function| {
-                            let (func, trace) = self.infer_function(env, function)?;
+                            let (func, trace) = self.infer_function(env, function, false)?;
                             traces.push(trace);
                             Ok(func)
                         })
@@ -1800,18 +1839,15 @@ impl Inferencer {
             Pattern::Literal { value, span } => {
                 // Literal patterns must match the expected type
                 let literal_ty = match value {
+                    // Like an integer literal expression: the scrutinee decides
+                    // the type, and `settle_int_vars` checks the value fits.
                     Literal::Integer(literal) => {
-                        // Digits overflowing `i128` cannot fit any integer type.
-                        if literal.value().is_none() {
-                            return Err(TypeError::new(
-                                TypeErrorKind::LiteralOutOfRange {
-                                    literal: literal.to_string(),
-                                    ty: Type::int(),
-                                },
-                                *span,
-                            ));
+                        let ty = self.fresh_int_var();
+                        if let Type::Var(id) = &ty {
+                            self.int_literal_values
+                                .insert(*id, PendingIntLiteral::new(literal.clone(), *span));
                         }
-                        Type::int()
+                        ty
                     }
                     Literal::Boolean(_) => Type::Bool,
                     Literal::Unit => Type::Unit,
@@ -1823,7 +1859,7 @@ impl Inferencer {
                     *span,
                     TypeErrorKind::GeneralMismatch {
                         expected: self.apply_for_display(expected_ty),
-                        found: literal_ty.clone(),
+                        found: self.apply_for_display(&literal_ty),
                     },
                 )?;
                 Ok((TypedPattern::Literal(value.clone()), vec![unify_trace]))
@@ -2040,6 +2076,7 @@ impl Inferencer {
         &mut self,
         env: &mut TypeEnv,
         function: &FunctionDef,
+        in_utxo: bool,
     ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
         let func_ty = Arc::new(self.function_def_to_type(env, function)?);
         let return_span = function.return_span();
@@ -2084,6 +2121,7 @@ impl Inferencer {
             return_span,
             private_param_decl_spans,
             is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
+            in_utxo,
         };
 
         let body = self.infer_block(env, &function.body, &mut ctx, true);
@@ -2136,6 +2174,7 @@ impl Inferencer {
             return_span: DUMMY_SPAN,
             private_param_decl_spans: Default::default(),
             is_coroutine: false,
+            in_utxo: false,
         };
 
         let body = self.infer_block(env, &test.body, &mut ctx, true);
@@ -2501,7 +2540,10 @@ impl Inferencer {
                 });
                 Ok((TypedStatement::Expression(typed_expr), tree))
             }
-            Statement::Resume => {
+            Statement::Resume { span } => {
+                if !ctx.in_utxo {
+                    return Err(TypeError::new(TypeErrorKind::ResumeOutsideUtxo, *span));
+                }
                 // Do like `return ();`
                 let result_repr = self.maybe_string(|| self.format_type(&ctx.expected_return));
                 let (_, unify_trace) = self.unify(
@@ -2617,6 +2659,40 @@ impl Inferencer {
     /// statement following it. This is deliberately structural: a `let ...
     /// else` fallback, or a function body without a tail expression, must
     /// make its exit explicit on every control-flow path.
+    /// Merge one `if` branch into the type of the branches before it, given
+    /// with the span of the branch it came from. A branch's type is its tail
+    /// expression's, or `()` without one. Returns the merged type and the span
+    /// to report it at.
+    fn merge_if_branch(
+        &mut self,
+        current: Option<(Type, Span)>,
+        branch: &TypedBlock,
+        block_span: Span,
+        children: &mut Vec<InferenceTree>,
+    ) -> Result<(Type, Span), TypeError> {
+        let (ty, span) = branch
+            .tail_expression
+            .as_ref()
+            .map_or((Type::Unit, block_span), |tail| {
+                (tail.node.ty.clone(), tail.span)
+            });
+        let Some((current, current_span)) = current else {
+            return Ok((ty, span));
+        };
+        let (merged, unify_trace) = self.unify(
+            &current,
+            &ty,
+            current_span,
+            span,
+            TypeErrorKind::GeneralMismatch {
+                expected: self.apply_for_display(&current),
+                found: self.apply_for_display(&ty),
+            },
+        )?;
+        children.push(unify_trace);
+        Ok((merged, current_span))
+    }
+
     fn block_diverges(block: &TypedBlock) -> bool {
         block.statements.iter().any(Self::statement_diverges)
             || block
@@ -2675,7 +2751,29 @@ impl Inferencer {
         if let Some(expr) = &block.tail_expression {
             let (mut typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
             let mut children = vec![expr_trace];
-            if treat_tail_as_return {
+            // A tail that returns on every path never produces the function's
+            // value, so its own type can't contradict the return type.
+            if treat_tail_as_return && !Self::expr_diverges(&typed_expr.node) {
+                // An `if` without `else` evaluates to `()`, so in a function
+                // that returns a value the real problem is the path where no
+                // branch runs. Report it like any other missing return.
+                let expected = self.apply_for_display(&ctx.expected_return);
+                if let TypedExprKind::If {
+                    else_branch: None, ..
+                } = &typed_expr.node.kind
+                    && expected != Type::unit()
+                {
+                    let ty = self.format_type(&expected).to_string();
+                    return Err(TypeError::new(
+                        TypeErrorKind::MissingReturn { expected },
+                        expr.span,
+                    )
+                    .with_primary_message(
+                        "this `if` has no `else`, so nothing is returned when no branch runs",
+                    )
+                    .with_secondary(ctx.return_span, format!("returns `{ty}`"))
+                    .with_help(format!("add an `else` that returns or evaluates to `{ty}`")));
+                }
                 typed_expr = self.coerce_utxo_upcast(typed_expr, &ctx.expected_return);
                 let actual = &typed_expr.node.ty;
                 let (_, unify_trace) = self.unify(
@@ -2755,7 +2853,7 @@ impl Inferencer {
                         let ty = self.fresh_int_var();
                         if let Type::Var(id) = &ty {
                             self.int_literal_values
-                                .insert(*id, (value.clone(), expr.span));
+                                .insert(*id, PendingIntLiteral::new(value.clone(), expr.span));
                         }
                         (
                             ty,
@@ -2828,6 +2926,15 @@ impl Inferencer {
                                 // Int-constrained var (polymorphic literal) — allow for now,
                                 // signedness is checked in `settle_int_vars`
                                 self.negated_int_vars.push((*id, inner.span));
+                                // `-128` is one literal for range checking. Only
+                                // when written directly: in `-x`, `x`'s var may
+                                // belong to a literal that must fit unnegated.
+                                if let Expr::Literal(Literal::Integer(_)) = &inner.node
+                                    && let Some(literal) = self.int_literal_values.get_mut(id)
+                                {
+                                    literal.negated = true;
+                                    literal.span = expr.span;
+                                }
                                 let subject =
                                     self.maybe_string(|| self.format_type(&inner_ty).to_string());
                                 let result = self.maybe_string(|| "ok (int var)".to_string());
@@ -3303,7 +3410,8 @@ impl Inferencer {
             } => {
                 let mut children = Vec::new();
                 let mut typed_branches = Vec::with_capacity(branches.len());
-                let mut result_ty: Option<Type> = None;
+                // The branches' type so far, and the branch it came from.
+                let mut result: Option<(Type, Span)> = None;
 
                 for (condition, then_branch) in branches {
                     let typed_condition = match condition {
@@ -3373,31 +3481,12 @@ impl Inferencer {
                             self.abi_call_trackers.pop();
                             env.pop_scope();
 
-                            let then_ty = typed_then
-                                .tail_expression
-                                .as_ref()
-                                .map_or(&Type::Unit, |tail| &tail.node.ty);
-
-                            result_ty = if let Some(current) = result_ty {
-                                let (merged, unify_trace) = self.unify(
-                                    &current,
-                                    then_ty,
-                                    typed_then
-                                        .tail_expression
-                                        .as_ref()
-                                        .map(|expr| expr.span)
-                                        .unwrap_or(expr.span),
-                                    expr.span,
-                                    TypeErrorKind::GeneralMismatch {
-                                        expected: current.clone(),
-                                        found: self.apply_for_display(then_ty),
-                                    },
-                                )?;
-                                children.push(unify_trace);
-                                Some(merged)
-                            } else {
-                                Some(then_ty.clone())
-                            };
+                            result = Some(self.merge_if_branch(
+                                result,
+                                &typed_then,
+                                then_branch.span,
+                                &mut children,
+                            )?);
 
                             typed_branches.push((
                                 TypedIfCondition::Is {
@@ -3416,31 +3505,12 @@ impl Inferencer {
                         self.infer_block(env, then_branch, ctx, false)?;
                     children.extend(then_traces);
 
-                    let then_ty = typed_then
-                        .tail_expression
-                        .as_ref()
-                        .map_or(&Type::Unit, |tail| &tail.node.ty);
-
-                    result_ty = if let Some(current) = result_ty {
-                        let (merged, unify_trace) = self.unify(
-                            &current,
-                            then_ty,
-                            typed_then
-                                .tail_expression
-                                .as_ref()
-                                .map(|expr| expr.span)
-                                .unwrap_or(expr.span),
-                            expr.span,
-                            TypeErrorKind::GeneralMismatch {
-                                expected: current.clone(),
-                                found: self.apply_for_display(then_ty),
-                            },
-                        )?;
-                        children.push(unify_trace);
-                        Some(merged)
-                    } else {
-                        Some(then_ty.clone())
-                    };
+                    result = Some(self.merge_if_branch(
+                        result,
+                        &typed_then,
+                        then_branch.span,
+                        &mut children,
+                    )?);
 
                     typed_branches.push((typed_condition, typed_then));
                 }
@@ -3448,34 +3518,43 @@ impl Inferencer {
                 let typed_else_block = if let Some(block) = else_branch {
                     let (typed_block, else_traces) = self.infer_block(env, block, ctx, false)?;
                     children.extend(else_traces);
+                    result = Some(self.merge_if_branch(
+                        result,
+                        &typed_block,
+                        block.span,
+                        &mut children,
+                    )?);
                     Some(typed_block)
                 } else {
                     None
                 };
 
-                let (else_ty, else_span) = typed_else_block
-                    .as_ref()
-                    .and_then(|b| {
-                        b.tail_expression
-                            .as_ref()
-                            .map(|tail| (&tail.node.ty, tail.span))
-                    })
-                    .unwrap_or((&Type::Unit, expr.span));
-                let result_ty = if let Some(current) = result_ty {
-                    let (merged, unify_trace) = self.unify(
-                        &current,
-                        else_ty,
-                        else_span,
-                        expr.span,
-                        TypeErrorKind::GeneralMismatch {
-                            expected: current.clone(),
-                            found: self.apply_for_display(else_ty),
-                        },
-                    )?;
+                let (result_ty, result_span) = result.expect("an `if` has at least one branch");
+                // Without an `else`, the `if` evaluates to `()` when no branch
+                // runs, so no branch can produce a value.
+                let result_ty = if typed_else_block.is_none() {
+                    let (merged, unify_trace) = self
+                        .unify(
+                            &result_ty,
+                            &Type::Unit,
+                            result_span,
+                            expr.span,
+                            TypeErrorKind::IfWithoutElseValue,
+                        )
+                        .map_err(|_| {
+                            TypeError::new(TypeErrorKind::IfWithoutElseValue, result_span)
+                                .with_primary_message(
+                                    "this branch produces a value, but the `if` has no `else`",
+                                )
+                                .with_help(
+                                    "an `if` without `else` evaluates to `()`; add an `else` \
+                                     that produces a value too, or `return` this value",
+                                )
+                        })?;
                     children.push(unify_trace);
                     merged
                 } else {
-                    else_ty.clone()
+                    result_ty
                 };
 
                 let unit_result = self.maybe_string(|| "()".to_string());
@@ -4390,8 +4469,11 @@ impl Inferencer {
     fn settle_int_vars(&mut self) -> Result<(), TypeError> {
         self.default_int_vars();
         let mut errors = Vec::new();
-        for (id, (literal, span)) in std::mem::take(&mut self.int_literal_values) {
+        for (id, literal) in std::mem::take(&mut self.int_literal_values) {
             if let Type::Int(w) = self.apply(&Type::Var(id))
+                // A negated literal in an unsigned type is reported below as
+                // the negation, not as a range error.
+                && !(literal.negated && !w.is_signed())
                 // `value()` is `None` when the digits overflow `i128`, which no
                 // supported integer type can hold either.
                 && !literal.value().is_some_and(|value| w.fits(value))
@@ -4401,9 +4483,9 @@ impl Inferencer {
                         literal: literal.to_string(),
                         ty: Type::Int(w),
                     },
-                    span,
+                    literal.span,
                 );
-                errors.push((span.start, error));
+                errors.push((literal.span.start, error));
             }
         }
         for (id, span) in std::mem::take(&mut self.negated_int_vars) {
@@ -5070,10 +5152,10 @@ impl Inferencer {
                                 format!("has type `{}`", self.format_type(ty)),
                             );
                     }
-                    if let Some((_, literal_span)) = self.int_literal_values.get(&var)
-                        && ![var_span, other_span].contains(literal_span)
+                    if let Some(literal) = self.int_literal_values.get(&var)
+                        && ![var_span, other_span].contains(&literal.span)
                     {
-                        err = err.with_secondary(*literal_span, "integer literal");
+                        err = err.with_secondary(literal.span, "integer literal");
                     }
                     return Err(err);
                 }

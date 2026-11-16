@@ -1035,13 +1035,13 @@ T-Fn: match_literal => i64
     },
 } ⇒ i64
       T-Var: {match_foo: fn(foo: Foo) -> i64, match_literal: fn(x: i64) -> i64, match_with_wildcard: fn(foo: Foo) -> i64, x: i64} ⊢ x ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ i64 => {i64/t7}
       T-Tail: 1 => i64
         T-Int: {match_foo: fn(foo: Foo) -> i64, match_literal: fn(x: i64) -> i64, match_with_wildcard: fn(foo: Foo) -> i64, x: i64} ⊢ 1 ⇒ i64
       T-Tail: 0 => i64
         T-Int: {match_foo: fn(foo: Foo) -> i64, match_literal: fn(x: i64) -> i64, match_with_wildcard: fn(foo: Foo) -> i64, x: i64} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
-    Unify-Var: i64 ~ i64 => {i64/t7}
+    Unify-Var: i64 ~ i64 => {i64/t8}
 
 T-Fn: match_point => i64
   T-ReturnTail: match msg {

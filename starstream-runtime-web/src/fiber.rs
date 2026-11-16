@@ -2,23 +2,22 @@
 //!
 //! Wasmtime's async support switches native stacks, which a wasm32 program
 //! cannot do itself. With the `custom-fiber` feature wasmtime instead calls two
-//! hooks, `wasmtime_fiber_init` and `wasmtime_fiber_switch`, which the run
-//! worker (`website/src/run.worker.ts`) implements with JSPI
-//! (`WebAssembly.Suspending` / `WebAssembly.promising`): the browser switches
-//! the wasm stack, and the worker swaps this module's shadow-stack pointer
-//! (`__stack_pointer`, exported via `build.rs`). This module provides the
-//! trampoline JS re-enters the module through when a fiber first runs, and a
-//! [`block_on`] for the `*_async` runtime calls.
+//! hooks, `wasmtime_fiber_init` and `wasmtime_fiber_switch`, which the embedder
+//! (e.g. `starstream-js/src/runtime-web.ts`) implements with JSPI
+//! (`WebAssembly.Suspending` / `WebAssembly.promising`): the host
+//! switches the wasm stack, and the embedder swaps this module's shadow-stack
+//! pointer (`__stack_pointer`, exported via the embedding crate's `build.rs`).
+//! This module provides the trampoline JS re-enters the module through when a
+//! fiber first runs, and a [`block_on`] for the `*_async` runtime calls.
 //!
 //! JSPI can only suspend an activation entered through a `promising`-wrapped
 //! export, so every export that may run guest code is wrapped that way by the
-//! worker, which also serializes them: root activations share the main shadow
+//! embedder, which also serializes them: root activations share the main shadow
 //! stack, which is only safe LIFO.
 
-use std::future::Future;
-use std::pin::pin;
-use std::ptr;
-use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use core::pin::pin;
+use core::ptr;
+use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
 /// A fiber entry function, as passed to `wasmtime_fiber_init`:
 /// `entry(entry_arg0, top_of_stack)`.
@@ -26,10 +25,10 @@ pub type FiberEntry = extern "C" fn(*mut u8, *mut u8) -> *mut u8;
 
 /// First-activation trampoline: JS calls this, wrapped in
 /// `WebAssembly.promising`, when a fiber is first switched to. `entry` returns
-/// once the fiber's closure has completed; the worker then switches back to
+/// once the fiber's closure has completed; the embedder then switches back to
 /// whoever last resumed the fiber.
 #[unsafe(no_mangle)]
-pub extern "C" fn wasmtime_fiber_enter(entry: FiberEntry, arg0: *mut u8, top_of_stack: *mut u8) {
+pub extern "C" fn starstream_fiber_enter(entry: FiberEntry, arg0: *mut u8, top_of_stack: *mut u8) {
     entry(arg0, top_of_stack);
 }
 

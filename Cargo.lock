@@ -1397,6 +1397,9 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "http"
@@ -3718,6 +3721,7 @@ dependencies = [
  "minicbor",
  "multibase",
  "multihash",
+ "pin-project-lite",
  "serde",
  "sha2",
  "starstream-compiler",
@@ -3729,7 +3733,6 @@ dependencies = [
  "tokio",
  "tokio-io-timeout",
  "tokio-util",
- "tower-http",
  "tracing",
  "wasm-encoder 0.263.0",
  "wasm-tokio",
@@ -3798,6 +3801,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "starstream-ledger-web"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "ed25519-dalek",
+ "futures",
+ "hex",
+ "http",
+ "http-body",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "sha2",
+ "starstream-ledger",
+ "starstream-runtime",
+ "starstream-runtime-web",
+ "wasmtime",
+]
+
+[[package]]
 name = "starstream-proving-runtime"
 version = "0.0.0"
 dependencies = [
@@ -3835,10 +3859,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "starstream-sandbox-web"
+name = "starstream-runtime-web"
 version = "0.0.0"
 dependencies = [
  "cranelift-codegen",
+ "futures",
+ "wasmtime",
+]
+
+[[package]]
+name = "starstream-sandbox-web"
+version = "0.0.0"
+dependencies = [
  "log",
  "miette",
  "serde",
@@ -3848,6 +3880,7 @@ dependencies = [
  "sha2",
  "starstream-compiler",
  "starstream-runtime",
+ "starstream-runtime-web",
  "starstream-to-wasm",
  "starstream-types",
  "termcolor",
@@ -4250,23 +4283,6 @@ dependencies = [
  "futures-util",
  "pin-project-lite",
  "sync_wrapper",
- "tower-layer",
- "tower-service",
-]
-
-[[package]]
-name = "tower-http"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c"
-dependencies = [
- "bitflags 2.13.2",
- "bytes",
- "http",
- "http-body",
- "percent-encoding",
- "pin-project-lite",
- "tokio",
  "tower-layer",
  "tower-service",
 ]

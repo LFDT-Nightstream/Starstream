@@ -317,7 +317,9 @@ Program {
                                                 span: 557..627,
                                             },
                                             Spanned {
-                                                node: Resume,
+                                                node: Resume {
+                                                    span: 627..633,
+                                                },
                                                 span: 627..643,
                                             },
                                         ],

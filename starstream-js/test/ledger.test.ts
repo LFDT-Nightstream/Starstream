@@ -1,15 +1,19 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import { type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
+import { Readable } from "node:stream";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import * as starstream from "../src/index.ts";
 
 const root = resolve(import.meta.dirname, "../..");
-const STARSTREAM = process.env.STARSTREAM ?? join(root, "starstream");
+const STARSTREAM = process.env.STARSTREAM!;
+const STARSTREAM_LEDGER_WASM = process.env.STARSTREAM_LEDGER_WASM!;
 
 function ed25519PublicKey(seed: Buffer): Buffer {
   return Buffer.from(
@@ -34,9 +38,9 @@ const WASM_MAGIC = Uint8Array.of(0x00, 0x61, 0x73, 0x6d);
 const run = promisify(execFile);
 
 let dir: string;
-let node: ChildProcess;
-let closed: Promise<unknown>;
-let log = "";
+let module: WebAssembly.Module;
+let node: starstream.WasmLedger;
+let server: Server;
 let url: string;
 let ledger: starstream.Ledger;
 let wasm: Uint8Array;
@@ -65,67 +69,44 @@ beforeAll(async () => {
   wasm = new Uint8Array(await readFile(wasmPath));
   contract = await starstream.digest(wasm);
 
-  const genesisPath = join(dir, "genesis.toml");
-  await writeFile(
-    genesisPath,
-    `[[scripts]]\ncontract = "${contract}"\nscript = "example"\n`,
-  );
   await writeFile(join(dir, "admin.key"), ADMIN_SEED.toString("hex"));
 
-  node = spawn(
-    STARSTREAM,
-    [
-      "node",
-      "--addr",
-      "127.0.0.1:0",
-      "--genesis",
-      genesisPath,
-      "--import",
-      wasmPath,
-    ],
-    {
-      env: { ...process.env, NO_COLOR: "1", STARSTREAM_LOG: "info" },
-      stdio: ["ignore", "ignore", "pipe"],
-    },
-  );
-  closed = once(node, "close");
-  node.stderr!.setEncoding("utf8");
-  node.stderr!.on("data", (chunk: string) => {
-    log += chunk;
+  module = await WebAssembly.compile(await readFile(STARSTREAM_LEDGER_WASM));
+  node = await starstream.WasmLedger.start(module, {
+    network: "dev",
+    admin: ADMIN_PUBLIC_KEY,
+    genesis: { scripts: [{ contract, script: "example" }] },
+    imports: [wasm],
   });
-  const addr = await new Promise<string>((resolve, reject) => {
-    closed.then(
-      () =>
-        reject(
-          new Error(
-            `ledger node exited with ${node.exitCode ?? node.signalCode}:\n${log}`,
-          ),
-        ),
-      reject,
-    );
-    node.stderr!.on("data", () => {
-      const m = /ledger running addr=(\S+)\s/.exec(log);
-      if (m) {
-        resolve(m[1]);
-      }
-    });
+  ledger = new starstream.Ledger("http://ledger", { fetch: node.fetch });
+
+  server = createServer(async (req, res) => {
+    const hasBody = req.method !== "GET" && req.method !== "HEAD";
+    try {
+      const response = await node.fetch(`http://ledger${req.url}`, {
+        method: req.method,
+        headers: req.headers as HeadersInit,
+        body: hasBody ? (Readable.toWeb(req) as ReadableStream) : undefined,
+        duplex: "half",
+      } as RequestInit);
+      const body = Buffer.from(await response.arrayBuffer());
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      res.end(body);
+    } catch (err) {
+      res.writeHead(500);
+      res.end(String(err));
+    }
   });
-  url = `http://${addr}`;
-  ledger = new starstream.Ledger(url);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port } = server.address() as AddressInfo;
+  url = `http://127.0.0.1:${port}`;
 }, 600_000);
 
 afterAll(async () => {
   try {
-    if (node?.pid !== undefined) {
-      const exited = node.exitCode !== null || node.signalCode !== null;
-      node.kill();
-      await closed;
-      if (exited && url) {
-        throw new Error(
-          `ledger node exited during the tests with ${node.exitCode ?? node.signalCode}:\n${log}`,
-        );
-      }
-    }
+    server?.close();
+    node?.dispose();
   } finally {
     if (dir) {
       await rm(dir, { recursive: true, force: true });
@@ -151,6 +132,105 @@ test("genesis", async () => {
   expect(await ledger.getWit()).toContain("get-name: func() -> string;");
   const witWasm = await ledger.getWitWasm();
   expect(witWasm.subarray(0, 4)).toEqual(WASM_MAGIC);
+});
+
+test("concurrent requests", async () => {
+  const controller = new AbortController();
+  const stalled = node.fetch("http://ledger/rpc", {
+    method: "POST",
+    headers: { "content-type": "application/x.wrpc" },
+    body: new ReadableStream(),
+    duplex: "half",
+    signal: controller.signal,
+  } as RequestInit);
+  expect(await ledger.getNetworkName()).toBe("dev");
+  controller.abort();
+  await expect(stalled).rejects.toMatchObject({ name: "AbortError" });
+});
+
+test("request body", async () => {
+  let request: Request | undefined;
+  const client = new starstream.Ledger("http://ledger", {
+    fetch: async (input, init) => {
+      request = new Request(input, init);
+      return node.fetch(request.clone());
+    },
+  });
+  expect(await client.getNetworkName()).toBe("dev");
+  const body = new Uint8Array(await request!.arrayBuffer());
+  const post = (chunks: unknown[], length?: number, error?: Error) =>
+    node.fetch("http://ledger/rpc", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x.wrpc",
+        ...(length === undefined ? {} : { "content-length": String(length) }),
+      },
+      body: new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) {
+            controller.enqueue(chunk);
+          }
+          if (error) {
+            controller.error(error);
+          } else {
+            controller.close();
+          }
+        },
+      }),
+      duplex: "half",
+    } as RequestInit);
+
+  const exact = await post([body], body.length);
+  expect(exact.status).toBe(200);
+  const excess = await post([body, Uint8Array.of(0)], body.length);
+  expect(excess.status).toBe(400);
+  const large = await node.fetch("http://ledger/rpc", {
+    method: "POST",
+    headers: { "content-type": "application/cose" },
+    body: new Uint8Array((1 << 24) + 1),
+  });
+  expect(large.status).toBe(413);
+  await expect(post(["text"])).rejects.toThrow(TypeError);
+  await expect(post([], undefined, new Error("body failed"))).rejects.toThrow(
+    "body failed",
+  );
+});
+
+test("options", async () => {
+  const node = await starstream.WasmLedger.start(module, {
+    network: "options",
+    admin: ADMIN_PUBLIC_KEY,
+    maxRequests: 1,
+    fuel: 1n,
+    ioTimeout: 1,
+    cardanoBlockHeight: 1n,
+    cardanoCurrentSlot: -1n,
+  });
+  const ledger = new starstream.Ledger("http://ledger", { fetch: node.fetch });
+  expect(await ledger.getNetworkName()).toBe("options");
+  node.dispose();
+  await expect(ledger.getNetworkName()).rejects.toThrow("ledger disposed");
+});
+
+test("genesis failure", async () => {
+  await expect(
+    starstream.WasmLedger.start(module, {
+      network: "dev",
+      admin: ADMIN_PUBLIC_KEY,
+      genesis: { scripts: [{ contract, script: "example" }] },
+    }),
+  ).rejects.toThrow(`contract \`${contract}\` not imported`);
+  await expect(
+    starstream.WasmLedger.start(module, {
+      network: "dev",
+      admin: ADMIN_PUBLIC_KEY,
+      genesis: {
+        scripts: [
+          { contract, script: "example", arg: [] } as starstream.GenesisScript,
+        ],
+      },
+    }),
+  ).rejects.toThrow("unknown field `arg`");
 });
 
 test("base URL", () => {
@@ -294,6 +374,19 @@ test("contract and UTXO method calls", async () => {
       [],
     ),
   ).toBe(42n);
+  const methods = ["get-chips", "get-mult"];
+  expect(
+    await Promise.all(
+      Array.from({ length: 32 }, (_, i) =>
+        ledger.callUtxoMethod(
+          genesis,
+          methods[i % 2],
+          { result: starstream.t.u64 },
+          [],
+        ),
+      ),
+    ),
+  ).toEqual(Array.from({ length: 32 }, (_, i) => (i % 2 ? 4n : 42n)));
   await expect(
     ledger.callUtxoMethod(
       genesis,

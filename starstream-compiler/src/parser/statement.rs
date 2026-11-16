@@ -84,8 +84,8 @@ pub fn statement<'a>(
         .map(Statement::Return);
 
     let resume_statement = text::keyword("resume")
-        .ignore_then(just(';').padded().ignored())
-        .map(|_| Statement::Resume);
+        .map_with(|_, extra| Statement::Resume { span: extra.span() })
+        .then_ignore(just(';').padded());
 
     let try_with_statement = text::keyword("try")
         .ignore_then(block.clone())

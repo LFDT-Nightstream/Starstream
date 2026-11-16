@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\ntoken MyToken {\n    mint fn mint() {\n        resume;\n    }\n\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n}\n"
+---
+E0061 (https://starstream.nightstream.dev/errors/E0061)
+
+  x `resume` can only be used inside a `utxo`
+   ,-[test.star:3:9]
+ 2 |     mint fn mint() {
+ 3 |         resume;
+   :         ^^^^^^
+ 4 |     }
+   `----

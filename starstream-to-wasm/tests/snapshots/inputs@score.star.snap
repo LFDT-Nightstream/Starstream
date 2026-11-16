@@ -510,7 +510,9 @@ Program {
                                     body: Block {
                                         statements: [
                                             Spanned {
-                                                node: Resume,
+                                                node: Resume {
+                                                    span: 650..656,
+                                                },
                                                 span: 650..666,
                                             },
                                         ],

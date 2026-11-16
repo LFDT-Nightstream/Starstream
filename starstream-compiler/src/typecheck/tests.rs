@@ -451,6 +451,118 @@ fn missing_return_after_loop_return() {
 }
 
 #[test]
+fn return_on_every_path_in_tail() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn branches(flag: bool) -> i64 {
+            if (flag) {
+                return 1;
+            } else {
+                return 2;
+            }
+        }
+
+        fn chain(x: i64) -> i64 {
+            if (x == 0) {
+                return 1;
+            } else if (x == 1) {
+                return 2;
+            } else {
+                return 3;
+            }
+        }
+
+        fn arms(x: i64) -> i64 {
+            match x {
+                0 => {
+                    return 1;
+                },
+                _ => {
+                    return 2;
+                },
+            }
+        }
+
+        fn block() -> i64 {
+            {
+                return 1;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn tail_if_without_else_missing_return_error() {
+    // `unit` is fine: an `if` without `else` evaluates to `()`.
+    assert_typecheck_snapshot!(
+        r#"
+        fn compute(flag: bool) -> i64 {
+            if (flag) {
+                return 1;
+            }
+        }
+
+        fn chain(x: i64) -> i64 {
+            if (x == 0) {
+                return 1;
+            } else if (x == 1) {
+                return 2;
+            }
+        }
+
+        fn unit(flag: bool) {
+            if (flag) {
+                return;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_without_else_value_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn tail(flag: bool) -> i64 {
+            if (flag) {
+                42
+            }
+        }
+
+        fn in_let(flag: bool) -> i64 {
+            let x: i64 = if (flag) {
+                42
+            };
+            x
+        }
+
+        fn statement(flag: bool) -> i64 {
+            if (flag) {
+                42
+            }
+            0
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_branch_mismatch_with_integer_literal_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(flag: bool) {
+            let x = if (flag) {
+                1
+            } else {
+                true
+            };
+        }
+        "#
+    );
+}
+
+#[test]
 fn return_on_every_path() {
     assert_typecheck_snapshot!(
         r#"
@@ -1005,6 +1117,42 @@ fn match_int_literal_with_wildcard() {
                 },
                 1 => {
                     200
+                },
+                _ => {
+                    0
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_int_literal_takes_scrutinee_type() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(n: u8) -> u8 {
+            match n {
+                1 => {
+                    10
+                },
+                _ => {
+                    0
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_int_literal_out_of_range_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(n: u8) -> u8 {
+            match n {
+                300 => {
+                    10
                 },
                 _ => {
                     0
@@ -2324,6 +2472,33 @@ fn negate_literal_inferred_unsigned_from_annotation_error() {
 }
 
 #[test]
+fn negative_literal_minimums_fit() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let a: i8 = -128;
+            let b: i16 = -32768;
+            let c: i32 = -2147483648;
+            let d: i64 = -9223372036854775808;
+            let e = -9223372036854775808;
+            let f: i8 = -0x80;
+        }
+        "#
+    );
+}
+
+#[test]
+fn negative_literal_below_minimum_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: i8 = -129;
+        }
+        "#
+    );
+}
+
+#[test]
 fn integer_literal_overflowing_i128_error() {
     // Used to panic the parser; now flows through as a range error against
     // the literal's resolved type.
@@ -2436,6 +2611,77 @@ fn utxo_public_method_resume_return_type_error() {
         utxo Foo {
             main fn new() { yield(); }
             pub fn value() -> i64 { resume; }
+        }
+        "#
+    );
+}
+
+#[test]
+fn resume_inside_utxo_methods() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi Step {
+            fn step();
+        }
+
+        utxo Counter {
+            main fn new() {
+                yield(Step);
+            }
+
+            impl Step {
+                fn step() {
+                    resume;
+                }
+            }
+
+            pub fn advance() {
+                resume;
+            }
+
+            fn helper() {
+                resume;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn resume_outside_utxo_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn f() {
+            resume;
+        }
+        "#
+    );
+}
+
+#[test]
+fn resume_in_token_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            mint fn mint() {
+                resume;
+            }
+
+            impl Token {
+                fn attach(to: Utxo) {}
+                fn detach(source: Utxo) {}
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn resume_in_test_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        test "resumes" {
+            resume;
         }
         "#
     );

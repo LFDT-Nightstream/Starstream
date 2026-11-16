@@ -1,0 +1,18 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(flag: bool) {\n    let x = if (flag) {\n        1\n    } else {\n        true\n    };\n}\n"
+---
+E0008 (https://starstream.nightstream.dev/errors/E0008)
+
+  x expected type `i64`, found `bool`
+   ,-[test.star:3:9]
+ 2 |         let x = if (flag) {
+ 3 |             1
+   :             |
+   :             `-- has an integer type
+ 4 |         } else {
+ 5 | ,->         true
+ 6 | |->     };
+   : `---- has type `bool`
+ 7 |     }
+   `----

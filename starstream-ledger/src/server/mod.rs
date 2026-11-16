@@ -3,6 +3,7 @@
 #![cfg_attr(not(all(feature = "http", feature = "tcp")), allow(dead_code))]
 
 use core::sync::atomic::AtomicU64;
+use core::time::Duration;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -21,10 +22,24 @@ use wasmtime::error::Context as _;
 use crate::wrpc::bindings;
 use crate::{Block, CardanoCtx, TransactionOutput, encode_digest, parse_digest};
 
+#[cfg(feature = "genesis")]
+mod genesis;
 #[cfg(feature = "http")]
 mod http;
 mod runtime;
 mod wit;
+
+#[cfg(feature = "http")]
+pub use http::build_text_response;
+
+/// Default maximum amount of concurrent requests.
+pub const DEFAULT_MAX_REQUESTS: u16 = u16::MAX;
+
+/// Default fuel available to each UTXO method call over `/rpc`.
+pub const DEFAULT_FUEL: u64 = 1_000_000_000;
+
+/// Default time a client connection may stall before it is closed.
+pub const DEFAULT_IO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Configure `engine_config` for the engine of a [Ledger].
 pub fn configure_wasmtime(engine_config: &mut wasmtime::Config) -> &mut wasmtime::Config {

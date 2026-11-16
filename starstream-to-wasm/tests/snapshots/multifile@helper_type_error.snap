@@ -33,12 +33,3 @@ ModuleGraph {
    :      `-- cannot negate unsigned type `u8`
  3 | }
    `----
-]8;;https://starstream.nightstream.dev/errors/E0037\E0037 (link)]8;;\
-
-  x unknown function `minus_one` in `"./helpers/negate.star"`
-   ,-[$PWD/tests/multifile/helper_type_error/main.star:3:10]
- 2 | 
- 3 | import { minus_one } from "./helpers/negate.star";
-   :          ^^^^^^^^^
- 4 | 
-   `----
