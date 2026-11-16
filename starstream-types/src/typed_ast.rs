@@ -400,6 +400,11 @@ impl TypedBlock {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NameId(pub u32);
 
+impl NameId {
+    pub const TOKEN_ATTACH: NameId = NameId(u32::MAX - 1);
+    pub const TOKEN_DETACH: NameId = NameId(u32::MAX - 2);
+}
+
 pub struct NameIdGen(NameId);
 
 impl Default for NameIdGen {
