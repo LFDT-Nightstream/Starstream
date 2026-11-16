@@ -31,12 +31,9 @@ jobs:
         working-directory: starstream-js
       - run: npx tsc --noEmit
         working-directory: starstream-js
-      - run: cargo build -p starstream-cli
       - name: Test starstream-js
         run: npx vitest run
         working-directory: starstream-js
-        env:
-          STARSTREAM: ${{ github.workspace }}/target/debug/starstream
       - name: Test importing the packed starstream-js
         run: |
           npm pack --pack-destination "$RUNNER_TEMP"
@@ -47,6 +44,8 @@ jobs:
         working-directory: starstream-js
       # Cosmetic checks.
       - run: cargo clippy
+      # Native builds of these crates leave out their Wasm-only code.
+      - run: cargo clippy -p starstream-ledger-web -p starstream-runtime-web --target wasm32-unknown-unknown
       - run: cargo fmt --check
       # Mock ledger
       - name: Mock Ledger - Check formatting

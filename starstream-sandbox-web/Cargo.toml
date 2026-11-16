@@ -24,8 +24,8 @@ starstream-to-wasm.workspace = true
 starstream-types.workspace = true
 termcolor = "1.4.1"
 starstream-runtime.workspace = true
+starstream-runtime-web.workspace = true
 wasmtime = { workspace = true }
-cranelift-codegen = { workspace = true, features = ["timing"] }
 wasmprinter = { workspace = true, features = ["component-model"] }
 wit-component.workspace = true
 
