@@ -14,6 +14,7 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {
+    CallCoordinator,
     SetStorage,
     GetStorage,
     NewUtxo,
@@ -23,8 +24,8 @@ pub enum EventKind {
     RegisterMethod,
     Return,
     CallMethod,
-    ReceiveMethodResult,
-    EnterMethod,
+    ReceiveCallResult,
+    EnterCall,
     RaiseEffect,
     EnterEffectHandler,
     ExitEffectHandler,
@@ -55,7 +56,7 @@ impl EventKind {
             4 => Self::RegisterMethod,
             5 => Self::Return,
             6 => Self::CallMethod,
-            7 => Self::EnterMethod,
+            7 => Self::EnterCall,
             8 => Self::SetStorage,
             9 => Self::GetStorage,
             10 => Self::RaiseEffect,
@@ -63,16 +64,18 @@ impl EventKind {
             12 => Self::ExitEffectHandler,
             13 => Self::ResumeEffect,
             14 => Self::ReceiveNewUtxoHandle,
-            15 => Self::ReceiveMethodResult,
+            15 => Self::ReceiveCallResult,
             16 => Self::PushEffectHandlerFrame,
             17 => Self::AddEffectHandler,
             18 => Self::PopEffectHandlerFrame,
+            19 => Self::CallCoordinator,
             _ => return None,
         })
     }
 
     pub fn for_step(step: &Step) -> Option<Self> {
         Some(match step {
+            Step::CallCoordinator { .. } => Self::CallCoordinator,
             Step::SetStorage { .. } => Self::SetStorage,
             Step::GetStorage { .. } => Self::GetStorage,
             Step::NewUtxo { .. } => Self::NewUtxo,
@@ -82,8 +85,8 @@ impl EventKind {
             Step::RegisterMethod { .. } => Self::RegisterMethod,
             Step::Return { .. } => Self::Return,
             Step::CallMethod { .. } => Self::CallMethod,
-            Step::ReceiveMethodResult { .. } => Self::ReceiveMethodResult,
-            Step::EnterMethod { .. } => Self::EnterMethod,
+            Step::ReceiveCallResult { .. } => Self::ReceiveCallResult,
+            Step::EnterCall { .. } => Self::EnterCall,
             Step::RaiseEffect { .. } => Self::RaiseEffect,
             Step::EnterEffectHandler { .. } => Self::EnterEffectHandler,
             Step::ExitEffectHandler { .. } => Self::ExitEffectHandler,
@@ -94,6 +97,7 @@ impl EventKind {
             // these are circuit-only instructions
             Step::SkipEffectHandler
             | Step::PreloadMethod { .. }
+            | Step::BeginExecution { .. }
             | Step::ReadAbi { .. }
             | Step::SkipConsumed
             | Step::FinalizeCoordinator
@@ -109,7 +113,7 @@ impl EventKind {
             Self::RegisterMethod => 4,
             Self::Return => 5,
             Self::CallMethod => 6,
-            Self::EnterMethod => 7,
+            Self::EnterCall => 7,
             Self::SetStorage => 8,
             Self::GetStorage => 9,
             Self::RaiseEffect => 10,
@@ -117,10 +121,11 @@ impl EventKind {
             Self::ExitEffectHandler => 12,
             Self::ResumeEffect => 13,
             Self::ReceiveNewUtxoHandle => 14,
-            Self::ReceiveMethodResult => 15,
+            Self::ReceiveCallResult => 15,
             Self::PushEffectHandlerFrame => 16,
             Self::AddEffectHandler => 17,
             Self::PopEffectHandlerFrame => 18,
+            Self::CallCoordinator => 19,
         }
     }
 
@@ -141,7 +146,7 @@ impl EventKind {
             Self::SetStorage | Self::NewUtxo | Self::EnterConstructor => {
                 root(&mut words, &mut last_root_block, true);
             }
-            Self::GetStorage | Self::Return | Self::ResumeEffect | Self::ReceiveMethodResult => {
+            Self::GetStorage | Self::Return | Self::ResumeEffect | Self::ReceiveCallResult => {
                 root(&mut words, &mut last_root_block, false)
             }
             Self::ReceiveNewUtxoHandle => words.push(Resource),
@@ -155,7 +160,7 @@ impl EventKind {
                 words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, true);
             }
-            Self::EnterMethod | Self::RaiseEffect => {
+            Self::EnterCall | Self::RaiseEffect | Self::CallCoordinator => {
                 words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, true);
             }
@@ -177,14 +182,14 @@ impl EventKind {
     }
 
     /// Decode an event using this kind's layout. `expected_method`, when supplied,
-    /// is checked only for `CallMethod` and `EnterMethod`; other kinds ignore it.
-    /// `coordinator_handle` is required for `SetStorage` and ignored otherwise:
+    /// is checked for method, effect, and coordinator identity events.
+    /// `entry_utxo_handle` is required for `SetStorage` and ignored otherwise:
     /// it is host metadata, absent from the committed blocks.
     pub fn decode(
         &self,
         blocks: &[[u64; BLOCK_SIZE]],
         expected_method: Option<MethodHash>,
-        coordinator_handle: Option<ResourceHandle>,
+        entry_utxo_handle: Option<ResourceHandle>,
     ) -> Result<Step, EventCodecError> {
         let layout = self.blocks();
         if blocks.len() != layout.len() {
@@ -261,9 +266,10 @@ impl EventKind {
             && matches!(
                 self,
                 EventKind::CallMethod
-                    | EventKind::EnterMethod
+                    | EventKind::EnterCall
                     | EventKind::RaiseEffect
                     | EventKind::EnterEffectHandler
+                    | EventKind::CallCoordinator
             )
             && method != expected
         {
@@ -280,10 +286,14 @@ impl EventKind {
             // The coordinator-local handle of a loaded input is host state
             // outside the transcript; the host binds it when it loads the
             // UTXO.
+            EventKind::CallCoordinator => Step::CallCoordinator {
+                script: method,
+                arguments: argument,
+            },
             EventKind::SetStorage => Step::SetStorage {
                 storage: argument,
-                coordinator_handle: coordinator_handle
-                    .ok_or(EventCodecError::MissingCoordinatorHandle)?,
+                entry_utxo_handle: entry_utxo_handle
+                    .ok_or(EventCodecError::MissingEntryUtxoHandle)?,
             },
             EventKind::GetStorage => Step::GetStorage {
                 storage: Out(result),
@@ -310,10 +320,10 @@ impl EventKind {
                 method,
                 arguments: argument,
             },
-            EventKind::ReceiveMethodResult => Step::ReceiveMethodResult {
+            EventKind::ReceiveCallResult => Step::ReceiveCallResult {
                 result: Out(result),
             },
-            EventKind::EnterMethod => Step::EnterMethod {
+            EventKind::EnterCall => Step::EnterCall {
                 method,
                 arguments: argument,
             },
@@ -349,9 +359,11 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         _ => 0,
     };
     let (resource, method, argument, result) = match step {
+        Step::CallCoordinator { script, arguments } => (0, Some(script), Some(arguments), None),
         Step::SetStorage { storage, .. } => (0, None, Some(storage), None),
         Step::GetStorage { storage } => (0, None, None, Some(&storage.0)),
         Step::PreloadMethod { .. }
+        | Step::BeginExecution { .. }
         | Step::ReadAbi { .. }
         | Step::SkipConsumed
         | Step::SkipEffectHandler
@@ -370,8 +382,8 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
             method,
             arguments,
         } => (resource.0, Some(method), Some(arguments), None),
-        Step::ReceiveMethodResult { result } => (0, None, None, Some(&result.0)),
-        Step::EnterMethod { method, arguments } => (0, Some(method), Some(arguments), None),
+        Step::ReceiveCallResult { result } => (0, None, None, Some(&result.0)),
+        Step::EnterCall { method, arguments } => (0, Some(method), Some(arguments), None),
         Step::RaiseEffect { effect, arguments }
         | Step::EnterEffectHandler {
             effect, arguments, ..
@@ -401,8 +413,8 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
 /// Failure to decode or dispatch an absorbed block assignment.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum EventCodecError {
-    #[error("SetStorage requires a host-supplied coordinator handle")]
-    MissingCoordinatorHandle,
+    #[error("SetStorage requires a host-supplied entry UTXO handle")]
+    MissingEntryUtxoHandle,
     #[error("expected {expected} blocks from the static template, found {actual}")]
     WrongBlockCount { expected: usize, actual: usize },
 
@@ -454,7 +466,7 @@ mod test {
         vec![
             Step::SetStorage {
                 storage: ROOT,
-                coordinator_handle: ResourceHandle(7),
+                entry_utxo_handle: ResourceHandle(7),
             },
             Step::GetStorage { storage: Out(ROOT) },
             Step::NewUtxo { arguments: ROOT },
@@ -470,8 +482,8 @@ mod test {
                 method: METHOD,
                 arguments: ROOT,
             },
-            Step::ReceiveMethodResult { result: Out(OTHER) },
-            Step::EnterMethod {
+            Step::ReceiveCallResult { result: Out(OTHER) },
+            Step::EnterCall {
                 method: METHOD,
                 arguments: ROOT,
             },
@@ -498,7 +510,7 @@ mod test {
     fn expected_method(step: &Step) -> Option<MethodHash> {
         match step {
             Step::CallMethod { method, .. }
-            | Step::EnterMethod { method, .. }
+            | Step::EnterCall { method, .. }
             | Step::RaiseEffect { effect: method, .. }
             | Step::EnterEffectHandler { effect: method, .. } => Some(*method),
             _ => None,
@@ -513,14 +525,14 @@ mod test {
             let encoded = encode(&step);
             assert_eq!(encoded.len(), kind.blocks().len(), "{step:?}");
             assert_eq!(encoded[0][0], kind.tag() as u64, "{step:?}");
-            let coordinator_handle = match &step {
+            let entry_utxo_handle = match &step {
                 Step::SetStorage {
-                    coordinator_handle, ..
-                } => Some(*coordinator_handle),
+                    entry_utxo_handle, ..
+                } => Some(*entry_utxo_handle),
                 _ => None,
             };
             assert_eq!(
-                kind.decode(&encoded, expected_method, coordinator_handle)
+                kind.decode(&encoded, expected_method, entry_utxo_handle)
                     .unwrap(),
                 step
             );
@@ -531,17 +543,17 @@ mod test {
     fn storage_handle_is_host_metadata_not_committed_data() {
         let first = Step::SetStorage {
             storage: ROOT,
-            coordinator_handle: ResourceHandle(7),
+            entry_utxo_handle: ResourceHandle(7),
         };
         let second = Step::SetStorage {
             storage: ROOT,
-            coordinator_handle: ResourceHandle(9),
+            entry_utxo_handle: ResourceHandle(9),
         };
         let blocks = encode(&first);
         assert_eq!(blocks, encode(&second));
         assert_eq!(
             EventKind::SetStorage.decode(&blocks, None, None),
-            Err(EventCodecError::MissingCoordinatorHandle)
+            Err(EventCodecError::MissingEntryUtxoHandle)
         );
         assert_eq!(
             EventKind::SetStorage
@@ -562,7 +574,7 @@ mod test {
             encode(&step),
             [[6, 7, 1, 2, 3, 4, 5, 6], [7, 8, 11, 12, 13, 14, 0, 0],]
         );
-        let resume = Step::ReceiveMethodResult { result: Out(OTHER) };
+        let resume = Step::ReceiveCallResult { result: Out(OTHER) };
         assert_eq!(encode(&resume), [[15, 21, 22, 23, 24, 0, 0, 0]]);
     }
 
@@ -589,7 +601,7 @@ mod test {
 
     #[test]
     fn rejects_the_wrong_number_of_blocks() {
-        let step = Step::EnterMethod {
+        let step = Step::EnterCall {
             method: METHOD,
             arguments: ROOT,
         };
@@ -663,7 +675,7 @@ mod test {
 
     #[test]
     fn rejects_committed_methods_that_differ_from_the_template() {
-        let step = Step::EnterMethod {
+        let step = Step::EnterCall {
             method: METHOD,
             arguments: ROOT,
         };
@@ -671,7 +683,7 @@ mod test {
         let encoded = encode(&step);
 
         assert_eq!(
-            EventKind::EnterMethod.decode(&encoded, Some(other), None),
+            EventKind::EnterCall.decode(&encoded, Some(other), None),
             Err(EventCodecError::MethodMismatch {
                 expected: other,
                 actual: METHOD

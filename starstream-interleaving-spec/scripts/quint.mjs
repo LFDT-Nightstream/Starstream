@@ -12,6 +12,11 @@ const MAIN = 'starstream_sim'
 
 const INVARIANTS = [
   'coord_stack',
+  'coordinator_ids_are_allocated',
+  'coordinator_scan_is_bounded',
+  'running_coroutine_is_live',
+  'visible_scope_owners_are_live',
+  'coordinator_instances_are_fresh',
   'effect_search_is_saved_ancestor',
   'effect_arena_is_well_formed',
   'effect_local_depth_fits_chain',
@@ -28,6 +33,8 @@ const INVARIANTS = [
 
 const WITNESSES = [
   'tx_finished',
+  'has_called_coordinator',
+  'has_nested_coordinator',
   'has_loaded_input',
   'has_exported_abi',
   'finished_without_inputs',

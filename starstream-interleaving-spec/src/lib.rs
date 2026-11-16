@@ -5,8 +5,8 @@ pub mod trace;
 
 pub use quint::{QuintError, QuintVerifier, VerificationFailure};
 pub use trace::{
-    EffectHash, InputUtxo, MethodHash, Out, OutputUtxo, ResourceHandle, StarstreamValue, Step,
-    Trace, TransactionStatement,
+    EffectHash, EntryCall, InputUtxo, MethodHash, Out, OutputUtxo, ResourceHandle, StarstreamValue,
+    Step, Trace, TransactionStatement,
 };
 
 // this needs to match neo_wasm's event commitment block size

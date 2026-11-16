@@ -2,7 +2,11 @@ module effect_scopes_test {
   import starstream.* from "./starstream"
   import utils.* from "./utils"
 
-  action init = { state' = new_tx }
+  pure val ENTRY = "entry"
+  action fresh = { state' = new_tx }
+  run init = fresh
+    .then(begin_execution(ENTRY, UNIT_VALUE))
+    .then(enter_call(ENTRY, UNIT_VALUE))
   action check(condition: bool): bool = all { assert(condition), state' = state }
 
   run root_e = init
@@ -247,7 +251,7 @@ module effect_scopes_test {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, "M", UNIT_VALUE))
-    .then(enter_method("M", UNIT_VALUE))
+    .then(enter_call("M", UNIT_VALUE))
     .then(check(state.effect_local_depth == 0))
 
   run test_method_cannot_modify_inherited_scope = method_invocation
@@ -262,7 +266,7 @@ module effect_scopes_test {
     .then(pop_effect_handler_frame)
     .then(yield_begin)
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_method_result({ value: UNIT_VALUE }))
+    .then(receive_call_result({ value: UNIT_VALUE }))
     .then(check(state.effect_local_depth == 1 and state.effect_head == Some(0)))
     .then(pop_effect_handler_frame)
 

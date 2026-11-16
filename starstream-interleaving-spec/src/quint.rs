@@ -383,7 +383,11 @@ fn render_with_statement(
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("new_transaction(List({inputs}), List({outputs}))")
+            format!(
+                "new_transaction({{ script: {}, arguments: {} }}, List({inputs}), List({outputs}))",
+                Qnt(&statement.entry.script),
+                Qnt(&statement.entry.arguments)
+            )
         },
     );
     let mut lines = vec![
@@ -521,15 +525,21 @@ where
 impl fmt::Display for Qnt<&Step> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
+            Step::CallCoordinator { script, arguments } => {
+                write!(f, "call_coordinator({}, {})", Qnt(script), Qnt(arguments))
+            }
+            Step::BeginExecution { script, arguments } => {
+                write!(f, "begin_execution({}, {})", Qnt(script), Qnt(arguments))
+            }
             Step::SetStorage {
                 storage,
-                coordinator_handle,
+                entry_utxo_handle,
             } => {
                 write!(
                     f,
                     "set_storage({}, {})",
                     Qnt(storage),
-                    Qnt(coordinator_handle)
+                    Qnt(entry_utxo_handle)
                 )
             }
             Step::PreloadMethod { method } => write!(f, "preload_method({})", Qnt(method)),
@@ -559,11 +569,11 @@ impl fmt::Display for Qnt<&Step> {
                 Qnt(method),
                 Qnt(arguments)
             ),
-            Step::ReceiveMethodResult { result } => {
-                write!(f, "receive_method_result({})", Qnt(result))
+            Step::ReceiveCallResult { result } => {
+                write!(f, "receive_call_result({})", Qnt(result))
             }
-            Step::EnterMethod { method, arguments } => {
-                write!(f, "enter_method({}, {})", Qnt(method), Qnt(arguments))
+            Step::EnterCall { method, arguments } => {
+                write!(f, "enter_call({}, {})", Qnt(method), Qnt(arguments))
             }
             Step::PushEffectHandlerFrame { frame_id } => {
                 write!(f, "push_effect_handler_frame({frame_id})")
@@ -626,29 +636,37 @@ mod tests {
 
     // Middleware smoke tests: one accepted trace and one rejected trace ensure
     // the Rust-to-Quint translation, CLI invocation, and error mapping work.
+    const ENTRY: crate::EntryCall = crate::EntryCall {
+        script: MethodHash([7; 8]),
+        arguments: StarstreamValue::UNIT_VALUE,
+    };
+
     #[test]
     #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
     fn replays_a_utxo_constructor() {
-        let trace = Trace::new([
-            NewUtxo {
-                arguments: vec![0, 1, 2, 3].into(),
-            },
-            EnterConstructor {
-                arguments: vec![0, 1, 2, 3].into(),
-            },
-            RegisterMethod {
-                method: MethodHash([1, 0, 1, 0, 1, 0, 1, 0]),
-            },
-            Return {
-                result: StarstreamValue::UNIT_VALUE.into(),
-            },
-            ReceiveNewUtxoHandle {
-                resource: ResourceHandle(0).into(),
-            },
-            Return {
-                result: StarstreamValue::UNIT_VALUE.into(),
-            },
-        ]);
+        let trace = Trace::with_entry(
+            &ENTRY,
+            [
+                NewUtxo {
+                    arguments: vec![0, 1, 2, 3].into(),
+                },
+                EnterConstructor {
+                    arguments: vec![0, 1, 2, 3].into(),
+                },
+                RegisterMethod {
+                    method: MethodHash([1, 0, 1, 0, 1, 0, 1, 0]),
+                },
+                Return {
+                    result: StarstreamValue::UNIT_VALUE.into(),
+                },
+                ReceiveNewUtxoHandle {
+                    resource: ResourceHandle(0).into(),
+                },
+                Return {
+                    result: StarstreamValue::UNIT_VALUE.into(),
+                },
+            ],
+        );
 
         QuintVerifier::new()
             .unwrap()
@@ -659,19 +677,22 @@ mod tests {
     #[test]
     #[ignore = "requires Quint; run `npm test` in starstream-interleaving-spec"]
     fn rejects_a_return_without_entering_constructor() {
-        let trace = Trace::new([
-            NewUtxo {
-                arguments: vec![0, 1, 2, 3].into(),
-            },
-            Return {
-                result: StarstreamValue::UNIT_VALUE.into(),
-            },
-        ]);
+        let trace = Trace::with_entry(
+            &ENTRY,
+            [
+                NewUtxo {
+                    arguments: vec![0, 1, 2, 3].into(),
+                },
+                Return {
+                    result: StarstreamValue::UNIT_VALUE.into(),
+                },
+            ],
+        );
 
         let error = QuintVerifier::new().unwrap().verify(&trace).unwrap_err();
 
         assert!(
-            matches!(error, QuintError::RejectedStep { index: 1, .. }),
+            matches!(error, QuintError::RejectedStep { index: 3, .. }),
             "{error}"
         );
     }

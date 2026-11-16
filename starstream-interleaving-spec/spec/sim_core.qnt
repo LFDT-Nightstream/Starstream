@@ -63,6 +63,19 @@ module starstream_sim_core {
     read_abi(state.tx_outputs[state.outputs_seen - 1].methods[state.abi_read_ordinal]),
   }
 
+  action simulate_call_coordinator: bool = all {
+    state.next_coordinator_id < 5,
+    nondet script = SIM_METHODS.oneOf()
+    nondet arguments = SIM_VALUES.oneOf()
+    call_coordinator(script, arguments),
+  }
+
+  action simulate_begin_execution: bool =
+    match state.tx_entry {
+      | Some(entry) => begin_execution(entry.script, entry.arguments)
+      | None => all { false, state' = state }
+    }
+
   action simulate_new_utxo: bool = all {
     state.next_utxo_id < SIM_MAX_UTXOS,
     nondet arguments = SIM_VALUES.oneOf()
@@ -104,9 +117,9 @@ module starstream_sim_core {
     call_method(key.handle, method, arguments)
   }
 
-  action simulate_receive_method_result: bool = {
+  action simulate_receive_call_result: bool = {
     nondet result = SIM_VALUES.oneOf()
-    receive_method_result({ value: result })
+    receive_call_result({ value: result })
   }
 
   action simulate_return: bool = {
@@ -120,7 +133,7 @@ module starstream_sim_core {
     return({ value: result })
   }
 
-  action simulate_enter_method: bool = {
+  action simulate_enter_call: bool = {
     val expected_arguments =
       if (state.call_stack.length() == 0)
         UNIT_VALUE
@@ -129,7 +142,7 @@ module starstream_sim_core {
 
     nondet arguments = Set(expected_arguments).oneOf()
     nondet method = SIM_METHODS.oneOf()
-    enter_method(method, arguments)
+    enter_call(method, arguments)
   }
 
   // Bounded exploration of the explicit effect scopes. The scope limit bounds
@@ -198,7 +211,7 @@ module starstream_sim_core {
           | Loading => any {
               simulate_set_storage,
               simulate_preload_method,
-              all { last_input_loaded, state.next_utxo_id == state.tx_inputs.length(), execution_step },
+              all { last_input_loaded, simulate_begin_execution },
             }
           | Running => any {
               execution_step,
@@ -212,6 +225,7 @@ module starstream_sim_core {
   }
 
   action execution_step: bool = any {
+      simulate_call_coordinator,
       simulate_new_utxo,
       simulate_receive_new_utxo_handle,
       simulate_enter_constructor,
@@ -219,8 +233,8 @@ module starstream_sim_core {
       simulate_register_method,
       simulate_return,
       simulate_call_method,
-      simulate_receive_method_result,
-      simulate_enter_method,
+      simulate_receive_call_result,
+      simulate_enter_call,
       simulate_push_effect_handler_frame,
       simulate_add_effect_handler,
       pop_effect_handler_frame,
@@ -237,7 +251,9 @@ module starstream_sim_core {
     nondet candidates = 0.to(SIM_MAX_INPUTS - 1).setOfMaps(SIM_INPUTS).oneOf()
     val inputs = range(0, SIM_MAX_INPUTS).foldl(List(), (inputs, i) =>
       if (i < input_count) inputs.append(candidates.get(i)) else inputs)
-    val fresh_state = new_transaction(inputs, List())
+    nondet script = SIM_METHODS.oneOf()
+    nondet arguments = SIM_VALUES.oneOf()
+    val fresh_state = new_transaction({ script: script, arguments: arguments }, inputs, List())
     all {
       state' = fresh_state,
       prev_lifecycle' = fresh_state.utxo_lifecycle,
@@ -256,6 +272,10 @@ module starstream_sim_core {
         prev_lifecycle.get(u) == Consumed
           implies state.utxo_lifecycle.get(u) == Consumed
     )
+
+  val has_called_coordinator = state.next_coordinator_id > 2
+  val has_nested_coordinator = state.instance_stack.indices().filter(i =>
+    state.instance_stack[i].is_coord()).size() > 2
 
   val has_effect_scope = effect_stack.length() > 0
   val is_handling_effect = state.curr_cid_phase == EffectHandlerExecuting
