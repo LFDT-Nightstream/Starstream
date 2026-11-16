@@ -11,9 +11,10 @@ use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
     FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
     Spanned, StaticFunction, SubstituteType, TestDef, TokenDef, TokenGlobal, TokenPart, TokenType,
-    Type, TypeParam, TypeVarId, TypedAbiMethodDecl, TypedEffectHandler, TypedFunctionParam,
-    TypedImportItem, TypedTestDef, TypedTokenDef, TypedTokenGlobal, TypedTokenPart, TypedUtxoDef,
-    TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart, UtxoType,
+    Type, TypeParam, TypeVarId, TypeVarIdGen, TypedAbiMethodDecl, TypedEffectHandler,
+    TypedFunctionParam, TypedImportItem, TypedTestDef, TypedTokenDef, TypedTokenGlobal,
+    TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    UtxoType,
     ast::{
         BinaryOp, Block, Definition, EnumDef, EnumVariantPayload, Expr, FunctionDef, Identifier,
         ImportItems, ImportSource, IntegerLiteral, Literal, Pattern, Program, Statement, StructDef,
@@ -378,7 +379,7 @@ struct Inferencer {
     warnings: Vec<TypeWarning>,
 
     // Type var tracking
-    next_type_var: TypeVarId,
+    next_type_var: TypeVarIdGen,
     subst: HashMap<TypeVarId, Type>,
     /// Type variables constrained to integer types (from polymorphic integer literals).
     int_vars: HashSet<TypeVarId>,
@@ -1678,7 +1679,7 @@ impl Inferencer {
     }
 
     fn refresh_type_params(
-        next_type_var: &mut TypeVarId,
+        next_type_var: &mut TypeVarIdGen,
         ty: &Type,
         type_params: &[TypeParam],
     ) -> Type {

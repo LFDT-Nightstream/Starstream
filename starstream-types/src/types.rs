@@ -64,6 +64,8 @@ const _: () = assert!(std::mem::size_of::<Type>() <= 2 * std::mem::size_of::<usi
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeVarId(pub u32);
 
+pub struct TypeVarIdGen(TypeVarId);
+
 /// Integer width and signedness.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IntWidth {
@@ -274,10 +276,16 @@ impl From<Arc<AbiType>> for Type {
     }
 }
 
-impl TypeVarId {
+impl Default for TypeVarIdGen {
+    fn default() -> Self {
+        Self(TypeVarId(0))
+    }
+}
+
+impl TypeVarIdGen {
     pub fn fresh(&mut self) -> TypeVarId {
-        let id = *self;
-        self.0 += 1;
+        let id = self.0;
+        self.0.0 += 1;
         id
     }
 }

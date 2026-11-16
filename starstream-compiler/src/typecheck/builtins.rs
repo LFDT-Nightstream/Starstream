@@ -8,7 +8,7 @@ use std::sync::Arc;
 use starstream_types::{
     AbiType, DUMMY_SPAN, EnumType, EnumVariantKind, EnumVariantType, FunctionKind, FunctionType,
     Identifier, IntWidth, NameId, RecordFieldType, RecordType, StaticFunction, Type, TypeParam,
-    TypeVarId, TypedAbiMethodDecl, TypedFunctionParam,
+    TypeVarIdGen, TypedAbiMethodDecl, TypedFunctionParam,
 };
 
 use crate::typecheck::{
@@ -26,9 +26,9 @@ pub struct BuiltinRegistry {
 }
 
 impl BuiltinRegistry {
-    pub fn new() -> (Self, TypeVarId, NameId) {
+    pub fn new() -> (Self, TypeVarIdGen, NameId) {
         let mut registry = Self::default();
-        let mut next_type_var = TypeVarId(0);
+        let mut next_type_var = TypeVarIdGen::default();
         let mut next_name_id = NameId(0);
         register_prelude(&mut registry.prelude, &mut next_type_var, &mut next_name_id);
         let starstream = registry.wit_tree.add_child("starstream".to_owned());
@@ -102,7 +102,7 @@ impl BuiltinRegistry {
 /// Register builtin prelude types, including primitives, Option, Result, Utxo, and Token.
 fn register_prelude(
     prelude: &mut Namespace,
-    next_type_var: &mut TypeVarId,
+    next_type_var: &mut TypeVarIdGen,
     next_name_id: &mut NameId,
 ) {
     // Primitives
