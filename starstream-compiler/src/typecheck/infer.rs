@@ -9,9 +9,9 @@ use std::{
 
 use starstream_types::{
     AbiDef, AbiPart, AbiType, Arguments, DUMMY_SPAN, EffectDef, EventDef, FunctionExport,
-    FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, Scheme, ScopedName, Span,
-    Spanned, StaticFunction, SubstituteType, TestDef, TokenDef, TokenGlobal, TokenPart, TokenType,
-    Type, TypeParam, TypeVarId, TypeVarIdGen, TypedAbiMethodDecl, TypedEffectHandler,
+    FunctionKind, FunctionType, GenericTypeDef, IfCondition, NameId, NameIdGen, Scheme, ScopedName,
+    Span, Spanned, StaticFunction, SubstituteType, TestDef, TokenDef, TokenGlobal, TokenPart,
+    TokenType, Type, TypeParam, TypeVarId, TypeVarIdGen, TypedAbiMethodDecl, TypedEffectHandler,
     TypedFunctionParam, TypedImportItem, TypedTestDef, TypedTokenDef, TypedTokenGlobal,
     TypedTokenPart, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     UtxoType,
@@ -393,7 +393,7 @@ struct Inferencer {
     builtins: BuiltinRegistry,
 
     /// Name ID assignment.
-    next_name_id: NameId,
+    next_name_id: NameIdGen,
     function_names: PointerMap<NameId>,
     typed_definitions: PointerMap<TypedDefinition>,
 

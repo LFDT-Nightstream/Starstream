@@ -400,10 +400,18 @@ impl TypedBlock {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NameId(pub u32);
 
-impl NameId {
+pub struct NameIdGen(NameId);
+
+impl Default for NameIdGen {
+    fn default() -> Self {
+        Self(NameId(0))
+    }
+}
+
+impl NameIdGen {
     pub fn fresh(&mut self) -> NameId {
-        let id = NameId(self.0);
-        self.0 += 1;
+        let id = self.0;
+        self.0.0 += 1;
         id
     }
 }

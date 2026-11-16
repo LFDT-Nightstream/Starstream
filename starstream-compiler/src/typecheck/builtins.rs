@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use starstream_types::{
     AbiType, DUMMY_SPAN, EnumType, EnumVariantKind, EnumVariantType, FunctionKind, FunctionType,
-    Identifier, IntWidth, NameId, RecordFieldType, RecordType, StaticFunction, Type, TypeParam,
+    Identifier, IntWidth, NameIdGen, RecordFieldType, RecordType, StaticFunction, Type, TypeParam,
     TypeVarIdGen, TypedAbiMethodDecl, TypedFunctionParam,
 };
 
@@ -26,10 +26,10 @@ pub struct BuiltinRegistry {
 }
 
 impl BuiltinRegistry {
-    pub fn new() -> (Self, TypeVarIdGen, NameId) {
+    pub fn new() -> (Self, TypeVarIdGen, NameIdGen) {
         let mut registry = Self::default();
         let mut next_type_var = TypeVarIdGen::default();
-        let mut next_name_id = NameId(0);
+        let mut next_name_id = NameIdGen::default();
         register_prelude(&mut registry.prelude, &mut next_type_var, &mut next_name_id);
         let starstream = registry.wit_tree.add_child("starstream".to_owned());
 
@@ -103,7 +103,7 @@ impl BuiltinRegistry {
 fn register_prelude(
     prelude: &mut Namespace,
     next_type_var: &mut TypeVarIdGen,
-    next_name_id: &mut NameId,
+    next_name_id: &mut NameIdGen,
 ) {
     // Primitives
     let mut primitive = |name: &str, ty| prelude.types.insert(name.to_owned(), TypeEntry::from(ty));
@@ -284,7 +284,7 @@ fn register_prelude_enum(
 // ----------------------------------------------------------------------------
 // Library builtins
 
-fn register_std_cardano(cardano: &mut Namespace, next_name_id: &mut NameId) {
+fn register_std_cardano(cardano: &mut Namespace, next_name_id: &mut NameIdGen) {
     // blockHeight() -> i64
     cardano.constants.insert(
         "blockHeight".to_owned(),
@@ -316,7 +316,7 @@ fn register_std_cardano(cardano: &mut Namespace, next_name_id: &mut NameId) {
     );
 }
 
-fn register_std_ledger(ledger: &mut Namespace, next_name_id: &mut NameId) {
+fn register_std_ledger(ledger: &mut Namespace, next_name_id: &mut NameIdGen) {
     let public_key = Type::Record(Arc::new(RecordType {
         name: Identifier::anon("PublicKey"),
         fields: vec![RecordFieldType {
@@ -355,7 +355,11 @@ fn register_std_ledger(ledger: &mut Namespace, next_name_id: &mut NameId) {
     );
 }
 
-fn register_effects_std(effects: &mut Namespace, next_name_id: &mut NameId, prelude: &Namespace) {
+fn register_effects_std(
+    effects: &mut Namespace,
+    next_name_id: &mut NameIdGen,
+    prelude: &Namespace,
+) {
     let token = prelude.types.get("Token").unwrap().ty.clone();
 
     let token_released = Type::Function(Arc::new(FunctionType {
