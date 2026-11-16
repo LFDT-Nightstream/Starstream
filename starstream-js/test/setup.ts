@@ -35,6 +35,18 @@ export default function setup(): void {
     );
     process.env.STARSTREAM = artifact!.executable!;
   }
+  if (!process.env.STARSTREAM_COMPILER_WASM) {
+    const wasm = build(
+      "-p",
+      "starstream-compiler-web",
+      "--release",
+      "--target",
+      "wasm32-unknown-unknown",
+    )
+      .flatMap(({ filenames }) => filenames ?? [])
+      .find((file) => file.endsWith("starstream_compiler_web.wasm"));
+    process.env.STARSTREAM_COMPILER_WASM = wasm!;
+  }
   if (!process.env.STARSTREAM_LEDGER_WASM) {
     const wasm = build(
       "-p",

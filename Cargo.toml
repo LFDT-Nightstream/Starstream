@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "starstream-cli",
   "starstream-compiler",
+  "starstream-compiler-web",
   "starstream-interpreter",
   "starstream-language-server",
   "starstream-language-server-web",
