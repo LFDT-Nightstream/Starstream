@@ -4,9 +4,29 @@ use starstream_interleaving_prover::{
     Error, TraceCommitments, Unsatisfied, verify_transaction_sat,
 };
 use starstream_interleaving_spec::{
-    InputUtxo, MethodHash, OutputUtxo, QuintError, QuintVerifier, ResourceHandle, StarstreamValue,
-    Step, Trace, TransactionStatement, events,
+    EntryCall, InputUtxo, MethodHash, OutputUtxo, QuintError, QuintVerifier, ResourceHandle,
+    StarstreamValue, Step, Trace, TransactionStatement, events,
 };
+
+/// The entry script call that every fixture runs, with a non-unit argument root.
+const ENTRY: EntryCall = EntryCall {
+    script: MethodHash([9, 0, 10, 0, 11, 0, 12, 0]),
+    arguments: StarstreamValue([31, 32, 33, 34]),
+};
+
+/// The host's entry call and the entry coordinator's matching entry event.
+fn entry_steps() -> [Step; 2] {
+    [
+        Step::BeginExecution {
+            script: ENTRY.script,
+            arguments: ENTRY.arguments,
+        },
+        Step::EnterCall {
+            method: ENTRY.script,
+            arguments: ENTRY.arguments,
+        },
+    ]
+}
 
 const METHOD: MethodHash = MethodHash([1, 0, 2, 0, 3, 0, 4, 0]);
 const OTHER: MethodHash = MethodHash([5, 0, 6, 0, 7, 0, 8, 0]);
@@ -63,21 +83,25 @@ fn fixture_with_handle(
     let mut trace = Trace::new([
         Step::SetStorage {
             storage: input.clone(),
-            coordinator_handle: handle,
+            entry_utxo_handle: handle,
         },
         Step::PreloadMethod { method: METHOD },
+    ]);
+    trace.0.extend(entry_steps());
+    trace.0.extend([
         Step::CallMethod {
             resource: handle,
             method: METHOD,
             arguments: UNIT,
         },
-        Step::EnterMethod {
+        Step::EnterCall {
             method: METHOD,
             arguments: UNIT,
         },
     ]);
     // Ownership is explicit and independent of normalization: Coord(1)=2, Utxo(0)=1.
-    let mut owners = vec![Some(1), None, Some(2), Some(1)];
+    // The entry call is a host step; the entry event belongs to Coord(1).
+    let mut owners = vec![Some(1), None, None, Some(2), Some(2), Some(1)];
     if consumed {
         trace.0.push(Step::YieldBegin);
         owners.push(Some(1));
@@ -86,7 +110,7 @@ fn fixture_with_handle(
         Step::Return {
             result: UNIT.into(),
         },
-        Step::ReceiveMethodResult {
+        Step::ReceiveCallResult {
             result: UNIT.into(),
         },
         Step::Return {
@@ -118,6 +142,7 @@ fn fixture_with_handle(
     }
     let commitments = expected(&trace, &owners);
     let statement = TransactionStatement {
+        entry: ENTRY,
         inputs: vec![InputUtxo {
             storage: input,
             methods: vec![METHOD],
@@ -161,14 +186,17 @@ fn new_utxo_transaction(
     let mut trace = Trace::new([
         Step::SetStorage {
             storage: UNIT,
-            coordinator_handle: ResourceHandle(0),
+            entry_utxo_handle: ResourceHandle(0),
         },
         Step::PreloadMethod { method: METHOD },
         Step::PreloadMethod { method: METHOD }, // idempotent membership, recorded in the input sequence
+    ]);
+    trace.0.extend(entry_steps());
+    trace.0.extend([
         Step::NewUtxo { arguments: UNIT },
         Step::EnterConstructor { arguments: UNIT },
     ]);
-    let mut owners = vec![Some(1), None, None, Some(2), Some(3)];
+    let mut owners = vec![Some(1), None, None, None, Some(2), Some(2), Some(3)];
     for &method in new_methods {
         trace.0.push(Step::RegisterMethod { method });
         owners.push(Some(3));
@@ -191,6 +219,7 @@ fn new_utxo_transaction(
     ]);
     owners.extend([Some(3), Some(2), Some(2), Some(1), None, None]);
     let mut statement = TransactionStatement {
+        entry: ENTRY,
         inputs: vec![InputUtxo {
             storage: UNIT,
             methods: vec![METHOD, METHOD],
@@ -229,15 +258,21 @@ fn new_utxo_transaction(
 }
 
 fn no_input_transaction() -> (Trace, TransactionStatement, TraceCommitments) {
-    let trace = Trace::new([
+    let mut trace = Trace::new(entry_steps());
+    trace.0.extend([
         Step::Return {
             result: UNIT.into(),
         },
         Step::FinalizeCoordinator,
         Step::FinishTransaction,
     ]);
-    let commitments = expected(&trace, &[Some(2), None, None]);
-    (trace, TransactionStatement::default(), commitments)
+    let commitments = expected(&trace, &[None, Some(2), Some(2), None, None]);
+    let statement = TransactionStatement {
+        entry: ENTRY,
+        inputs: vec![],
+        outputs: vec![],
+    };
+    (trace, statement, commitments)
 }
 
 fn positive_cases() -> Vec<(Trace, TransactionStatement, TraceCommitments)> {
@@ -255,7 +290,7 @@ fn positive_cases() -> Vec<(Trace, TransactionStatement, TraceCommitments)> {
 fn replaced_abi_transaction() -> (Trace, TransactionStatement, TraceCommitments) {
     let (mut trace, mut statement, _) = fixture(false);
     trace.0.splice(
-        4..4,
+        6..6,
         [
             Step::YieldBegin,
             Step::RegisterMethod { method: OTHER },
@@ -281,9 +316,11 @@ fn replaced_abi_transaction() -> (Trace, TransactionStatement, TraceCommitments)
         &trace,
         &[
             Some(1),
+            None, // load, preload
             None,
+            Some(2), // entry call and event
             Some(2),
-            Some(1), // load, preload, call, enter
+            Some(1), // call, enter
             Some(1),
             Some(1),
             Some(1),
@@ -390,9 +427,10 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
     ));
     for (name, index) in [
         ("coordinator finalized during loading", 2),
-        ("coordinator finalized during execution", 3),
-        ("coordinator finalized before outputs", 6),
-        ("coordinator finalized before ABI completion", 7),
+        ("coordinator finalized before the entry event", 3),
+        ("coordinator finalized during execution", 5),
+        ("coordinator finalized before outputs", 8),
+        ("coordinator finalized before ABI completion", 9),
     ] {
         let mut early = without_coordinator.clone();
         early.0.insert(index, Step::FinalizeCoordinator);
@@ -479,31 +517,31 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
         ),
         (
             "load during execution",
-            3,
+            5,
             Step::SetStorage {
                 storage: UNIT,
-                coordinator_handle: ResourceHandle(8),
+                entry_utxo_handle: ResourceHandle(8),
             },
         ),
         (
             "preload during execution",
-            3,
+            5,
             Step::PreloadMethod { method: OTHER },
         ),
         (
             "export during execution",
-            3,
+            5,
             Step::GetStorage {
                 storage: UNIT.into(),
             },
         ),
-        ("skip live output", 6, Step::SkipConsumed),
-        ("omit live output", 6, Step::FinishTransaction),
-        ("skip during execution", 3, Step::SkipConsumed),
-        ("finish during execution", 3, Step::FinishTransaction),
+        ("skip live output", 8, Step::SkipConsumed),
+        ("omit live output", 8, Step::FinishTransaction),
+        ("skip during execution", 5, Step::SkipConsumed),
+        ("finish during execution", 5, Step::FinishTransaction),
         (
             "execute after finalization",
-            7,
+            9,
             Step::Return {
                 result: UNIT.into(),
             },
@@ -516,6 +554,76 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
         }
         cases.push((name, changed, statement.clone(), commitments.clone()));
     }
+    // The entry call (step 2) and its entry event (step 3).
+    let mut without_entry = trace.clone();
+    without_entry.0.remove(2);
+    cases.push((
+        "execution without the entry call",
+        without_entry,
+        statement.clone(),
+        commitments.clone(),
+    ));
+    let mut without_entry_event = trace.clone();
+    without_entry_event.0.remove(3);
+    cases.push((
+        "entry body without its entry event",
+        without_entry_event,
+        statement.clone(),
+        commitments.clone(),
+    ));
+    let mut repeated_entry = trace.clone();
+    repeated_entry.0.insert(4, trace.0[2].clone());
+    cases.push((
+        "repeated entry call",
+        repeated_entry,
+        statement.clone(),
+        commitments.clone(),
+    ));
+    let mut early_entry = trace.clone();
+    early_entry.0.swap(1, 2);
+    cases.push((
+        "entry call before the input ABI is loaded",
+        early_entry,
+        statement.clone(),
+        commitments.clone(),
+    ));
+    for (name, entry) in [
+        (
+            "statement names another entry script",
+            EntryCall {
+                script: OTHER,
+                ..ENTRY
+            },
+        ),
+        (
+            "statement carries other entry arguments",
+            EntryCall {
+                arguments: UNIT,
+                ..ENTRY
+            },
+        ),
+    ] {
+        cases.push((
+            name,
+            trace.clone(),
+            TransactionStatement {
+                entry,
+                ..statement.clone()
+            },
+            commitments.clone(),
+        ));
+    }
+    let mut mismatched_event = trace.clone();
+    mismatched_event.0[3] = Step::EnterCall {
+        method: OTHER,
+        arguments: ENTRY.arguments,
+    };
+    cases.push((
+        "entry event names another script",
+        mismatched_event,
+        statement.clone(),
+        commitments.clone(),
+    ));
     let mut missing = trace.clone();
     missing.0.remove(1);
     cases.push((
@@ -534,18 +642,18 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
     ));
     let mut stale = trace.clone();
     stale.0.splice(
-        4..4,
+        6..6,
         [Step::YieldBegin, Step::RegisterMethod { method: OTHER }],
     );
     stale.0.splice(
-        7..7,
+        9..9,
         [
             Step::CallMethod {
                 resource: ResourceHandle(7),
                 method: METHOD,
                 arguments: UNIT,
             },
-            Step::EnterMethod {
+            Step::EnterCall {
                 method: METHOD,
                 arguments: UNIT,
             },
@@ -576,10 +684,10 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
     cases.push(("excess input", trace.clone(), changed, commitments.clone()));
     let mut changed = trace.clone();
     if let Step::SetStorage {
-        coordinator_handle, ..
+        entry_utxo_handle, ..
     } = &mut changed.0[0]
     {
-        *coordinator_handle = ResourceHandle(9);
+        *entry_utxo_handle = ResourceHandle(9);
     }
     cases.push((
         "call through an unbound input handle",
@@ -658,7 +766,7 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
         commitments.clone(),
     ));
     let mut duplicate = trace.clone();
-    duplicate.0.insert(7, trace.0[6].clone());
+    duplicate.0.insert(9, trace.0[8].clone());
     cases.push((
         "duplicate export",
         duplicate,
@@ -684,7 +792,7 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
         commitments.clone(),
     ));
     let (mut consumed, consumed_statement, consumed_commitments) = fixture(true);
-    consumed.0[7] = Step::GetStorage {
+    consumed.0[9] = Step::GetStorage {
         storage: UNIT.into(),
     };
     cases.push((

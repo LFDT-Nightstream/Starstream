@@ -19,10 +19,10 @@ pub(crate) enum CurrPhase {
     Registering = 0b0011,
     EffectHandlerExecuting = 0b0100,
     CtorEnterPending = 0b0110,
-    MethodEnterPending = 0b0111,
+    CallEnterPending = 0b0111,
     EffectHandlerPending = 0b1110,
     EffectResumePending = 0b1111,
-    MethodResultPending = 0b1000,
+    CallResultPending = 0b1000,
     NewUtxoHandlePending = 0b1001,
 }
 
@@ -121,7 +121,7 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
                 link(COL_TX_PHASE_AFTER, COL_TX_PHASE_BEFORE),
                 link(COL_LAST_INPUT_HAS_ABI_AFTER, COL_LAST_INPUT_HAS_ABI_BEFORE),
                 link(COL_OUTPUT_CURSOR_AFTER, COL_OUTPUT_CURSOR_BEFORE),
-                link(COL_COORD_FINALIZED_AFTER, COL_COORD_FINALIZED_BEFORE),
+                link(COL_COORD_CURSOR_AFTER, COL_COORD_CURSOR_BEFORE),
                 link(COL_ABI_READ_REMAINING_AFTER, COL_ABI_READ_REMAINING_BEFORE),
                 link(COL_ABI_READ_ORDINAL_AFTER, COL_ABI_READ_ORDINAL_BEFORE),
             ],
@@ -159,6 +159,11 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
             name: "next_utxo_id_continuity",
             role: "row[i].COL_NEXT_UTXO_ID_AFTER must match row[i+1].COL_NEXT_UTXO_ID_BEFORE",
             links: vec![link(COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE)],
+        },
+        ContinuityGroup {
+            name: "next_coordinator_id_continuity",
+            role: "the coordinator allocator must carry across adjacent rows",
+            links: vec![link(COL_NEXT_COORD_ID_AFTER, COL_NEXT_COORD_ID_BEFORE)],
         },
         ContinuityGroup {
             name: "enabled_method_log_length_continuity",

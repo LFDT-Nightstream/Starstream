@@ -24,8 +24,9 @@ fn kind(op: Opcode) -> Option<EventKind> {
         Opcode::RegisterMethod => EventKind::RegisterMethod,
         Opcode::Return => EventKind::Return,
         Opcode::CallMethod => EventKind::CallMethod,
-        Opcode::ReceiveMethodResult => EventKind::ReceiveMethodResult,
-        Opcode::EnterMethod => EventKind::EnterMethod,
+        Opcode::CallCoordinator => EventKind::CallCoordinator,
+        Opcode::ReceiveCallResult => EventKind::ReceiveCallResult,
+        Opcode::EnterCall => EventKind::EnterCall,
         Opcode::RaiseEffect => EventKind::RaiseEffect,
         Opcode::PushEffectHandlerFrame => EventKind::PushEffectHandlerFrame,
         Opcode::AddEffectHandler => EventKind::AddEffectHandler,
@@ -36,6 +37,7 @@ fn kind(op: Opcode) -> Option<EventKind> {
         Opcode::SetStorage => EventKind::SetStorage,
         Opcode::GetStorage => EventKind::GetStorage,
         Opcode::Padding
+        | Opcode::BeginExecution
         | Opcode::SkipEffectHandler
         | Opcode::ReadAbi
         | Opcode::PreloadMethod

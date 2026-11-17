@@ -19,11 +19,10 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_ONE] = F::ONE;
     wit[COL_INSTANCE_DEPTH_BEFORE] = F::new(u64::from(input.instance_depth_before));
     wit[COL_INSTANCE_DEPTH_AFTER] = F::new(u64::from(input.instance_depth_after));
-    wit[COL_INSTANCE_PUSH] =
-        F::from_bool(matches!(input.opcode, Opcode::NewUtxo | Opcode::CallMethod));
+    wit[COL_INSTANCE_PUSH] = F::from_bool(input.opcode.pushes_instance());
     wit[COL_INSTANCE_POP] = F::from_bool(matches!(
         input.opcode,
-        Opcode::ReceiveNewUtxoHandle | Opcode::ReceiveMethodResult
+        Opcode::ReceiveNewUtxoHandle | Opcode::ReceiveCallResult
     ));
     wit[COL_EFFECT_HEAD_BEFORE] = F::new(u64::from(input.effect_head_before));
     wit[COL_EFFECT_HEAD_AFTER] = F::new(u64::from(input.effect_head_after));
@@ -64,8 +63,10 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_LAST_INPUT_HAS_ABI_AFTER] = F::from_bool(input.tx_after.last_input_has_abi);
     wit[COL_OUTPUT_CURSOR_BEFORE] = F::new(u64::from(input.tx_before.output_cursor));
     wit[COL_OUTPUT_CURSOR_AFTER] = F::new(u64::from(input.tx_after.output_cursor));
-    wit[COL_COORD_FINALIZED_BEFORE] = F::from_bool(input.tx_before.coordinator_finalized);
-    wit[COL_COORD_FINALIZED_AFTER] = F::from_bool(input.tx_after.coordinator_finalized);
+    wit[COL_NEXT_COORD_ID_BEFORE] = F::new(u64::from(input.next_coordinator_id_before));
+    wit[COL_NEXT_COORD_ID_AFTER] = F::new(u64::from(input.next_coordinator_id_after));
+    wit[COL_COORD_CURSOR_BEFORE] = F::new(u64::from(input.tx_before.coordinator_cursor));
+    wit[COL_COORD_CURSOR_AFTER] = F::new(u64::from(input.tx_after.coordinator_cursor));
     wit[COL_TRACE_ROOT_READ] = F::from_bool(input.opcode.reads_trace_root());
     wit[COL_ABI_READ_REMAINING_BEFORE] = F::new(u64::from(input.tx_before.abi_read_remaining));
     wit[COL_ABI_READ_REMAINING_AFTER] = F::new(u64::from(input.tx_after.abi_read_remaining));
@@ -74,6 +75,11 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     if input.opcode.scans_output() {
         wit[COL_OUTPUT_REMAINING] = F::new(u64::from(input.next_utxo_id_before))
             - F::new(u64::from(input.tx_before.output_cursor))
+            - F::ONE;
+    }
+    if input.opcode == Opcode::FinalizeCoordinator {
+        wit[COL_OUTPUT_REMAINING] = F::new(u64::from(input.next_coordinator_id_before))
+            - F::new(u64::from(input.tx_before.coordinator_cursor))
             - F::ONE;
     }
     wit[COL_METHOD_APPEND] = F::from_bool(input.opcode.appends_method());

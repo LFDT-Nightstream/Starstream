@@ -1,4 +1,4 @@
-//! Transaction-only chain: inputs/preloads, UTXO outputs/ABIs, coordinator, finish.
+//! Transaction-only chain: inputs/preloads, entry call, UTXO outputs/ABIs, coordinators, finish.
 //! Records have distinct tags and fixed lengths, padded to eight-field blocks.
 //! Roots are transaction data, not persistent ledger storage. ABI duplicates stay.
 //! The proving API binds initial zero and the expected final digest.
@@ -20,6 +20,7 @@ const OUTPUT_METHOD: u64 = RECORD_PREFIX | 4;
 const CONSUMED: u64 = RECORD_PREFIX | 5;
 const COORDINATOR: u64 = RECORD_PREFIX | 6;
 const FINISH: u64 = RECORD_PREFIX | 7;
+const ENTRY: u64 = RECORD_PREFIX | 8;
 
 pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
     let (tag, columns): (_, Vec<usize>) = match op {
@@ -30,6 +31,13 @@ pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
                 .collect(),
         ),
         Opcode::PreloadMethod => (INPUT_METHOD, COL_METHOD_HASH_VALUE.to_vec()),
+        Opcode::BeginExecution => (
+            ENTRY,
+            COL_METHOD_HASH_VALUE
+                .into_iter()
+                .chain(COL_ARGUMENT_ROOT)
+                .collect(),
+        ),
         Opcode::GetStorage => (
             OUTPUT,
             std::iter::once(COL_BOUNDARY_UTXO)
@@ -63,10 +71,10 @@ fn absorb(mut chain: [F; 4], words: &[F]) -> [F; 4] {
     chain
 }
 
-/// Compute the verifier's transaction digest from ledger inputs and proposed
-/// outputs/instance roots. All allocated UTXOs (including consumed ones) and
-/// Coord(1) must be represented. Coord(0) is only a sentinel.
-/// TODO: Generalize coordinator enumeration when coordinator calls are modeled.
+/// Compute the verifier's transaction digest from ledger inputs, the entry
+/// script call, and proposed outputs/instance roots. All allocated UTXOs (including consumed ones) and
+/// coordinators must be represented, each as a contiguous range: UTXOs from 0, coordinators from
+/// Coord(1), the entry script. Coord(0) is the transaction context and has no trace.
 pub fn transaction_commitment(
     statement: &TransactionStatement,
     roots: &TraceCommitments,
@@ -91,12 +99,12 @@ pub fn transaction_commitment(
                 id @ CoroutineId::Coord(_) => Some((id, root)),
                 CoroutineId::Utxo(_) => None,
             });
-    // TODO: When the circuit enumerates multiple coordinators, require contiguous
-    // IDs starting at 1 (excluding the Coord(0) sentinel), as with the UTXO scan.
-    if coordinators
-        .clone()
-        .map(|(id, _)| id)
-        .ne([CoroutineId::Coord(1)])
+    // The map iterates in packed-id order, which is allocation order.
+    let mut ids = coordinators.clone().map(|(id, _)| id).peekable();
+    if ids.peek().is_none()
+        || ids
+            .zip(1..)
+            .any(|(id, expected)| id != CoroutineId::Coord(expected))
     {
         return Err(reject());
     }
@@ -125,6 +133,17 @@ pub fn transaction_commitment(
             );
         }
     }
+    record(
+        ENTRY,
+        statement
+            .entry
+            .script
+            .0
+            .map(|x| F::new(u64::from(x)))
+            .into_iter()
+            .chain(canonical(&statement.entry.arguments.0)?)
+            .collect(),
+    );
     let mut outputs = statement.outputs.iter().peekable();
     let mut next_utxo = 0u64;
     let utxos = roots
@@ -189,8 +208,26 @@ mod tests {
     fn empty_transaction_frames_coordinator_and_finish() {
         let root = [11, 12, 13, 14];
         let roots = TraceCommitments::from([(CoroutineId::Coord(1).encoded(), root)]);
+        // The entry record spans two blocks: tag and seven script limbs, then
+        // the last limb and the argument root.
+        let statement = TransactionStatement {
+            entry: starstream_interleaving_spec::EntryCall {
+                script: MethodHash([1, 2, 3, 4, 5, 6, 7, 8]),
+                arguments: StarstreamValue([21, 22, 23, 24]),
+            },
+            inputs: vec![],
+            outputs: vec![],
+        };
         let chain = neo_application::event_commitment::commit_block(
             [F::ZERO; 4],
+            [ENTRY, 1, 2, 3, 4, 5, 6, 7].map(F::new),
+        );
+        let chain = neo_application::event_commitment::commit_block(
+            chain,
+            [8, 21, 22, 23, 24, 0, 0, 0].map(F::new),
+        );
+        let chain = neo_application::event_commitment::commit_block(
+            chain,
             [COORDINATOR, 2, 11, 12, 13, 14, 0, 0].map(F::new),
         );
         let expected = neo_application::event_commitment::commit_block(
@@ -198,7 +235,7 @@ mod tests {
             [FINISH, 0, 0, 0, 0, 0, 0, 0].map(F::new),
         );
         assert_eq!(
-            transaction_commitment(&TransactionStatement::default(), &roots).unwrap(),
+            transaction_commitment(&statement, &roots).unwrap(),
             expected.map(|x| x.as_canonical_u64())
         );
     }
@@ -212,6 +249,10 @@ mod tests {
             methods,
         };
         let statement = TransactionStatement {
+            entry: starstream_interleaving_spec::EntryCall {
+                script: a,
+                arguments: StarstreamValue::UNIT_VALUE,
+            },
             inputs: vec![input(vec![a, b]), input(vec![a])],
             outputs: vec![OutputUtxo {
                 utxo: 0,
@@ -247,19 +288,34 @@ mod tests {
         let mut changed = statement.clone();
         changed.inputs[0].storage.0[0] += 1;
         variants.push(changed);
+        let mut changed = statement.clone();
+        changed.entry.script = b;
+        variants.push(changed);
+        let mut changed = statement.clone();
+        changed.entry.arguments.0[3] += 1;
+        variants.push(changed);
         for changed in variants {
             assert_ne!(digest, transaction_commitment(&changed, &roots).unwrap());
         }
-        for id in [CoroutineId::Coord(0), CoroutineId::Coord(2)] {
+        // Called scripts follow the entry script, and each root is bound.
+        let mut called = roots.clone();
+        called.insert(CoroutineId::Coord(2).encoded(), [0; 4]);
+        let with_callee = transaction_commitment(&statement, &called).unwrap();
+        assert_ne!(digest, with_callee);
+        called.get_mut(&CoroutineId::Coord(2).encoded()).unwrap()[0] += 1;
+        assert_ne!(
+            with_callee,
+            transaction_commitment(&statement, &called).unwrap()
+        );
+        // Coordinators are a contiguous range from Coord(1): the transaction
+        // context has no trace, and an allocated instance cannot be left out.
+        for id in [CoroutineId::Coord(0), CoroutineId::Coord(3)] {
             let mut changed = roots.clone();
             changed.insert(id.encoded(), [0; 4]);
-            // Extra coordinators are not supported yet.
-            assert!(transaction_commitment(&statement, &changed).is_err());
-            // A single coordinator must still be Coord(1), not the sentinel
-            // or an unsupported replacement coordinator.
-            changed.remove(&CoroutineId::Coord(1).encoded());
             assert!(transaction_commitment(&statement, &changed).is_err());
         }
+        called.remove(&CoroutineId::Coord(1).encoded());
+        assert!(transaction_commitment(&statement, &called).is_err());
         let mut missing = roots.clone();
         missing.remove(&CoroutineId::Coord(1).encoded());
         assert!(transaction_commitment(&statement, &missing).is_err());

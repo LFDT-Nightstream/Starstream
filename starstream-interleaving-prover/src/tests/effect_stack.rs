@@ -8,9 +8,9 @@ const ARGS: StarstreamValue = StarstreamValue([11, 12, 13, 14]);
 const RESULT: StarstreamValue = StarstreamValue([21, 22, 23, 24]);
 
 /// Row of B's raise in [`nested_invocations`].
-const B_RAISE: usize = 13;
+const B_RAISE: usize = ENTRY_STEPS + 13;
 /// Row of the handler entry that B's raise selects.
-const B_ENTER: usize = 14;
+const B_ENTER: usize = ENTRY_STEPS + 14;
 
 // The coordinator handles FIRST from A by constructing B. A's own scope also
 // registers SECOND, but it is suspended: B's SECOND must reach the scope the
@@ -27,8 +27,8 @@ fn nested_invocations() -> Trace {
     let resume = || Step::ResumeEffect {
         result: Out(RESULT),
     };
-    Trace::new([
-        // 0: coordinator scope 1 handles FIRST.
+    entered([
+        // 2: coordinator scope 1 handles FIRST.
         Step::PushEffectHandlerFrame { frame_id: 1 },
         Step::AddEffectHandler { effect: FIRST },
         Step::NewUtxo {
@@ -37,7 +37,7 @@ fn nested_invocations() -> Trace {
         Step::EnterConstructor {
             arguments: unit.clone(),
         },
-        // 4: A's scope 2 handles only SECOND, so FIRST skips it.
+        // 6: A's scope 2 handles only SECOND, so FIRST skips it.
         Step::PushEffectHandlerFrame { frame_id: 2 },
         Step::AddEffectHandler { effect: SECOND },
         Step::RaiseEffect {
@@ -50,7 +50,7 @@ fn nested_invocations() -> Trace {
             effect: FIRST,
             arguments: ARGS,
         },
-        // 9: the coordinator handler opens scope 3 and constructs B.
+        // 11: the coordinator handler opens scope 3 and constructs B.
         Step::PushEffectHandlerFrame { frame_id: 3 },
         Step::AddEffectHandler { effect: SECOND },
         Step::NewUtxo {
@@ -75,7 +75,7 @@ fn nested_invocations() -> Trace {
             resource: Out(ResourceHandle(1)),
         },
         Step::PopEffectHandlerFrame,
-        // 20: back in A after the coordinator handler.
+        // 22: back in A after the coordinator handler.
         exit(),
         resume(),
         Step::PopEffectHandlerFrame,
@@ -101,8 +101,8 @@ fn search_follows_scopes_and_returns_to_each_raiser() {
         .map(|step| step.event_owner.encoded())
         .collect();
     // The skip has no observer; handler entries are attributed to the owner.
-    assert_eq!(&owners[6..9], &[1, 0, 2]);
-    assert_eq!(&owners[B_RAISE..=16], &[3, 2, 2, 3]);
+    assert_eq!(&owners[8..11], &[1, 0, 2]);
+    assert_eq!(&owners[B_RAISE..=18], &[3, 2, 2, 3]);
     // Program events split per instance; the scheduler resynthesizes skips.
     let mut per_instance = vec![Trace::default(); 3];
     for (step, owner) in trace.0.iter().zip(&owners) {
@@ -200,18 +200,18 @@ fn scope_mutation_is_limited_to_the_current_invocation() {
         Step::PopEffectHandlerFrame,
     ] {
         let mut trace = nested_invocations();
-        trace.0.insert(4, mutation);
+        trace.0.insert(6, mutation);
         assert!(matches!(
             verify_sat(&trace),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
-                step: 4,
+                step: 6,
                 constraint: "effect scope reads",
                 ..
             }))
         ));
     }
     // Nor return, or exit a handler, with its own scope still open.
-    for unpopped in [19, 22] {
+    for unpopped in [21, 24] {
         let mut trace = nested_invocations();
         trace.0.remove(unpopped);
         assert!(matches!(
@@ -227,11 +227,11 @@ fn scope_mutation_is_limited_to_the_current_invocation() {
 #[test]
 fn scopes_cannot_change_during_a_pending_search() {
     let mut trace = nested_invocations();
-    trace.0.insert(7, Step::PopEffectHandlerFrame);
+    trace.0.insert(9, Step::PopEffectHandlerFrame);
     assert!(matches!(
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
-            step: 7,
+            step: 9,
             constraint: "scope mutation runs in a live guest body",
             ..
         }))
@@ -242,7 +242,7 @@ fn scopes_cannot_change_during_a_pending_search() {
 fn scope_mutation_cannot_skip_the_handler_exit() {
     // A handler that resumes without exiting, hiding the missing exit behind
     // a pop that claims to leave the raiser waiting for its resume.
-    let trace = Trace::new([
+    let trace = entered([
         Step::PushEffectHandlerFrame { frame_id: 1 },
         Step::AddEffectHandler { effect: FIRST },
         Step::RaiseEffect {
@@ -263,16 +263,16 @@ fn scope_mutation_cannot_skip_the_handler_exit() {
     let (mut rows, preload) = build_witness_rows(&trace);
     assert!(verify_witness_rows(&rows, &preload).is_err());
     let resume_pending = F::new(crate::ivc_state::CurrPhase::EffectResumePending.value() as u64);
-    rows[5][COL_CURR_PHASE_AFTER] = resume_pending;
-    rows[6][COL_CURR_PHASE_BEFORE] = resume_pending;
-    rows[6][COL_PHASE_BEFORE_BITS_1_AND_2] = F::ONE;
-    for row in &mut rows[5..=6] {
+    rows[7][COL_CURR_PHASE_AFTER] = resume_pending;
+    rows[8][COL_CURR_PHASE_BEFORE] = resume_pending;
+    rows[8][COL_PHASE_BEFORE_BITS_1_AND_2] = F::ONE;
+    for row in &mut rows[7..=8] {
         range_check_layout().assign_bits(row).unwrap();
     }
     assert!(matches!(
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
-            step: 5,
+            step: 7,
             constraint: "scope mutation runs in a live guest body",
             ..
         }))
@@ -291,7 +291,7 @@ fn scope_walk_matches_quint() {
 fn instance_stack_keeps_callee_until_receive() {
     let trace = nested_invocations();
     let normalized = crate::step::normalize(&trace);
-    for (index, before, after) in [(17, 2, 2), (18, 2, 1), (23, 1, 1), (24, 1, 0), (25, 0, 0)] {
+    for (index, before, after) in [(19, 2, 2), (20, 2, 1), (25, 1, 1), (26, 1, 0), (27, 0, 0)] {
         assert_eq!(normalized.steps[index].instance_depth_before, before);
         assert_eq!(normalized.steps[index].instance_depth_after, after);
     }
@@ -299,16 +299,16 @@ fn instance_stack_keeps_callee_until_receive() {
     verify_witness_rows(&rows, &preload).unwrap();
     let mut forged = rows.clone();
     // B's handle must resolve to B (3), not the suspended A (1).
-    forged[18][COL_RESOURCE_RESOLVER_VALUE] = F::new(1);
-    range_check_layout().assign_bits(&mut forged[18]).unwrap();
+    forged[20][COL_RESOURCE_RESOLVER_VALUE] = F::new(1);
+    range_check_layout().assign_bits(&mut forged[20]).unwrap();
     assert!(matches!(
         verify_witness_rows(&forged, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Memory(_)))
     ));
     let mut popped_early = rows;
-    popped_early[17][COL_INSTANCE_DEPTH_AFTER] = F::ONE;
+    popped_early[19][COL_INSTANCE_DEPTH_AFTER] = F::ONE;
     range_check_layout()
-        .assign_bits(&mut popped_early[17])
+        .assign_bits(&mut popped_early[19])
         .unwrap();
     assert!(verify_witness_rows(&popped_early, &preload).is_err());
 }
@@ -317,7 +317,7 @@ fn instance_stack_keeps_callee_until_receive() {
 fn cannot_raise_effect_between_constructor_return_and_receive() {
     let mut trace = nested_invocations();
     trace.0.insert(
-        18,
+        20,
         Step::RaiseEffect {
             effect: SECOND,
             arguments: StarstreamValue::UNIT_VALUE,

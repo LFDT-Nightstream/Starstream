@@ -18,23 +18,27 @@ fn shared_schedule_fits_every_opcode() {
 
 #[test]
 fn get_storage_binds_chain_switch_and_fresh_program_root() {
-    use starstream_interleaving_spec::{MethodHash, ResourceHandle, Trace};
+    use starstream_interleaving_spec::{MethodHash, ResourceHandle};
     let storage = StarstreamValue([11, 12, 13, 14]);
-    let trace = Trace::new([
-        Step::SetStorage {
-            storage: storage.clone(),
-            coordinator_handle: ResourceHandle(0),
-        },
-        Step::PreloadMethod {
-            method: MethodHash([1; 8]),
-        },
-        Step::Return {
-            result: StarstreamValue::UNIT_VALUE.into(),
-        },
-        Step::GetStorage {
-            storage: storage.into(),
-        },
-    ]);
+    let trace = crate::tests::loaded(
+        [
+            Step::SetStorage {
+                storage: storage.clone(),
+                entry_utxo_handle: ResourceHandle(0),
+            },
+            Step::PreloadMethod {
+                method: MethodHash([1; 8]),
+            },
+        ],
+        [
+            Step::Return {
+                result: StarstreamValue::UNIT_VALUE.into(),
+            },
+            Step::GetStorage {
+                storage: storage.into(),
+            },
+        ],
+    );
     let normalized = crate::step::normalize(&trace);
     let step = normalized.steps.last().unwrap();
     let row = crate::witness::build_witness_vector(step);
@@ -94,7 +98,7 @@ fn get_storage_binds_chain_switch_and_fresh_program_root() {
 #[test]
 fn output_selection_handles_every_block_count() {
     let normalized = crate::step::normalize(&crate::tests::method_call_trace(true));
-    let padding = normalized.steps[0].padding_after();
+    let padding = normalized.steps[2].padding_after();
     let relation = crate::ccs::build_relation().unwrap();
     let check = |row: &[F]| {
         neo_ccs::check_ccs_rowwise_zero(
@@ -105,8 +109,8 @@ fn output_selection_handles_every_block_count() {
     };
     for (count, step) in [
         (0, &padding),
-        (1, &normalized.steps[0]),
-        (2, &normalized.steps[2]),
+        (1, &normalized.steps[2]),
+        (2, &normalized.steps[4]),
     ] {
         let mut row = crate::witness::build_witness_vector(step);
         // Nonzero input also tests padding's passthrough, not just zero=zero.
@@ -159,14 +163,20 @@ pub(crate) fn expected(
     trace: &starstream_interleaving_spec::Trace,
     owners: &[CoroutineId],
 ) -> TraceCommitments {
-    // Callers supply attribution independently of the normalizer.
+    // Callers supply attribution independently of the normalizer. Host steps
+    // such as the entry call emit no program event.
+    let events = trace
+        .0
+        .iter()
+        .filter(|step| starstream_interleaving_spec::events::EventKind::for_step(step).is_some())
+        .collect::<Vec<_>>();
     assert_eq!(
-        trace.0.len(),
+        events.len(),
         owners.len(),
         "one owner is required per event"
     );
     let mut result = TraceCommitments::new();
-    for (step, owner) in trace.0.iter().zip(owners) {
+    for (step, owner) in events.into_iter().zip(owners) {
         let owner = owner.encoded();
         let mut chain = result.get(&owner).copied().unwrap_or([0; 4]).map(F::new);
         for block in starstream_interleaving_spec::events::encode(step) {
@@ -180,7 +190,7 @@ pub(crate) fn expected(
 #[test]
 fn multi_block_encoding_and_statement_are_bound() {
     let trace = crate::tests::method_call_trace(true);
-    let blocks = starstream_interleaving_spec::events::encode(&trace.0[5]);
+    let blocks = starstream_interleaving_spec::events::encode(&trace.0[7]);
     // EventSequenceBuilder packing: tag+resource+six method limbs, then the
     // remaining method limbs and argument root.
     assert_eq!(
@@ -190,6 +200,7 @@ fn multi_block_encoding_and_statement_are_bound() {
     let statement = expected(
         &trace,
         &[
+            COORDINATOR,
             COORDINATOR,
             UTXO,
             UTXO,
@@ -232,6 +243,7 @@ fn changed_values_and_order_cannot_reuse_a_statement() {
         &trace,
         &[
             COORDINATOR,
+            COORDINATOR,
             UTXO,
             UTXO,
             UTXO,
@@ -244,10 +256,10 @@ fn changed_values_and_order_cannot_reuse_a_statement() {
         ],
     );
     let mut changed = trace.clone();
-    if let Step::CallMethod { arguments, .. } = &mut changed.0[5] {
+    if let Step::CallMethod { arguments, .. } = &mut changed.0[7] {
         arguments.0[3] += 1;
     }
-    if let Step::EnterMethod { arguments, .. } = &mut changed.0[6] {
+    if let Step::EnterCall { arguments, .. } = &mut changed.0[8] {
         arguments.0[3] += 1;
     }
     crate::verify_sat(&changed).unwrap(); // matching sender/receiver, valid semantics
@@ -255,7 +267,7 @@ fn changed_values_and_order_cannot_reuse_a_statement() {
     // Both registration orders are legal, but their order is observable.
     let mut first = trace.clone();
     first.0.insert(
-        3,
+        5,
         Step::RegisterMethod {
             method: starstream_interleaving_spec::MethodHash([9, 0, 9, 0, 9, 0, 9, 0]),
         },
@@ -263,6 +275,7 @@ fn changed_values_and_order_cannot_reuse_a_statement() {
     let first_statement = expected(
         &first,
         &[
+            COORDINATOR,
             COORDINATOR,
             UTXO,
             UTXO,
@@ -277,7 +290,7 @@ fn changed_values_and_order_cannot_reuse_a_statement() {
         ],
     );
     verify_sat_with_commitments(&first, 3, &first_statement).unwrap();
-    first.0.swap(2, 3);
+    first.0.swap(4, 5);
     crate::verify_sat(&first).unwrap();
     assert!(verify_sat_with_commitments(&first, 3, &first_statement).is_err());
 }
@@ -293,8 +306,8 @@ fn tampered_compression_and_canonical_aliases_are_rejected() {
         COL_IN_WORDS[0],
     ] {
         let (mut rows, preload) = build_witness_rows(&trace);
-        rows[5][column] += F::ONE;
-        range_check_layout().assign_bits(&mut rows[5]).unwrap();
+        rows[7][column] += F::ONE;
+        range_check_layout().assign_bits(&mut rows[7]).unwrap();
         assert!(
             verify_witness_rows(&rows, &preload).is_err(),
             "column {column}"
@@ -302,10 +315,10 @@ fn tampered_compression_and_canonical_aliases_are_rejected() {
     }
     // p reconstructs to zero in the field but must not alias the zero root.
     let mut alias = trace.clone();
-    if let Step::NewUtxo { arguments, .. } = &mut alias.0[0] {
+    if let Step::NewUtxo { arguments, .. } = &mut alias.0[2] {
         *arguments = StarstreamValue([0xffff_ffff_0000_0001, 0, 0, 0]);
     }
-    if let Step::EnterConstructor { arguments } = &mut alias.0[1] {
+    if let Step::EnterConstructor { arguments } = &mut alias.0[3] {
         *arguments = StarstreamValue([0xffff_ffff_0000_0001, 0, 0, 0]);
     }
     assert!(matches!(
@@ -324,6 +337,7 @@ fn full_field_roots_survive_ram_and_batching() {
     let statement = expected(
         &trace,
         &[
+            COORDINATOR,
             COORDINATOR,
             UTXO,
             UTXO,

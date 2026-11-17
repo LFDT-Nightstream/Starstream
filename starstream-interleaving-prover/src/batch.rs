@@ -482,8 +482,8 @@ mod tests {
 
     #[test]
     fn transaction_without_proposed_roots_returns_an_error() {
-        use starstream_interleaving_spec::{StarstreamValue, Step, TransactionStatement};
-        let trace = Trace::new([
+        use starstream_interleaving_spec::{StarstreamValue, Step};
+        let trace = crate::tests::entered([
             Step::Return {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
@@ -492,7 +492,7 @@ mod tests {
         ]);
         let normalized = crate::step::normalize(&trace);
         assert!(matches!(
-            verify_normalized(normalized, 1, None, Some(&TransactionStatement::default())),
+            verify_normalized(normalized, 1, None, Some(&crate::tests::empty_statement())),
             Err(Error::Unsatisfied(Unsatisfied::TransactionStatement))
         ));
     }
@@ -549,7 +549,7 @@ mod tests {
             assert!(matches!(
                 batch.check(&batch.pack(&steps), &preload),
                 Err(Error::Unsatisfied(Unsatisfied::Constraint {
-                    step: 6,
+                    step: 8,
                     constraint: "return constraints",
                     ..
                 }))
@@ -577,7 +577,8 @@ mod tests {
     fn rejects_tampered_padding_state() {
         let normalized = normalize(&constructor_trace([1, 2, 3, 4]));
         let preload = crate::memory::preload_tables(&normalized.method_table);
-        let batch = Batch::new(8).unwrap();
+        // One slot more than the trace, so the last slot is padding.
+        let batch = Batch::new(normalized.steps.len() + 1).unwrap();
         let mut packed = batch.pack(&normalized.steps);
         // Last slot has no outgoing link: preservation must be constrained
         // inside the padding row itself.
@@ -589,8 +590,8 @@ mod tests {
             batch.check(&packed, &preload),
             Err(Error::Unsatisfied(Unsatisfied::PaddingConstraint {
                 batch: 0,
-                slot: 7,
-                batch_size: 8,
+                slot: 8,
+                batch_size: 9,
                 constraint: "padding preserves state",
                 ..
             }))
@@ -601,8 +602,8 @@ mod tests {
     fn rejects_broken_internal_and_external_continuity() {
         let (mut rows, preload) = crate::build_witness_rows(&constructor_trace([1, 2, 3, 4]));
         let normalized = normalize(&constructor_trace([1, 2, 3, 4]));
-        // Preserve every row's local allocator transition, but break boundary 1.
-        for row in &mut rows[2..] {
+        // Preserve every row's local allocator transition, but break boundary 3.
+        for row in &mut rows[4..] {
             row[COL_NEXT_UTXO_ID_BEFORE] += F::ONE;
             row[COL_NEXT_UTXO_ID_AFTER] += F::ONE;
             range_check_layout().assign_bits(row).unwrap();
@@ -616,7 +617,7 @@ mod tests {
             internal.check(&packed, &preload),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
                 constraint: "within-batch continuity",
-                step: 2,
+                step: 4,
                 ..
             }))
         ));
@@ -629,7 +630,7 @@ mod tests {
             external.check(&packed, &preload),
             Err(Error::Unsatisfied(Unsatisfied::BatchedContinuity {
                 batch_size: 2,
-                source: neo_application::ContinuityCheckError::Mismatch { boundary: 0, .. },
+                source: neo_application::ContinuityCheckError::Mismatch { boundary: 1, .. },
             }))
         ));
     }
@@ -638,26 +639,26 @@ mod tests {
     fn rejects_tampered_memory_across_slots_and_batches() {
         let (mut rows, preload) = crate::build_witness_rows(&method_call_trace(true));
         let normalized = normalize(&method_call_trace(true));
-        rows[6][COL_METHOD_HASH_VALUE[0]] += F::ONE;
-        crate::commitment::assign_from_bus(&mut rows[6], crate::opcode::Opcode::EnterMethod);
-        range_check_layout().assign_bits(&mut rows[6]).unwrap();
-        // Call is slot 5, entry is slot 6: different batches at size 5,
-        // the same batch at size 8.
-        for size in [1, 5, 8] {
+        rows[8][COL_METHOD_HASH_VALUE[0]] += F::ONE;
+        crate::commitment::assign_from_bus(&mut rows[8], crate::opcode::Opcode::EnterCall);
+        range_check_layout().assign_bits(&mut rows[8]).unwrap();
+        // Call is slot 7, entry is slot 8: different batches at size 8,
+        // the same batch at size 9.
+        for size in [1, 8, 9] {
             let batch = Batch::new(size).unwrap();
             let mut packed = batch.pack(&normalized.steps);
-            replace_slot(&mut packed, size, 6, &rows[6]);
+            replace_slot(&mut packed, size, 8, &rows[8]);
             let error = batch.check(&packed, &preload).unwrap_err();
             match error {
                 Error::Unsatisfied(Unsatisfied::Memory(
-                    neo_application::MemoryCheckError::ReadMismatch { row: 6, .. },
+                    neo_application::MemoryCheckError::ReadMismatch { row: 8, .. },
                 )) => assert_eq!(size, 1),
                 Error::Unsatisfied(Unsatisfied::BatchedMemory {
                     batch_size,
                     source: neo_application::MemoryCheckError::ReadMismatch { row, .. },
                 }) => {
                     assert_eq!(batch_size, size);
-                    assert_eq!(row, 6 / size);
+                    assert_eq!(row, 8 / size);
                     assert_ne!(size, 1);
                 }
                 other => panic!("unexpected memory diagnostic: {other:?}"),

@@ -50,22 +50,27 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             (COL_SEL_GET_STORAGE, -F::ONE),
             (COL_SEL_SKIP_CONSUMED, -F::ONE),
         ]);
-        // Loading=00 and Running=01 are the only admissible execution phases.
-        let high_bit = range_check_layout()
-            .bit_columns_for(COL_TX_PHASE_BEFORE)
-            .expect("transaction phase has two bits")
-            .start
-            + 1;
+        // Execution stays in Running, which only the entry call enters.
         let execution = sum(Opcode::is_execution);
+        for column in [COL_TX_PHASE_BEFORE, COL_TX_PHASE_AFTER] {
+            b.push_row(
+                execution.iter().copied(),
+                [
+                    (column, F::ONE),
+                    (COL_ONE, -F::new(TxPhase::Running as u64)),
+                ],
+                [],
+            );
+        }
+        // The entry call ends loading, once the last input has its ABI.
         for (column, value) in [
-            (high_bit, 0),
+            (COL_TX_PHASE_BEFORE, TxPhase::Loading as u64),
             (COL_TX_PHASE_AFTER, TxPhase::Running as u64),
             (COL_LAST_INPUT_HAS_ABI_BEFORE, 1),
         ] {
-            b.push_row(
-                execution.iter().copied(),
+            b.push_gated_linear_zero(
+                COL_SEL_BEGIN_EXECUTION,
                 [(column, F::ONE), (COL_ONE, -F::new(value))],
-                [],
             );
         }
         let loading = [
@@ -116,16 +121,27 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 .into_iter()
                 .chain([(COL_TRACE_ROOT_READ, -F::ONE)]),
         );
+        // Coordinators are enumerated in allocation order, Coord(1) first.
         b.push_linear_zero([
-            (COL_COORD_FINALIZED_AFTER, F::ONE),
-            (COL_COORD_FINALIZED_BEFORE, -F::ONE),
+            (COL_COORD_CURSOR_AFTER, F::ONE),
+            (COL_COORD_CURSOR_BEFORE, -F::ONE),
             (COL_SEL_FINALIZE_COORDINATOR, -F::ONE),
         ]);
         b.push_gated_linear_zero(
             COL_SEL_FINALIZE_COORDINATOR,
             [
                 (COL_EVENT_OWNER, F::ONE),
-                (COL_ONE, -crate::ivc_state::CoroutineId::Coord(1).field()),
+                (COL_COORD_CURSOR_BEFORE, -F::new(2)),
+            ],
+        );
+        // The range-checked remainder keeps the cursor below the allocator.
+        b.push_gated_linear_zero(
+            COL_SEL_FINALIZE_COORDINATOR,
+            [
+                (COL_OUTPUT_REMAINING, F::ONE),
+                (COL_NEXT_COORD_ID_BEFORE, -F::ONE),
+                (COL_COORD_CURSOR_BEFORE, F::ONE),
+                (COL_ONE, F::ONE),
             ],
         );
         // The empty stack separates output processing from execution.
@@ -258,7 +274,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 _ => {}
             }
             if op == Opcode::FinishTransaction {
-                constant(b, COL_COORD_FINALIZED_BEFORE, 1);
+                equal(b, COL_COORD_CURSOR_BEFORE, COL_NEXT_COORD_ID_BEFORE);
             }
             if matches!(op, Opcode::FinishTransaction | Opcode::FinalizeCoordinator) {
                 equal(b, COL_OUTPUT_CURSOR_BEFORE, COL_NEXT_UTXO_ID_BEFORE);
@@ -300,7 +316,13 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 );
             }
             if op == Opcode::SetStorage {
-                equal(b, COL_RESOURCE_RESOLVER_ADDR_CID, COL_CURR_BEFORE);
+                // Inputs are bound to the entry coordinator before it runs.
+                // TODO: Replace with resource translation of the entry arguments.
+                constant(
+                    b,
+                    COL_RESOURCE_RESOLVER_ADDR_CID,
+                    u64::from(crate::ivc_state::CoroutineId::Coord(1).encoded()),
+                );
                 equal(b, COL_RESOURCE_RESOLVER_VALUE, COL_BOUNDARY_UTXO);
             }
             if op == Opcode::PreloadMethod {
@@ -364,12 +386,13 @@ pub(crate) fn check_statement(
         (COL_TX_PHASE_BEFORE, 0),
         (COL_LAST_INPUT_HAS_ABI_BEFORE, 1),
         (COL_OUTPUT_CURSOR_BEFORE, 0),
-        (COL_COORD_FINALIZED_BEFORE, 0),
+        (COL_NEXT_COORD_ID_BEFORE, 1),
+        (COL_COORD_CURSOR_BEFORE, 1),
         (COL_ABI_READ_REMAINING_BEFORE, 0),
         (COL_ABI_READ_ORDINAL_BEFORE, 0),
-        (COL_CURR_BEFORE, 2),
+        (COL_CURR_BEFORE, 0),
         (COL_CURR_PHASE_BEFORE, 0),
-        (COL_CALL_SP_BEFORE, 1),
+        (COL_CALL_SP_BEFORE, 0),
         (COL_INSTANCE_DEPTH_BEFORE, 0),
         (COL_EFFECT_HEAD_BEFORE, 0),
         (COL_EFFECT_DEPTH_BEFORE, 0),
@@ -381,6 +404,7 @@ pub(crate) fn check_statement(
             return Err(reject());
         }
     }
+    let mut entries = 0;
     let mut inputs = 0;
     let mut outputs = 0;
     let mut methods = Vec::<Vec<[u32; 8]>>::new();
@@ -394,6 +418,14 @@ pub(crate) fn check_statement(
             }
             inputs += 1;
             methods.push(Default::default());
+        }
+        if row[COL_SEL_BEGIN_EXECUTION] == F::ONE {
+            if COL_METHOD_HASH_VALUE.map(at) != statement.entry.script.0.map(u64::from)
+                || COL_ARGUMENT_ROOT.map(at) != statement.entry.arguments.0
+            {
+                return Err(reject());
+            }
+            entries += 1;
         }
         if row[COL_SEL_PRELOAD_METHOD] == F::ONE {
             methods.last_mut().ok_or_else(reject)?.push(
@@ -418,7 +450,8 @@ pub(crate) fn check_statement(
             );
         }
     }
-    if inputs != statement.inputs.len()
+    if entries != 1
+        || inputs != statement.inputs.len()
         || outputs != statement.outputs.len()
         || output_methods
             .iter()

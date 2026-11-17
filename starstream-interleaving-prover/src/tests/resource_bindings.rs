@@ -5,15 +5,16 @@ use p3_field::PrimeCharacteristicRing;
 use starstream_interleaving_spec::{MethodHash, ResourceHandle, StarstreamValue, Step, Trace};
 
 fn bindings(first_input: bool, second_input: bool, duplicate: bool) -> Trace {
-    let mut steps = Vec::new();
+    // Inputs load before the entry call; constructors run in its body.
+    let (mut loading, mut steps) = (Vec::new(), Vec::new());
     for (index, input) in [first_input, second_input].into_iter().enumerate() {
         let handle = ResourceHandle(if duplicate { 0 } else { index as u32 });
         if input {
-            steps.push(Step::SetStorage {
+            loading.push(Step::SetStorage {
                 storage: StarstreamValue::UNIT_VALUE,
-                coordinator_handle: handle,
+                entry_utxo_handle: handle,
             });
-            steps.push(Step::PreloadMethod {
+            loading.push(Step::PreloadMethod {
                 method: MethodHash([1; 8]),
             });
         } else {
@@ -36,7 +37,7 @@ fn bindings(first_input: bool, second_input: bool, duplicate: bool) -> Trace {
     steps.push(Step::Return {
         result: StarstreamValue::UNIT_VALUE.into(),
     });
-    Trace::new(steps)
+    crate::tests::loaded(loading, steps)
 }
 
 #[test]
