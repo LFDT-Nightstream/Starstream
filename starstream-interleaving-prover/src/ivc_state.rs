@@ -94,6 +94,11 @@ impl CoroutineId {
     pub(crate) fn field(self) -> F {
         F::new(u64::from(self.encoded()))
     }
+
+    pub(crate) fn local_index(self) -> F {
+        let (Self::Coord(id) | Self::Utxo(id)) = self;
+        F::new(u64::from(id))
+    }
 }
 
 const fn link(previous_step_column: usize, next_step_column: usize) -> ContinuityLink {

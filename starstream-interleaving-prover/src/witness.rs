@@ -89,9 +89,9 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_ABI_METHOD_COUNT_READ] = F::from_bool(count_read);
     if count_write || count_read {
         wit[COL_ABI_METHOD_COUNT_ADDR] = if count_read {
-            input.boundary_utxo.field()
+            input.boundary_utxo.local_index()
         } else {
-            input.abi_generation_address.field()
+            input.abi_generation_address.local_index()
         };
         wit[COL_ABI_METHOD_COUNT_BEFORE] = F::new(u64::from(input.abi_method_count_before));
         wit[COL_ABI_METHOD_COUNT_AFTER] = F::new(u64::from(input.abi_method_count_after));
@@ -133,7 +133,7 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_ENABLED_METHOD_LOG_LEN_BEFORE] = F::new(u64::from(input.enabled_method_log_len_before));
     wit[COL_ENABLED_METHOD_LOG_LEN_AFTER] = F::new(u64::from(input.enabled_method_log_len_after));
     wit[COL_METHOD_INDEX] = F::new(u64::from(input.method_index));
-    wit[COL_ABI_GENERATION_ADDR] = input.abi_generation_address.field();
+    wit[COL_ABI_GENERATION_ADDR] = input.abi_generation_address.local_index();
     wit[COL_ABI_GENERATION_BEFORE] = F::new(u64::from(input.abi_generation_before));
     wit[COL_ABI_GENERATION_AFTER] = F::new(u64::from(input.abi_generation_after));
     wit[COL_ENABLED_METHOD_LOG_ADDR] = F::new(u64::from(input.enabled_method_log_address));

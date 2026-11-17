@@ -82,7 +82,7 @@ define_column_region! {
         COL_CALL_TARGET: U32 => "packed coroutine id that gets control in the next step",
         COL_CALL_TARGET_IS_ZERO: Boolean => "whether the call target is Coord(0), the transaction context",
         COL_CALL_TARGET_INVERSE: Field => "inverse proving that a call target is nonzero",
-        COL_ABI_METHOD_COUNT_ADDR: U32 => "packed UTXO key for current-generation registration count",
+        COL_ABI_METHOD_COUNT_ADDR: U32 => "UTXO local index (packed id without the tag) keying the current-generation registration count",
         COL_SEL_READ_ABI: Boolean => "host-synthesized output ABI enumeration",
         COL_ABI_READ_REMAINING_BEFORE: (Bits(8)) => "unread registrations of the last exported UTXO",
         COL_ABI_READ_REMAINING_AFTER: (Bits(8)) => "remaining registrations after GetStorage loads the count or ReadAbi decrements it",
@@ -97,7 +97,7 @@ define_column_region! {
         COL_ENABLED_METHOD_LOG_ADDR: U32 => "append-log entry written by RegisterMethod/PreloadMethod or selected by CallMethod",
         COL_ENABLED_METHOD_LOG_UTXO: U32 => "packed UTXO id stored in the enabled-method log entry",
         COL_ENABLED_METHOD_LOG_GENERATION: U32 => "ABI generation stored in the enabled-method log entry",
-        COL_ABI_GENERATION_ADDR: U32 => "packed UTXO id whose current ABI generation is accessed",
+        COL_ABI_GENERATION_ADDR: U32 => "UTXO local index (packed id without the tag) whose current ABI generation is accessed",
         COL_ABI_GENERATION_BEFORE: U32 => "current ABI generation read from memory",
         COL_ABI_GENERATION_AFTER: U32 => "next ABI generation written by YieldBegin",
 

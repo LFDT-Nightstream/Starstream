@@ -574,6 +574,22 @@ fn require_equal(
     b.push_gated_linear_zero(opcode.selector(), [(left, F::ONE), (right, -F::ONE)]);
 }
 
+pub(crate) fn require_utxo_index(
+    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+    opcode: Opcode,
+    index: usize,
+    utxo: usize,
+) {
+    b.push_gated_linear_zero(
+        opcode.selector(),
+        [
+            (utxo, F::ONE),
+            (index, -F::new(2)),
+            (COL_ONE, -F::new(u64::from(CoroutineKind::Utxo.tag()))),
+        ],
+    );
+}
+
 /// The transaction context, Coord(0), calls the entry script as Coord(1):
 /// an ordinary frame push whose caller is the context, so the entry
 /// coordinator's own EnterCall must match the statement's script and
@@ -647,7 +663,7 @@ fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         COL_RESOURCE_RESOLVER_VALUE,
         COL_CALL_TARGET,
     );
-    require_equal(
+    require_utxo_index(
         b,
         Opcode::CallMethod,
         COL_ABI_GENERATION_ADDR,
@@ -740,7 +756,7 @@ fn visit_register_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::RegisterMethod,
         crate::ivc_state::CurrPhase::Registering,
     );
-    require_equal(
+    require_utxo_index(
         b,
         Opcode::RegisterMethod,
         COL_ABI_GENERATION_ADDR,
@@ -778,7 +794,7 @@ fn visit_yield_begin(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::YieldBegin,
         crate::ivc_state::CurrPhase::Registering,
     );
-    require_equal(
+    require_utxo_index(
         b,
         Opcode::YieldBegin,
         COL_ABI_GENERATION_ADDR,
