@@ -209,7 +209,7 @@ TypedProgram {
                                 ),
                                 callee: Some(
                                     Named(
-                                        NameId(2),
+                                        NameId(0),
                                     ),
                                 ),
                             },
@@ -279,7 +279,7 @@ TypedProgram {
                                                         ),
                                                         callee: Some(
                                                             Named(
-                                                                NameId(2),
+                                                                NameId(0),
                                                             ),
                                                         ),
                                                     },
@@ -324,7 +324,7 @@ TypedProgram {
                                                     ),
                                                     callee: Some(
                                                         Named(
-                                                            NameId(2),
+                                                            NameId(0),
                                                         ),
                                                     ),
                                                 },

@@ -772,7 +772,7 @@ TypedProgram {
                                         name: "attach",
                                         span: 0..0,
                                     },
-                                    id: NameId(0),
+                                    id: NameId(4294967294),
                                     ty: FunctionType {
                                         kind: Normal,
                                         name_span: 0..0,
@@ -790,7 +790,7 @@ TypedProgram {
                                         result: Unit,
                                         callee: Some(
                                             Named(
-                                                NameId(0),
+                                                NameId(4294967294),
                                             ),
                                         ),
                                     },
@@ -800,7 +800,7 @@ TypedProgram {
                                         name: "detach",
                                         span: 0..0,
                                     },
-                                    id: NameId(1),
+                                    id: NameId(4294967293),
                                     ty: FunctionType {
                                         kind: Normal,
                                         name_span: 0..0,
@@ -818,7 +818,7 @@ TypedProgram {
                                         result: Unit,
                                         callee: Some(
                                             Named(
-                                                NameId(1),
+                                                NameId(4294967293),
                                             ),
                                         ),
                                     },
@@ -932,7 +932,7 @@ TypedProgram {
                                         name: "attach",
                                         span: 0..0,
                                     },
-                                    id: NameId(0),
+                                    id: NameId(4294967294),
                                     ty: FunctionType {
                                         kind: Normal,
                                         name_span: 0..0,
@@ -950,7 +950,7 @@ TypedProgram {
                                         result: Unit,
                                         callee: Some(
                                             Named(
-                                                NameId(0),
+                                                NameId(4294967294),
                                             ),
                                         ),
                                     },
@@ -960,7 +960,7 @@ TypedProgram {
                                         name: "detach",
                                         span: 0..0,
                                     },
-                                    id: NameId(1),
+                                    id: NameId(4294967293),
                                     ty: FunctionType {
                                         kind: Normal,
                                         name_span: 0..0,
@@ -978,7 +978,7 @@ TypedProgram {
                                         result: Unit,
                                         callee: Some(
                                             Named(
-                                                NameId(1),
+                                                NameId(4294967293),
                                             ),
                                         ),
                                     },
@@ -1061,7 +1061,7 @@ TypedProgram {
                                                                 name: "attach",
                                                                 span: 0..0,
                                                             },
-                                                            id: NameId(0),
+                                                            id: NameId(4294967294),
                                                             ty: FunctionType {
                                                                 kind: Normal,
                                                                 name_span: 0..0,
@@ -1079,7 +1079,7 @@ TypedProgram {
                                                                 result: Unit,
                                                                 callee: Some(
                                                                     Named(
-                                                                        NameId(0),
+                                                                        NameId(4294967294),
                                                                     ),
                                                                 ),
                                                             },
@@ -1089,7 +1089,7 @@ TypedProgram {
                                                                 name: "detach",
                                                                 span: 0..0,
                                                             },
-                                                            id: NameId(1),
+                                                            id: NameId(4294967293),
                                                             ty: FunctionType {
                                                                 kind: Normal,
                                                                 name_span: 0..0,
@@ -1107,7 +1107,7 @@ TypedProgram {
                                                                 result: Unit,
                                                                 callee: Some(
                                                                     Named(
-                                                                        NameId(1),
+                                                                        NameId(4294967293),
                                                                     ),
                                                                 ),
                                                             },
@@ -1163,7 +1163,7 @@ TypedProgram {
                                                                                     name: "attach",
                                                                                     span: 0..0,
                                                                                 },
-                                                                                id: NameId(0),
+                                                                                id: NameId(4294967294),
                                                                                 ty: FunctionType {
                                                                                     kind: Normal,
                                                                                     name_span: 0..0,
@@ -1181,7 +1181,7 @@ TypedProgram {
                                                                                     result: Unit,
                                                                                     callee: Some(
                                                                                         Named(
-                                                                                            NameId(0),
+                                                                                            NameId(4294967294),
                                                                                         ),
                                                                                     ),
                                                                                 },
@@ -1191,7 +1191,7 @@ TypedProgram {
                                                                                     name: "detach",
                                                                                     span: 0..0,
                                                                                 },
-                                                                                id: NameId(1),
+                                                                                id: NameId(4294967293),
                                                                                 ty: FunctionType {
                                                                                     kind: Normal,
                                                                                     name_span: 0..0,
@@ -1209,7 +1209,7 @@ TypedProgram {
                                                                                     result: Unit,
                                                                                     callee: Some(
                                                                                         Named(
-                                                                                            NameId(1),
+                                                                                            NameId(4294967293),
                                                                                         ),
                                                                                     ),
                                                                                 },
@@ -1393,7 +1393,7 @@ TypedProgram {
                                                                                         name: "attach",
                                                                                         span: 0..0,
                                                                                     },
-                                                                                    id: NameId(0),
+                                                                                    id: NameId(4294967294),
                                                                                     ty: FunctionType {
                                                                                         kind: Normal,
                                                                                         name_span: 0..0,
@@ -1411,7 +1411,7 @@ TypedProgram {
                                                                                         result: Unit,
                                                                                         callee: Some(
                                                                                             Named(
-                                                                                                NameId(0),
+                                                                                                NameId(4294967294),
                                                                                             ),
                                                                                         ),
                                                                                     },
@@ -1421,7 +1421,7 @@ TypedProgram {
                                                                                         name: "detach",
                                                                                         span: 0..0,
                                                                                     },
-                                                                                    id: NameId(1),
+                                                                                    id: NameId(4294967293),
                                                                                     ty: FunctionType {
                                                                                         kind: Normal,
                                                                                         name_span: 0..0,
@@ -1439,7 +1439,7 @@ TypedProgram {
                                                                                         result: Unit,
                                                                                         callee: Some(
                                                                                             Named(
-                                                                                                NameId(1),
+                                                                                                NameId(4294967293),
                                                                                             ),
                                                                                         ),
                                                                                     },
