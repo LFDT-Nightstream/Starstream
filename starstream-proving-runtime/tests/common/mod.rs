@@ -388,7 +388,8 @@ pub async fn trace_coordination_script(
         .map_err(|error| wasmtime::format_err!("failed to set core module: {error:#}"))?
         .encode()
         .map_err(|error| wasmtime::format_err!("failed to componentize contract: {error:#}"))?;
-    let templates = build_component_templates(&wasm, &[script])
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&wasm).into();
+    let templates = build_component_templates(&wasm, &[script], &digest)
         .map_err(|error| wasmtime::format_err!("failed to build templates: {error}"))?;
     let mut engine_config = wasmtime::Config::default();
     starstream_runtime::configure_wasmtime(&mut engine_config);
@@ -492,12 +493,16 @@ pub async fn trace_coordination_script(
     })
 }
 
-/// Expected count and suspended constructor state for STORAGE_COUNTER.
-pub fn storage_counter_statement() -> starstream_interleaving_spec::TransactionStatement {
+/// Expected count and suspended constructor state for STORAGE_COUNTER, run
+/// through `entry`.
+pub fn storage_counter_statement(
+    entry: starstream_interleaving_spec::EntryCall,
+) -> starstream_interleaving_spec::TransactionStatement {
     use starstream_interleaving_spec::{OutputUtxo, TransactionStatement};
     use starstream_proving_runtime::{flat_value_root, method_hash_from_name};
     use wasmparser::ValType::{I32, I64};
     TransactionStatement {
+        entry,
         inputs: vec![],
         outputs: vec![OutputUtxo {
             utxo: 0,

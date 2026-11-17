@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::coordinator_abi::{CoordinatorAbis, SCRIPT_INTERFACE};
 use crate::effect_abi::{EffectAbi, EffectAbis};
 use neo_wasm::host_event_bindings::{
     EventBlock, EventSequenceBuilder, EventSources, HostEventBindings, HostEventBindingsBuilder,
@@ -138,9 +139,25 @@ struct ImportEvents {
 
 /// Build host-event templates from a core Wasm module or component.
 /// Coordination-script exports must be allowlisted.
+///
+/// Every allowlisted script opens with `EnterCall` under its script identity,
+/// whether it runs as the transaction's entry or through a script import, so a
+/// contract has one binding set regardless of its role.
+/// `contract_digest` is the raw SHA-256 digest supplied by the loader.
+/// Authenticating it against a program proof is deferred.
 pub fn build_component_templates(
     wasm: &[u8],
     coordination_exports: &[&str],
+    contract_digest: &[u8; 32],
+) -> Result<ComponentTemplates, TemplateBuildError> {
+    let coordinator_abis = CoordinatorAbis::decode(wasm, coordination_exports, contract_digest)?;
+    build_templates(wasm, coordination_exports, &coordinator_abis)
+}
+
+fn build_templates(
+    wasm: &[u8],
+    coordination_exports: &[&str],
+    coordinator_abis: &CoordinatorAbis,
 ) -> Result<ComponentTemplates, TemplateBuildError> {
     let effect_abis = EffectAbis::decode(wasm)?;
     let module = first_core_module(wasm)?;
@@ -169,6 +186,7 @@ pub fn build_component_templates(
             classified,
             &exports,
             effect_abis.exports.get(&export.name),
+            coordinator_abis.exports.get(&export.name).copied(),
         )?;
         bindings
             .export(fref, export_events.entry, export_events.exit)
@@ -188,7 +206,19 @@ pub fn build_component_templates(
 
     for import in imports {
         import_frefs.insert((import.module.clone(), import.field.clone()), import.fref);
-        let events = build_import_template(&import)?;
+        let events = if import.module == SCRIPT_INTERFACE {
+            let script = coordinator_abis.imports.get(&import.field).ok_or_else(|| {
+                TemplateBuildError::CoordinatorAbi {
+                    message: format!(
+                        "script import {} has no component ABI metadata",
+                        import.field
+                    ),
+                }
+            })?;
+            build_coordinator_template(&import, *script)?
+        } else {
+            build_import_template(&import)?
+        };
         let binding = match events.return_ {
             Some(return_events) => bindings.split_import(import.fref, events.call, return_events),
             None => bindings.import(import.fref, events.call),
@@ -631,6 +661,7 @@ fn build_export_events(
     kind: ExportKind,
     exports: &[FunctionExport],
     effect_abi: Option<&EffectAbi>,
+    script: Option<MethodHash>,
 ) -> Result<ExportEvents, TemplateBuildError> {
     let mut inputs = EntryInputs { next: 0 };
     match kind {
@@ -651,7 +682,7 @@ fn build_export_events(
         }
         ExportKind::Method(method) => {
             require_receiver(export, kind, "resource receiver")?;
-            let mut entry = Sequence::op(EventKind::EnterMethod);
+            let mut entry = Sequence::op(EventKind::EnterCall);
             for word in method.0 {
                 entry = entry.constant_i32(word)?;
             }
@@ -664,13 +695,19 @@ fn build_export_events(
             })
         }
         ExportKind::CoordinationScript => {
-            // The entrypoint has no semantic entry event.
-            let entry = bootstrap_advice(
-                export,
-                &mut inputs,
-                export.params.iter().copied().enumerate(),
-                "bootstrap local",
-            )?;
+            // Same shape as a method entry, under the script identity: the
+            // caller (a script import, or the transaction for the entry
+            // script) commits to the identity and the argument root.
+            let script = script.ok_or_else(|| TemplateBuildError::CoordinatorAbi {
+                message: format!("script export {} has no identity", export.name),
+            })?;
+            let mut entry = Sequence::op(EventKind::EnterCall);
+            for word in script.0 {
+                entry = entry.constant_i32(word)?;
+            }
+            let entry = entry
+                .root(entry_arguments_root(export, &mut inputs, 0)?)?
+                .finish()?;
             Ok(ExportEvents {
                 entry,
                 exit: return_exit_events(export_result_root(export)?)?,
@@ -755,6 +792,11 @@ fn build_export_events(
 }
 
 fn classify_import(import: &FunctionImport) -> Result<ImportKind, TemplateBuildError> {
+    if import.module == SCRIPT_INTERFACE {
+        return Err(TemplateBuildError::CoordinatorAbi {
+            message: "script imports require component ABI metadata".into(),
+        });
+    }
     if import.module == UTXO_CONTEXT_INTERFACE {
         return Ok(match import.field.as_str() {
             RESUME_METHOD => ImportKind::YieldBegin,
@@ -832,6 +874,26 @@ fn memory_read(base: MemoryBase, byte_offset: u32, width: u8) -> SlotBinding {
         4 => SlotBinding::MemoryRead32 { base, byte_offset },
         _ => unreachable!("supported canonical ABI lane width"),
     }
+}
+
+fn build_coordinator_template(
+    import: &FunctionImport,
+    script: MethodHash,
+) -> Result<ImportEvents, TemplateBuildError> {
+    let mut call = Sequence::op(EventKind::CallCoordinator);
+    for word in script.0 {
+        call = call.constant_i32(word)?;
+    }
+    let call = call.root(import_arguments_root(import, 0)?)?.finish()?;
+    let (result, high_lane) = import_result_root(import)?;
+    let mut returned = Sequence::op(EventKind::ReceiveCallResult)
+        .root(result)?
+        .finish()?;
+    returned.extend(high_lane);
+    Ok(ImportEvents {
+        call,
+        return_: Some(returned),
+    })
 }
 
 fn build_effect_template(
@@ -1029,7 +1091,7 @@ fn build_call_method_template(
     sequence = sequence.root(import_arguments_root(import, 1)?)?;
     let call = sequence.finish()?;
 
-    let mut return_ = Sequence::op(EventKind::ReceiveMethodResult);
+    let mut return_ = Sequence::op(EventKind::ReceiveCallResult);
     let (result, high_lane) = import_result_root(import)?;
     return_ = return_.root(result)?;
     let mut return_events = return_.finish()?;
@@ -1223,6 +1285,8 @@ fn parse_function_exports(
 
 #[derive(Debug, thiserror::Error)]
 pub enum TemplateBuildError {
+    #[error("coordinator ABI: {message}")]
+    CoordinatorAbi { message: String },
     #[error("effect ABI: {message}")]
     EffectAbi { message: String },
     #[error(
@@ -1401,6 +1465,20 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn script_imports_without_metadata_are_not_advice() {
+        let wasm = wat::parse_str(
+            r#"(module
+            (import "starstream:contract/scripts" "helper" (func $helper))
+            (func (export "main") (call $helper)))"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            build_component_templates(&wasm, &["main"], &[0; 32]),
+            Err(TemplateBuildError::CoordinatorAbi { .. })
+        ));
+    }
+
     fn method_hash(name: &str) -> MethodHash {
         let digest = Sha256::digest(name.as_bytes());
         let mut words = [0; METHOD_WORDS];
@@ -1414,8 +1492,25 @@ mod tests {
         (value as u32, (value >> 32) as u32)
     }
 
+    /// Identity of a script in these fixtures. Core modules carry no
+    /// component metadata, so the tests supply identities directly.
+    fn script_identity(name: &str) -> MethodHash {
+        method_hash(&format!("script:{name}"))
+    }
+
+    fn try_build(wasm: &[u8], scripts: &[&str]) -> Result<ComponentTemplates, TemplateBuildError> {
+        let abis = CoordinatorAbis {
+            imports: Default::default(),
+            exports: scripts
+                .iter()
+                .map(|name| (name.to_string(), script_identity(name)))
+                .collect(),
+        };
+        build_templates(wasm, scripts, &abis)
+    }
+
     fn build(wat: &str, scripts: &[&str]) -> ComponentTemplates {
-        build_component_templates(&wat::parse_str(wat).unwrap(), scripts).unwrap()
+        try_build(&wat::parse_str(wat).unwrap(), scripts).unwrap()
     }
 
     fn import<'a>(
@@ -1716,7 +1811,7 @@ mod tests {
         ] {
             let wasm = wat::parse_str(format!("(module {wat})")).unwrap();
             assert!(matches!(
-                build_component_templates(&wasm, &[]),
+                try_build(&wasm, &[]),
                 Err(TemplateBuildError::InvalidEffectScopeImport { .. })
             ));
         }
@@ -1726,7 +1821,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            build_component_templates(&wasm, &[]),
+            try_build(&wasm, &[]),
             Err(TemplateBuildError::InvalidEffectHandlerFrameId { .. })
         ));
     }
@@ -1866,7 +1961,7 @@ mod tests {
                     method,
                     arguments: arguments.clone(),
                 },
-                Step::ReceiveMethodResult {
+                Step::ReceiveCallResult {
                     result: Out(StarstreamValue::UNIT_VALUE),
                 },
             ])
@@ -1875,7 +1970,7 @@ mod tests {
         assert_eq!(bootstrap_writes(template), [(2, 0, false)]);
         assert_eq!(
             enter(&templates, "counter#[method]utxo.add", &[13, 0, 0]),
-            Trace::new([Step::EnterMethod { method, arguments }])
+            Trace::new([Step::EnterCall { method, arguments }])
         );
     }
 
@@ -1892,7 +1987,7 @@ mod tests {
         );
         let [
             Step::CallMethod { .. },
-            Step::ReceiveMethodResult {
+            Step::ReceiveCallResult {
                 result: Out(called),
                 ..
             },
@@ -1927,7 +2022,7 @@ mod tests {
                     method: method_hash("poke"),
                     arguments,
                 },
-                Step::ReceiveMethodResult {
+                Step::ReceiveCallResult {
                     result: Out(StarstreamValue::UNIT_VALUE),
                 },
             ])
@@ -2003,19 +2098,29 @@ mod tests {
             Trace::new([Step::SetStorage {
                 storage,
                 // TODO: review
-                coordinator_handle: ResourceHandle(0),
+                entry_utxo_handle: ResourceHandle(0),
             }])
         );
     }
 
     #[test]
-    fn coordination_scripts_bootstrap_parameters_and_publish_only_their_return() {
+    fn coordination_scripts_commit_their_identity_and_arguments_on_entry() {
         let templates = counter();
+        // The entry event binds the parameters, which therefore need no
+        // separate (uncommitted) bootstrap advice.
         let (_, template) = export(&templates, "example");
-        assert!(template.entry.iter().all(|event| !event.absorb));
+        assert!(template.entry.iter().all(|event| event.absorb));
+        assert_eq!(template.entry_input_count, 3);
+        let (lo, hi) = limbs(0x1234_5678_9abc_def0);
         assert_eq!(
-            bootstrap_writes(template),
-            [(0, 0, false), (1, 1, false), (2, 1, true)]
+            enter(&templates, "example", &[7, u64::from(lo), u64::from(hi)]),
+            Trace::new([Step::EnterCall {
+                method: script_identity("example"),
+                arguments: flat_value_root(
+                    &[ValType::I32, ValType::I64],
+                    &[7, 0x1234_5678_9abc_def0]
+                ),
+            }])
         );
         assert_eq!(
             exit(&templates, "example", None, &[]),
@@ -2023,16 +2128,20 @@ mod tests {
                 result: Out(StarstreamValue::UNIT_VALUE)
             }])
         );
-        let (_, template) = export(&templates, "example_unit");
-        assert!(template.entry.is_empty());
+        assert_eq!(
+            enter(&templates, "example_unit", &[]),
+            Trace::new([Step::EnterCall {
+                method: script_identity("example_unit"),
+                arguments: StarstreamValue::UNIT_VALUE,
+            }])
+        );
     }
 
     #[test]
     fn rejects_plain_exports_outside_the_coordination_allowlist() {
-        let error =
-            build_component_templates(&wat::parse_str(CORE_WASM_FIXTURE).unwrap(), &["example"])
-                .err()
-                .unwrap();
+        let error = try_build(&wat::parse_str(CORE_WASM_FIXTURE).unwrap(), &["example"])
+            .err()
+            .unwrap();
         assert!(
             matches!(error, TemplateBuildError::UnclassifiedFunctionExport { ref name } if name == "example_unit"),
             "{error}"
@@ -2041,7 +2150,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_coordination_allowlist_entries() {
-        let error = build_component_templates(
+        let error = try_build(
             &wat::parse_str(CORE_WASM_FIXTURE).unwrap(),
             &["example", "example_unit", "missing"],
         )
@@ -2060,7 +2169,7 @@ mod tests {
               (func (export "counter#[static]utxo.new") (param i64) (result i32) i32.const 0)
               (func (export "example")))
         "#;
-        let error = build_component_templates(&wat::parse_str(wat).unwrap(), &["example"])
+        let error = try_build(&wat::parse_str(wat).unwrap(), &["example"])
             .err()
             .unwrap();
         assert!(

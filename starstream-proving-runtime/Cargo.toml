@@ -13,6 +13,8 @@ proof-tests = []
 metal = ["nightstream/metal", "starstream-interleaving-prover/metal"]
 
 [dependencies]
+multibase = { workspace = true }
+multihash = { workspace = true }
 neo-wasm = { workspace = true }
 sha2 = { workspace = true }
 starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
@@ -32,6 +34,8 @@ wasmtime = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+multihash = { workspace = true, features = ["alloc"] }
+starstream-types = { workspace = true }
 neo-ccs = { workspace = true }
 nightstream = { workspace = true }
 neo-math = { workspace = true }
