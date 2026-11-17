@@ -1,5 +1,6 @@
-use std::rc::Rc;
+use std::{panic::AssertUnwindSafe, rc::Rc};
 
+use miette::miette;
 use starstream_compiler::WasmLinkage;
 use wac_graph::{CompositionGraph, EncodeOptions, types::Package};
 use wit_component::{ComponentEncoder, LibraryInfo};
@@ -13,7 +14,12 @@ impl CompileResult {
             return Ok(cached.clone());
         }
 
-        let comp: Rc<[u8]> = self.to_component_inner()?.into();
+        let comp = std::panic::catch_unwind(AssertUnwindSafe(|| -> miette::Result<Rc<[u8]>> {
+            let comp: Rc<[u8]> = self.to_component_inner()?.into();
+            Ok(comp)
+        }))
+        .map_err(|_panic| miette!("component linking panicked"))
+        .flatten()?;
         *cached = Some(comp.clone());
         Ok(comp)
     }
