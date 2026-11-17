@@ -20,6 +20,7 @@ mod padding {
             COL_CALL_STACK_POP,
             COL_CALL_STACK_TOP,
             COL_METHOD_LOOKUP,
+            COL_ABI_GENERATION_READ,
             COL_METHOD_APPEND,
             COL_EVENT_ACTIVE,
             COL_RESOURCE_RESOLVER_READ,

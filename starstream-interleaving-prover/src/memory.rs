@@ -324,7 +324,7 @@ fn abi_generation_layout() -> [MemorySpec<MemoryId>; 1] {
                 address_columns: vec![COL_ABI_GENERATION_ADDR],
                 value_column: COL_ABI_GENERATION_BEFORE,
                 kind: MemoryPortKind::Read,
-                activation: MemoryPortActivation::When(COL_METHOD_LOOKUP),
+                activation: MemoryPortActivation::When(crate::ccs::layout::COL_ABI_GENERATION_READ),
             },
         ],
     }]

@@ -247,6 +247,13 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             (Opcode::AddEffectHandler.selector(), -F::ONE),
         ]);
         b.push_linear_zero([
+            (layout::COL_ABI_GENERATION_READ, F::ONE),
+            (Opcode::RegisterMethod.selector(), -F::ONE),
+            (Opcode::PreloadMethod.selector(), -F::ONE),
+            (Opcode::CallMethod.selector(), -F::ONE),
+            (Opcode::ReadAbi.selector(), -F::ONE),
+        ]);
+        b.push_linear_zero([
             (COL_ENABLED_METHOD_LOG_LEN_AFTER, F::ONE),
             (COL_ENABLED_METHOD_LOG_LEN_BEFORE, -F::ONE),
             (Opcode::RegisterMethod.selector(), -F::ONE),

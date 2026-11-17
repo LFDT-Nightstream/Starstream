@@ -166,6 +166,11 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
         wit[COL_METHOD_LOOKUP] = F::ONE;
     }
 
+    wit[COL_ABI_GENERATION_READ] = F::from_bool(
+        input.opcode.appends_method()
+            || matches!(input.opcode, Opcode::CallMethod | Opcode::ReadAbi),
+    );
+
     if wit[COL_METHOD_LOOKUP] == F::ONE {
         for (offset, address) in COL_METHOD_TABLE_ADDR.iter().enumerate() {
             wit[*address] = F::new(u64::from(input.method_index) * 8 + offset as u64);

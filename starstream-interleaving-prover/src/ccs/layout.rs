@@ -76,8 +76,9 @@ define_column_region! {
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
         COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: event identity, pending-method hand-off and method-table ROM lookup value",
         COL_METHOD_INDEX: (Bits(29)) => "trace-local compact index for the method hash",
-        COL_METHOD_LOOKUP: Boolean => "RegisterMethod, PreloadMethod, CallMethod or ReadAbi resolves a method hash",
+        COL_METHOD_LOOKUP: Boolean => "a method, ABI or effect step resolves a method hash through the method table",
         COL_METHOD_TABLE_ADDR: [U32; 8] => "method_index * 8 + hash limb offset",
+        COL_ABI_GENERATION_READ: Boolean => "RegisterMethod, PreloadMethod, CallMethod or ReadAbi reads a UTXO's current ABI generation",
         COL_CALL_TARGET: U32 => "packed coroutine id that gets control in the next step",
         COL_CALL_TARGET_IS_ZERO: Boolean => "whether the call target is Coord(0), the transaction context",
         COL_CALL_TARGET_INVERSE: Field => "inverse proving that a call target is nonzero",
