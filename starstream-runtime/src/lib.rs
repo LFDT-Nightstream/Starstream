@@ -1310,6 +1310,14 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
         Ok(())
     })?;
 
+    linker.func_wrap(
+        "attach",
+        |store, (token, utxo): (ResourceAny, ResourceAny)| -> wasmtime::Result<()> {
+            _ = (store, token, utxo);
+            bail!("todo: attach");
+        },
+    )?;
+
     Ok(())
 }
 
