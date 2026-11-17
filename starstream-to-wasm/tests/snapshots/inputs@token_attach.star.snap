@@ -2187,7 +2187,7 @@ TypedProgram {
                                             Spanned {
                                                 node: TypedExpr {
                                                     ty: UtxoAny,
-                                                    kind: UtxoUpcast {
+                                                    kind: Upcast {
                                                         expr: Spanned {
                                                             node: TypedExpr {
                                                                 ty: Utxo(
@@ -2253,7 +2253,7 @@ TypedProgram {
                                             Spanned {
                                                 node: TypedExpr {
                                                     ty: UtxoAny,
-                                                    kind: UtxoUpcast {
+                                                    kind: Upcast {
                                                         expr: Spanned {
                                                             node: TypedExpr {
                                                                 ty: Utxo(
