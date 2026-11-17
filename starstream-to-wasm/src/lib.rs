@@ -209,7 +209,6 @@ impl CompileOptions {
         }
         compiler.visit_program(&definitions);
         let mut result = compiler.finish();
-        eprintln!("setting {:?} to {:?}", entry, result.export);
         *graph.module(entry).export.borrow_mut() = result.export.take();
         result
     }
@@ -2141,6 +2140,18 @@ impl Compiler {
         );
         self.resource_abi_fns
             .insert(this_ty.clone(), (new_fn, drop_fn));
+
+        // `upcast`: convert from this token handle to builtin `Token`.
+        let upcast_fn = self.import_function(
+            &import_interface_name,
+            "upcast",
+            &FuncType::new([ValType::I32], [ValType::I32]),
+        );
+        self.upcast_fns.insert(this_ty.clone(), upcast_fn);
+        iface.export_fn(
+            "upcast",
+            &self.star_to_component_signature(Some(&this_ty), &[], &Type::UtxoAny),
+        );
 
         // Allocate imports for `mint fn`s, `burn fn`s, and ABI impl fns.
         for part in &token.parts {

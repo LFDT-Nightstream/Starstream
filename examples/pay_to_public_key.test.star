@@ -4,6 +4,10 @@ import { PublicKey } from starstream:std/ledger;
 import { PayToPublicKey, send_single_token } from "./pay_to_public_key.star";
 
 token TestToken {
+    storage {
+        let mut dummy: u32;
+    }
+
     mint fn new() {}
 
     burn fn destroy() {}
