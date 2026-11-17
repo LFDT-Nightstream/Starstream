@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use crate::{DUMMY_SPAN, Identifier, NameId, Span};
 
@@ -219,6 +219,30 @@ impl Type {
     #[must_use]
     pub fn int() -> Self {
         Type::Int(IntWidth::I64)
+    }
+
+    pub fn token() -> Arc<AbiType> {
+        static TOKEN: LazyLock<Arc<AbiType>> = LazyLock::new(|| {
+            let method = |name: &str, id| TypedAbiMethodDecl {
+                name: Identifier::new(name, DUMMY_SPAN),
+                id,
+                ty: Arc::new(FunctionType {
+                    kind: FunctionKind::Normal,
+                    name_span: DUMMY_SPAN,
+                    params: vec![TypedFunctionParam::anon("utxo", Type::UtxoAny)],
+                    result: Type::Unit,
+                    callee: Some(StaticFunction::Named(id)),
+                }),
+            };
+            Arc::new(AbiType {
+                name: Identifier::new("Token", DUMMY_SPAN),
+                methods: vec![
+                    method("attach", NameId::TOKEN_ATTACH),
+                    method("detach", NameId::TOKEN_DETACH),
+                ],
+            })
+        });
+        TOKEN.clone()
     }
 }
 

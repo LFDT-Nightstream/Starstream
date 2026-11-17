@@ -42,13 +42,14 @@ script fn send_single_token(pub recipient: PublicKey, t: Token) {
     t.attach(send_to);
 }
 
-script fn send_with_change(input: PayToPublicKey, to: PublicKey, amount: u64, change_recipient: PublicKey) {
-    try {
-        input.consume();
-    } with TokenReleased(t) {
-        // NOTE: only works sensibly if there is exactly one token on `input`.
-        let s = t.subtract(amount);
-        send_single_token(to, s.amount);
-        send_single_token(change_recipient, s.change);
-    }
-}
+// TODO: "subtract" method
+// script fn send_with_change(input: PayToPublicKey, to: PublicKey, amount: u64, change_recipient: PublicKey) {
+//     try {
+//         input.consume();
+//     } with TokenReleased(t) {
+//         // NOTE: only works sensibly if there is exactly one token on `input`.
+//         let s = t.subtract(amount);
+//         send_single_token(to, s.amount);
+//         send_single_token(change_recipient, s.change);
+//     }
+// }

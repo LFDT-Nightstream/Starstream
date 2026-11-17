@@ -6,9 +6,9 @@
 use std::sync::Arc;
 
 use starstream_types::{
-    AbiType, DUMMY_SPAN, EnumType, EnumVariantKind, EnumVariantType, FunctionKind, FunctionType,
-    Identifier, IntWidth, NameId, NameIdGen, RecordFieldType, RecordType, StaticFunction, Type,
-    TypeParam, TypeVarIdGen, TypedAbiMethodDecl, TypedFunctionParam,
+    DUMMY_SPAN, EnumType, EnumVariantKind, EnumVariantType, FunctionKind, FunctionType, Identifier,
+    IntWidth, NameIdGen, RecordFieldType, RecordType, StaticFunction, Type, TypeParam,
+    TypeVarIdGen, TypedFunctionParam,
 };
 
 use crate::typecheck::{
@@ -171,26 +171,9 @@ fn register_prelude(
     // `impl Token { ... }` block is checked against. It declares
     // `attach(Utxo) -> ()` and `detach(Utxo) -> ()`. User code may not
     // redeclare `abi Token` (guarded in `register_abi`).
-    let method = |name: &str, id| TypedAbiMethodDecl {
-        name: Identifier::new(name, DUMMY_SPAN),
-        id,
-        ty: Arc::new(FunctionType {
-            kind: FunctionKind::Normal,
-            name_span: DUMMY_SPAN,
-            params: vec![TypedFunctionParam::anon("utxo", Type::UtxoAny)],
-            result: Type::Unit,
-            callee: Some(StaticFunction::Named(id)),
-        }),
-    };
     prelude.types.insert(
         "Token".to_owned(),
-        TypeEntry::from(Type::from(AbiType {
-            name: Identifier::new("Token", DUMMY_SPAN),
-            methods: vec![
-                method("attach", NameId::TOKEN_ATTACH),
-                method("detach", NameId::TOKEN_DETACH),
-            ],
-        })),
+        TypeEntry::from(Type::from(Type::token())),
     );
 }
 

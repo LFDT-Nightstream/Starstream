@@ -1073,7 +1073,7 @@ impl Compiler {
                     .and(ok);
                 dest.extend(flat);
             }
-            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) => {
+            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) | Type::Abi(_) => {
                 dest.push(ValType::I32)
             }
             _ => ok = Err(self.push_error(span, format!("unknown core lowering for {ty:?}"))),

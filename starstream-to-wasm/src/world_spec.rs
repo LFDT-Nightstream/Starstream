@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeMap, rc::Rc};
 
-use starstream_types::{AbiType, Identifier, Type, TypedFunctionParam};
+use starstream_types::{AbiType, Identifier, NameId, Type, TypedFunctionParam};
 use wasm_encoder::{FuncType, InstanceType, ValType};
 
 use crate::{
@@ -53,7 +53,8 @@ impl Compiler {
             "[resource-drop]utxo",
             &FuncType::new([ValType::I32], []),
         );
-        self.resource_drop_fns.push((utxo_resource, utxo_drop));
+        self.resource_drop_fns
+            .push((utxo_resource.clone(), utxo_drop));
         self.builtins.has_method = Some(self.import_function(
             module,
             "[method]utxo.has-method",
@@ -91,7 +92,35 @@ impl Compiler {
             "[resource-drop]token",
             &FuncType::new([ValType::I32], []),
         );
-        self.resource_drop_fns.push((token_resource, token_drop));
+        self.resource_drop_fns
+            .push((token_resource.clone(), token_drop));
+
+        // Token attaching.
+        let attach = self.import_function(
+            module,
+            "attach",
+            &FuncType::new([ValType::I32, ValType::I32], []),
+        );
+        self.method_callables
+            .insert((Type::from(Type::token()), NameId::TOKEN_ATTACH), attach);
+        builtin.export_fn_2(
+            "attach",
+            [
+                (
+                    "t",
+                    Rc::new(ComponentAbiType::Borrow {
+                        resource: token_resource.clone(),
+                    }),
+                ),
+                (
+                    "u",
+                    Rc::new(ComponentAbiType::Borrow {
+                        resource: utxo_resource.clone(),
+                    }),
+                ),
+            ],
+            None,
+        );
 
         // Effect handling.
         self.builtins.push_effect_handler_frame = Some(self.import_function(
