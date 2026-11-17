@@ -1,11 +1,13 @@
 //! The unified command-line interface to the Starstream language compiler and
 //! test environment.
 
+use std::process::ExitCode;
+
 use clap::Parser;
 use starstream_cli::Cli;
 
 #[tokio::main]
-async fn main() -> miette::Result<()> {
+async fn main() -> ExitCode {
     miette::set_panic_hook();
 
     tracing_subscriber::fmt()
@@ -17,5 +19,11 @@ async fn main() -> miette::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    Cli::parse().exec().await
+    match Cli::parse().exec().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e:?}");
+            ExitCode::FAILURE
+        }
+    }
 }

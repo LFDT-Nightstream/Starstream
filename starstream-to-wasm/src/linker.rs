@@ -27,7 +27,7 @@ impl CompileResult {
         encoder.validate(true);
         encoder
             .module(wasm)
-            .map_err(|e| miette!("ComponentEncoder::module failed: {e}"))?;
+            .map_err(|e| miette!("ComponentEncoder::module failed: {e:?}"))?;
 
         // Imported core modules are combined into the main component using `ComponentEncoder`.
         for (name, bytes, linkage) in &self.libraries {
@@ -40,13 +40,13 @@ impl CompileResult {
                             arguments: Default::default(),
                         },
                     )
-                    .map_err(|e| miette!("ComponentEncoder::library failed: {e}"))?;
+                    .map_err(|e| miette!("ComponentEncoder::library failed: {e:?}"))?;
             }
         }
 
         let mut component = encoder
             .encode()
-            .map_err(|e| miette!("ComponentEncoder::encode failed: {e}"))?;
+            .map_err(|e| miette!("ComponentEncoder::encode failed: {e:?}"))?;
 
         // Imported components are composed together using `wac_graph`.
         if self
@@ -72,7 +72,7 @@ impl CompileResult {
 
             component = graph
                 .encode(EncodeOptions::default())
-                .map_err(|e| miette!("CompositionGraph::encode failed: {e}"))?;
+                .map_err(|e| miette!("CompositionGraph::encode failed: {e:?}"))?;
         }
 
         Ok(component)
