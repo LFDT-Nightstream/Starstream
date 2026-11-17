@@ -144,6 +144,9 @@ The import may also include the `attach` and `detach` methods of the built-in
 `Token` ABI, with the same signatures as the export. The runtime forwards each
 call to the token's own `attach` or `detach` export, lending it the same `utxo`.
 
+If needed, the import may also include `downcast` and `upcast` methods, which
+the runtime will provide.
+
 For example:
 
 ```wit
@@ -160,6 +163,9 @@ package starstream:self {
             attach: func(utxo: borrow<builtin-utxo>);
             detach: func(utxo: borrow<builtin-utxo>);
         }
+
+        downcast: func(self: borrow<builtin-token>) -> option<token>;
+        upcast: func(self: borrow<token>) -> builtin-token;
     }
 }
 ```

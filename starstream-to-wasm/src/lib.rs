@@ -271,7 +271,7 @@ struct Compiler {
     method_callables: HashMap<(Type, NameId), u32>,
     /// Imported `upcast` function of each concrete `utxo` type, converting a
     /// handle of that type into a handle to the root `Utxo`.
-    utxo_upcast_fns: HashMap<Type, u32>,
+    upcast_fns: HashMap<Type, u32>,
     intrinsics: intrinsics::Intrinsics,
     builtins: world_spec::Builtins,
     effect_handlers: BTreeMap<NameId, Effect>,
@@ -1792,7 +1792,7 @@ impl Compiler {
             "upcast",
             &FuncType::new([ValType::I32], [ValType::I32]),
         );
-        self.utxo_upcast_fns.insert(this_ty.clone(), upcast_fn);
+        self.upcast_fns.insert(this_ty.clone(), upcast_fn);
         iface.export_fn(
             "upcast",
             &self.star_to_component_signature(Some(&this_ty), &[], &Type::UtxoAny),
@@ -3649,7 +3649,7 @@ impl Compiler {
                 self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)
             }
             TypedExprKind::Upcast { expr: inner } => {
-                let Some(&upcast_fn) = self.utxo_upcast_fns.get(&inner.node.ty) else {
+                let Some(&upcast_fn) = self.upcast_fns.get(&inner.node.ty) else {
                     return Err(self.push_error(
                         inner.span,
                         format!("no upcast function found for type {}", inner.node.ty),
