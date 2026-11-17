@@ -648,18 +648,11 @@ mod proving {
         let mut config = if std::env::var_os("STARSTREAM_PROOF_TIGHT_MEMORY").is_some() {
             ProofConfig::for_trace_benchmark(&transaction.trace, batch_size, segment_batches)?
         } else {
-            let mut config = ProofConfig::small(batch_size)?;
-            let g = config.geometry;
-            config.geometry = nightstream::nebula::Geometry::new(
-                g.r,
-                g.mu,
-                g.b_ops,
-                segment_batches,
-                4096usize.checked_div(segment_batches).unwrap_or(0),
-            )
-            .ok_or_else(|| wasmtime::format_err!("invalid segment size"))?;
-            config
+            ProofConfig::small(batch_size)?.with_segment_batches(segment_batches)?
         };
+        if std::env::var_os("STARSTREAM_PROOF_PLANNED_SLOTS").is_some() {
+            config = config.with_planned_slots()?;
+        }
         config.engine = common::proof_engine();
         eprintln!(
             "interleaving: {} rows, batch {batch_size}, {:?}, {:?}",
@@ -733,6 +726,7 @@ async fn minimal_method_call_runs_through_nebula() -> wasmtime::Result<()> {
     neo_wasm::memory_semantics::preload_host_event_tables(
         &mut preload,
         &execution.templates.bindings,
+        &execution.artifacts,
     );
     for instance in &execution.instances {
         let size = neo_wasm::nebula::WasmSize::for_run(&preload, &instance.trace)?;
@@ -740,7 +734,7 @@ async fn minimal_method_call_runs_through_nebula() -> wasmtime::Result<()> {
         let program = app.program(&preload)?;
         let mut run = nightstream::nebula::Run::new(app, &program, instance.trace[0].state_before);
         for segment in size.segments(&instance.trace)? {
-            run.segment(&segment)?;
+            run.segment(&segment?)?;
         }
         assert_eq!(*run.state(), instance.trace.last().unwrap().state_after);
     }

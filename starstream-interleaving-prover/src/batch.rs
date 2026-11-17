@@ -56,7 +56,7 @@ impl Batch {
         let single_width = single.columns().column_count();
         // Guards only the `usize` arithmetic below; realistic oversized batches
         // fail later by exhausting memory.
-        let width = single_width
+        single_width
             .checked_mul(batch_size)
             .ok_or(Error::InvalidBatchSize)?;
         let single_constraints = single.r1cs().catalog().len();
@@ -74,7 +74,7 @@ impl Batch {
             })
             .ok_or(Error::InvalidBatchSize)?;
         let columns = ColumnRegistry::new(single.columns().families().iter().map(|family| {
-            let mut family = *family;
+            let mut family = family.clone();
             family.start *= batch_size;
             family.len *= batch_size;
             family
@@ -88,7 +88,7 @@ impl Batch {
                 column(c, slot)
             }
         };
-        let mut builder = R1csBuilder::new(width, PUBLIC_INPUTS, COL_ONE)?;
+        let mut builder = R1csBuilder::new(PUBLIC_INPUTS, COL_ONE)?;
         for step in 0..batch_size {
             for tagged in single.r1cs().catalog().rows() {
                 let row = tagged.row();
@@ -111,7 +111,7 @@ impl Batch {
                 }
             }
         }
-        let relation = ApplicationRelation::new(builder.build()?, columns)?;
+        let relation = ApplicationRelation::new(builder.build(&columns)?, columns)?;
         // Only the first input and last output remain as cross-batch links.
         let continuity = ContinuityCatalog::new(
             continuity_groups
@@ -245,7 +245,10 @@ impl Batch {
                         // state disagrees with its predecessor's `after`.
                         (row - self.size * self.single_constraints) / self.link_count + 1
                     };
-                    let constraint = self.relation.r1cs().catalog().rows()[row].tag().label();
+                    let constraint = self.relation.r1cs().catalog().rows()[row]
+                        .tag()
+                        .label()
+                        .to_owned();
                     return Err(match packed.origins[batch * self.size + slot] {
                         Some(step) => Unsatisfied::Constraint {
                             step,
@@ -550,10 +553,9 @@ mod tests {
                 batch.check(&batch.pack(&steps), &preload),
                 Err(Error::Unsatisfied(Unsatisfied::Constraint {
                     step: 8,
-                    constraint: "return constraints",
+                    constraint,
                     ..
-                }))
-            ));
+                })) if constraint == "return constraints"));
         }
     }
 
@@ -592,10 +594,9 @@ mod tests {
                 batch: 0,
                 slot: 8,
                 batch_size: 9,
-                constraint: "padding preserves state",
+                constraint,
                 ..
-            }))
-        ));
+            })) if constraint == "padding preserves state"));
     }
 
     #[test]
@@ -616,11 +617,10 @@ mod tests {
         assert!(matches!(
             internal.check(&packed, &preload),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
-                constraint: "within-batch continuity",
+                constraint,
                 step: 4,
                 ..
-            }))
-        ));
+            })) if constraint == "within-batch continuity"));
         let external = Batch::new(2).unwrap();
         let mut packed = external.pack(&normalized.steps);
         for (index, row) in rows.iter().enumerate() {

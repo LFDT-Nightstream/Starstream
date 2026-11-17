@@ -200,10 +200,9 @@ fn rejects_receiving_a_constructor_as_a_method() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 5,
-            constraint: "receive call result constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "receive call result constraints"));
 }
 
 #[test]
@@ -216,10 +215,9 @@ fn rejects_receiving_a_method_as_a_constructor() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
-            constraint: "receive new utxo handle constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "receive new utxo handle constraints"));
 }
 
 fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
@@ -586,10 +584,9 @@ fn rejects_opcode_after_terminal_return() {
         verify_sat(&opcode_after_terminal_return_trace()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
-            constraint: "execution requires nonempty call stack",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "execution requires nonempty call stack"));
 }
 
 #[test]
@@ -598,10 +595,9 @@ fn rejects_repeated_constructor_entry() {
         verify_sat(&repeated_constructor_entry_trace([0, 1, 2, 3])),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 4,
-            constraint: "enter constructor constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "enter constructor constraints"));
 }
 
 #[test]
@@ -639,10 +635,9 @@ fn rejects_return_while_method_result_is_pending() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
-            constraint: "return constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "return constraints"));
 }
 
 #[test]
@@ -664,10 +659,9 @@ fn rejects_return_while_new_utxo_handle_is_pending() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 5,
-            constraint: "return constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "return constraints"));
 }
 
 #[test]
@@ -703,10 +697,9 @@ fn rejects_effect_while_method_result_is_pending() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
-            constraint: "raise effect constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "raise effect constraints"));
 }
 
 #[test]
@@ -742,10 +735,9 @@ fn rejects_effect_while_new_utxo_handle_is_pending() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 5,
-            constraint: "raise effect constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "raise effect constraints"));
 }
 
 #[test]
@@ -855,10 +847,9 @@ fn rejects_repeating_effect_handler_after_search_is_exhausted() {
         verify_sat(&entered(steps)),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
-            constraint: "effect scope reads",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "effect scope reads"));
 }
 
 #[test]
@@ -987,10 +978,9 @@ fn rejects_call_through_unbound_resource_handle() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
-            constraint: "call method constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "call method constraints"));
 }
 
 #[test]
@@ -1018,10 +1008,9 @@ fn rejects_return_without_entering_method() {
         verify_sat(&method_call_trace(false)),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 8,
-            constraint: "return constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "return constraints"));
 }
 
 #[test]
@@ -1039,10 +1028,9 @@ fn rejects_return_before_entering_constructor() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 3,
-            constraint: "return constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "return constraints"));
 }
 
 #[test]
@@ -1058,10 +1046,9 @@ fn rejects_yield_from_coordinator() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 2,
-            constraint: "yield begin constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "yield begin constraints"));
 }
 
 #[test]
@@ -1095,10 +1082,9 @@ fn rejects_tampered_opcode_selector() {
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 2,
-            constraint: "opcode selectors are one-hot",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "opcode selectors are one-hot"));
 }
 
 #[test]
@@ -1117,10 +1103,9 @@ fn rejects_a_nonzero_return_caller_claimed_as_root() {
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 9,
-            constraint: "call target zero test",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "call target zero test"));
 }
 
 #[test]
@@ -1135,10 +1120,9 @@ fn rejects_out_of_range_witness_column() {
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 2,
-            constraint: "COL_ABI_METHOD_COUNT_ADDR",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "COL_ABI_METHOD_COUNT_ADDR"));
 }
 
 #[test]
@@ -1256,10 +1240,9 @@ fn effect_skip_searches_for_the_pending_effect() {
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
-            constraint: "effect scope reads",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "effect scope reads"));
     use crate::ccs::layout::*;
     let add_other = rows[3].clone();
     let skip = &mut rows[7];

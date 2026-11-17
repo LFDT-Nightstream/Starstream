@@ -195,10 +195,9 @@ fn only_coordinators_call_scripts() {
     assert!(matches!(
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
-            constraint: "call coordinator constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "call coordinator constraints"));
 }
 
 #[test]
@@ -219,10 +218,9 @@ fn a_script_call_cannot_reenter_an_existing_instance() {
                 verify_witness_rows(&forged, &preload),
                 Err(Error::Unsatisfied(Unsatisfied::Constraint {
                     step: B_CALL,
-                    constraint: "script calls target a fresh coordinator",
+                    constraint,
                     ..
-                }))
-            ),
+                })) if constraint == "script calls target a fresh coordinator"),
             "{target:?}"
         );
     }
@@ -236,10 +234,9 @@ fn a_script_call_cannot_reenter_an_existing_instance() {
         verify_witness_rows(&stalled, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: B_CALL,
-            constraint: "next coordinator allocator transition",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "next coordinator allocator transition"));
 }
 
 #[test]
@@ -264,10 +261,9 @@ fn effects_cross_script_boundaries() {
         assert!(matches!(
             verify_sat(&trace),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
-                constraint: "effect scope reads",
+                constraint,
                 ..
-            }))
-        ));
+            })) if constraint == "effect scope reads"));
     }
     // Nor return with a scope of its own still open.
     let mut trace = effect_across_calls();
@@ -278,10 +274,9 @@ fn effects_cross_script_boundaries() {
     assert!(matches!(
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
-            constraint: "local effect depth",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "local effect depth"));
 }
 
 #[test]

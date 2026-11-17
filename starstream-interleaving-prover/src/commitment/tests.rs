@@ -324,10 +324,9 @@ fn tampered_compression_and_canonical_aliases_are_rejected() {
     assert!(matches!(
         crate::verify_sat(&alias),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
-            constraint: "canonical event roots",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "canonical event roots"));
 }
 
 #[test]

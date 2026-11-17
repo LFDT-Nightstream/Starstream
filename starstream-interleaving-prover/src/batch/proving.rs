@@ -35,6 +35,27 @@ pub enum ProvingError {
     MethodDictionary,
 }
 
+/// Statistical security that the local profiles ask of the backend.
+const MINIMUM_SECURITY_BITS: u32 = 109;
+
+/// The geometry with the most segments, halving from `limit`, that the
+/// backend accepts at [`MINIMUM_SECURITY_BITS`].
+///
+/// The backend charges the memory fingerprint term `2 * m_mem / q^2` once per
+/// segment, so the memory sizes and the slot count bound the segment count.
+fn secure_geometry(
+    r: usize,
+    mu: usize,
+    b_ops: usize,
+    n: usize,
+    limit: usize,
+) -> Option<nebula::Geometry> {
+    std::iter::successors(Some(limit), |s_max| Some(s_max / 2))
+        .take_while(|s_max| *s_max > 0)
+        .filter_map(|s_max| nebula::Geometry::new(r, mu, b_ops, n, s_max))
+        .find(|geometry| geometry.segments_security_bits() >= MINIMUM_SECURITY_BITS)
+}
+
 /// Verifier-owned circuit configuration.
 #[derive(Clone, Debug)]
 pub struct ProofConfig {
@@ -99,7 +120,7 @@ impl ProofConfig {
             }
             memories.push((memory.id, memory.kind, widths));
         }
-        let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(memories);
+        let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(memories)?;
         let ports = batch
             .memory
             .entries()
@@ -117,23 +138,41 @@ impl ProofConfig {
             .max(2)
             .next_power_of_two()
             .ilog2() as usize;
-        let segments = 4096usize
-            .checked_div(segment_batches)
-            .filter(|n| *n > 0)
+        let geometry = secure_geometry(r, mu, ports, segment_batches, 4096 / segment_batches)
             .ok_or(ProvingError::Configuration(
-                "invalid benchmark segment length",
+                "invalid benchmark memory geometry",
             ))?;
-        let geometry = nebula::Geometry::new(r, mu, ports, segment_batches, segments).ok_or(
-            ProvingError::Configuration("invalid benchmark memory geometry"),
-        )?;
         Ok(Self {
             batch_size,
             geometry,
             regions,
             slots: (0..ports).map(|rank| vec![rank]).collect(),
             engine: Engine::Optimized,
-            minimum_security_bits: 109,
+            minimum_security_bits: MINIMUM_SECURITY_BITS,
         })
+    }
+
+    /// Share operation slots between ports that the relation never activates
+    /// on the same step, and resize the geometry to the smaller slot count.
+    pub fn with_planned_slots(mut self) -> Result<Self, ProvingError> {
+        let batch_size = NonZeroUsize::new(self.batch_size)
+            .ok_or(ProvingError::Circuit(crate::Error::InvalidBatchSize))?;
+        self.slots = crate::memory::planned_slots(batch_size)?;
+        let g = self.geometry;
+        self.geometry = secure_geometry(g.r, g.mu, self.slots.len(), g.n, g.s_max).ok_or(
+            ProvingError::Configuration("memory geometry exceeds backend limits"),
+        )?;
+        Ok(self)
+    }
+
+    /// Use segments of `segment_batches` batches, keeping the memory sizes.
+    pub fn with_segment_batches(mut self, segment_batches: usize) -> Result<Self, ProvingError> {
+        let g = self.geometry;
+        self.geometry = 4096usize
+            .checked_div(segment_batches)
+            .and_then(|limit| secure_geometry(g.r, g.mu, g.b_ops, segment_batches, limit))
+            .ok_or(ProvingError::Configuration("invalid segment length"))?;
+        Ok(self)
     }
 
     /// Report circuit dimensions without assembling or preparing a prover.
@@ -152,28 +191,27 @@ impl ProofConfig {
             nebula::pack_regions(batch.memory.entries().iter().map(|m| {
                 let parts = m.ports[0].address_columns.len();
                 (m.id, m.kind, vec![if parts == 1 { 8 } else { 4 }; parts])
-            }));
+            }))?;
         // One slot per port preserves the catalog's access order, including
         // writes followed by reads in the same execution row.
         let ports: usize = batch.memory.entries().iter().map(|m| m.ports.len()).sum();
         let slots = (0..ports).map(|rank| vec![rank]).collect();
         let r = rom_cells.max(2).next_power_of_two().ilog2() as usize;
         let mu = ram_cells.max(rom_cells).max(2).next_power_of_two().ilog2() as usize;
-        let geometry = nebula::Geometry::new(r, mu, ports, 8, 512).ok_or(
-            ProvingError::Configuration("memory geometry exceeds backend limits"),
-        )?;
+        let geometry = secure_geometry(r, mu, ports, 8, 512).ok_or(ProvingError::Configuration(
+            "memory geometry exceeds backend limits",
+        ))?;
         Ok(Self {
             batch_size,
             geometry,
             regions,
             slots,
             engine: Engine::Optimized,
-            minimum_security_bits: 109,
+            minimum_security_bits: MINIMUM_SECURITY_BITS,
         })
     }
 }
 
-#[derive(Debug)]
 pub struct TransactionProof {
     pub proof: nebula::Proof,
     // Authenticated by the memory verifier; terminal projection is checked below.

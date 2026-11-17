@@ -82,7 +82,7 @@ pub enum Unsatisfied {
         step: usize,
         /// Constraint row in the relation used by this invocation.
         row: usize,
-        constraint: &'static str,
+        constraint: String,
     },
     #[error(
         "constraint {constraint:?} failed in padding at batch {batch}, slot {slot} (size {batch_size}), relation row {row}"
@@ -92,7 +92,7 @@ pub enum Unsatisfied {
         slot: usize,
         batch_size: usize,
         row: usize,
-        constraint: &'static str,
+        constraint: String,
     },
     /// Single-step coordinates: source boundary and columns refer to the
     /// unbatched witness.

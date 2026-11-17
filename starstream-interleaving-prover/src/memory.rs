@@ -1,7 +1,12 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use neo_application::{
-    MemoryCatalog, MemoryCheckPolicy, MemoryKind, MemoryPortActivation, MemoryPortKind,
-    MemoryPortSpec, MemoryPreload, MemorySpec, RamInitialization,
+    MemoryActivationFacts, MemoryCatalog, MemoryCheckPolicy, MemoryKind, MemoryPortActivation,
+    MemoryPortKind, MemoryPortSpec, MemoryPreload, MemorySpec, RamInitialization,
+    plan_ordered_memory_slots,
 };
+use neo_math::F;
+use p3_field::PrimeCharacteristicRing;
 
 use crate::ccs::layout::{
     COL_CALL_FRAME_SAVED_EFFECT_DEPTH, COL_CALL_FRAME_SAVED_EFFECT_HEAD,
@@ -56,6 +61,81 @@ pub enum MemoryId {
     MethodTable,
     ResourceResolver,
     TraceCommitments,
+}
+
+/// Activation facts of the single-step relation, read from its own rows.
+///
+/// The support atoms are the opcode selectors, which the one-hot row makes
+/// pairwise exclusive. A selector gate supports itself. Any other gate gets a
+/// support only when a row states `gate = sum of selectors`; a gate without
+/// such a row has none, and the planner then never shares its ports.
+///
+/// A wrong fact cannot make the binding accept a bad row: the binding
+/// requires at most one active port per slot, so it would reject an honest
+/// row instead.
+fn activation_facts<Owner>(
+    relation: &neo_application::R1csRelation<Owner>,
+    catalog: &MemoryCatalog<MemoryId>,
+) -> MemoryActivationFacts {
+    use crate::ccs::layout::{COL_ONE, SELECTORS};
+    let rows = relation.catalog().rows();
+    let support = |gate: usize| -> Option<BTreeSet<usize>> {
+        if SELECTORS.contains(&gate) {
+            return Some(BTreeSet::from([gate]));
+        }
+        rows.iter().map(|tagged| tagged.row()).find_map(|row| {
+            if row.b_terms() != [(COL_ONE, F::ONE)] || !row.c_terms().is_empty() {
+                return None;
+            }
+            let &(_, sign) = row.a_terms().iter().find(|(column, _)| *column == gate)?;
+            if sign != F::ONE && sign != -F::ONE {
+                return None;
+            }
+            let atoms: BTreeSet<usize> = row
+                .a_terms()
+                .iter()
+                .filter(|(column, _)| *column != gate)
+                .map(|&(column, value)| {
+                    (SELECTORS.contains(&column) && value == -sign).then_some(column)
+                })
+                .collect::<Option<_>>()?;
+            // A repeated column would not be a plain sum.
+            (atoms.len() + 1 == row.a_terms().len()).then_some(atoms)
+        })
+    };
+    let supports: BTreeMap<usize, BTreeSet<usize>> = catalog
+        .entries()
+        .iter()
+        .flat_map(|memory| &memory.ports)
+        .filter_map(|port| match port.activation {
+            MemoryPortActivation::When(gate) => Some(gate),
+            MemoryPortActivation::Always | MemoryPortActivation::Unless(_) => None,
+        })
+        .filter_map(|gate| Some((gate, support(gate)?)))
+        .collect();
+    MemoryActivationFacts {
+        supports,
+        gate_exclusions: Vec::new(),
+    }
+}
+
+/// Operation slots for a batch of `batch_size` steps, in the port ranks of
+/// the batched catalog (memories, then steps, then ports).
+///
+/// One step is planned from the relation's activation facts and the backend
+/// repeats that plan for each step. Steps of one batch are all active, so
+/// ports of different steps never share.
+pub(crate) fn planned_slots(
+    batch_size: std::num::NonZeroUsize,
+) -> Result<Vec<Vec<usize>>, crate::batch::proving::ProvingError> {
+    let relation = crate::ccs::build_relation()?;
+    let catalog = build_memory_layout();
+    let plan = plan_ordered_memory_slots(&catalog, &activation_facts(relation.r1cs(), &catalog));
+    Ok(nightstream::nebula::batched_slots(
+        &catalog,
+        &plan.slots,
+        batch_size,
+    )?)
 }
 
 pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
@@ -723,5 +803,64 @@ impl MemoryId {
 impl std::fmt::Display for MemoryId {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.name())
+    }
+}
+
+#[cfg(test)]
+mod port_load {
+    use super::*;
+
+    /// Ports that each opcode can activate, by memory. The heaviest opcode is
+    /// the fewest slots that any plan of this catalog can reach.
+    #[test]
+    #[ignore = "prints a table; run with -- --ignored --nocapture"]
+    fn ports_by_opcode() {
+        let relation = crate::ccs::build_relation().unwrap();
+        let catalog = build_memory_layout();
+        let facts = activation_facts(relation.r1cs(), &catalog);
+        let plan = plan_ordered_memory_slots(&catalog, &facts);
+        println!(
+            "{} ports, {} slots, {} ports without support",
+            plan.logical_ports,
+            plan.slots.len(),
+            plan.ports_without_support
+        );
+        let mut loads = Opcode::all()
+            .into_iter()
+            .map(|opcode| {
+                let by_memory: Vec<(MemoryId, usize)> = catalog
+                    .entries()
+                    .iter()
+                    .filter_map(|memory| {
+                        let ports = memory
+                            .ports
+                            .iter()
+                            .filter(|port| match port.activation {
+                                MemoryPortActivation::When(gate) => facts
+                                    .supports
+                                    .get(&gate)
+                                    .is_none_or(|atoms| atoms.contains(&opcode.selector())),
+                                _ => true,
+                            })
+                            .count();
+                        (ports > 0).then_some((memory.id, ports))
+                    })
+                    .collect();
+                (
+                    by_memory.iter().map(|(_, n)| n).sum::<usize>(),
+                    opcode,
+                    by_memory,
+                )
+            })
+            .collect::<Vec<_>>();
+        loads.sort_by_key(|(total, ..)| std::cmp::Reverse(*total));
+        for (total, opcode, by_memory) in loads {
+            let parts = by_memory
+                .iter()
+                .map(|(id, n)| format!("{id:?} {n}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("{total:>3} {opcode:?}: {parts}");
+        }
     }
 }

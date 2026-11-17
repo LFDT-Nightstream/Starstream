@@ -520,13 +520,15 @@ pub fn check_wasm_memory(execution: &TracedExecution) -> wasmtime::Result<()> {
     neo_wasm::memory_semantics::preload_host_event_tables(
         &mut preload,
         &execution.templates.bindings,
+        &execution.artifacts,
     );
     for (index, instance) in execution.instances.iter().enumerate() {
         let witnesses = instance
             .trace
             .iter()
             .map(neo_wasm::witness_builder::build_witness_vector)
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| wasmtime::format_err!("Wasm instance {index}: {error}"))?;
         neo_wasm::sanity_check_memory_rows(layout, &witnesses, &preload)
             .map_err(|error| wasmtime::format_err!("Wasm instance {index}: {error}"))?;
     }
@@ -537,10 +539,14 @@ pub fn check_wasm_constraints(execution: &TracedExecution) -> wasmtime::Result<(
     check_wasm_memory(execution)?;
     let relation = neo_wasm::build_wasm_relation()
         .map_err(|error| wasmtime::format_err!("Wasm relation: {error}"))?;
-    let layout = neo_wasm::build_wasm_relation_layout();
     for (instance_index, instance) in execution.instances.iter().enumerate() {
         for (row_index, row) in instance.trace.iter().enumerate() {
-            let witness = neo_wasm::witness_builder::build_witness_vector(row);
+            let witness =
+                neo_wasm::witness_builder::build_witness_vector(row).map_err(|error| {
+                    wasmtime::format_err!(
+                        "Wasm instance {instance_index}, row {row_index}: {error}"
+                    )
+                })?;
             let (public, private) = witness.split_at(relation.r1cs().public_input_count());
             neo_ccs::check_ccs_rowwise_zero(relation.r1cs().structure(), public, private).map_err(
                 |error| {
@@ -549,7 +555,7 @@ pub fn check_wasm_constraints(execution: &TracedExecution) -> wasmtime::Result<(
                     )
                 },
             )?;
-            neo_wasm::sanity_check_lookup_row(&layout.auxiliary, &witness).map_err(|error| {
+            neo_wasm::audit_operation_witness(&witness).map_err(|error| {
                 wasmtime::format_err!("Wasm instance {instance_index}, row {row_index}: {error}")
             })?;
         }
@@ -567,6 +573,7 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
     neo_wasm::memory_semantics::preload_host_event_tables(
         &mut preload,
         &execution.templates.bindings,
+        &execution.artifacts,
     );
     for (index, instance) in execution.instances.iter().enumerate() {
         let entry_pc = execution
@@ -588,7 +595,9 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
         let size = WasmSize::for_run(&preload, &instance.trace)?;
         let app = size.application()?;
         let program = app.program(&preload)?;
-        let segments = size.segments(&instance.trace)?;
+        let segments = size
+            .segments(&instance.trace)?
+            .collect::<Result<Vec<_>, _>>()?;
         eprintln!(
             "Wasm instance {index}: {} rows, {size:?}, {} segments",
             instance.trace.len(),

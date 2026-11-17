@@ -44,7 +44,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     let range_checks = range_check_layout();
     let column_registry = range_checks.columns().clone();
 
-    let mut builder = R1csBuilder::new(column_registry.column_count(), PUBLIC_INPUTS, COL_ONE)?;
+    let mut builder = R1csBuilder::new(PUBLIC_INPUTS, COL_ONE)?;
     let mut b = builder.tagged(always("unlabeled"));
 
     b.with_tag(always("resource bindings are fresh"), |b| {
@@ -505,7 +505,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     crate::commitment::constraints(&mut b);
     range_checks.push_constraints(&mut b, ConstraintScope::Always);
 
-    let r1cs = builder.build()?;
+    let r1cs = builder.build(&column_registry)?;
 
     Ok(ApplicationRelation::new(r1cs, column_registry)?)
 }

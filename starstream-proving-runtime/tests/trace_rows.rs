@@ -20,7 +20,6 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use neo_wasm::comm_chain::COMM_CHAIN_PERM_ROWS;
 use neo_wasm::{WasmAuxOpcode, WasmOpcode, WasmRowKind, WasmVmStep};
 use wasmparser::{CompositeInnerType, FuncType, Operator, Parser, Payload, TypeRef, ValType};
 
@@ -64,7 +63,6 @@ enum RowKind {
     FrameMove,
     LocalZero,
     EventGather,
-    EventPerm,
     TurnBoundary,
     HostSuspend,
     HostResume,
@@ -72,7 +70,7 @@ enum RowKind {
 }
 
 impl RowKind {
-    const ALL: [Self; 14] = [
+    const ALL: [Self; 13] = [
         Self::Control,
         Self::Variable,
         Self::Const,
@@ -82,7 +80,6 @@ impl RowKind {
         Self::FrameMove,
         Self::LocalZero,
         Self::EventGather,
-        Self::EventPerm,
         Self::TurnBoundary,
         Self::HostSuspend,
         Self::HostResume,
@@ -98,7 +95,6 @@ impl RowKind {
             WasmAuxOpcode::FrameMove => Self::FrameMove,
             WasmAuxOpcode::LocalZero => Self::LocalZero,
             WasmAuxOpcode::HostEventGather => Self::EventGather,
-            WasmAuxOpcode::HostEventPerm => Self::EventPerm,
             WasmAuxOpcode::TurnBoundary => Self::TurnBoundary,
             WasmAuxOpcode::HostSuspend => Self::HostSuspend,
             WasmAuxOpcode::HostResume => Self::HostResume,
@@ -130,7 +126,6 @@ impl RowKind {
             | Self::Call => RowGroup::Wasm,
             Self::FrameMove | Self::LocalZero => RowGroup::FrameAux,
             Self::EventGather
-            | Self::EventPerm
             | Self::TurnBoundary
             | Self::HostSuspend
             | Self::HostResume
@@ -149,7 +144,6 @@ impl RowKind {
             Self::FrameMove => "aux frame-move",
             Self::LocalZero => "aux local-zero",
             Self::EventGather => "aux event-gather",
-            Self::EventPerm => "aux event-perm",
             Self::TurnBoundary => "aux turn-boundary",
             Self::HostSuspend => "aux host-suspend",
             Self::HostResume => "aux host-resume",
@@ -429,20 +423,23 @@ fn report_contract(
         print!("{:>9}", padded(trace.len()));
     }
     println!("{total_padded:>9}");
-    let blocks = (0..traces.len())
-        .map(|instance| {
-            let perm = count(instance, RowKind::EventPerm);
-            format!(
-                "{} {}",
-                instance_label(instance),
-                perm / COMM_CHAIN_PERM_ROWS
-            )
+    // A block is absorbed on the gather row that fills its last slot.
+    let blocks = traces
+        .iter()
+        .enumerate()
+        .map(|(instance, trace)| {
+            let absorbed = trace
+                .iter()
+                .filter(|row| {
+                    row.row_kind.is_host_event_gather()
+                        && row.state_before.host_events.slot_cursor == 7
+                        && row.host_event_rom_slot.is_some_and(|rom| !rom.advice)
+                })
+                .count();
+            format!("{} {absorbed}", instance_label(instance))
         })
         .collect::<Vec<_>>();
-    println!(
-        "absorbed event blocks ({COMM_CHAIN_PERM_ROWS} perm rows each): {}",
-        blocks.join(", ")
-    );
+    println!("absorbed event blocks: {}", blocks.join(", "));
 
     // Rows by function, all instances together.
     let mut functions = by_function

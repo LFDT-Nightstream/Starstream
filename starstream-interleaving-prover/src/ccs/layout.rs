@@ -212,9 +212,9 @@ pub(crate) fn range_check_layout() -> &'static RangeCheckLayout {
         RangeCheckLayout::new(
             MAIN_COLUMN_FAMILIES
                 .iter()
-                .copied()
-                .chain(IVC_COLUMN_FAMILIES.iter().copied())
-                .chain(TRACE_COMM_COLUMN_FAMILIES.iter().copied()),
+                .cloned()
+                .chain(IVC_COLUMN_FAMILIES.iter().cloned())
+                .chain(TRACE_COMM_COLUMN_FAMILIES.iter().cloned()),
             RangeCheckBitFamily {
                 region: "range_check_bits",
                 name: "RANGE_CHECK_BITS",

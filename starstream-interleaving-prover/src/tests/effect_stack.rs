@@ -140,10 +140,9 @@ fn suspended_scope_cannot_handle_a_nested_effect() {
         verify_sat(&skipped),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: B_ENTER,
-            constraint: "effect scope reads",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "effect scope reads"));
     // ...and claiming 0 contradicts the registration RAM. Stop after the
     // skip, since the search would then have no candidate left.
     skipped.0.truncate(B_ENTER + 1);
@@ -205,10 +204,9 @@ fn scope_mutation_is_limited_to_the_current_invocation() {
             verify_sat(&trace),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
                 step: 6,
-                constraint: "effect scope reads",
+                constraint,
                 ..
-            }))
-        ));
+            })) if constraint == "effect scope reads"));
     }
     // Nor return, or exit a handler, with its own scope still open.
     for unpopped in [21, 24] {
@@ -217,10 +215,9 @@ fn scope_mutation_is_limited_to_the_current_invocation() {
         assert!(matches!(
             verify_sat(&trace),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
-                constraint: "local effect depth",
+                constraint,
                 ..
-            }))
-        ));
+            })) if constraint == "local effect depth"));
     }
 }
 
@@ -232,10 +229,9 @@ fn scopes_cannot_change_during_a_pending_search() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 9,
-            constraint: "scope mutation runs in a live guest body",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "scope mutation runs in a live guest body"));
 }
 
 #[test]
@@ -273,10 +269,9 @@ fn scope_mutation_cannot_skip_the_handler_exit() {
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
-            constraint: "scope mutation runs in a live guest body",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "scope mutation runs in a live guest body"));
 }
 
 #[test]

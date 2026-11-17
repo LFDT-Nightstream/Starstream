@@ -284,3 +284,83 @@ fn segment_padding_reports_empty_and_oversized_inputs() {
     pad_to_segments(&batch, &mut packed, padding(), &geometry).unwrap();
     assert_eq!(packed.rows, before);
 }
+
+#[test]
+fn planned_slots_bind_and_run_like_one_slot_per_port() {
+    let (trace, _, _) = transaction_fixture();
+    let normalized = normalize(&trace);
+    let preload = crate::memory::preload_tables(&normalized.method_table);
+    for size in [1, 3, 8] {
+        let per_port = ProofConfig::small(size).unwrap();
+        let planned = ProofConfig::small(size)
+            .unwrap()
+            .with_planned_slots()
+            .unwrap();
+        eprintln!(
+            "batch {size}: {} ports in {} slots; segments {} -> {}",
+            per_port.slots.len(),
+            planned.slots.len(),
+            per_port.geometry.s_max,
+            planned.geometry.s_max,
+        );
+        assert!(planned.slots.len() < per_port.slots.len());
+        let batch = Batch::new(size).unwrap();
+        let mut finals = Vec::new();
+        for config in [per_port, planned] {
+            let mut packed = batch.pack(&normalized.steps);
+            pad_to_segments(
+                &batch,
+                &mut packed,
+                normalized.steps.last().unwrap().padding_after(),
+                &config.geometry,
+            )
+            .unwrap();
+            let app = application(&batch, &config).unwrap();
+            let program = app.program(&preload).unwrap();
+            let mut run = nebula::Run::new(app, &program, state_words(&initial_state()));
+            for segment in packed.rows.chunks(config.geometry.n) {
+                run.segment(segment).unwrap();
+            }
+            finals.push(run.state().clone());
+        }
+        assert_eq!(finals[0], finals[1]);
+    }
+}
+
+/// Local timing probe. `STARSTREAM_PROOF_BATCH_SIZE` sets the batch size and
+/// `STARSTREAM_PROOF_PLANNED_SLOTS` shares operation slots between ports.
+#[test]
+#[ignore = "expensive Nebula proving; run explicitly with --release --ignored --nocapture"]
+fn transaction_proof_timings() -> Result<(), ProvingError> {
+    let (trace, statement, roots) = transaction_fixture();
+    let batch_size = std::env::var("STARSTREAM_PROOF_BATCH_SIZE")
+        .ok()
+        .and_then(|size| size.parse().ok())
+        .unwrap_or(3);
+    let mut config = ProofConfig::small(batch_size)?;
+    if std::env::var_os("STARSTREAM_PROOF_PLANNED_SLOTS").is_some() {
+        config = config.with_planned_slots()?;
+    }
+    eprintln!(
+        "{} steps, batch {batch_size}, {:?}",
+        trace.0.len(),
+        config.geometry
+    );
+    for part in config.size_parts()? {
+        eprintln!("  {part:?}");
+    }
+    let start = std::time::Instant::now();
+    let context = TransactionProofContext::new(config, method_dictionary(&trace))?;
+    eprintln!("preprocessing: {:?}", start.elapsed());
+    let start = std::time::Instant::now();
+    let proof = context.prove(&trace, &statement, &roots)?;
+    eprintln!("proving: {:?}", start.elapsed());
+    let start = std::time::Instant::now();
+    context.verify(&proof, &statement, &roots)?;
+    eprintln!("verification: {:?}", start.elapsed());
+    eprintln!(
+        "proof: {} bytes",
+        context.prover.encode_proof(&proof.proof)?.len()
+    );
+    Ok(())
+}
