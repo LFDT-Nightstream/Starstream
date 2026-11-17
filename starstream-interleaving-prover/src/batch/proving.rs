@@ -3,6 +3,7 @@
 use super::*;
 pub use crate::memory::MemoryId;
 use crate::terminal::TerminalClaim;
+use neo_application::MemoryPortActivation;
 use nightstream::Engine;
 use nightstream::nebula::{self, R1csApplication, RowRelation, Size};
 use p3_field::PrimeField64;
@@ -121,12 +122,13 @@ impl ProofConfig {
             memories.push((memory.id, memory.kind, widths));
         }
         let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(memories)?;
-        let ports = batch
-            .memory
-            .entries()
-            .iter()
-            .map(|m| m.ports.len())
-            .sum::<usize>();
+        let ports = batch_size
+            * batch
+                .memory
+                .entries()
+                .iter()
+                .map(|m| m.ports.len())
+                .sum::<usize>();
         let r = rom_cells
             .max(segment_batches as u64)
             .max(2)
@@ -194,7 +196,13 @@ impl ProofConfig {
             }))?;
         // One slot per port preserves the catalog's access order, including
         // writes followed by reads in the same execution row.
-        let ports: usize = batch.memory.entries().iter().map(|m| m.ports.len()).sum();
+        let ports = batch_size
+            * batch
+                .memory
+                .entries()
+                .iter()
+                .map(|m| m.ports.len())
+                .sum::<usize>();
         let slots = (0..ports).map(|rank| vec![rank]).collect();
         let r = rom_cells.max(2).next_power_of_two().ilog2() as usize;
         let mu = ram_cells.max(rom_cells).max(2).next_power_of_two().ilog2() as usize;
@@ -237,8 +245,8 @@ fn application(
         &batch.memory,
         Size {
             geometry: config.geometry,
-            // Batch already packs the execution rows into each assignment.
-            rows: NonZeroUsize::MIN,
+            rows: NonZeroUsize::new(batch.size)
+                .ok_or(ProvingError::Circuit(crate::Error::InvalidBatchSize))?,
             regions: config.regions.clone(),
             slots: config.slots.clone(),
         },
@@ -292,13 +300,13 @@ impl TransactionProofContext {
         let mut packed =
             super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
         let final_state = final_state(&self.batch, &packed);
-        let n = self.config.geometry.n;
         pad_to_segments(&self.batch, &mut packed, padding, &self.config.geometry)?;
         let mut run = self
             .prover
             .start(&self.program, state_words(&initial_state()))?;
-        for segment in packed.rows.chunks(n) {
-            run.segment(segment)?;
+        let segment_rows = self.config.geometry.n * self.batch.size;
+        for segment in packed.rows.chunks(segment_rows) {
+            run.segment(&step_inputs(&self.batch, segment)?)?;
         }
         Ok(TransactionProof {
             proof: run.finish()?,
@@ -329,7 +337,18 @@ impl TransactionProofContext {
     }
 }
 
-/// Fill the final segment with inactive batches, preserving the terminal state.
+/// The backend's input of each step: its rows in the step layout.
+fn step_inputs(batch: &Batch, rows: &[Vec<F>]) -> Result<Vec<Vec<F>>, ProvingError> {
+    let width = batch.relation.columns().column_count();
+    rows.chunks(batch.size)
+        .map(|step| {
+            let step: Vec<&[F]> = step.iter().map(Vec::as_slice).collect();
+            Ok(nebula::SharedColumns::NONE.step_witness(width, COL_ONE, &step, |_| 0)?)
+        })
+        .collect()
+}
+
+/// Fill the final segment with padding rows, preserving the terminal state.
 fn pad_to_segments(
     batch: &Batch,
     packed: &mut PackedWitness,
@@ -339,23 +358,18 @@ fn pad_to_segments(
     if packed.rows.is_empty() {
         return Err(ProvingError::EmptyTrace);
     }
-    let segments = packed.rows.len().div_ceil(geometry.n);
+    let segment_rows = geometry.n * batch.size;
+    let segments = packed.rows.len().div_ceil(segment_rows);
     if segments > geometry.s_max {
         return Err(ProvingError::TraceTooLong {
             segments,
             max: geometry.s_max,
         });
     }
-    if !packed.rows.len().is_multiple_of(geometry.n) {
-        let pad = batch
-            .pack(&[padding])
-            .rows
-            .pop()
-            .expect("one padding batch");
-        while !packed.rows.len().is_multiple_of(geometry.n) {
-            packed.rows.push(pad.clone());
-        }
-        packed.origins.resize(packed.rows.len() * batch.size, None);
+    if !packed.rows.len().is_multiple_of(segment_rows) {
+        let pad = crate::witness::build_witness_vector(&padding);
+        packed.rows.resize(segments * segment_rows, pad);
+        packed.origins.resize(packed.rows.len(), None);
     }
     Ok(())
 }

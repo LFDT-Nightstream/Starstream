@@ -113,7 +113,7 @@ fn transaction_proof_round_trip() -> Result<(), ProvingError> {
 }
 
 #[test]
-fn relation_adapter_preserves_assignments_and_state_endpoints() {
+fn step_relation_preserves_assignments_and_state_endpoints() {
     let normalized = normalize(&crate::tests::constructor_trace([1, 2, 3, 4]));
     let mut expected_final = None;
     for size in [1, 3, 8] {
@@ -121,28 +121,28 @@ fn relation_adapter_preserves_assignments_and_state_endpoints() {
         let packed = batch.pack(&normalized.steps);
         let config = ProofConfig::small(size).unwrap();
         let app = application(&batch, &config).unwrap();
-        let relation = RowRelation::of(batch.relation.r1cs()).unwrap();
-        let check = |z: &[F]| {
-            relation.rows.iter().all(|sides| {
-                let [a, b, c] = sides
-                    .each_ref()
-                    .map(|terms| terms.iter().map(|(i, v)| z[*i] * *v).sum::<F>());
-                a * b == c
-            })
-        };
-        for row in &packed.rows {
-            assert!(check(row));
+        let inputs = step_inputs(&batch, &packed.rows).unwrap();
+        for input in &inputs {
+            app.check(input).unwrap();
         }
         let claim = final_state(&batch, &packed);
         assert_eq!(
-            app.output_words(packed.rows.last().unwrap()),
+            app.output_words(inputs.last().unwrap()),
             state_words(&claim)
         );
         assert_eq!(expected_final.get_or_insert_with(|| claim.clone()), &claim);
         check_final_state(&claim, TerminalClaim::Execution).unwrap();
-        let mut tampered = packed.rows[0].clone();
-        tampered[COL_SEL_NEW_UTXO * size] = F::new(2);
-        assert!(!check(&tampered));
+        // Each slot of a step is checked, and so is each link between slots.
+        for slot in 0..size {
+            let mut tampered = inputs[0].clone();
+            tampered[app.witness_column(slot, COL_SEL_NEW_UTXO).unwrap()] = F::new(2);
+            assert!(app.check(&tampered).is_err());
+        }
+        if size > 1 {
+            let mut tampered = inputs[0].clone();
+            tampered[app.witness_column(1, COL_NEXT_UTXO_ID_BEFORE).unwrap()] += F::ONE;
+            assert!(app.check(&tampered).is_err());
+        }
         // Every memory, including the method ROM, must remain in the proof.
         let mut missing_memory = config.clone();
         missing_memory.regions.pop();
@@ -201,9 +201,9 @@ fn nebula_native_run_preserves_state_and_binds_method_rom() {
         let batch = Batch::new(config.batch_size).unwrap();
         let mut packed = batch.pack(&normalized.steps);
         let expected_final = final_state(&batch, &packed);
-        let segment_size = config.geometry.n;
-        let original_batches = packed.rows.len();
-        assert!(!original_batches.is_multiple_of(segment_size));
+        let segment_size = config.geometry.n * batch.size;
+        let original_rows = packed.rows.len();
+        assert!(!original_rows.is_multiple_of(segment_size));
         pad_to_segments(
             &batch,
             &mut packed,
@@ -213,14 +213,10 @@ fn nebula_native_run_preserves_state_and_binds_method_rom() {
         .unwrap();
         assert_eq!(
             packed.rows.len(),
-            original_batches.div_ceil(segment_size) * segment_size
+            original_rows.next_multiple_of(segment_size)
         );
-        assert_eq!(packed.origins.len(), packed.rows.len() * batch.size);
-        assert!(
-            packed.origins[original_batches * batch.size..]
-                .iter()
-                .all(Option::is_none)
-        );
+        assert_eq!(packed.origins.len(), packed.rows.len());
+        assert!(packed.origins[original_rows..].iter().all(Option::is_none));
         batch
             .check(
                 &packed,
@@ -233,7 +229,12 @@ fn nebula_native_run_preserves_state_and_binds_method_rom() {
             .program(&crate::memory::preload_tables(&normalized.method_table))
             .unwrap();
         let mut run = nebula::Run::new(app.clone(), &program, state_words(&initial_state()));
-        for segment in packed.rows.chunks(segment_size) {
+        let segments: Vec<_> = packed
+            .rows
+            .chunks(segment_size)
+            .map(|segment| step_inputs(&batch, segment).unwrap())
+            .collect();
+        for segment in &segments {
             run.segment(segment).unwrap();
         }
         assert_eq!(*run.state(), state_words(&final_state(&batch, &packed)));
@@ -244,12 +245,7 @@ fn nebula_native_run_preserves_state_and_binds_method_rom() {
             .program(&crate::memory::preload_tables(&other_methods))
             .unwrap();
         let mut run = nebula::Run::new(app, &other_program, state_words(&initial_state()));
-        assert!(
-            packed
-                .rows
-                .chunks(segment_size)
-                .any(|segment| run.segment(segment).is_err())
-        );
+        assert!(segments.iter().any(|segment| run.segment(segment).is_err()));
     }
 }
 
@@ -268,7 +264,8 @@ fn segment_padding_reports_empty_and_oversized_inputs() {
 
     let mut packed = batch.pack(&normalized.steps);
     let before = packed.rows.clone();
-    let segments = packed.rows.len();
+    // With one batch per segment, each batch is a segment.
+    let segments = packed.rows.len() / batch.size;
     assert!(segments > 1);
     let g = config.geometry;
     let geometry = nebula::Geometry::new(g.r, g.mu, g.b_ops, 1, segments - 1).unwrap();
@@ -318,8 +315,8 @@ fn planned_slots_bind_and_run_like_one_slot_per_port() {
             let app = application(&batch, &config).unwrap();
             let program = app.program(&preload).unwrap();
             let mut run = nebula::Run::new(app, &program, state_words(&initial_state()));
-            for segment in packed.rows.chunks(config.geometry.n) {
-                run.segment(segment).unwrap();
+            for segment in packed.rows.chunks(config.geometry.n * size) {
+                run.segment(&step_inputs(&batch, segment).unwrap()).unwrap();
             }
             finals.push(run.state().clone());
         }
@@ -363,4 +360,44 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
         context.prover.encode_proof(&proof.proof)?.len()
     );
     Ok(())
+}
+
+/// Where the rows of one step go, and the memory sizes of each local profile.
+#[test]
+#[ignore = "prints a census; run with -- --ignored --nocapture"]
+fn relation_census() {
+    let relation = crate::ccs::build_relation().unwrap();
+    let mut by_tag = std::collections::BTreeMap::<String, usize>::new();
+    for row in relation.r1cs().catalog().rows() {
+        *by_tag.entry(row.tag().label().to_owned()).or_default() += 1;
+    }
+    let total: usize = by_tag.values().sum();
+    let mut tags: Vec<_> = by_tag.into_iter().collect();
+    tags.sort_by_key(|(_, rows)| std::cmp::Reverse(*rows));
+    println!(
+        "{total} rows, {} columns",
+        relation.columns().column_count()
+    );
+    let (named, rest) = tags.split_at(12.min(tags.len()));
+    for (tag, rows) in named {
+        println!("{rows:>6} {tag}");
+    }
+    println!(
+        "{:>6} ({} other groups)",
+        rest.iter().map(|(_, rows)| rows).sum::<usize>(),
+        rest.len()
+    );
+    let (trace, _, _) = transaction_fixture();
+    for (name, config) in [
+        ("small", ProofConfig::small(16).unwrap()),
+        (
+            "trace-sized",
+            ProofConfig::for_trace_benchmark(&trace, 16, 8).unwrap(),
+        ),
+    ] {
+        println!("{name}: {:?}", config.geometry);
+        for (id, region) in &config.regions {
+            println!("  {:<32} {:?}", id.name(), region.widths);
+        }
+    }
 }
