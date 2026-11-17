@@ -1,4 +1,4 @@
-use std::{panic::AssertUnwindSafe, rc::Rc};
+use std::rc::Rc;
 
 use miette::miette;
 use starstream_compiler::WasmLinkage;
@@ -14,25 +14,20 @@ impl CompileResult {
             return Ok(cached.clone());
         }
 
-        let comp = std::panic::catch_unwind(AssertUnwindSafe(|| -> miette::Result<Rc<[u8]>> {
-            let comp: Rc<[u8]> = self.to_component_inner()?.into();
-            Ok(comp)
-        }))
-        .map_err(|_panic| miette!("component linking panicked"))
-        .flatten()?;
+        let comp: Rc<[u8]> = self.to_component_inner()?.into();
         *cached = Some(comp.clone());
         Ok(comp)
     }
 
     fn to_component_inner(&self) -> miette::Result<Vec<u8>> {
         let Some(wasm) = &self.wasm else {
-            panic!("CompileResult::to_component has no wasm")
+            return Err(miette!("CompileResult::to_component has no wasm"));
         };
         let mut encoder = ComponentEncoder::default();
         encoder.validate(true);
         encoder
             .module(wasm)
-            .expect("ComponentEncoder::module failed");
+            .map_err(|e| miette!("ComponentEncoder::module failed: {e}"))?;
 
         // Imported core modules are combined into the main component using `ComponentEncoder`.
         for (name, bytes, linkage) in &self.libraries {
@@ -45,11 +40,13 @@ impl CompileResult {
                             arguments: Default::default(),
                         },
                     )
-                    .expect("ComponentEncoder::library failed");
+                    .map_err(|e| miette!("ComponentEncoder::library failed: {e}"))?;
             }
         }
 
-        let mut component = encoder.encode().expect("ComponentEncoder::encode failed");
+        let mut component = encoder
+            .encode()
+            .map_err(|e| miette!("ComponentEncoder::encode failed: {e}"))?;
 
         // Imported components are composed together using `wac_graph`.
         if self
@@ -73,7 +70,9 @@ impl CompileResult {
                 }
             }
 
-            component = graph.encode(EncodeOptions::default()).unwrap();
+            component = graph
+                .encode(EncodeOptions::default())
+                .map_err(|e| miette!("CompositionGraph::encode failed: {e}"))?;
         }
 
         Ok(component)
