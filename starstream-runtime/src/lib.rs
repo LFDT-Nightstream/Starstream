@@ -892,21 +892,49 @@ fn link_typed_token_attach_detach<T: Host>(
     )
 }
 
+/// Link token downcast.
+#[instrument(level = "trace", skip_all)]
+fn link_token_downcast<T: Host>(
+    component: Component,
+    linker: &mut LinkerInstance<T>,
+    instance_idx: ComponentExportIndex,
+) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "downcast",
+        move |store, (token,): (Resource<Token>,)| -> wasmtime::Result<()> {
+            _ = (&component, store, token, instance_idx);
+            todo!("token downcast")
+        },
+    )
+}
+
+/// Link token upcast.
+#[instrument(level = "trace", skip_all)]
+fn link_token_upcast<T: Host>(linker: &mut LinkerInstance<T>) -> wasmtime::Result<()> {
+    linker.func_wrap(
+        "upcast",
+        move |store, (token,): (Resource<Token>,)| -> wasmtime::Result<()> {
+            _ = (store, token);
+            todo!("token upcast")
+        },
+    )
+}
+
 /// Link typed token [`types::ComponentFunc`] in a [`LinkerInstance`]
 #[instrument(level = "trace", skip(target, linker, ty, instance_idx))]
 fn link_typed_token_function<T: Host>(
     target: &ContractImportTarget<'_, T>,
     linker: &mut LinkerInstance<T>,
     ty: types::ComponentFunc,
-    instance_idx: &ComponentExportIndex,
+    instance_idx: ComponentExportIndex,
     name: &str,
 ) -> wasmtime::Result<()> {
     let idx = target
         .component()
-        .get_export_index(Some(instance_idx), name)
+        .get_export_index(Some(&instance_idx), name)
         .with_context(|| format!("`{name}` export was not found"))?;
-    match name.split_once(']') {
-        Some(("[static", ..)) => {
+    match name.split_once(']').unwrap_or(("", name)) {
+        ("[static", _) => {
             let params = {
                 let mut ty = ty.params().map(|(_, ty)| ty);
                 (ty.next(), ty.next())
@@ -926,9 +954,11 @@ fn link_typed_token_function<T: Host>(
                 _ => bail!("failed to classify typed token function"),
             }
         }
-        _ if matches!(name, "[method]token.attach" | "[method]token.detach") => {
+        ("[method", "token.attach") | ("[method", "token.detach") => {
             link_typed_token_attach_detach(linker, idx, name)
         }
+        ("", "upcast") => link_token_upcast(linker),
+        ("", "downcast") => link_token_downcast(target.component().clone(), linker, instance_idx),
         _ => bail!("unexpected typed token instance function import `{name}`"),
     }
 }
@@ -949,7 +979,7 @@ fn link_typed_token_instance<T: Host>(
         debug!(name, "linking typed token instance item");
         match ty {
             types::ComponentItem::ComponentFunc(ty) => {
-                link_typed_token_function(&target, linker, ty, &instance_idx, name)?;
+                link_typed_token_function(&target, linker, ty, instance_idx, name)?;
             }
             types::ComponentItem::CoreFunc(..) => {
                 bail!("typed token instance core function imports unsupported")
