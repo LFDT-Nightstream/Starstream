@@ -83,6 +83,10 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
     let mut last_log_membership = HashMap::new();
     let mut commitments = HashMap::new();
     let mut io_chain = [F::ZERO; 4];
+    // Hand-off registers: what a call, return or handler exit leaves for the
+    // step that must follow it.
+    let mut pending_root = [F::ZERO; 4];
+    let mut pending_method = [F::ZERO; 8];
 
     for step in &trace.0 {
         let opcode = Opcode::from(step);
@@ -592,7 +596,31 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             .copied()
             .filter(|_| opcode.has_event() || opcode.reads_trace_root())
             .unwrap_or([F::ZERO; 4]);
+        let root_of = |limbs: &Option<Vec<F>>| -> [F; 4] {
+            let limbs = limbs.as_deref().unwrap_or(&[]);
+            std::array::from_fn(|i| {
+                let limb = |j: usize| limbs.get(j).copied().unwrap_or(F::ZERO);
+                limb(2 * i) + F::new(1 << 32) * limb(2 * i + 1)
+            })
+        };
+        let pending_root_before = pending_root;
+        let pending_method_before = pending_method;
+        match opcode {
+            Opcode::CallMethod | Opcode::CallCoordinator | Opcode::BeginExecution => {
+                pending_root = root_of(&expected_arguments);
+                pending_method = method_hash.unwrap_or([F::ZERO; 8]);
+            }
+            Opcode::NewUtxo => pending_root = root_of(&expected_arguments),
+            Opcode::Return | Opcode::ExitEffectHandler => {
+                pending_root = root_of(&expected_result);
+            }
+            _ => {}
+        }
         let mut row = Wit {
+            pending_root_before,
+            pending_root_after: pending_root,
+            pending_method_before,
+            pending_method_after: pending_method,
             instance_depth_before,
             instance_depth_after: instance_stack.len().saturating_sub(1) as u32,
             io_before: io_chain,
@@ -729,6 +757,10 @@ impl CallFrame {
 }
 
 pub(crate) struct Wit {
+    pub(crate) pending_root_before: [F; 4],
+    pub(crate) pending_root_after: [F; 4],
+    pub(crate) pending_method_before: [F; 8],
+    pub(crate) pending_method_after: [F; 8],
     pub(crate) io_before: [F; 4],
     pub(crate) io_after: [F; 4],
     pub(crate) tx_before: TransactionState,
@@ -801,6 +833,10 @@ impl Wit {
     /// assigned zero. It goes through the same column assigner as execution.
     pub(crate) fn padding_after(&self) -> Self {
         Self {
+            pending_root_before: self.pending_root_after,
+            pending_root_after: self.pending_root_after,
+            pending_method_before: self.pending_method_after,
+            pending_method_after: self.pending_method_after,
             instance_depth_before: self.instance_depth_after,
             instance_depth_after: self.instance_depth_after,
             tx_before: self.tx_after,

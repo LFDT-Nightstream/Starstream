@@ -11,9 +11,9 @@ use crate::{
             COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
             COL_CALL_FRAME_CONSTRUCTOR, COL_CALL_FRAME_IS_EFFECT, COL_CALL_FRAME_SAVED_PHASE,
             COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE, COL_CALL_SP_BEFORE_INVERSE,
-            COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8, COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP,
-            COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER,
-            COL_CURR_BEFORE, COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE, COL_EFFECT_HANDLED,
+            COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH,
+            COL_CALL_STACK_TOP, COL_CALL_TARGET, COL_CURR_AFTER, COL_CURR_BEFORE,
+            COL_CURR_PHASE_AFTER, COL_CURR_PHASE_BEFORE, COL_EFFECT_HANDLED,
             COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
             COL_ENABLED_METHOD_LOG_LEN_AFTER, COL_ENABLED_METHOD_LOG_LEN_BEFORE,
             COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_OWNER_STRIDE_8, COL_METHOD_INDEX,
@@ -292,22 +292,6 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             });
     });
 
-    b.with_tag(always("call stack expected-address stride (8)"), |b| {
-        COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8
-            .iter()
-            .enumerate()
-            .for_each(|(i, col)| {
-                b.push_linear_zero([
-                    (COL_CALL_SP_BEFORE, F::new(8)),
-                    (COL_CALL_STACK_TOP, -F::new(8)),
-                    (COL_CALL_STACK_POP, -F::new(8)),
-                    (layout::COL_SEL_RETURN, -F::new(8)),
-                    (COL_ONE, F::new(i as u64)),
-                    (*col, -F::ONE),
-                ]);
-            });
-    });
-
     b.with_tag(always("event owner mul stride (8)"), |b| {
         COL_EVENT_OWNER_STRIDE_8
             .iter()
@@ -501,6 +485,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     );
 
     instance_stack_constraints(&mut b);
+    call_handoff_constraints(&mut b);
     effect_scope_constraints(&mut b);
     crate::commitment::constraints(&mut b);
     range_checks.push_constraints(&mut b, ConstraintScope::Always);
@@ -959,6 +944,106 @@ fn require_program_call_phase(b: &mut TaggedR1csBuilder<'_, ConstraintScope>, op
     b.push_gated_linear_zero(
         opcode.selector(),
         [(bits[0], F::ONE), (bits[1], F::ONE), (bits[3], F::ONE)],
+    );
+}
+
+/// A program call, a return and a handler exit each hand values to the step
+/// that must follow them: the pending phase admits only the matching entry,
+/// receive or resume. The values travel in carried registers, not in the call
+/// frame. Every other step keeps the registers, so host steps and padding may
+/// sit in between.
+fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    use Opcode::*;
+    use layout::{
+        COL_ARGUMENT_ROOT, COL_METHOD_HASH_VALUE, COL_PENDING_METHOD_AFTER,
+        COL_PENDING_METHOD_BEFORE, COL_PENDING_ROOT_AFTER, COL_PENDING_ROOT_BEFORE,
+    };
+    // A constructor has no method; `EnterConstructor` reads only the root.
+    let argument_writers = [CallMethod, CallCoordinator, BeginExecution, NewUtxo];
+    let result_writers = [Return, ExitEffectHandler];
+    let method_writers = [CallMethod, CallCoordinator, BeginExecution];
+    // Padding keeps every carried column through its own rule.
+    let keepers = |writers: &[Opcode]| {
+        selector_sum(
+            Opcode::all()
+                .into_iter()
+                .filter(|op| *op != Padding && !writers.contains(op)),
+        )
+    };
+    let equal = |b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+                 selectors: Vec<(usize, F)>,
+                 left: usize,
+                 right: usize| {
+        b.push_row(selectors, [(left, F::ONE), (right, -F::ONE)], []);
+    };
+    b.with_tag(always("call hand-off registers"), |b| {
+        let root_keepers = keepers(&[argument_writers.as_slice(), &result_writers].concat());
+        for i in 0..4 {
+            let after = COL_PENDING_ROOT_AFTER[i];
+            equal(
+                b,
+                selector_sum(argument_writers),
+                after,
+                COL_ARGUMENT_ROOT[i],
+            );
+            equal(b, selector_sum(result_writers), after, COL_RESULT_ROOT[i]);
+            equal(b, root_keepers.clone(), after, COL_PENDING_ROOT_BEFORE[i]);
+        }
+        let method_keepers = keepers(&method_writers);
+        for i in 0..8 {
+            let after = COL_PENDING_METHOD_AFTER[i];
+            equal(
+                b,
+                selector_sum(method_writers),
+                after,
+                COL_METHOD_HASH_VALUE[i],
+            );
+            equal(
+                b,
+                method_keepers.clone(),
+                after,
+                COL_PENDING_METHOD_BEFORE[i],
+            );
+        }
+    });
+    let argument_readers = [EnterCall, EnterConstructor];
+    let result_readers = [ReceiveCallResult, ResumeEffect];
+    b.with_tag(
+        opcode_tags("entry takes the caller's argument", &argument_readers),
+        |b| {
+            for i in 0..4 {
+                let before = COL_PENDING_ROOT_BEFORE[i];
+                equal(
+                    b,
+                    selector_sum(argument_readers),
+                    COL_ARGUMENT_ROOT[i],
+                    before,
+                );
+            }
+        },
+    );
+    b.with_tag(
+        opcode_tags("caller takes the callee's result", &result_readers),
+        |b| {
+            for i in 0..4 {
+                let before = COL_PENDING_ROOT_BEFORE[i];
+                equal(b, selector_sum(result_readers), COL_RESULT_ROOT[i], before);
+            }
+        },
+    );
+    b.with_tag(
+        opcode_tag("entry takes the called method", EnterCall),
+        |b| {
+            for i in 0..8 {
+                let before = COL_PENDING_METHOD_BEFORE[i];
+                equal(
+                    b,
+                    selector_sum([EnterCall]),
+                    COL_METHOD_HASH_VALUE[i],
+                    before,
+                );
+            }
+        },
     );
 }
 

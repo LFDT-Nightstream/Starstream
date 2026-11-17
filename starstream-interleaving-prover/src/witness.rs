@@ -200,9 +200,26 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     }
 
     if let Some(expected_result) = &input.expected_result {
-        debug_assert!(expected_result.len() <= COL_CALL_STACK_EXPECTED_RESULT_VALUE.len());
-        for (offset, col) in COL_CALL_STACK_EXPECTED_RESULT_VALUE.iter().enumerate() {
-            wit[*col] = expected_result.get(offset).copied().unwrap_or(F::ZERO);
+        debug_assert_eq!(expected_result.len(), 8);
+        for (col, limbs) in COL_RESULT_ROOT.iter().zip(expected_result.chunks(2)) {
+            wit[*col] = limbs[0] + F::new(1 << 32) * limbs[1];
+        }
+    }
+
+    for (cols, values) in [
+        (COL_PENDING_ROOT_BEFORE, input.pending_root_before),
+        (COL_PENDING_ROOT_AFTER, input.pending_root_after),
+    ] {
+        for (col, value) in cols.into_iter().zip(values) {
+            wit[col] = value;
+        }
+    }
+    for (cols, values) in [
+        (COL_PENDING_METHOD_BEFORE, input.pending_method_before),
+        (COL_PENDING_METHOD_AFTER, input.pending_method_after),
+    ] {
+        for (col, value) in cols.into_iter().zip(values) {
+            wit[col] = value;
         }
     }
 
@@ -225,9 +242,6 @@ pub(crate) fn assign_stride_columns(wit: &mut [F]) {
         - wit[COL_SEL_RETURN];
 
     for (i, col) in COL_CALL_STACK_MUL_STRIDE_8.iter().enumerate() {
-        wit[*col] = call_stack_access * F::new(8) + F::new(i as u64);
-    }
-    for (i, col) in COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8.iter().enumerate() {
         wit[*col] = call_stack_access * F::new(8) + F::new(i as u64);
     }
     for (i, col) in COL_EVENT_OWNER_STRIDE_8.iter().enumerate() {

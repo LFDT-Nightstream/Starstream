@@ -800,7 +800,8 @@ fn nested_same_effect_resumes_match_results_by_stack_position() {
     trace.0.swap(base + 5, base + 7);
     assert!(matches!(
         verify_sat(&trace),
-        Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
+        Err(Error::Unsatisfied(Unsatisfied::Constraint { constraint, .. }))
+            if constraint == "caller takes the callee's result"
     ));
 }
 
@@ -921,14 +922,11 @@ fn rejects_enter_call_with_wrong_method() {
 
     assert!(matches!(
         verify_sat(&trace),
-        Err(Error::Unsatisfied(Unsatisfied::Memory(
-            MemoryCheckError::ReadMismatch {
-                memory: MemoryId::CallStackExpectedMethod,
-                row: 8,
-                ..
-            }
-        )))
-    ));
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 8,
+            constraint,
+            ..
+        })) if constraint == "entry takes the called method"));
 }
 
 #[test]
@@ -992,14 +990,11 @@ fn rejects_return_with_wrong_result() {
             vec![7, 8].into(),
             vec![7, 9].into(),
         )),
-        Err(Error::Unsatisfied(Unsatisfied::Memory(
-            MemoryCheckError::ReadMismatch {
-                memory: MemoryId::CallStackExpectedResult,
-                row: 10,
-                ..
-            }
-        )))
-    ));
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 10,
+            constraint,
+            ..
+        })) if constraint == "caller takes the callee's result"));
 }
 
 #[test]
@@ -1060,14 +1055,11 @@ fn rejects_constructor_with_mismatched_arguments() {
 
     assert!(matches!(
         verify_sat(&trace),
-        Err(Error::Unsatisfied(Unsatisfied::Memory(
-            MemoryCheckError::ReadMismatch {
-                memory: MemoryId::CallStackExpectedArgument,
-                row: 3,
-                ..
-            }
-        )))
-    ));
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 3,
+            constraint,
+            ..
+        })) if constraint == "entry takes the caller's argument"));
 }
 
 #[test]
@@ -1131,17 +1123,17 @@ fn rejects_tampered_memory_value() {
     let (mut rows, preload) = build_witness_rows(&trace);
     verify_witness_rows(&rows, &preload).unwrap();
 
-    rows[3][COL_CALL_STACK_EXPECTED_ARG_VALUE[0]] += F::ONE;
-    crate::commitment::assign_from_bus(&mut rows[3], crate::opcode::Opcode::EnterConstructor);
-    range_check_layout().assign_bits(&mut rows[3]).unwrap();
+    // The receive pops the invocation stack into the resource binding.
+    rows[6][crate::ccs::layout::COL_RESOURCE_RESOLVER_VALUE] += F::new(2);
+    range_check_layout().assign_bits(&mut rows[6]).unwrap();
 
     let error = verify_witness_rows(&rows, &preload).unwrap_err();
     assert!(
         matches!(
             &error,
             Error::Unsatisfied(Unsatisfied::Memory(MemoryCheckError::ReadMismatch {
-                memory: MemoryId::CallStackExpectedArgument,
-                row: 3,
+                memory: MemoryId::InstanceStack,
+                row: 6,
                 ..
             }))
         ),

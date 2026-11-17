@@ -151,6 +151,20 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
             ],
         },
         ContinuityGroup {
+            name: "call_handoff",
+            role: "argument, method and result that a call, return or handler exit hands to the next step",
+            links: COL_PENDING_ROOT_AFTER
+                .into_iter()
+                .zip(COL_PENDING_ROOT_BEFORE)
+                .chain(
+                    COL_PENDING_METHOD_AFTER
+                        .into_iter()
+                        .zip(COL_PENDING_METHOD_BEFORE),
+                )
+                .map(|(a, b)| link(a, b))
+                .collect(),
+        },
+        ContinuityGroup {
             name: "call_stack_pointer_continuity",
             role: "row[i].COL_CALL_SP_AFTER must match row[i+1].COL_CALL_SP_BEFORE",
             links: vec![link(COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE)],

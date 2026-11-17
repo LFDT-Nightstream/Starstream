@@ -143,7 +143,7 @@ fn nested_and_repeated_script_calls_run_fresh_instances() {
 }
 
 #[test]
-fn callee_boundaries_are_bound_to_the_call_frame() {
+fn callee_boundaries_are_bound_to_the_caller() {
     let other = StarstreamValue([9; 4]);
     for (index, forged) in [
         // The callee enters under another identity, or with other arguments.
@@ -158,7 +158,7 @@ fn callee_boundaries_are_bound_to_the_call_frame() {
         assert!(
             matches!(
                 verify_sat(&trace),
-                Err(Error::Unsatisfied(Unsatisfied::Memory(_)))
+                Err(Error::Unsatisfied(Unsatisfied::Constraint { step, .. })) if step == index
             ),
             "step {index}"
         );

@@ -639,11 +639,12 @@ mod tests {
     fn rejects_tampered_memory_across_slots_and_batches() {
         let (mut rows, preload) = crate::build_witness_rows(&method_call_trace(true));
         let normalized = normalize(&method_call_trace(true));
-        rows[8][COL_METHOD_HASH_VALUE[0]] += F::ONE;
+        // The entry extends the callee's trace root, stored by the callee's
+        // last event in an earlier slot: another batch at size 8, the same
+        // batch at size 9.
+        rows[8][crate::ccs::layout::COL_IN[0]] += F::ONE;
         crate::commitment::assign_from_bus(&mut rows[8], crate::opcode::Opcode::EnterCall);
         range_check_layout().assign_bits(&mut rows[8]).unwrap();
-        // Call is slot 7, entry is slot 8: different batches at size 8,
-        // the same batch at size 9.
         for size in [1, 8, 9] {
             let batch = Batch::new(size).unwrap();
             let mut packed = batch.pack(&normalized.steps);
@@ -651,11 +652,11 @@ mod tests {
             let error = batch.check(&packed, &preload).unwrap_err();
             match error {
                 Error::Unsatisfied(Unsatisfied::Memory(
-                    neo_application::MemoryCheckError::ReadMismatch { row: 8, .. },
+                    neo_application::MemoryCheckError::ReadModifyWriteMismatch { row: 8, .. },
                 )) => assert_eq!(size, 1),
                 Error::Unsatisfied(Unsatisfied::BatchedMemory {
                     batch_size,
-                    source: neo_application::MemoryCheckError::ReadMismatch { row, .. },
+                    source: neo_application::MemoryCheckError::ReadModifyWriteMismatch { row, .. },
                 }) => {
                     assert_eq!(batch_size, size);
                     assert_eq!(row, 8 / size);

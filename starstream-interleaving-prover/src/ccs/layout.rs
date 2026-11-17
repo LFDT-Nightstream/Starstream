@@ -70,14 +70,11 @@ define_column_region! {
         COL_CALL_SP_BEFORE_INVERSE: Field => "inverse proving that an execution row starts with a nonempty call stack",
         // TODO: limit sp so that this doesn't overflow
         COL_CALL_STACK_MUL_STRIDE_8: [U32; 8] => "SP * 8 + i (push/pop/peek)",
-        // TODO: limit sp so that this doesn't overflow
-        COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8: [U32; 8] => "SP * 8 + i",
-        COL_CALL_STACK_EXPECTED_ARG_VALUE: [U32; 8] => "opaque argument root, little-endian 32-bit limbs; written on call, read on entry",
-        COL_CALL_STACK_EXPECTED_RESULT_VALUE: [U32; 8] => "opaque result root, little-endian 32-bit limbs; updated on return/handler exit and read when the caller/effect resumes",
+        COL_CALL_STACK_EXPECTED_ARG_VALUE: [U32; 8] => "opaque argument root, little-endian 32-bit limbs; an effect frame stores them on raise and handler entry reads them",
         // using 8 limbs for exact sha256 repr for now (in 32-bit limbs), we
         // could improve this, but the memory argument as currently implemented
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
-        COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: call-stack expected-method value and method-table ROM lookup value",
+        COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: event identity, pending-method hand-off and method-table ROM lookup value",
         COL_METHOD_INDEX: (Bits(29)) => "trace-local compact index for the method hash",
         COL_METHOD_LOOKUP: Boolean => "RegisterMethod, PreloadMethod, CallMethod or ReadAbi resolves a method hash",
         COL_METHOD_TABLE_ADDR: [U32; 8] => "method_index * 8 + hash limb offset",
@@ -148,6 +145,10 @@ define_column_region! {
         COL_EFFECT_DEPTH_AFTER: U32 => "local scope depth after this step",
         COL_EFFECT_ARENA_LEN_BEFORE: U32 => "scopes allocated so far; ids are never reused",
         COL_EFFECT_ARENA_LEN_AFTER: U32 => "scopes allocated after this step",
+        COL_PENDING_ROOT_BEFORE: [Field; 4] => "hand-off register: the argument root of the pending program call, or the result root of the pending return or handler exit",
+        COL_PENDING_ROOT_AFTER: [Field; 4] => "hand-off root after this row",
+        COL_PENDING_METHOD_BEFORE: [Field; 8] => "hand-off register: method or script hash limbs of the pending program call",
+        COL_PENDING_METHOD_AFTER: [Field; 8] => "hand-off method after this row",
     ]
 }
 
@@ -162,10 +163,10 @@ define_column_region! {
         COL_OUT: [Field; 4] => "the carried 4-limb poseidon2 commitment",
         COL_IN_WORDS: [U32; 8] => "canonical input digest limbs for trace RAM",
         COL_OUT_WORDS: [U32; 8] => "canonical output digest limbs for trace RAM",
-        COL_ARGUMENT_ROOT: [Field; 4] => "opaque argument root reconstructed from call-stack bus",
-        COL_RESULT_ROOT: [Field; 4] => "opaque result root reconstructed from call-stack bus",
-        COL_CANONICAL_HIGH_MAX: [Boolean; 16] => "whether the high u32 limb equals 0xffffffff",
-        COL_CANONICAL_HIGH_INV: [Field; 16] => "inverse of high limb minus 0xffffffff",
+        COL_ARGUMENT_ROOT: [Field; 4] => "opaque argument root of this row's event, tied to its 32-bit limbs",
+        COL_RESULT_ROOT: [Field; 4] => "opaque result root of this row's event",
+        COL_CANONICAL_HIGH_MAX: [Boolean; 12] => "whether the high u32 limb equals 0xffffffff",
+        COL_CANONICAL_HIGH_INV: [Field; 12] => "inverse of high limb minus 0xffffffff",
         COL_POSEIDON_INPUT_ROOT: [Field; 12] => "selected input roots for three shared program/transaction compression gadgets",
         COL_EVENT_BLOCKS: [Field; 24] => "three shared program/transaction blocks; program blocks precede transaction blocks",
         COL_EVENT_HASHES: [Field; 12] => "shared compression outputs selected separately for each chain",

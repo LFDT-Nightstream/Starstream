@@ -389,6 +389,12 @@ fn initial_state() -> Vec<F> {
             | COL_OUTPUT_CURSOR_BEFORE
             | COL_ENABLED_METHOD_LOG_LEN_BEFORE => F::ZERO,
             column if COL_IO_BEFORE.contains(&column) => F::ZERO,
+            column
+                if COL_PENDING_ROOT_BEFORE.contains(&column)
+                    || COL_PENDING_METHOD_BEFORE.contains(&column) =>
+            {
+                F::ZERO
+            }
             column => panic!("missing canonical initial value for carried column {column}"),
         })
         .collect()

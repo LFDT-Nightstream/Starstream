@@ -13,7 +13,7 @@ use crate::ccs::layout::{
     COL_EFFECT_ARENA_LEN_AFTER, COL_EFFECT_FRAME_ID, COL_EFFECT_HEAD_AFTER, COL_EFFECT_HEAD_BEFORE,
     COL_EFFECT_REGISTERED, COL_EFFECT_SCOPE_READ, COL_INSTANCE_DEPTH_AFTER,
     COL_INSTANCE_DEPTH_BEFORE, COL_INSTANCE_PUSH, COL_SEL_ADD_EFFECT_HANDLER,
-    COL_SEL_PUSH_EFFECT_HANDLER_FRAME, COL_SEL_SKIP_EFFECT_HANDLER,
+    COL_SEL_PUSH_EFFECT_HANDLER_FRAME, COL_SEL_RAISE_EFFECT, COL_SEL_SKIP_EFFECT_HANDLER,
 };
 use crate::opcode::Opcode;
 
@@ -21,28 +21,25 @@ use crate::ccs::layout::{
     COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
     COL_ABI_METHOD_COUNT_ADDR, COL_ABI_METHOD_COUNT_AFTER, COL_ABI_METHOD_COUNT_BEFORE,
     COL_ABI_METHOD_COUNT_READ, COL_ABI_METHOD_COUNT_WRITE, COL_CALL_FRAME_CONSTRUCTOR,
-    COL_CALL_FRAME_IS_EFFECT, COL_CALL_FRAME_SAVED_PHASE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8,
-    COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_CALL_STACK_EXPECTED_RESULT_VALUE,
-    COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP,
-    COL_CALL_TARGET, COL_CURR_BEFORE, COL_ENABLED_METHOD_LOG_ADDR,
-    COL_ENABLED_METHOD_LOG_GENERATION, COL_ENABLED_METHOD_LOG_ORDINAL, COL_ENABLED_METHOD_LOG_UTXO,
-    COL_EVENT_ACTIVE, COL_EVENT_OWNER_STRIDE_8, COL_IN_WORDS, COL_METHOD_APPEND,
-    COL_METHOD_HASH_VALUE, COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR,
-    COL_OUT_WORDS, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE,
-    COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
-    COL_SEL_CALL_METHOD, COL_SEL_ENTER_CALL, COL_SEL_ENTER_EFFECT_HANDLER,
-    COL_SEL_EXIT_EFFECT_HANDLER, COL_SEL_READ_ABI, COL_SEL_RECEIVE_CALL_RESULT,
-    COL_SEL_RECEIVE_NEW_UTXO_HANDLE, COL_SEL_RESUME_EFFECT, COL_SEL_RETURN, COL_SEL_YIELD_BEGIN,
-    COL_TRACE_ROOT_READ, range_check_layout,
+    COL_CALL_FRAME_IS_EFFECT, COL_CALL_FRAME_SAVED_PHASE, COL_CALL_STACK_EXPECTED_ARG_VALUE,
+    COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH, COL_CALL_TARGET,
+    COL_CURR_BEFORE, COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
+    COL_ENABLED_METHOD_LOG_ORDINAL, COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_ACTIVE,
+    COL_EVENT_OWNER_STRIDE_8, COL_IN_WORDS, COL_METHOD_APPEND, COL_METHOD_HASH_VALUE,
+    COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_OUT_WORDS,
+    COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
+    COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD,
+    COL_SEL_ENTER_EFFECT_HANDLER, COL_SEL_EXIT_EFFECT_HANDLER, COL_SEL_READ_ABI,
+    COL_SEL_RECEIVE_CALL_RESULT, COL_SEL_RECEIVE_NEW_UTXO_HANDLE, COL_SEL_RESUME_EFFECT,
+    COL_SEL_RETURN, COL_SEL_YIELD_BEGIN, COL_TRACE_ROOT_READ, range_check_layout,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MemoryId {
     InstanceStack,
     CallStackCaller,
-    CallStackExpectedArgument,
-    CallStackExpectedResult,
-    CallStackExpectedMethod,
+    CallStackEffectArgument,
+    CallStackEffectIndex,
     CallStackIsEffect,
     CallStackConstructor,
     CallStackSavedPhase,
@@ -438,7 +435,7 @@ fn abi_method_count_layout() -> [MemorySpec<MemoryId>; 1] {
     }]
 }
 
-fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
+fn call_stack_layout() -> [MemorySpec<MemoryId>; 8] {
     [
         MemorySpec {
             id: MemoryId::CallStackCaller,
@@ -468,120 +465,60 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
                 },
             ],
         },
+        // Program calls hand their argument, method and result to the next
+        // step through the carried hand-off registers. A raised effect is
+        // different: a handler that declines returns to the search, so its
+        // argument and identity must outlive the handler bodies in between.
         MemorySpec {
-            id: MemoryId::CallStackExpectedArgument,
+            id: MemoryId::CallStackEffectArgument,
             kind: MemoryKind::Ram,
             ports: COL_CALL_STACK_EXPECTED_ARG_VALUE
                 .into_iter()
                 .zip(COL_CALL_STACK_MUL_STRIDE_8)
                 .flat_map(|(value, address)| {
-                    vec![
+                    [
                         MemoryPortSpec {
                             address_columns: vec![address],
                             value_column: value,
                             kind: MemoryPortKind::Write {
                                 value_before_column: None,
                             },
-                            activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
+                            activation: MemoryPortActivation::When(COL_SEL_RAISE_EFFECT),
                         },
                         MemoryPortSpec {
                             address_columns: vec![address],
                             value_column: value,
                             kind: MemoryPortKind::Read,
-                            activation: MemoryPortActivation::When(COL_CALL_STACK_TOP),
+                            activation: MemoryPortActivation::When(COL_SEL_ENTER_EFFECT_HANDLER),
                         },
                     ]
-                    .into_iter()
                 })
                 .collect(),
         },
         MemorySpec {
-            id: MemoryId::CallStackExpectedResult,
-            kind: neo_application::MemoryKind::Ram,
-
-            ports: COL_CALL_STACK_EXPECTED_RESULT_VALUE
-                .into_iter()
-                .zip(COL_CALL_STACK_MUL_STRIDE_8)
-                .flat_map(|(value, address)| {
-                    vec![
-                        MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Write {
-                                value_before_column: None,
-                            },
-                            activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
-                        },
-                        MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Write {
-                                value_before_column: None,
-                            },
-                            activation: MemoryPortActivation::When(COL_SEL_EXIT_EFFECT_HANDLER),
-                        },
-                        MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Write {
-                                value_before_column: None,
-                            },
-                            activation: MemoryPortActivation::When(COL_SEL_RETURN),
-                        },
-                        MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Read,
-                            activation: MemoryPortActivation::When(COL_SEL_RESUME_EFFECT),
-                        },
-                    ]
+            id: MemoryId::CallStackEffectIndex,
+            kind: MemoryKind::Ram,
+            // The method-table lookup of each of these steps ties the index
+            // to the effect hash that its event commits to.
+            ports: std::iter::once(MemoryPortSpec {
+                address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                value_column: COL_METHOD_INDEX,
+                kind: MemoryPortKind::Write {
+                    value_before_column: None,
+                },
+                activation: MemoryPortActivation::When(COL_SEL_RAISE_EFFECT),
+            })
+            .chain(
+                [COL_SEL_ENTER_EFFECT_HANDLER, COL_SEL_SKIP_EFFECT_HANDLER]
                     .into_iter()
-                })
-                .chain(
-                    COL_CALL_STACK_EXPECTED_RESULT_VALUE
-                        .into_iter()
-                        .zip(COL_CALL_STACK_MUL_STRIDE_8)
-                        .map(|(value, address)| MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Read,
-                            activation: MemoryPortActivation::When(COL_SEL_RECEIVE_CALL_RESULT),
-                        }),
-                )
-                .collect(),
-        },
-        MemorySpec {
-            id: MemoryId::CallStackExpectedMethod,
-            kind: neo_application::MemoryKind::Ram,
-            ports: COL_METHOD_HASH_VALUE
-                .into_iter()
-                .zip(COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8)
-                .flat_map(|(value, address)| {
-                    [MemoryPortSpec {
-                        address_columns: vec![address],
-                        value_column: value,
-                        kind: MemoryPortKind::Write {
-                            value_before_column: None,
-                        },
-                        activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
-                    }]
-                    .into_iter()
-                    .chain(
-                        [
-                            COL_SEL_ENTER_CALL,
-                            COL_SEL_ENTER_EFFECT_HANDLER,
-                            COL_SEL_SKIP_EFFECT_HANDLER,
-                        ]
-                        .into_iter()
-                        .map(move |selector| MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Read,
-                            activation: MemoryPortActivation::When(selector),
-                        }),
-                    )
-                })
-                .collect(),
+                    .map(|selector| MemoryPortSpec {
+                        address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                        value_column: COL_METHOD_INDEX,
+                        kind: MemoryPortKind::Read,
+                        activation: MemoryPortActivation::When(selector),
+                    }),
+            )
+            .collect(),
         },
         MemorySpec {
             id: MemoryId::CallStackIsEffect,
@@ -719,9 +656,8 @@ pub(crate) fn sanity_checking_policy(
         vec![
             (InstanceStack, RamInitialization::Zero),
             (CallStackCaller, RamInitialization::Zero),
-            (CallStackExpectedArgument, RamInitialization::Zero),
-            (CallStackExpectedResult, RamInitialization::Zero),
-            (CallStackExpectedMethod, RamInitialization::Zero),
+            (CallStackEffectArgument, RamInitialization::Zero),
+            (CallStackEffectIndex, RamInitialization::Zero),
             (CallStackIsEffect, RamInitialization::Zero),
             (CallStackConstructor, RamInitialization::Zero),
             (CallStackSavedPhase, RamInitialization::Zero),
@@ -775,9 +711,8 @@ impl MemoryId {
         match self {
             MemoryId::InstanceStack => "instance_stack",
             MemoryId::CallStackCaller => "call_stack_caller",
-            MemoryId::CallStackExpectedArgument => "call_stack_expected_argument",
-            MemoryId::CallStackExpectedResult => "call_stack_expected_result",
-            MemoryId::CallStackExpectedMethod => "call_stack_expected_method",
+            MemoryId::CallStackEffectArgument => "call_stack_effect_argument",
+            MemoryId::CallStackEffectIndex => "call_stack_effect_index",
             MemoryId::CallStackIsEffect => "call_stack_is_effect",
             MemoryId::CallStackConstructor => "call_stack_constructor",
             MemoryId::CallStackSavedPhase => "call_stack_saved_phase",
