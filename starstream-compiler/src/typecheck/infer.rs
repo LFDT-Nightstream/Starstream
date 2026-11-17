@@ -3879,8 +3879,17 @@ impl Inferencer {
         match (self.apply(expected), self.apply(&typed.node.ty)) {
             (Type::UtxoAny, Type::Utxo(_)) => Spanned::new(
                 TypedExpr::new(
-                    Type::UtxoAny,
-                    TypedExprKind::UtxoUpcast {
+                    expected.clone(),
+                    TypedExprKind::Upcast {
+                        expr: Box::new(typed),
+                    },
+                ),
+                span,
+            ),
+            (Type::Abi(abi), Type::Token(token)) if token.abis.contains(&abi) => Spanned::new(
+                TypedExpr::new(
+                    expected.clone(),
+                    TypedExprKind::Upcast {
                         expr: Box::new(typed),
                     },
                 ),
@@ -4404,7 +4413,7 @@ impl Inferencer {
                 }
             }
             TypedExprKind::Error => {}
-            TypedExprKind::Disclose { expr } | TypedExprKind::UtxoUpcast { expr } => {
+            TypedExprKind::Disclose { expr } | TypedExprKind::Upcast { expr } => {
                 self.apply_expr(expr)
             }
         }

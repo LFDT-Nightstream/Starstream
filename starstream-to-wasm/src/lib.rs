@@ -2924,7 +2924,7 @@ impl Compiler {
                 *bb = bb_end;
             }
             // An unused upcast has no effect of its own, so skip the call.
-            TypedExprKind::Disclose { expr: inner } | TypedExprKind::UtxoUpcast { expr: inner } => {
+            TypedExprKind::Disclose { expr: inner } | TypedExprKind::Upcast { expr: inner } => {
                 self.visit_expr_drop(func, bb, locals, inner.span, &inner.node)?;
             }
             // Function calls
@@ -3648,7 +3648,7 @@ impl Compiler {
             TypedExprKind::Disclose { expr: inner } => {
                 self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)
             }
-            TypedExprKind::UtxoUpcast { expr: inner } => {
+            TypedExprKind::Upcast { expr: inner } => {
                 let Some(&upcast_fn) = self.utxo_upcast_fns.get(&inner.node.ty) else {
                     return Err(self.push_error(
                         inner.span,

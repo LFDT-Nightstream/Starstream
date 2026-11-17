@@ -264,7 +264,8 @@ pub enum TypedExprKind {
     },
     /// Implicit upcast of a concrete `utxo Foo` handle to the root `Utxo`
     /// handle, inserted by the type checker where a `Utxo` is expected.
-    UtxoUpcast {
+    /// Also for `token` upcasts.
+    Upcast {
         expr: Box<Spanned<TypedExpr>>,
     },
     /// Event emission expression: `emit some_emit_fn(args...)`
