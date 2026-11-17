@@ -2243,7 +2243,7 @@ impl Inferencer {
                 if let Some(ty) = ty {
                     // Binding has a type annotation, so unify it with the initial value.
                     let expected_type = self.type_from_annotation(env, ty)?;
-                    typed_value = self.coerce_utxo_upcast(typed_value, &expected_type);
+                    typed_value = self.coerce(typed_value, &expected_type);
                     value_type = self.apply(&typed_value.node.ty);
                     let (new_value_type, unify_trace) = self.unify(
                         &expected_type,
@@ -2421,7 +2421,7 @@ impl Inferencer {
                     )
                     .with_help(help));
                 }
-                let typed_value = self.coerce_utxo_upcast(typed_value, &expected_type);
+                let typed_value = self.coerce(typed_value, &expected_type);
                 let actual_type = &typed_value.node.ty;
 
                 let (_, unify_trace) = self.unify(
@@ -2458,7 +2458,7 @@ impl Inferencer {
                 match value {
                     Some(expr) => {
                         let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
-                        let typed_expr = self.coerce_utxo_upcast(typed_expr, &ctx.expected_return);
+                        let typed_expr = self.coerce(typed_expr, &ctx.expected_return);
                         let actual_type = &typed_expr.node.ty;
                         let (_, unify_trace) = self.unify(
                             actual_type,
@@ -2774,7 +2774,7 @@ impl Inferencer {
                     .with_secondary(ctx.return_span, format!("returns `{ty}`"))
                     .with_help(format!("add an `else` that returns or evaluates to `{ty}`")));
                 }
-                typed_expr = self.coerce_utxo_upcast(typed_expr, &ctx.expected_return);
+                typed_expr = self.coerce(typed_expr, &ctx.expected_return);
                 let actual = &typed_expr.node.ty;
                 let (_, unify_trace) = self.unify(
                     actual,
@@ -3819,7 +3819,7 @@ impl Inferencer {
 
         for (index, (arg, param)) in args.iter().zip(func.params.iter()).enumerate() {
             let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
-            let typed_arg = self.coerce_utxo_upcast(typed_arg, &param.ty);
+            let typed_arg = self.coerce(typed_arg, &param.ty);
             let actual_ty = &typed_arg.node.ty;
 
             let (_, unify_trace) = self.unify(
@@ -3866,26 +3866,28 @@ impl Inferencer {
         Ok((typed, tree))
     }
 
-    /// Implicitly upcast a concrete `utxo Foo` handle to the root `Utxo` handle
-    /// when the surrounding context expects a `Utxo`. Applied at checked
-    /// positions (arguments, annotated bindings, assignments, returns) rather
-    /// than inside unification, so inference stays strict everywhere else.
-    fn coerce_utxo_upcast(&self, typed: Spanned<TypedExpr>, expected: &Type) -> Spanned<TypedExpr> {
-        if !matches!(self.apply(expected), Type::UtxoAny)
-            || !matches!(self.apply(&typed.node.ty), Type::Utxo(_))
-        {
-            return typed;
-        }
+    /// Perform type coercions when passing parameters.
+    ///
+    /// Upcasts:
+    /// * all `utxo Foo` types to the `Utxo` type.
+    ///
+    /// Applied at locations with known expected types, so inference is mostly strict.
+    /// (arguments, annotated bindings, assignments, returns)
+    /// rather than inside unification, so inference stays strict everywhere else.
+    fn coerce(&self, typed: Spanned<TypedExpr>, expected: &Type) -> Spanned<TypedExpr> {
         let span = typed.span;
-        Spanned::new(
-            TypedExpr::new(
-                Type::UtxoAny,
-                TypedExprKind::UtxoUpcast {
-                    expr: Box::new(typed),
-                },
+        match (self.apply(expected), self.apply(&typed.node.ty)) {
+            (Type::UtxoAny, Type::Utxo(_)) => Spanned::new(
+                TypedExpr::new(
+                    Type::UtxoAny,
+                    TypedExprKind::UtxoUpcast {
+                        expr: Box::new(typed),
+                    },
+                ),
+                span,
             ),
-            span,
-        )
+            _ => typed,
+        }
     }
 
     fn private_parameter_rhs_name(
