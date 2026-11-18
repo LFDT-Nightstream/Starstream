@@ -35,7 +35,8 @@ mod proving;
 pub use proving::prove;
 #[cfg(feature = "proving")]
 pub use starstream_proving_runtime::{
-    CapturedExecution, Engine as ProofEngine, ProofTimings, TransactionProof, TransactionProver,
+    CapturedExecution, Engine as ProofEngine, ProofPhaseTimings, ProofTimings, TransactionProof,
+    TransactionProver, WasmProofTimings,
 };
 
 /// The execution captured by [`call_coordination_script`].

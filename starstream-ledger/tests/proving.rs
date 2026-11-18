@@ -219,7 +219,17 @@ fn prove_and_verify(
     execution: &starstream_ledger::client::runtime::CapturedExecution,
 ) -> anyhow::Result<()> {
     let (proof, timings) = starstream_ledger::client::runtime::prove(store, execution, prover)?;
-    eprintln!("{} Wasm instances, {timings:?}", proof.instances.len());
+    for instance in &timings.wasm {
+        eprintln!(
+            "{:?} ({:?}, circuit reused: {}): {:?}",
+            instance.coroutine, instance.size, instance.circuit_reused, instance.phases
+        );
+    }
+    eprintln!(
+        "interleaving (circuit reused: {}): {:?}",
+        timings.interleaving_circuit_reused, timings.interleaving
+    );
+    eprintln!("total: {:?}", timings.total);
     let statement = &execution.transaction.statement;
     prover.verify(&proof, statement)?;
     let (proof, sizes) = proof.through_bytes()?;
@@ -228,12 +238,151 @@ fn prove_and_verify(
     prover.verify(&proof, statement)?;
     eprintln!("verified in {:?}", started.elapsed());
     let mut other = statement.clone();
-    other.outputs[0].storage.0[0] = other.outputs[0].storage.0[0].wrapping_add(1);
+    other.entry.script.0[0] ^= 1;
     ensure!(
         prover.verify(&proof, &other).is_err(),
         "a proof must not verify against another statement"
     );
     Ok(())
+}
+
+async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
+    use starstream_ledger::client::runtime::{ProofEngine, TransactionProver};
+    let wasm = common::compile_contract(
+        r#"
+        abi Amount {
+            fn amount() -> u64;
+            fn spend();
+            effect Authorize(owner: u64);
+            event Observed(value: u64);
+        }
+        utxo StoredAmount {
+            storage {
+                let mut balance: u64;
+                let mut owner: u64;
+            }
+            main fn new(pub value: u64, pub recipient: u64) {
+                balance = value;
+                owner = recipient;
+                yield(Amount);
+            }
+            impl Amount {
+                fn amount() -> u64 { return balance; }
+                fn spend() {
+                    raise Authorize(owner);
+                    resume;
+                }
+            }
+        }
+        script fn create() { let instance = StoredAmount::new(100, 42); }
+        script fn spend(instance: StoredAmount) {
+            let value = instance.amount();
+            emit Observed(value);
+            try {
+                instance.spend();
+            } with Authorize(owner) {
+            }
+        }
+        script fn denied(instance: StoredAmount) {
+            instance.spend();
+        }
+        "#,
+    )?;
+    let mut config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut config);
+    let engine = Engine::new(&config)?;
+    let wizer = Wizer::new();
+    let mut imports = HashMap::new();
+    let contract = compile_contract(
+        &TestClient(None),
+        &engine,
+        &wizer,
+        &wasm,
+        None,
+        &mut imports,
+    )
+    .await?;
+    let mut prover = prove.then(|| TransactionProver::new(ProofEngine::Optimized));
+    let mut store = Store::new(&engine, Ctx::default());
+    let create = contract.get_coordination_script("create")?;
+    let (created, execution) = call_coordination_script(
+        &mut store,
+        &TestClient(None),
+        &wizer,
+        &contract,
+        &wasm,
+        &create,
+        &mut imports,
+        vec![],
+        &mut [],
+        &mut vec![],
+    )
+    .await?;
+    let execution = execution?;
+    assert!(created.inputs.is_empty());
+    assert_eq!(created.outputs.len(), 1);
+    if let Some(prover) = &mut prover {
+        eprintln!("create stored amount");
+        prove_and_verify(prover, &store, &execution)?;
+    }
+
+    let client = TestClient(Some(created.outputs[0].clone()));
+    // Each branch spends the same fixture independently.
+    for (script, authorized) in [("denied", false), ("spend", true)] {
+        let spend = contract.get_coordination_script(script)?;
+        let mut store = Store::new(&engine, Ctx::default());
+        let input = TransactionInput {
+            transaction: "fixture".into(),
+            index: 0,
+        };
+        let result = call_coordination_script(
+            &mut store,
+            &client,
+            &wizer,
+            &contract,
+            &wasm,
+            &spend,
+            &mut imports,
+            vec![input.clone().into()],
+            &mut [],
+            &mut vec![],
+        )
+        .await;
+        if !authorized {
+            let error = result.expect_err("unhandled authorization must abort the transaction");
+            ensure!(
+                format!("{error:#}").contains("effect not handled: amount::authorize"),
+                "unexpected error: {error:#}"
+            );
+            continue;
+        }
+        let (transaction, execution) = result?;
+        let execution = execution?;
+        let [event] = transaction.events.as_slice() else {
+            anyhow::bail!("expected one amount event");
+        };
+        assert_eq!(event.name.as_ref(), "observed");
+        assert_eq!(event.params.as_ref(), [100]);
+        assert_eq!(transaction.inputs, [input]);
+        assert!(transaction.outputs.is_empty());
+        assert!(execution.transaction.statement.outputs.is_empty());
+        if let Some(prover) = &mut prover {
+            eprintln!("spend stored amount");
+            prove_and_verify(prover, &store, &execution)?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn authorized_amount_execution_is_checked() -> anyhow::Result<()> {
+    authorized_amount_workflow(false).await
+}
+
+#[tokio::test]
+#[ignore = "Nebula proofs; run with --release -- --ignored --nocapture"]
+async fn authorized_amount_transactions_prove_and_verify() -> anyhow::Result<()> {
+    authorized_amount_workflow(true).await
 }
 
 /// Reuse one prover across UTXO creation and a subsequent spend.

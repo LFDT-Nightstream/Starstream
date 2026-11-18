@@ -654,11 +654,20 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                         .verify(&proof, &execution.transaction.statement)
                         .map_err(anyhow::Error::from)
                         .context("the transaction proof does not verify")?;
+                    for instance in &timings.wasm {
+                        info!(coroutine = ?instance.coroutine, size = ?instance.size,
+                            circuit_reused = instance.circuit_reused,
+                            setup = ?instance.phases.setup, proving = ?instance.phases.proving,
+                            compression = ?instance.phases.compression, "Wasm proof timings");
+                    }
+                    info!(circuit_reused = timings.interleaving_circuit_reused,
+                        setup = ?timings.interleaving.setup, proving = ?timings.interleaving.proving,
+                        compression = ?timings.interleaving.compression, "interleaving proof timings");
                     info!(
                         instances = proof.instances.len(),
-                        setup = ?timings.setup,
-                        proving = ?timings.proving,
-                        compression = ?timings.compression,
+                        setup = ?timings.total.setup,
+                        proving = ?timings.total.proving,
+                        compression = ?timings.total.compression,
                         "proved and verified the transaction"
                     );
                 }
