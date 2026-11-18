@@ -901,7 +901,9 @@ fn link_token_downcast<T: Host>(
 ) -> wasmtime::Result<()> {
     linker.func_wrap(
         "downcast",
-        move |store, (token,): (Resource<Token>,)| -> wasmtime::Result<()> {
+        move |store,
+              (token,): (Resource<Token>,)|
+              -> wasmtime::Result<(Option<Resource<Token>>,)> {
             _ = (&component, store, token, instance_idx);
             todo!("token downcast")
         },
@@ -913,7 +915,7 @@ fn link_token_downcast<T: Host>(
 fn link_token_upcast<T: Host>(linker: &mut LinkerInstance<T>) -> wasmtime::Result<()> {
     linker.func_wrap(
         "upcast",
-        move |store, (token,): (Resource<Token>,)| -> wasmtime::Result<()> {
+        move |store, (token,): (Resource<Token>,)| -> wasmtime::Result<(Resource<Token>,)> {
             _ = (store, token);
             todo!("token upcast")
         },
@@ -957,8 +959,6 @@ fn link_typed_token_function<T: Host>(
         ("[method", "token.attach") | ("[method", "token.detach") => {
             link_typed_token_attach_detach(linker, idx, name)
         }
-        ("", "upcast") => link_token_upcast(linker),
-        ("", "downcast") => link_token_downcast(target.component().clone(), linker, instance_idx),
         _ => bail!("unexpected typed token instance function import `{name}`"),
     }
 }
@@ -978,6 +978,12 @@ fn link_typed_token_instance<T: Host>(
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(component.engine()) {
         debug!(name, "linking typed token instance item");
         match ty {
+            types::ComponentItem::ComponentFunc(..) if name == "downcast" => {
+                link_token_downcast(component.clone(), linker, instance_idx)?;
+            }
+            types::ComponentItem::ComponentFunc(..) if name == "upcast" => {
+                link_token_upcast(linker)?;
+            }
             types::ComponentItem::ComponentFunc(ty) => {
                 link_typed_token_function(&target, linker, ty, instance_idx, name)?;
             }
