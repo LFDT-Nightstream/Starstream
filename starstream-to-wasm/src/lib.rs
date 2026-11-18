@@ -209,7 +209,6 @@ impl CompileOptions {
         }
         compiler.visit_program(&definitions);
         let mut result = compiler.finish();
-        eprintln!("setting {:?} to {:?}", entry, result.export);
         *graph.module(entry).export.borrow_mut() = result.export.take();
         result
     }
