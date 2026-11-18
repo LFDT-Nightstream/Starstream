@@ -77,15 +77,22 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
 #[ignore = "expensive Nebula proving; run explicitly with --release --ignored"]
 fn transaction_proof_round_trip() -> Result<(), ProvingError> {
     let (trace, statement, roots) = transaction_fixture();
-    let context = InterleavingProofContext::new(
-        ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3)?,
-        method_dictionary(&trace),
-    )?;
+    let context =
+        InterleavingProofContext::new(ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3)?)?;
+    let methods = method_dictionary(&trace);
     let mut proof = context.prove(&trace, &statement, &roots)?;
-    context.verify(&proof, &statement, &roots)?;
+    context.verify(&methods, &proof, &statement, &roots)?;
+    let mut other_methods = methods.clone();
+    other_methods.push(MethodHash([u32::MAX; 8]));
+    assert!(
+        context
+            .verify(&other_methods, &proof, &statement, &roots)
+            .is_err()
+    );
     let bytes = context.prover.encode_proof(&proof.proof)?;
     let decoded = context.verifier.decode_proof(&bytes)?;
     context.verify(
+        &methods,
         &InterleavingProof {
             proof: decoded,
             final_state: proof.final_state.clone(),
@@ -101,15 +108,19 @@ fn transaction_proof_round_trip() -> Result<(), ProvingError> {
     );
     let mut changed = statement.clone();
     changed.outputs[0].storage.0[0] += 1;
-    assert!(context.verify(&proof, &changed, &roots).is_err());
+    assert!(context.verify(&methods, &proof, &changed, &roots).is_err());
     let mut changed_roots = roots.clone();
     changed_roots.values_mut().next().unwrap()[0] += 1;
-    assert!(context.verify(&proof, &statement, &changed_roots).is_err());
+    assert!(
+        context
+            .verify(&methods, &proof, &statement, &changed_roots)
+            .is_err()
+    );
     // This carried field is not fixed by the terminal projection. The backend
     // must authenticate it, rather than accepting the supplied final state.
     proof.final_state[carried_index(COL_ENABLED_METHOD_LOG_LEN_AFTER)] += F::ONE;
     assert!(matches!(
-        context.verify(&proof, &statement, &roots),
+        context.verify(&methods, &proof, &statement, &roots),
         Err(ProvingError::Verification(_))
     ));
     Ok(())
@@ -178,11 +189,13 @@ fn final_claim_requires_termination_and_correct_width() {
 #[test]
 fn dictionary_must_be_unique_and_canonical() {
     let config = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 1).unwrap();
+    let app = application(&Batch::new(1).unwrap(), &config).unwrap();
     let method = MethodHash([1; 8]);
     assert!(matches!(
-        InterleavingProofContext::new(config, vec![method, method]),
+        program(&app, &[method, method]),
         Err(ProvingError::MethodDictionary)
     ));
+    assert!(program(&app, &[method]).is_ok());
 }
 
 fn carried_index(column: usize) -> usize {
@@ -396,13 +409,14 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
         eprintln!("  {part:?}");
     }
     let start = std::time::Instant::now();
-    let context = InterleavingProofContext::new(config, method_dictionary(&trace))?;
+    let context = InterleavingProofContext::new(config)?;
+    let methods = method_dictionary(&trace);
     eprintln!("preprocessing: {:?}", start.elapsed());
     let start = std::time::Instant::now();
     let proof = context.prove(&trace, &statement, &roots)?;
     eprintln!("proving: {:?}", start.elapsed());
     let start = std::time::Instant::now();
-    context.verify(&proof, &statement, &roots)?;
+    context.verify(&methods, &proof, &statement, &roots)?;
     eprintln!("verification: {:?}", start.elapsed());
     eprintln!(
         "proof: {} bytes",
@@ -416,18 +430,18 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
     let compressed = context.compress(&proof, &setup)?;
     eprintln!("compression: {:?}", start.elapsed());
     let start = std::time::Instant::now();
-    context.verify_compressed(&compressed, &key, &statement, &roots)?;
+    context.verify_compressed(&methods, &compressed, &key, &statement, &roots)?;
     eprintln!("compressed verification: {:?}", start.elapsed());
     let bytes = compressed.to_bytes()?;
     eprintln!("compressed proof: {} bytes", bytes.len());
     let decoded = CompressedInterleavingProof::from_bytes(&bytes)?;
-    context.verify_compressed(&decoded, &key, &statement, &roots)?;
+    context.verify_compressed(&methods, &decoded, &key, &statement, &roots)?;
     assert_eq!(decoded.to_bytes()?, bytes);
     let mut tampered = bytes.clone();
     *tampered.last_mut().expect("nonempty proof") ^= 1;
     assert!(
         CompressedInterleavingProof::from_bytes(&tampered)
-            .and_then(|proof| context.verify_compressed(&proof, &key, &statement, &roots))
+            .and_then(|proof| context.verify_compressed(&methods, &proof, &key, &statement, &roots))
             .is_err()
     );
     Ok(())

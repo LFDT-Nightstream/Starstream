@@ -35,7 +35,6 @@ struct WasmCircuit {
 }
 
 struct Interleaving {
-    methods: Vec<MethodHash>,
     context: InterleavingProofContext,
     setup: nightstream::CompressionSetup,
     key: nightstream::CompressionKey,
@@ -177,19 +176,14 @@ impl TransactionProver {
         Ok(&self.wasm[&size])
     }
 
-    fn interleaving(&mut self, methods: &[MethodHash]) -> wasmtime::Result<&Interleaving> {
-        if self
-            .interleaving
-            .as_ref()
-            .is_none_or(|cached| cached.methods != methods)
-        {
+    fn interleaving(&mut self) -> wasmtime::Result<&Interleaving> {
+        if self.interleaving.is_none() {
             let mut config = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, BATCH_SIZE)?;
             config.engine = self.engine;
-            let context = InterleavingProofContext::new(config, methods.to_vec())?;
+            let context = InterleavingProofContext::new(config)?;
             let setup = context.compression_setup()?;
             let key = context.compression_key()?;
             self.interleaving = Some(Interleaving {
-                methods: methods.to_vec(),
                 context,
                 setup,
                 key,
@@ -319,12 +313,9 @@ impl TransactionProver {
         }
         let roots = trace_commitments(&instances);
         let methods = method_dictionary(&transaction.trace);
-        timings.interleaving_circuit_reused = self
-            .interleaving
-            .as_ref()
-            .is_some_and(|cached| cached.methods == methods);
+        timings.interleaving_circuit_reused = self.interleaving.is_some();
         let started = Instant::now();
-        let interleaving = self.interleaving(&methods)?;
+        let interleaving = self.interleaving()?;
         timings.interleaving.setup = started.elapsed();
 
         let started = Instant::now();
@@ -376,10 +367,16 @@ impl TransactionProver {
         if roots.len() != proof.instances.len() {
             bail!("two instances claim the same coroutine");
         }
-        let interleaving = self.interleaving(&proof.methods)?;
+        let interleaving = self.interleaving()?;
         interleaving
             .context
-            .verify_compressed(&proof.interleaving, &interleaving.key, statement, &roots)
+            .verify_compressed(
+                &proof.methods,
+                &proof.interleaving,
+                &interleaving.key,
+                statement,
+                &roots,
+            )
             .context("the interleaving proof is invalid")?;
         Ok(())
     }

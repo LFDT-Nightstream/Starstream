@@ -658,8 +658,9 @@ mod proving {
             config.geometry,
             config.engine
         );
-        let context = InterleavingProofContext::new(config, method_dictionary(&transaction.trace))
+        let context = InterleavingProofContext::new(config)
             .map_err(|error| wasmtime::format_err!("preprocessing failed: {error}"))?;
+        let methods = method_dictionary(&transaction.trace);
         eprintln!("interleaving preprocessing: {:?}", start.elapsed());
         let start = std::time::Instant::now();
         let proof = context
@@ -672,7 +673,12 @@ mod proving {
         eprintln!("interleaving proving: {:?}", start.elapsed());
         let start = std::time::Instant::now();
         context
-            .verify(&proof, &transaction.statement, &execution.commitments)
+            .verify(
+                &methods,
+                &proof,
+                &transaction.statement,
+                &execution.commitments,
+            )
             .map_err(|error| wasmtime::format_err!("verification failed: {error}"))?;
         eprintln!("interleaving verification: {:?}", start.elapsed());
 
@@ -681,7 +687,7 @@ mod proving {
             other_statement.outputs[0].storage.0[0].wrapping_add(1);
         assert!(
             context
-                .verify(&proof, &other_statement, &execution.commitments)
+                .verify(&methods, &proof, &other_statement, &execution.commitments)
                 .is_err(),
             "a proof must not verify against another statement"
         );
@@ -689,7 +695,7 @@ mod proving {
         other_commitments.get_mut(&2).expect("Coord(1)")[1] ^= 1;
         assert!(
             context
-                .verify(&proof, &transaction.statement, &other_commitments)
+                .verify(&methods, &proof, &transaction.statement, &other_commitments)
                 .is_err(),
             "a proof must not verify against other coroutine roots"
         );
@@ -709,6 +715,7 @@ mod proving {
         let start = std::time::Instant::now();
         context
             .verify_compressed(
+                &methods,
                 &compressed,
                 &key,
                 &transaction.statement,
@@ -721,13 +728,20 @@ mod proving {
         );
         assert!(
             context
-                .verify_compressed(&compressed, &key, &other_statement, &execution.commitments)
+                .verify_compressed(
+                    &methods,
+                    &compressed,
+                    &key,
+                    &other_statement,
+                    &execution.commitments
+                )
                 .is_err(),
             "a compressed proof must not verify against another statement"
         );
         assert!(
             context
                 .verify_compressed(
+                    &methods,
                     &compressed,
                     &key,
                     &transaction.statement,

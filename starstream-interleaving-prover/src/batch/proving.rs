@@ -360,11 +360,11 @@ impl CompressedInterleavingProof {
     }
 }
 
+/// A reusable circuit; each proof binds its own method dictionary as memory preload.
 pub struct InterleavingProofContext {
     batch: Batch,
     config: ProofConfig,
-    methods: Vec<MethodHash>,
-    program: nebula::Program,
+    app: R1csApplication<MemoryId>,
     prover: nebula::Prover<R1csApplication<MemoryId>>,
     verifier: nebula::Verifier<R1csApplication<MemoryId>>,
 }
@@ -387,6 +387,16 @@ fn application(
     )?)
 }
 
+fn program(
+    app: &R1csApplication<MemoryId>,
+    methods: &[MethodHash],
+) -> Result<nebula::Program, ProvingError> {
+    if methods.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
+        return Err(ProvingError::MethodDictionary);
+    }
+    Ok(app.program(&crate::memory::preload_tables(methods))?)
+}
+
 /// Dictionary used by normalization. A verifier must agree on this table
 /// independently; deriving it from the trace is suitable for local tests.
 pub fn method_dictionary(trace: &Trace) -> Vec<MethodHash> {
@@ -394,28 +404,22 @@ pub fn method_dictionary(trace: &Trace) -> Vec<MethodHash> {
 }
 
 impl InterleavingProofContext {
-    /// Compile a verifier-owned relation and bind its method/effect ROM.
-    /// Currently normalization requires the exact trace-local dictionary.
-    pub fn new(config: ProofConfig, methods: Vec<MethodHash>) -> Result<Self, ProvingError> {
-        if methods.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
-            return Err(ProvingError::MethodDictionary);
-        }
+    pub fn new(config: ProofConfig) -> Result<Self, ProvingError> {
         let batch = Batch::new(config.batch_size)?;
         let app = application(&batch, &config)?;
-        let program = app.program(&crate::memory::preload_tables(&methods))?;
-        let circuit = nebula::Circuit::compile(config.geometry, app)?;
+        let circuit = nebula::Circuit::compile(config.geometry, app.clone())?;
         let prover = circuit.prover(config.engine, config.minimum_security_bits)?;
         let verifier = circuit.verifier(config.engine, config.minimum_security_bits)?;
         Ok(Self {
             batch,
             config,
-            methods,
-            program,
+            app,
             prover,
             verifier,
         })
     }
 
+    /// Prove using the trace's [`method_dictionary`].
     pub fn prove(
         &self,
         trace: &Trace,
@@ -428,16 +432,12 @@ impl InterleavingProofContext {
             .last()
             .ok_or(ProvingError::EmptyTrace)?
             .padding_after();
-        if normalized.method_table != self.methods {
-            return Err(ProvingError::MethodDictionary);
-        }
+        let program = program(&self.app, &normalized.method_table)?;
         let mut packed =
             super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
         let final_state = final_state(&self.batch, &packed);
         pad_to_segments(&self.batch, &mut packed, padding, &self.config.geometry)?;
-        let mut run = self
-            .prover
-            .start(&self.program, state_words(&initial_state()))?;
+        let mut run = self.prover.start(&program, state_words(&initial_state()))?;
         let segment_rows = self.config.geometry.n * self.batch.size;
         for segment in packed.rows.chunks(segment_rows) {
             run.segment(&step_inputs(&self.batch, segment)?)?;
@@ -448,15 +448,17 @@ impl InterleavingProofContext {
         })
     }
 
+    /// `methods` must be the verifier's expected dictionary.
     pub fn verify(
         &self,
+        methods: &[MethodHash],
         proof: &InterleavingProof,
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
     ) -> Result<(), ProvingError> {
         check_transaction_claim(&proof.final_state, statement, roots)?;
         self.verifier.verify(
-            &self.program,
+            &program(&self.app, methods)?,
             &state_words(&initial_state()),
             &state_words(&proof.final_state),
             &proof.proof,
@@ -489,6 +491,7 @@ impl InterleavingProofContext {
     /// Verify a compressed proof against the same claim as [`Self::verify`].
     pub fn verify_compressed(
         &self,
+        methods: &[MethodHash],
         proof: &CompressedInterleavingProof,
         key: &nightstream::CompressionKey,
         statement: &TransactionStatement,
@@ -496,7 +499,7 @@ impl InterleavingProofContext {
     ) -> Result<(), ProvingError> {
         check_transaction_claim(&proof.final_state, statement, roots)?;
         self.verifier.verify_final(
-            &self.program,
+            &program(&self.app, methods)?,
             &state_words(&initial_state()),
             &state_words(&proof.final_state),
             key,
