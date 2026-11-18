@@ -1,0 +1,57 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn alone() -> i64 {\n    match () {\n        () => {\n            1\n        },\n    }\n}\n\nfn in_tuple(b: bool) -> i64 {\n    match (b, ()) {\n        (true, ()) => {\n            1\n        },\n        (false, ()) => {\n            0\n        },\n    }\n}\n"
+---
+T-Fn: alone => i64
+  T-ReturnTail: match () {
+    () => {
+        1
+    },
+} => i64
+    T-Match: {alone: fn() -> i64} ⊢ match () {
+    () => {
+        1
+    },
+} ⇒ i64
+      T-Unit: {alone: fn() -> i64} ⊢ () ⇒ ()
+      Unify-Const: () ~ () => {}
+      T-Tail: 1 => i64
+        T-Int: {alone: fn() -> i64} ⊢ 1 ⇒ i64
+    Unify-Var: i64 ~ i64 => {i64/t3}
+
+T-Fn: in_tuple => i64
+  T-ReturnTail: match (b, ()) {
+    (true, ()) => {
+        1
+    },
+    (false, ()) => {
+        0
+    },
+} => i64
+    T-Match: {alone: fn() -> i64, b: bool, in_tuple: fn(b: bool) -> i64} ⊢ match (b, ()) {
+    (true, ()) => {
+        1
+    },
+    (false, ()) => {
+        0
+    },
+} ⇒ i64
+      T-Tuple: {alone: fn() -> i64, b: bool, in_tuple: fn(b: bool) -> i64} ⊢ (b, ()) ⇒ (bool, ())
+        T-Var: {alone: fn() -> i64, b: bool, in_tuple: fn(b: bool) -> i64} ⊢ b ⇒ bool
+        T-Unit: {alone: fn() -> i64, b: bool, in_tuple: fn(b: bool) -> i64} ⊢ () ⇒ ()
+      Unify-Tuple: (bool, ()) ~ (t4, t5) => {()/t5, bool/t4}
+        Unify-Var: bool ~ t4 => {bool/t4}
+        Unify-Var: () ~ t5 => {()/t5}
+      Unify-Const: bool ~ bool => {}
+      Unify-Const: () ~ () => {}
+      T-Tail: 1 => i64
+        T-Int: {alone: fn() -> i64, b: bool, in_tuple: fn(b: bool) -> i64} ⊢ 1 ⇒ i64
+      Unify-Tuple: (bool, ()) ~ (t7, t8) => {()/t8, bool/t7}
+        Unify-Var: bool ~ t7 => {bool/t7}
+        Unify-Var: () ~ t8 => {()/t8}
+      Unify-Const: bool ~ bool => {}
+      Unify-Const: () ~ () => {}
+      T-Tail: 0 => i64
+        T-Int: {alone: fn() -> i64, b: bool, in_tuple: fn(b: bool) -> i64} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
+    Unify-Var: i64 ~ i64 => {i64/t6}
