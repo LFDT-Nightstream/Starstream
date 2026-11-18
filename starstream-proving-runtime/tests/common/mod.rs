@@ -575,6 +575,7 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
         &execution.templates.bindings,
         &execution.artifacts,
     );
+    let mut compiled = std::collections::BTreeMap::new();
     for (index, instance) in execution.instances.iter().enumerate() {
         let entry_pc = execution
             .templates
@@ -603,28 +604,33 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
             instance.trace.len(),
             segments.len()
         );
-        let started = std::time::Instant::now();
-        eprintln!("Wasm instance {index}: compiling circuit");
-        let circuit = Circuit::compile(size.geometry(), app)?;
-        eprintln!(
-            "Wasm instance {index}: circuit compiled in {:?}, {:?}",
-            started.elapsed(),
-            circuit.application_size()
-        );
-        // The supplied Wasm profiles support this statistical-security minimum.
-        let started = std::time::Instant::now();
-        eprintln!("Wasm instance {index}: preparing prover");
-        let prover = circuit.prover(proof_engine(), 109)?;
-        eprintln!(
-            "Wasm instance {index}: prover prepared in {:?}",
-            started.elapsed()
-        );
-        let started = std::time::Instant::now();
-        let verifier = circuit.verifier(proof_engine(), 109)?;
-        eprintln!(
-            "Wasm instance {index}: verifier prepared in {:?}",
-            started.elapsed()
-        );
+        // A size is one circuit, whatever the program, so instances of the
+        // same size share its compiled prover and verifier.
+        let (prover, verifier) = match compiled.entry(size) {
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                eprintln!("Wasm instance {index}: reusing the {size:?} circuit");
+                entry.into_mut()
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                let started = std::time::Instant::now();
+                eprintln!("Wasm instance {index}: compiling circuit");
+                let circuit = Circuit::compile(size.geometry(), app)?;
+                eprintln!(
+                    "Wasm instance {index}: circuit compiled in {:?}, {:?}",
+                    started.elapsed(),
+                    circuit.application_size()
+                );
+                // The supplied Wasm profiles support this statistical-security minimum.
+                let started = std::time::Instant::now();
+                let prover = circuit.prover(proof_engine(), 109)?;
+                let verifier = circuit.verifier(proof_engine(), 109)?;
+                eprintln!(
+                    "Wasm instance {index}: prover and verifier prepared in {:?}",
+                    started.elapsed()
+                );
+                entry.insert((prover, verifier))
+            }
+        };
         let mut run = prover.start(&program, initial)?;
         for (segment_index, segment) in segments.iter().enumerate() {
             let started = std::time::Instant::now();
