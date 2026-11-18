@@ -38,10 +38,11 @@ define_column_region! {
         COL_SEL_FINALIZE_COORDINATOR: Boolean => "enumerate the next coordinator's final trace root, in allocation order",
         COL_SEL_CALL_COORDINATOR: Boolean => "selector for the CallCoordinator action",
         COL_SEL_BEGIN_EXECUTION: Boolean => "the transaction context calls the entry script once inputs are loaded",
-        COL_TRACE_ROOT_READ: Boolean => "read a final trace root without emitting a program event",
         COL_METHOD_APPEND: Boolean => "RegisterMethod or PreloadMethod",
         COL_EVENT_ACTIVE: Boolean => "this row emits a program event",
         COL_EVENT_OWNER: U32 => "packed instance owning the program event or final trace root being read",
+        COL_UTXO_EVENT: Boolean => "this row emits a program event owned by a UTXO",
+        COL_COORD_EVENT: Boolean => "this row emits a program event owned by a coordinator",
         COL_BOUNDARY_UTXO: U32 => "packed UTXO ID for loading or the output scan",
         COL_OUTPUT_REMAINING: U32 => "instances after this one in the active scan: next_utxo_id - output_cursor - 1 on output scans, next_coordinator_id - coordinator_cursor - 1 on coordinator finalization",
         COL_CURR_BEFORE: U32 => "packed coroutine id that has the turn",
@@ -69,7 +70,8 @@ define_column_region! {
         COL_EFFECT_HANDLED: Boolean => "handler exit status: continue search = 0, resume = 1",
         COL_CALL_SP_BEFORE_INVERSE: Field => "inverse proving that an execution row starts with a nonempty call stack",
         // TODO: limit sp so that this doesn't overflow
-        COL_CALL_STACK_MUL_STRIDE_8: [U32; 8] => "SP * 8 + i (push/pop/peek)",
+        COL_CALL_STACK_FRAME: U32 => "call-stack frame accessed: SP on a push, SP - 1 on a pop or peek",
+        COL_CALL_STACK_MUL_STRIDE_8: [U32; 8] => "accessed frame * 8 + i, for the frame's eight-word fields",
         COL_CALL_STACK_EXPECTED_ARG_VALUE: [U32; 8] => "opaque argument root, little-endian 32-bit limbs; an effect frame stores them on raise and handler entry reads them",
         // using 8 limbs for exact sha256 repr for now (in 32-bit limbs), we
         // could improve this, but the memory argument as currently implemented
@@ -109,7 +111,7 @@ define_column_region! {
         COL_RESOURCE_RESOLVER_READ: Boolean => "1 if reading from the resource resolver map (on call_method)",
 
         // TODO: limit curr side so that this doesn't overflow
-        COL_EVENT_OWNER_STRIDE_8: [U32; 8] => "event_owner * 8 + i for trace digest RAM",
+        COL_EVENT_OWNER_STRIDE_8: [U32; 8] => "event owner local index * 8 + i, the address in its kind's trace digest RAM",
 
 
     ]

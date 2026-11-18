@@ -509,7 +509,6 @@ fn transaction_witness_tampering_is_rejected() {
             COL_COORD_CURSOR_BEFORE,
             F::new(2),
         ),
-        (Opcode::FinalizeCoordinator, COL_TRACE_ROOT_READ, F::ZERO),
     ] {
         let mut changed = rows.clone();
         let index = normalized

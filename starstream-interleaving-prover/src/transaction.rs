@@ -116,11 +116,6 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             op.scans_output()
                 || matches!(op, Opcode::FinalizeCoordinator | Opcode::FinishTransaction)
         });
-        b.push_linear_zero(
-            sum(Opcode::reads_trace_root)
-                .into_iter()
-                .chain([(COL_TRACE_ROOT_READ, -F::ONE)]),
-        );
         // Coordinators are enumerated in allocation order, Coord(1) first.
         b.push_linear_zero([
             (COL_COORD_CURSOR_AFTER, F::ONE),

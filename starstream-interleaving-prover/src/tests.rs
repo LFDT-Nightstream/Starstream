@@ -26,7 +26,8 @@ mod padding {
             COL_RESOURCE_RESOLVER_READ,
             COL_RESOURCE_RESOLVER_WRITE,
             COL_ABI_METHOD_COUNT_READ,
-            COL_TRACE_ROOT_READ,
+            COL_UTXO_EVENT,
+            COL_COORD_EVENT,
             COL_ABI_METHOD_COUNT_WRITE,
         ];
         for memory in build_memory_layout().entries() {
@@ -1099,6 +1100,28 @@ fn rejects_a_nonzero_return_caller_claimed_as_root() {
             constraint,
             ..
         })) if constraint == "call target zero test"));
+}
+
+#[test]
+fn event_owner_kind_selects_the_trace_commitment_memory() {
+    use crate::ccs::layout::{COL_COORD_EVENT, COL_UTXO_EVENT};
+    let trace = constructor_trace([0, 1, 2, 3]);
+    let (mut rows, preload) = build_witness_rows(&trace);
+    let row = rows
+        .iter()
+        .position(|row| row[COL_UTXO_EVENT] == F::ONE)
+        .expect("a UTXO emits an event");
+
+    // Route a UTXO's event to the coordinator memory.
+    rows[row][COL_UTXO_EVENT] = F::ZERO;
+    rows[row][COL_COORD_EVENT] = F::ONE;
+
+    assert!(matches!(
+        verify_witness_rows(&rows, &preload),
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            constraint,
+            ..
+        })) if constraint == "trace commitment memory selection"));
 }
 
 #[test]

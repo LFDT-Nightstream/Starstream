@@ -77,7 +77,10 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
 #[ignore = "expensive Nebula proving; run explicitly with --release --ignored"]
 fn transaction_proof_round_trip() -> Result<(), ProvingError> {
     let (trace, statement, roots) = transaction_fixture();
-    let context = TransactionProofContext::new(ProofConfig::small(3)?, method_dictionary(&trace))?;
+    let context = TransactionProofContext::new(
+        ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3)?,
+        method_dictionary(&trace),
+    )?;
     let mut proof = context.prove(&trace, &statement, &roots)?;
     context.verify(&proof, &statement, &roots)?;
     let bytes = context.prover.encode_proof(&proof.proof)?;
@@ -119,7 +122,7 @@ fn step_relation_preserves_assignments_and_state_endpoints() {
     for size in [1, 3, 8] {
         let batch = Batch::new(size).unwrap();
         let packed = batch.pack(&normalized.steps);
-        let config = ProofConfig::small(size).unwrap();
+        let config = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, size).unwrap();
         let app = application(&batch, &config).unwrap();
         let inputs = step_inputs(&batch, &packed.rows).unwrap();
         for input in &inputs {
@@ -174,7 +177,7 @@ fn final_claim_requires_termination_and_correct_width() {
 
 #[test]
 fn dictionary_must_be_unique_and_canonical() {
-    let config = ProofConfig::small(1).unwrap();
+    let config = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 1).unwrap();
     let method = MethodHash([1; 8]);
     assert!(matches!(
         TransactionProofContext::new(config, vec![method, method]),
@@ -195,7 +198,7 @@ fn nebula_native_run_preserves_state_and_binds_method_rom() {
     let (trace, _, _) = transaction_fixture();
     let normalized = normalize(&trace);
     for config in [
-        ProofConfig::small(3).unwrap(),
+        ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3).unwrap(),
         ProofConfig::for_trace_benchmark(&trace, 3, 8).unwrap(),
     ] {
         let batch = Batch::new(config.batch_size).unwrap();
@@ -253,7 +256,7 @@ fn nebula_native_run_preserves_state_and_binds_method_rom() {
 fn segment_padding_reports_empty_and_oversized_inputs() {
     let (trace, _, _) = transaction_fixture();
     let normalized = normalize(&trace);
-    let config = ProofConfig::small(3).unwrap();
+    let config = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3).unwrap();
     let batch = Batch::new(config.batch_size).unwrap();
     let padding = || normalized.steps.last().unwrap().padding_after();
     let mut empty = batch.pack(&[]);
@@ -288,8 +291,8 @@ fn planned_slots_bind_and_run_like_one_slot_per_port() {
     let normalized = normalize(&trace);
     let preload = crate::memory::preload_tables(&normalized.method_table);
     for size in [1, 3, 8] {
-        let per_port = ProofConfig::small(size).unwrap();
-        let planned = ProofConfig::small(size)
+        let per_port = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, size).unwrap();
+        let planned = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, size)
             .unwrap()
             .with_planned_slots()
             .unwrap();
@@ -324,8 +327,33 @@ fn planned_slots_bind_and_run_like_one_slot_per_port() {
     }
 }
 
-/// Local timing probe. `STARSTREAM_PROOF_BATCH_SIZE` sets the batch size and
-/// `STARSTREAM_PROOF_PLANNED_SLOTS` shares operation slots between ports.
+/// The limits profile must hold every address the fixture uses.
+#[test]
+fn initial_limits_cover_the_fixture() -> Result<(), ProvingError> {
+    let (trace, _, _) = transaction_fixture();
+    let used = ProofConfig::for_trace_benchmark(&trace, 3, 8)?;
+    let limits = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3)?;
+    for (id, region) in &used.regions {
+        let (_, limit) = limits
+            .regions
+            .iter()
+            .find(|(limit, _)| limit == id)
+            .expect("both profiles size every memory");
+        assert!(
+            region.widths.iter().zip(&limit.widths).all(|(a, b)| a <= b),
+            "{}: uses {:?}, limit {:?}",
+            id.name(),
+            region.widths,
+            limit.widths
+        );
+    }
+    Ok(())
+}
+
+/// Local timing probe. `STARSTREAM_PROOF_BATCH_SIZE` sets the batch size,
+/// `STARSTREAM_PROOF_PLANNED_SLOTS` shares operation slots between ports, and
+/// `STARSTREAM_PROOF_LIMITS` replaces [`Limits::SMALL_DEFAULTS`] with seven
+/// comma-separated counts in its field order.
 #[test]
 #[ignore = "expensive Nebula proving; run explicitly with --release --ignored --nocapture"]
 fn transaction_proof_timings() -> Result<(), ProvingError> {
@@ -334,7 +362,34 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
         .ok()
         .and_then(|size| size.parse().ok())
         .unwrap_or(3);
-    let mut config = ProofConfig::small(batch_size)?;
+    // Seven comma-separated counts, in field order, replace the defaults.
+    let counts: Vec<usize> = std::env::var("STARSTREAM_PROOF_LIMITS")
+        .iter()
+        .flat_map(|limits| limits.split(','))
+        .flat_map(str::parse)
+        .collect();
+    let limits = match counts[..] {
+        [
+            utxos,
+            coordinators,
+            call_depth,
+            handles_per_holder,
+            effect_scopes,
+            methods,
+            registrations,
+        ] => Limits {
+            utxos,
+            coordinators,
+            call_depth,
+            handles_per_holder,
+            effect_scopes,
+            methods,
+            registrations,
+        },
+        _ => Limits::SMALL_DEFAULTS,
+    };
+    eprintln!("{limits:?}");
+    let mut config = ProofConfig::for_limits(limits, batch_size)?;
     if std::env::var_os("STARSTREAM_PROOF_PLANNED_SLOTS").is_some() {
         config = config.with_planned_slots()?;
     }
@@ -389,7 +444,10 @@ fn relation_census() {
     );
     let (trace, _, _) = transaction_fixture();
     for (name, config) in [
-        ("small", ProofConfig::small(16).unwrap()),
+        (
+            "initial limits",
+            ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 16).unwrap(),
+        ),
         (
             "trace-sized",
             ProofConfig::for_trace_benchmark(&trace, 16, 8).unwrap(),

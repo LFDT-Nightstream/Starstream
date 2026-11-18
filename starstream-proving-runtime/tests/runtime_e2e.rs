@@ -630,7 +630,7 @@ mod proving {
 
     fn prove_interleaving(execution: &TracedExecution) -> wasmtime::Result<()> {
         use starstream_interleaving_prover::proving::{
-            ProofConfig, TransactionProofContext, method_dictionary,
+            Limits, ProofConfig, TransactionProofContext, method_dictionary,
         };
 
         let transaction = &execution.transaction;
@@ -648,7 +648,8 @@ mod proving {
         let mut config = if std::env::var_os("STARSTREAM_PROOF_TIGHT_MEMORY").is_some() {
             ProofConfig::for_trace_benchmark(&transaction.trace, batch_size, segment_batches)?
         } else {
-            ProofConfig::small(batch_size)?.with_segment_batches(segment_batches)?
+            ProofConfig::for_limits(Limits::SMALL_DEFAULTS, batch_size)?
+                .with_segment_batches(segment_batches)?
         };
         if std::env::var_os("STARSTREAM_PROOF_PLANNED_SLOTS").is_some() {
             config = config.with_planned_slots()?;

@@ -184,18 +184,18 @@ impl ProofConfig {
         Ok(nebula::size_parts(&self.geometry, &app)?)
     }
 
-    /// Experimental bounded profile for small integration tests, not a ledger
-    /// capacity policy. Single-part addresses have eight bits; multipart ones
-    /// have four per part. Each segment contains eight packed batches.
-    pub fn small(batch_size: usize) -> Result<Self, ProvingError> {
+    /// Memories sized for transactions within `limits`; a transaction over
+    /// a limit has no proof. Each segment contains eight packed batches, and
+    /// slots start as one per port.
+    pub fn for_limits(limits: Limits, batch_size: usize) -> Result<Self, ProvingError> {
         let batch = Batch::new(batch_size)?;
-        let (regions, [rom_cells, ram_cells]) =
-            nebula::pack_regions(batch.memory.entries().iter().map(|m| {
-                let parts = m.ports[0].address_columns.len();
-                (m.id, m.kind, vec![if parts == 1 { 8 } else { 4 }; parts])
-            }))?;
-        // One slot per port preserves the catalog's access order, including
-        // writes followed by reads in the same execution row.
+        let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(
+            batch
+                .memory
+                .entries()
+                .iter()
+                .map(|memory| (memory.id, memory.kind, limits.address_widths(memory.id))),
+        )?;
         let ports = batch_size
             * batch
                 .memory
@@ -203,6 +203,7 @@ impl ProofConfig {
                 .iter()
                 .map(|m| m.ports.len())
                 .sum::<usize>();
+
         let slots = (0..ports).map(|rank| vec![rank]).collect();
         let r = rom_cells.max(2).next_power_of_two().ilog2() as usize;
         let mu = ram_cells.max(rom_cells).max(2).next_power_of_two().ilog2() as usize;
@@ -217,6 +218,73 @@ impl ProofConfig {
             engine: Engine::Optimized,
             minimum_security_bits: MINIMUM_SECURITY_BITS,
         })
+    }
+}
+
+/// Transaction capacity that sizes the memory regions.
+///
+/// Each limit counts addresses and is rounded up to a power of two. Where
+/// the first address is reserved, the usable count is one less; the fields
+/// say which.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Limits {
+    /// UTXOs the transaction consumes or creates.
+    pub utxos: usize,
+    /// Coordinator instances, counting the transaction context.
+    pub coordinators: usize,
+    /// Call-stack frames: nested calls plus raised effects being handled.
+    pub call_depth: usize,
+    /// Resource handles one coroutine may hold.
+    pub handles_per_holder: usize,
+    /// `try` scopes entered over the whole transaction, plus one: scopes are
+    /// never reused and the first address marks the empty chain.
+    pub effect_scopes: usize,
+    /// Distinct method and effect hashes the transaction names.
+    pub methods: usize,
+    /// Method registrations over the whole transaction, duplicates and
+    /// preloaded input ABIs included.
+    pub registrations: usize,
+}
+
+impl Limits {
+    pub const SMALL_DEFAULTS: Self = Self {
+        utxos: 32,
+        coordinators: 32,
+        call_depth: 64,
+        handles_per_holder: 16,
+        effect_scopes: 16,
+        methods: 32,
+        registrations: 128,
+    };
+
+    fn address_widths(&self, memory: MemoryId) -> Vec<usize> {
+        let bits = |count: usize| count.max(2).next_power_of_two().ilog2() as usize;
+        // Wide enough for either kind's local index plus the kind bit.
+        let packed_id = bits(self.utxos.max(self.coordinators)) + 1;
+        match memory {
+            MemoryId::InstanceStack
+            | MemoryId::CallStackCaller
+            | MemoryId::CallStackEffectIndex
+            | MemoryId::CallStackIsEffect
+            | MemoryId::CallStackConstructor
+            | MemoryId::CallStackSavedPhase
+            | MemoryId::CallStackSavedEffectHead
+            | MemoryId::CallStackSavedEffectDepth => vec![bits(self.call_depth)],
+            MemoryId::CallStackEffectArgument => vec![bits(self.call_depth) + 3],
+            MemoryId::EffectScopeParent
+            | MemoryId::EffectScopeOwner
+            | MemoryId::EffectScopeFrameId => vec![bits(self.effect_scopes)],
+            MemoryId::EffectRegistered => vec![bits(self.effect_scopes), bits(self.methods)],
+            MemoryId::AbiMethodCount | MemoryId::AbiGeneration => vec![bits(self.utxos)],
+            MemoryId::EnabledMethodLogUtxo
+            | MemoryId::EnabledMethodLogMethod
+            | MemoryId::EnabledMethodLogGeneration
+            | MemoryId::EnabledMethodLogOrdinal => vec![bits(self.registrations)],
+            MemoryId::MethodTable => vec![bits(self.methods) + 3],
+            MemoryId::ResourceResolver => vec![packed_id, bits(self.handles_per_holder)],
+            MemoryId::UtxoTraceCommitments => vec![bits(self.utxos) + 3],
+            MemoryId::CoordTraceCommitments => vec![bits(self.coordinators) + 3],
+        }
     }
 }
 

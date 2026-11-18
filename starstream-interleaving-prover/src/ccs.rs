@@ -283,33 +283,71 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     // A push writes at the next free address (`sp`), while peeks and pops read
     // the current top (`sp - 1`). The corresponding access flag, or Return's
     // selector for its data-dependent pop, selects the latter address.
+    // Each frame field has its own memory. A one-word field of frame `n` is
+    // at address `n`. The effect argument has eight words, at `8n..8n + 8`.
     b.with_tag(always("call stack expected-address stride (8)"), |b| {
         COL_CALL_STACK_MUL_STRIDE_8
             .iter()
             .enumerate()
             .for_each(|(i, col)| {
                 b.push_linear_zero([
-                    (COL_CALL_SP_BEFORE, F::new(8)),
-                    (COL_CALL_STACK_TOP, -F::new(8)),
-                    (COL_CALL_STACK_POP, -F::new(8)),
-                    (layout::COL_SEL_RETURN, -F::new(8)),
+                    (layout::COL_CALL_STACK_FRAME, F::new(8)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);
             });
+        b.push_linear_zero([
+            (layout::COL_CALL_STACK_FRAME, F::ONE),
+            (COL_CALL_SP_BEFORE, -F::ONE),
+            (COL_CALL_STACK_TOP, F::ONE),
+            (COL_CALL_STACK_POP, F::ONE),
+            (layout::COL_SEL_RETURN, F::ONE),
+        ]);
     });
 
+    // A root's address is its owner's local index times eight. The packed id
+    // is `2 * index + kind`, so `8 * index` is `4 * owner - 4 * kind`.
     b.with_tag(always("event owner mul stride (8)"), |b| {
+        let kind = low_bit(layout::COL_EVENT_OWNER);
         COL_EVENT_OWNER_STRIDE_8
             .iter()
             .enumerate()
             .for_each(|(i, col)| {
                 b.push_linear_zero([
-                    (layout::COL_EVENT_OWNER, F::new(8)),
+                    (layout::COL_EVENT_OWNER, F::new(4)),
+                    (kind, -F::new(4)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);
             });
+    });
+    // UTXO and coordinator roots are in separate memories that share these
+    // address columns. The owner's kind bit activates the write ports of one.
+    b.with_tag(always("trace commitment memory selection"), |b| {
+        let kind = low_bit(layout::COL_EVENT_OWNER);
+        b.push_row(
+            [(layout::COL_EVENT_ACTIVE, F::ONE)],
+            [(kind, F::ONE)],
+            [(layout::COL_UTXO_EVENT, F::ONE)],
+        );
+        b.push_row(
+            [(layout::COL_EVENT_ACTIVE, F::ONE)],
+            [(COL_ONE, F::ONE), (kind, -F::ONE)],
+            [(layout::COL_COORD_EVENT, F::ONE)],
+        );
+        // The final-root reads name their memory by opcode.
+        require_coroutine_kind(
+            b,
+            Opcode::SkipConsumed,
+            layout::COL_EVENT_OWNER,
+            CoroutineKind::Utxo,
+        );
+        require_coroutine_kind(
+            b,
+            Opcode::FinalizeCoordinator,
+            layout::COL_EVENT_OWNER,
+            CoroutineKind::Coord,
+        );
     });
 
     let call_stack_pushing_opcodes = Opcode::all()

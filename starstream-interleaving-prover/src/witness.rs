@@ -1,6 +1,6 @@
 use crate::{ccs::layout::*, opcode::Opcode, step::Wit};
 use neo_math::F;
-use p3_field::{Field, PrimeCharacteristicRing};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
 
 pub fn build_witness_vector(input: &Wit) -> Vec<F> {
     let mut wit = assign_base_columns(input);
@@ -67,7 +67,6 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_NEXT_COORD_ID_AFTER] = F::new(u64::from(input.next_coordinator_id_after));
     wit[COL_COORD_CURSOR_BEFORE] = F::new(u64::from(input.tx_before.coordinator_cursor));
     wit[COL_COORD_CURSOR_AFTER] = F::new(u64::from(input.tx_after.coordinator_cursor));
-    wit[COL_TRACE_ROOT_READ] = F::from_bool(input.opcode.reads_trace_root());
     wit[COL_ABI_READ_REMAINING_BEFORE] = F::new(u64::from(input.tx_before.abi_read_remaining));
     wit[COL_ABI_READ_REMAINING_AFTER] = F::new(u64::from(input.tx_after.abi_read_remaining));
     wit[COL_ABI_READ_ORDINAL_BEFORE] = F::new(u64::from(input.tx_before.abi_read_ordinal));
@@ -246,10 +245,18 @@ pub(crate) fn assign_stride_columns(wit: &mut [F]) {
         - wit[COL_CALL_STACK_POP]
         - wit[COL_SEL_RETURN];
 
+    wit[COL_CALL_STACK_FRAME] = call_stack_access;
     for (i, col) in COL_CALL_STACK_MUL_STRIDE_8.iter().enumerate() {
         wit[*col] = call_stack_access * F::new(8) + F::new(i as u64);
     }
+    // The owner's kind bit selects the trace commitment memory, and the
+    // rest of its packed id is the address there.
+    let event_owner = wit[COL_EVENT_OWNER].as_canonical_u64();
+    let event_owner_index = event_owner / 2;
+    let utxo_owner = event_owner % 2 == u64::from(crate::ivc_state::CoroutineKind::Utxo.tag());
+    wit[COL_UTXO_EVENT] = wit[COL_EVENT_ACTIVE] * F::from_bool(utxo_owner);
+    wit[COL_COORD_EVENT] = wit[COL_EVENT_ACTIVE] * F::from_bool(!utxo_owner);
     for (i, col) in COL_EVENT_OWNER_STRIDE_8.iter().enumerate() {
-        wit[*col] = wit[COL_EVENT_OWNER] * F::new(8) + F::new(i as u64);
+        wit[*col] = F::new(event_owner_index * 8 + i as u64);
     }
 }
