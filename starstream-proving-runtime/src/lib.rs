@@ -13,7 +13,7 @@ pub use execution::{
 };
 pub use neo_wasm::{WasmTraceSink, WasmtimeTraceRegistry};
 pub use nightstream::Engine;
-pub use prove::{ProofTimings, TransactionProof, TransactionProver, WasmInstanceProof};
+pub use prove::{ProofSizes, ProofTimings, TransactionProof, TransactionProver, WasmInstanceProof};
 pub use runtime::{enable_tracing, register_tracing_component};
 pub use starstream_interleaving_spec::{MethodHash, ResourceHandle};
 pub use templates::{

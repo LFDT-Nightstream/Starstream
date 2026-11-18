@@ -1,8 +1,8 @@
 //! Compressed Wasm instance proofs linked by an interleaving proof.
 //!
-//! Proofs have no byte encoding yet. For untrusted proofs, the verifier must
-//! rebuild program commitments from contracts and the statement from the
-//! ledger transaction instead of trusting the prover's values.
+//! The full transaction proof has no wire format yet. For untrusted proofs,
+//! the verifier must rebuild program commitments from contracts and the
+//! statement from the ledger transaction instead of trusting the prover's values.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -56,6 +56,56 @@ pub struct TransactionProof {
     pub instances: Vec<WasmInstanceProof>,
     pub interleaving: CompressedInterleavingProof,
     methods: Vec<MethodHash>,
+}
+
+/// Compressed proof sizes in bytes, excluding copied verification inputs.
+#[derive(Clone, Debug)]
+pub struct ProofSizes {
+    /// One entry per Wasm instance, in instance order.
+    pub wasm: Vec<usize>,
+    pub interleaving: usize,
+}
+
+impl ProofSizes {
+    pub fn total(&self) -> usize {
+        self.wasm.iter().sum::<usize>() + self.interleaving
+    }
+}
+
+impl TransactionProof {
+    /// Round-trip compressed proofs through bytes and report their sizes.
+    ///
+    /// Programs, Wasm states, coroutine metadata, and the method dictionary
+    /// are copied, not serialized; this is not a transaction wire format.
+    pub fn through_bytes(&self) -> wasmtime::Result<(Self, ProofSizes)> {
+        let mut sizes = ProofSizes {
+            wasm: Vec::with_capacity(self.instances.len()),
+            interleaving: 0,
+        };
+        let mut instances = Vec::with_capacity(self.instances.len());
+        for instance in &self.instances {
+            let bytes = instance.proof.to_bytes()?;
+            sizes.wasm.push(bytes.len());
+            instances.push(WasmInstanceProof {
+                coroutine: instance.coroutine,
+                size: instance.size,
+                program: instance.program.clone(),
+                initial: instance.initial,
+                last: instance.last,
+                proof: nebula::FinalProof::from_bytes(&bytes)?,
+            });
+        }
+        let bytes = self.interleaving.to_bytes()?;
+        sizes.interleaving = bytes.len();
+        Ok((
+            Self {
+                instances,
+                interleaving: CompressedInterleavingProof::from_bytes(&bytes)?,
+                methods: self.methods.clone(),
+            },
+            sizes,
+        ))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]

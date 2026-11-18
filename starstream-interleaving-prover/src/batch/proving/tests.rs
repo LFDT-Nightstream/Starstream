@@ -418,6 +418,18 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
     let start = std::time::Instant::now();
     context.verify_compressed(&compressed, &key, &statement, &roots)?;
     eprintln!("compressed verification: {:?}", start.elapsed());
+    let bytes = compressed.to_bytes()?;
+    eprintln!("compressed proof: {} bytes", bytes.len());
+    let decoded = CompressedInterleavingProof::from_bytes(&bytes)?;
+    context.verify_compressed(&decoded, &key, &statement, &roots)?;
+    assert_eq!(decoded.to_bytes()?, bytes);
+    let mut tampered = bytes.clone();
+    *tampered.last_mut().expect("nonempty proof") ^= 1;
+    assert!(
+        CompressedInterleavingProof::from_bytes(&tampered)
+            .and_then(|proof| context.verify_compressed(&proof, &key, &statement, &roots))
+            .is_err()
+    );
     Ok(())
 }
 

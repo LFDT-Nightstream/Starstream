@@ -318,6 +318,48 @@ pub struct CompressedInterleavingProof {
     pub final_state: Vec<F>,
 }
 
+impl CompressedInterleavingProof {
+    /// Encode a little-endian u32 word count, u64 state words, then the backend proof.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ProvingError> {
+        let words = u32::try_from(self.final_state.len())
+            .map_err(|_| ProvingError::Configuration("final state is too long to encode"))?;
+        let mut bytes = words.to_le_bytes().to_vec();
+        for word in &self.final_state {
+            bytes.extend(word.as_canonical_u64().to_le_bytes());
+        }
+        bytes.extend(self.proof.to_bytes()?);
+        Ok(bytes)
+    }
+
+    /// Decode canonical field elements; call
+    /// [`InterleavingProofContext::verify_compressed`] to verify the proof.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ProvingError> {
+        let malformed = ProvingError::Configuration("malformed compressed interleaving proof");
+        let Some((words, rest)) = bytes.split_first_chunk::<4>() else {
+            return Err(malformed);
+        };
+        let words = u32::from_le_bytes(*words) as usize;
+        let Some((state, proof)) = words
+            .checked_mul(8)
+            .and_then(|length| rest.split_at_checked(length))
+        else {
+            return Err(malformed);
+        };
+        let final_state = state
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|chunk| u64::from_le_bytes(*chunk))
+            .map(|word| (word < F::ORDER_U64).then(|| F::new(word)))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(malformed)?;
+        Ok(Self {
+            proof: nebula::FinalProof::from_bytes(proof)?,
+            final_state,
+        })
+    }
+}
+
 pub struct InterleavingProofContext {
     batch: Batch,
     config: ProofConfig,

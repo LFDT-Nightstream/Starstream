@@ -221,6 +221,9 @@ fn prove_and_verify(
     let (proof, timings) = starstream_ledger::client::runtime::prove(store, execution, prover)?;
     eprintln!("{} Wasm instances, {timings:?}", proof.instances.len());
     let statement = &execution.transaction.statement;
+    prover.verify(&proof, statement)?;
+    let (proof, sizes) = proof.through_bytes()?;
+    eprintln!("{} proof bytes: {sizes:?}", sizes.total());
     let started = std::time::Instant::now();
     prover.verify(&proof, statement)?;
     eprintln!("verified in {:?}", started.elapsed());
