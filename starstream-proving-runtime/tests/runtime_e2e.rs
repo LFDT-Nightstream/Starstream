@@ -23,7 +23,7 @@ use crate::common::{
 };
 
 /// Batch size of the interleaving relation used by the checks below.
-const BATCH_SIZE: usize = 3;
+const BATCH_SIZE: usize = 16;
 
 const UNIT: StarstreamValue = StarstreamValue::UNIT_VALUE;
 
@@ -651,9 +651,6 @@ mod proving {
             ProofConfig::for_limits(Limits::SMALL_DEFAULTS, batch_size)?
                 .with_segment_batches(segment_batches)?
         };
-        if std::env::var_os("STARSTREAM_PROOF_PLANNED_SLOTS").is_some() {
-            config = config.with_planned_slots()?;
-        }
         config.engine = common::proof_engine();
         eprintln!(
             "interleaving: {} rows, batch {batch_size}, {:?}, {:?}",
@@ -695,6 +692,49 @@ mod proving {
                 .verify(&proof, &transaction.statement, &other_commitments)
                 .is_err(),
             "a proof must not verify against other coroutine roots"
+        );
+        let start = std::time::Instant::now();
+        let setup = context
+            .compression_setup()
+            .map_err(|error| wasmtime::format_err!("compression setup failed: {error}"))?;
+        let key = context
+            .compression_key()
+            .map_err(|error| wasmtime::format_err!("compression key failed: {error}"))?;
+        eprintln!("interleaving compression setup: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        let compressed = context
+            .compress(&proof, &setup)
+            .map_err(|error| wasmtime::format_err!("compression failed: {error}"))?;
+        eprintln!("interleaving compression: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        context
+            .verify_compressed(
+                &compressed,
+                &key,
+                &transaction.statement,
+                &execution.commitments,
+            )
+            .map_err(|error| wasmtime::format_err!("compressed verification failed: {error}"))?;
+        eprintln!(
+            "interleaving compressed verification: {:?}",
+            start.elapsed()
+        );
+        assert!(
+            context
+                .verify_compressed(&compressed, &key, &other_statement, &execution.commitments)
+                .is_err(),
+            "a compressed proof must not verify against another statement"
+        );
+        assert!(
+            context
+                .verify_compressed(
+                    &compressed,
+                    &key,
+                    &transaction.statement,
+                    &other_commitments
+                )
+                .is_err(),
+            "a compressed proof must not verify against other coroutine roots"
         );
         Ok(())
     }

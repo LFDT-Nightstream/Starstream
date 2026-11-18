@@ -39,6 +39,13 @@ pub enum ProvingError {
 /// Statistical security that the local profiles ask of the backend.
 const MINIMUM_SECURITY_BITS: u32 = 109;
 
+/// The most steps of one proof. Up to 65 steps a proof never reaches a
+/// refresh fold, and the backend then compresses it in its light form, with
+/// two claims instead of three. That is about three times faster to compress
+/// and twenty times faster to verify. One step is a batch of rows, so a
+/// transaction has at most `MAX_STEPS * batch_size` rows.
+const MAX_STEPS: usize = 64;
+
 /// The geometry with the most segments, halving from `limit`, that the
 /// backend accepts at [`MINIMUM_SECURITY_BITS`].
 ///
@@ -122,13 +129,7 @@ impl ProofConfig {
             memories.push((memory.id, memory.kind, widths));
         }
         let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(memories)?;
-        let ports = batch_size
-            * batch
-                .memory
-                .entries()
-                .iter()
-                .map(|m| m.ports.len())
-                .sum::<usize>();
+        let slots = planned_slots(batch_size)?;
         let r = rom_cells
             .max(segment_batches as u64)
             .max(2)
@@ -140,28 +141,43 @@ impl ProofConfig {
             .max(2)
             .next_power_of_two()
             .ilog2() as usize;
-        let geometry = secure_geometry(r, mu, ports, segment_batches, 4096 / segment_batches)
-            .ok_or(ProvingError::Configuration(
-                "invalid benchmark memory geometry",
-            ))?;
+        let geometry = secure_geometry(
+            r,
+            mu,
+            slots.len(),
+            segment_batches,
+            MAX_STEPS / segment_batches,
+        )
+        .ok_or(ProvingError::Configuration(
+            "invalid benchmark memory geometry",
+        ))?;
         Ok(Self {
             batch_size,
             geometry,
             regions,
-            slots: (0..ports).map(|rank| vec![rank]).collect(),
+            slots,
             engine: Engine::Optimized,
             minimum_security_bits: MINIMUM_SECURITY_BITS,
         })
     }
 
-    /// Share operation slots between ports that the relation never activates
-    /// on the same step, and resize the geometry to the smaller slot count.
-    pub fn with_planned_slots(mut self) -> Result<Self, ProvingError> {
-        let batch_size = NonZeroUsize::new(self.batch_size)
-            .ok_or(ProvingError::Circuit(crate::Error::InvalidBatchSize))?;
-        self.slots = crate::memory::planned_slots(batch_size)?;
+    /// Give every port its own operation slot instead of the planned
+    /// sharing, and resize the geometry to the larger slot count. This is
+    /// the reference that the planned slots are compared against; it is far
+    /// more expensive to prove.
+    #[cfg(test)]
+    fn with_one_slot_per_port(mut self) -> Result<Self, ProvingError> {
+        let batch = Batch::new(self.batch_size)?;
+        let ports = self.batch_size
+            * batch
+                .memory
+                .entries()
+                .iter()
+                .map(|memory| memory.ports.len())
+                .sum::<usize>();
+        self.slots = (0..ports).map(|rank| vec![rank]).collect();
         let g = self.geometry;
-        self.geometry = secure_geometry(g.r, g.mu, self.slots.len(), g.n, g.s_max).ok_or(
+        self.geometry = secure_geometry(g.r, g.mu, ports, g.n, MAX_STEPS / g.n).ok_or(
             ProvingError::Configuration("memory geometry exceeds backend limits"),
         )?;
         Ok(self)
@@ -170,7 +186,7 @@ impl ProofConfig {
     /// Use segments of `segment_batches` batches, keeping the memory sizes.
     pub fn with_segment_batches(mut self, segment_batches: usize) -> Result<Self, ProvingError> {
         let g = self.geometry;
-        self.geometry = 4096usize
+        self.geometry = MAX_STEPS
             .checked_div(segment_batches)
             .and_then(|limit| secure_geometry(g.r, g.mu, g.b_ops, segment_batches, limit))
             .ok_or(ProvingError::Configuration("invalid segment length"))?;
@@ -185,8 +201,7 @@ impl ProofConfig {
     }
 
     /// Memories sized for transactions within `limits`; a transaction over
-    /// a limit has no proof. Each segment contains eight packed batches, and
-    /// slots start as one per port.
+    /// a limit has no proof. Each segment contains eight packed batches.
     pub fn for_limits(limits: Limits, batch_size: usize) -> Result<Self, ProvingError> {
         let batch = Batch::new(batch_size)?;
         let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(
@@ -196,20 +211,12 @@ impl ProofConfig {
                 .iter()
                 .map(|memory| (memory.id, memory.kind, limits.address_widths(memory.id))),
         )?;
-        let ports = batch_size
-            * batch
-                .memory
-                .entries()
-                .iter()
-                .map(|m| m.ports.len())
-                .sum::<usize>();
-
-        let slots = (0..ports).map(|rank| vec![rank]).collect();
+        let slots = planned_slots(batch_size)?;
         let r = rom_cells.max(2).next_power_of_two().ilog2() as usize;
         let mu = ram_cells.max(rom_cells).max(2).next_power_of_two().ilog2() as usize;
-        let geometry = secure_geometry(r, mu, ports, 8, 512).ok_or(ProvingError::Configuration(
-            "memory geometry exceeds backend limits",
-        ))?;
+        let geometry = secure_geometry(r, mu, slots.len(), 8, MAX_STEPS / 8).ok_or(
+            ProvingError::Configuration("memory geometry exceeds backend limits"),
+        )?;
         Ok(Self {
             batch_size,
             geometry,
@@ -219,6 +226,15 @@ impl ProofConfig {
             minimum_security_bits: MINIMUM_SECURITY_BITS,
         })
     }
+}
+
+/// Operation slots shared between ports that the relation never activates
+/// on the same step.
+fn planned_slots(batch_size: usize) -> Result<Vec<Vec<usize>>, ProvingError> {
+    crate::memory::planned_slots(
+        NonZeroUsize::new(batch_size)
+            .ok_or(ProvingError::Circuit(crate::Error::InvalidBatchSize))?,
+    )
 }
 
 /// Transaction capacity that sizes the memory regions.
@@ -291,6 +307,14 @@ impl Limits {
 pub struct TransactionProof {
     pub proof: nebula::Proof,
     // Authenticated by the memory verifier; terminal projection is checked below.
+    pub final_state: Vec<F>,
+}
+
+/// A [`TransactionProof`] after compression: much smaller and cheaper to
+/// verify, at the cost of a compression pass by the prover.
+pub struct CompressedTransactionProof {
+    pub proof: nebula::FinalProof,
+    // Authenticated by the memory verifier, as in `TransactionProof`.
     pub final_state: Vec<F>,
 }
 
@@ -388,13 +412,7 @@ impl TransactionProofContext {
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
     ) -> Result<(), ProvingError> {
-        let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
-        check_final_state(
-            &proof.final_state,
-            TerminalClaim::Transaction {
-                commitment: expected,
-            },
-        )?;
+        check_transaction_claim(&proof.final_state, statement, roots)?;
         self.verifier.verify(
             &self.program,
             &state_words(&initial_state()),
@@ -403,6 +421,64 @@ impl TransactionProofContext {
         )?;
         Ok(())
     }
+
+    /// The prover's compression key. It depends only on the configuration,
+    /// so one key serves every proof of this context.
+    pub fn compression_setup(&self) -> Result<nightstream::CompressionSetup, ProvingError> {
+        Ok(self.prover.compression_setup()?)
+    }
+
+    /// The verifier's compression key, with the same scope as the setup.
+    pub fn compression_key(&self) -> Result<nightstream::CompressionKey, ProvingError> {
+        Ok(self.verifier.compression_key()?)
+    }
+
+    pub fn compress(
+        &self,
+        proof: &TransactionProof,
+        setup: &nightstream::CompressionSetup,
+    ) -> Result<CompressedTransactionProof, ProvingError> {
+        Ok(CompressedTransactionProof {
+            proof: self.prover.compress(&proof.proof, setup)?,
+            final_state: proof.final_state.clone(),
+        })
+    }
+
+    /// Verify a compressed proof against the same claim as [`Self::verify`].
+    pub fn verify_compressed(
+        &self,
+        proof: &CompressedTransactionProof,
+        key: &nightstream::CompressionKey,
+        statement: &TransactionStatement,
+        roots: &crate::TraceCommitments,
+    ) -> Result<(), ProvingError> {
+        check_transaction_claim(&proof.final_state, statement, roots)?;
+        self.verifier.verify_final(
+            &self.program,
+            &state_words(&initial_state()),
+            &state_words(&proof.final_state),
+            key,
+            &proof.proof,
+        )?;
+        Ok(())
+    }
+}
+
+/// The final state must be the finished transaction that commits to
+/// `statement` and `roots`.
+fn check_transaction_claim(
+    final_state: &[F],
+    statement: &TransactionStatement,
+    roots: &crate::TraceCommitments,
+) -> Result<(), ProvingError> {
+    let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
+    check_final_state(
+        final_state,
+        TerminalClaim::Transaction {
+            commitment: expected,
+        },
+    )?;
+    Ok(())
 }
 
 /// The backend's input of each step: its rows in the step layout.

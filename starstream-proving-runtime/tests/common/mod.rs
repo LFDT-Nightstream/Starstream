@@ -605,8 +605,8 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
             segments.len()
         );
         // A size is one circuit, whatever the program, so instances of the
-        // same size share its compiled prover and verifier.
-        let (prover, verifier) = match compiled.entry(size) {
+        // same size share its compiled prover, verifier and compression keys.
+        let (prover, verifier, setup, key) = match compiled.entry(size) {
             std::collections::btree_map::Entry::Occupied(entry) => {
                 eprintln!("Wasm instance {index}: reusing the {size:?} circuit");
                 entry.into_mut()
@@ -628,7 +628,14 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
                     "Wasm instance {index}: prover and verifier prepared in {:?}",
                     started.elapsed()
                 );
-                entry.insert((prover, verifier))
+                let started = std::time::Instant::now();
+                let setup = prover.compression_setup()?;
+                let key = verifier.compression_key()?;
+                eprintln!(
+                    "Wasm instance {index}: compression setup in {:?}",
+                    started.elapsed()
+                );
+                entry.insert((prover, verifier, setup, key))
             }
         };
         let mut run = prover.start(&program, initial)?;
@@ -657,6 +664,23 @@ pub fn prove_wasm_instances(execution: &TracedExecution) -> wasmtime::Result<()>
         assert!(
             verifier
                 .verify(&program, &initial, &changed, &proof)
+                .is_err()
+        );
+        let started = std::time::Instant::now();
+        let compressed = prover.compress(&proof, setup)?;
+        eprintln!(
+            "Wasm instance {index}: compressed in {:?}",
+            started.elapsed()
+        );
+        let started = std::time::Instant::now();
+        verifier.verify_final(&program, &initial, &final_state, key, &compressed)?;
+        eprintln!(
+            "Wasm instance {index}: compressed proof verified in {:?}",
+            started.elapsed()
+        );
+        assert!(
+            verifier
+                .verify_final(&program, &initial, &changed, key, &compressed)
                 .is_err()
         );
     }

@@ -291,11 +291,8 @@ fn planned_slots_bind_and_run_like_one_slot_per_port() {
     let normalized = normalize(&trace);
     let preload = crate::memory::preload_tables(&normalized.method_table);
     for size in [1, 3, 8] {
-        let per_port = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, size).unwrap();
-        let planned = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, size)
-            .unwrap()
-            .with_planned_slots()
-            .unwrap();
+        let planned = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, size).unwrap();
+        let per_port = planned.clone().with_one_slot_per_port().unwrap();
         eprintln!(
             "batch {size}: {} ports in {} slots; segments {} -> {}",
             per_port.slots.len(),
@@ -350,10 +347,10 @@ fn initial_limits_cover_the_fixture() -> Result<(), ProvingError> {
     Ok(())
 }
 
-/// Local timing probe. `STARSTREAM_PROOF_BATCH_SIZE` sets the batch size,
-/// `STARSTREAM_PROOF_PLANNED_SLOTS` shares operation slots between ports, and
-/// `STARSTREAM_PROOF_LIMITS` replaces [`Limits::SMALL_DEFAULTS`] with seven
-/// comma-separated counts in its field order.
+/// Local timing probe, compression included. `STARSTREAM_PROOF_BATCH_SIZE`
+/// sets the batch size, and `STARSTREAM_PROOF_LIMITS` replaces
+/// [`Limits::SMALL_DEFAULTS`] with seven comma-separated counts in its field
+/// order.
 #[test]
 #[ignore = "expensive Nebula proving; run explicitly with --release --ignored --nocapture"]
 fn transaction_proof_timings() -> Result<(), ProvingError> {
@@ -361,7 +358,7 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
     let batch_size = std::env::var("STARSTREAM_PROOF_BATCH_SIZE")
         .ok()
         .and_then(|size| size.parse().ok())
-        .unwrap_or(3);
+        .unwrap_or(16);
     // Seven comma-separated counts, in field order, replace the defaults.
     let counts: Vec<usize> = std::env::var("STARSTREAM_PROOF_LIMITS")
         .iter()
@@ -389,10 +386,7 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
         _ => Limits::SMALL_DEFAULTS,
     };
     eprintln!("{limits:?}");
-    let mut config = ProofConfig::for_limits(limits, batch_size)?;
-    if std::env::var_os("STARSTREAM_PROOF_PLANNED_SLOTS").is_some() {
-        config = config.with_planned_slots()?;
-    }
+    let config = ProofConfig::for_limits(limits, batch_size)?;
     eprintln!(
         "{} steps, batch {batch_size}, {:?}",
         trace.0.len(),
@@ -414,6 +408,16 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
         "proof: {} bytes",
         context.prover.encode_proof(&proof.proof)?.len()
     );
+    let start = std::time::Instant::now();
+    let setup = context.compression_setup()?;
+    let key = context.compression_key()?;
+    eprintln!("compression setup: {:?}", start.elapsed());
+    let start = std::time::Instant::now();
+    let compressed = context.compress(&proof, &setup)?;
+    eprintln!("compression: {:?}", start.elapsed());
+    let start = std::time::Instant::now();
+    context.verify_compressed(&compressed, &key, &statement, &roots)?;
+    eprintln!("compressed verification: {:?}", start.elapsed());
     Ok(())
 }
 
