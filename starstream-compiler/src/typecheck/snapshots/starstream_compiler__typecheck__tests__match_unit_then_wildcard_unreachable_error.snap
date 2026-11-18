@@ -1,0 +1,20 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() -> i64 {\n    match () {\n        () => {\n            1\n        },\n        _ => {\n            0\n        },\n    }\n}\n"
+---
+E0028 (https://starstream.nightstream.dev/errors/E0028)
+
+  x unreachable pattern
+    ,-[test.star:2:5]
+  1 |     fn test() -> i64 {
+  2 | ,->     match () {
+  3 | |           () => {
+  4 | |               1
+  5 | |           },
+  6 | |           _ => {
+  7 | |               0
+  8 | |           },
+  9 | `->     }
+ 10 |     }
+    `----
+  help: this pattern is already covered by previous patterns

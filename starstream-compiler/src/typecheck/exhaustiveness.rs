@@ -29,7 +29,7 @@ pub enum SimplePat {
     Wildcard,
     /// A constructor pattern with a fixed arity
     Ctor { ctor: Ctor, args: Vec<SimplePat> },
-    /// A literal pattern (integer, boolean, unit)
+    /// A literal pattern (integer, boolean)
     Literal(SimpleLiteral),
 }
 
@@ -38,7 +38,6 @@ pub enum SimplePat {
 pub enum SimpleLiteral {
     Int(i128),
     Bool(bool),
-    Unit,
 }
 
 /// Represents a constructor in the pattern matching sense.
@@ -54,6 +53,8 @@ pub enum Ctor {
     Record { record_name: String },
     /// An anonymous tuple constructor (tuples have exactly one constructor)
     Tuple { arity: usize },
+    /// `()`, the only value of the unit type
+    Unit,
 }
 
 /// Information about the set of constructors for a type
@@ -72,17 +73,25 @@ pub struct CtorInfo {
 
 impl CtorSet {
     /// Creates a constructor set for a given type.
-    /// For types without constructors (like i64, Unit), we return an "infinite" set
+    /// For types without constructors (like i64), we return an "infinite" set
     /// which means wildcards always cover them.
     pub fn for_type(ty: &Type) -> Option<Self> {
         match ty {
             Type::Enum(enum_type) => Some(Self::for_enum(enum_type)),
             Type::Record(record_type) => Some(Self::for_record(record_type)),
             Type::Bool => Some(Self::for_bool()),
-            // For primitive types (Int, Unit) and type variables, there are no constructors.
+            // `()` has exactly one value, so the `()` pattern covers it.
+            Type::Unit => Some(Self {
+                ctors: vec![CtorInfo {
+                    ctor: Ctor::Unit,
+                    arity: 0,
+                    field_types: vec![],
+                }],
+            }),
+            // For integer types and type variables, there are no constructors.
             // A wildcard pattern always covers these types completely.
             // We represent this as an empty constructor set.
-            Type::Int(_) | Type::Unit | Type::Var(_) => Some(Self::infinite()),
+            Type::Int(_) | Type::Var(_) => Some(Self::infinite()),
             // Tuples have exactly one constructor, like records.
             Type::Tuple(items) => Some(Self {
                 ctors: vec![CtorInfo {
@@ -593,16 +602,16 @@ pub fn collect_missing_patterns(matrix: &Matrix, n: usize) -> Vec<Vec<SimplePat>
 pub fn lower_pattern(pattern: &TypedPattern, ty: &Type) -> SimplePat {
     match pattern {
         TypedPattern::Binding(_) | TypedPattern::Wildcard => SimplePat::Wildcard,
-        TypedPattern::Literal(lit) => {
-            let simple_lit = match lit {
-                // Overflowing digits are rejected during pattern inference, so
-                // by the time exhaustiveness runs every literal has a value.
-                Literal::Integer(n) => SimpleLiteral::Int(n.value().unwrap_or(0)),
-                Literal::Boolean(b) => SimpleLiteral::Bool(*b),
-                Literal::Unit => SimpleLiteral::Unit,
-            };
-            SimplePat::Literal(simple_lit)
-        }
+        TypedPattern::Literal(lit) => match lit {
+            // Overflowing digits are rejected during pattern inference, so
+            // by the time exhaustiveness runs every literal has a value.
+            Literal::Integer(n) => SimplePat::Literal(SimpleLiteral::Int(n.value().unwrap_or(0))),
+            Literal::Boolean(b) => SimplePat::Literal(SimpleLiteral::Bool(*b)),
+            Literal::Unit => SimplePat::Ctor {
+                ctor: Ctor::Unit,
+                args: vec![],
+            },
+        },
         TypedPattern::Struct { name, fields } => {
             let last_name = name.last().unwrap();
             // Get field order from the type definition
@@ -743,7 +752,6 @@ pub fn pattern_to_string(pattern: &SimplePat) -> String {
         SimplePat::Literal(lit) => match lit {
             SimpleLiteral::Int(n) => n.to_string(),
             SimpleLiteral::Bool(b) => b.to_string(),
-            SimpleLiteral::Unit => "()".to_string(),
         },
         SimplePat::Ctor { ctor, args } => match ctor {
             Ctor::EnumVariant { variant_name, .. } => {
@@ -766,6 +774,7 @@ pub fn pattern_to_string(pattern: &SimplePat) -> String {
                 let args_str: Vec<_> = args.iter().map(pattern_to_string).collect();
                 format!("({})", args_str.join(", "))
             }
+            Ctor::Unit => "()".to_string(),
         },
     }
 }

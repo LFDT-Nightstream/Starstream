@@ -1056,6 +1056,50 @@ fn nested_tuple_pattern_binds_inner_types() {
 }
 
 #[test]
+fn match_unit_exhaustive() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn alone() -> i64 {
+            match () {
+                () => {
+                    1
+                },
+            }
+        }
+
+        fn in_tuple(b: bool) -> i64 {
+            match (b, ()) {
+                (true, ()) => {
+                    1
+                },
+                (false, ()) => {
+                    0
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_unit_then_wildcard_unreachable_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() -> i64 {
+            match () {
+                () => {
+                    1
+                },
+                _ => {
+                    0
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
 fn match_bool_literal_exhaustive() {
     assert_typecheck_snapshot!(
         r#"

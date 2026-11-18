@@ -67,6 +67,22 @@ script fn unmatched() -> i64 {
 }
 
 #[test]
+fn unit_pattern_matches() {
+    let wasm = compile(
+        r#"
+script fn unit_match() -> i64 {
+    match () {
+        () => {
+            42
+        },
+    }
+}
+"#,
+    );
+    assert_eq!(call_i64(&wasm, "unit-match"), 42);
+}
+
+#[test]
 fn integer_literal_patterns_match_narrow_integers() {
     let wasm = compile(
         r#"
