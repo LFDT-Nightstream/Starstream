@@ -32,7 +32,11 @@ use crate::{
 mod proving;
 
 #[cfg(feature = "proving")]
-pub use starstream_proving_runtime::CapturedExecution;
+pub use proving::prove;
+#[cfg(feature = "proving")]
+pub use starstream_proving_runtime::{
+    CapturedExecution, Engine as ProofEngine, ProofTimings, TransactionProof, TransactionProver,
+};
 
 /// The execution captured by [`call_coordination_script`].
 #[cfg(not(feature = "proving"))]
@@ -301,6 +305,18 @@ pub async fn call_coordination_script(
             }
             cx.clone()
         };
+        // Snapshotting grows memory outside the trace; read storage first
+        // so the Wasm proof sees no unexplained memory-size change.
+        let storage = if let Some(export) = cx.export.storage() {
+            let storage = utxo.storage(export).call_get(&mut *store).await?;
+            let mut buf = BytesMut::new();
+            ValEncoder::new(&Type::Record(export.ty().clone()))
+                .encode(&Val::Record(storage), &mut buf)
+                .context("failed to encode storage")?;
+            buf.to_vec().into()
+        } else {
+            Box::default()
+        };
         let mut instance = WasmtimeWizerComponent {
             store,
             instance: utxo.instance(),
@@ -322,16 +338,6 @@ pub async fn call_coordination_script(
             .collect::<anyhow::Result<_>>()
             .map_err(wasmtime::Error::from_anyhow)
             .context("failed to parse UTXO state")?;
-        let storage = if let Some(export) = cx.export.storage() {
-            let storage = utxo.storage(export).call_get(&mut *store).await?;
-            let mut buf = BytesMut::new();
-            ValEncoder::new(&Type::Record(export.ty().clone()))
-                .encode(&Val::Record(storage), &mut buf)
-                .context("failed to encode storage")?;
-            buf.to_vec().into()
-        } else {
-            Box::default()
-        };
         let mut methods = BTreeSet::default();
         for &(a, b, c, d) in &cx.methods {
             methods.insert((a, b, c, d));

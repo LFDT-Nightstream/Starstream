@@ -2,6 +2,7 @@ mod coordinator_abi;
 mod decoder;
 mod effect_abi;
 mod execution;
+mod prove;
 mod runtime;
 mod templates;
 
@@ -11,6 +12,8 @@ pub use execution::{
     decode_captured_execution, decode_captured_transaction,
 };
 pub use neo_wasm::{WasmTraceSink, WasmtimeTraceRegistry};
+pub use nightstream::Engine;
+pub use prove::{ProofTimings, TransactionProof, TransactionProver, WasmInstanceProof};
 pub use runtime::{enable_tracing, register_tracing_component};
 pub use starstream_interleaving_spec::{MethodHash, ResourceHandle};
 pub use templates::{

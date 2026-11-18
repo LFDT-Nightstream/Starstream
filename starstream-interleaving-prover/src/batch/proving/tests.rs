@@ -77,7 +77,7 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
 #[ignore = "expensive Nebula proving; run explicitly with --release --ignored"]
 fn transaction_proof_round_trip() -> Result<(), ProvingError> {
     let (trace, statement, roots) = transaction_fixture();
-    let context = TransactionProofContext::new(
+    let context = InterleavingProofContext::new(
         ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3)?,
         method_dictionary(&trace),
     )?;
@@ -86,7 +86,7 @@ fn transaction_proof_round_trip() -> Result<(), ProvingError> {
     let bytes = context.prover.encode_proof(&proof.proof)?;
     let decoded = context.verifier.decode_proof(&bytes)?;
     context.verify(
-        &TransactionProof {
+        &InterleavingProof {
             proof: decoded,
             final_state: proof.final_state.clone(),
         },
@@ -180,7 +180,7 @@ fn dictionary_must_be_unique_and_canonical() {
     let config = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 1).unwrap();
     let method = MethodHash([1; 8]);
     assert!(matches!(
-        TransactionProofContext::new(config, vec![method, method]),
+        InterleavingProofContext::new(config, vec![method, method]),
         Err(ProvingError::MethodDictionary)
     ));
 }
@@ -396,7 +396,7 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
         eprintln!("  {part:?}");
     }
     let start = std::time::Instant::now();
-    let context = TransactionProofContext::new(config, method_dictionary(&trace))?;
+    let context = InterleavingProofContext::new(config, method_dictionary(&trace))?;
     eprintln!("preprocessing: {:?}", start.elapsed());
     let start = std::time::Instant::now();
     let proof = context.prove(&trace, &statement, &roots)?;

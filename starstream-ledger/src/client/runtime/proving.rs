@@ -1,8 +1,9 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use starstream_proving_runtime::{
-    CapturedExecution, ComponentTemplates, MethodHash, ResourceHandle, WasmTraceSink,
-    WasmtimeTraceRegistry, build_component_templates, check_captured_transaction, enable_tracing,
+    CapturedExecution, ComponentTemplates, MethodHash, ProofTimings, ResourceHandle,
+    TransactionProof, TransactionProver, WasmTraceSink, WasmtimeTraceRegistry,
+    build_component_templates, check_captured_transaction, enable_tracing,
     register_tracing_component,
 };
 use starstream_runtime::CoordinationScriptExport;
@@ -190,4 +191,16 @@ impl Tracing {
         }
         check_captured_transaction(&store.data().traces, handles, &self.input_methods)
     }
+}
+
+/// Prove `execution` using the traces captured in `store`.
+///
+/// The proof is not attached to the transaction. Verify with
+/// [`TransactionProver::verify`] against `execution.transaction.statement`.
+pub fn prove(
+    store: &Store<Ctx>,
+    execution: &CapturedExecution,
+    prover: &mut TransactionProver,
+) -> wasmtime::Result<(TransactionProof, ProofTimings)> {
+    prover.prove(&store.data().traces, execution)
 }

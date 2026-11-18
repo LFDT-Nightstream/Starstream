@@ -212,3 +212,101 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
     assert!(execution.traces.iter().all(|trace| !trace.0.is_empty()));
     Ok(())
 }
+
+fn prove_and_verify(
+    prover: &mut starstream_ledger::client::runtime::TransactionProver,
+    store: &Store<Ctx>,
+    execution: &starstream_ledger::client::runtime::CapturedExecution,
+) -> anyhow::Result<()> {
+    let (proof, timings) = starstream_ledger::client::runtime::prove(store, execution, prover)?;
+    eprintln!("{} Wasm instances, {timings:?}", proof.instances.len());
+    let statement = &execution.transaction.statement;
+    let started = std::time::Instant::now();
+    prover.verify(&proof, statement)?;
+    eprintln!("verified in {:?}", started.elapsed());
+    let mut other = statement.clone();
+    other.outputs[0].storage.0[0] = other.outputs[0].storage.0[0].wrapping_add(1);
+    ensure!(
+        prover.verify(&proof, &other).is_err(),
+        "a proof must not verify against another statement"
+    );
+    Ok(())
+}
+
+/// Reuse one prover across UTXO creation and a subsequent spend.
+#[tokio::test]
+#[ignore = "Nebula proofs; run with --release -- --ignored --nocapture"]
+async fn coordination_script_transactions_prove_and_verify() -> anyhow::Result<()> {
+    use starstream_ledger::client::runtime::{ProofEngine, TransactionProver};
+
+    let wasm = common::compile_contract(
+        "abi MethodCall { fn accept(value: u64); }
+        utxo MethodCallUtxo {
+            main fn new(initial: u64) { yield(MethodCall); }
+            impl MethodCall { fn accept(pub value: u64) {} }
+        }
+        script fn example() {
+            let instance = MethodCallUtxo::new(55);
+            instance.accept(13);
+        }
+        script fn again(instance: MethodCallUtxo) {
+            instance.accept(21);
+        }",
+    )?;
+    let mut engine_config = wasmtime::Config::default();
+    starstream_ledger::configure_wasmtime(&mut engine_config);
+    let engine = Engine::new(&engine_config)?;
+    let wizer = Wizer::new();
+    let mut imports = HashMap::new();
+    let contract = compile_contract(
+        &TestClient(None),
+        &engine,
+        &wizer,
+        &wasm,
+        None,
+        &mut imports,
+    )
+    .await?;
+    let mut prover = TransactionProver::new(ProofEngine::Optimized);
+
+    let example = contract.get_coordination_script("example")?;
+    let mut store = Store::new(&engine, Ctx::default());
+    let (transaction, execution) = call_coordination_script(
+        &mut store,
+        &TestClient(None),
+        &wizer,
+        &contract,
+        &wasm,
+        &example,
+        &mut imports,
+        Vec::default(),
+        &mut [],
+        &mut Vec::default(),
+    )
+    .await?;
+    assert_eq!(transaction.outputs.len(), 1);
+    prove_and_verify(&mut prover, &store, &execution?)?;
+
+    let client = TestClient(Some(transaction.outputs[0].clone()));
+    let again = contract.get_coordination_script("again")?;
+    let mut store = Store::new(&engine, Ctx::default());
+    let (transaction, execution) = call_coordination_script(
+        &mut store,
+        &client,
+        &wizer,
+        &contract,
+        &wasm,
+        &again,
+        &mut imports,
+        vec![CoordinationScriptArg::Utxo(TransactionInput {
+            transaction: "fixture".into(),
+            index: 0,
+        })],
+        &mut [],
+        &mut Vec::default(),
+    )
+    .await?;
+    assert_eq!(transaction.inputs.len(), 1);
+    prove_and_verify(&mut prover, &store, &execution?)?;
+    Ok(())
+}

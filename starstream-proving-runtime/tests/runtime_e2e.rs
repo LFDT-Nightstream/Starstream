@@ -630,7 +630,7 @@ mod proving {
 
     fn prove_interleaving(execution: &TracedExecution) -> wasmtime::Result<()> {
         use starstream_interleaving_prover::proving::{
-            Limits, ProofConfig, TransactionProofContext, method_dictionary,
+            InterleavingProofContext, Limits, ProofConfig, method_dictionary,
         };
 
         let transaction = &execution.transaction;
@@ -658,7 +658,7 @@ mod proving {
             config.geometry,
             config.engine
         );
-        let context = TransactionProofContext::new(config, method_dictionary(&transaction.trace))
+        let context = InterleavingProofContext::new(config, method_dictionary(&transaction.trace))
             .map_err(|error| wasmtime::format_err!("preprocessing failed: {error}"))?;
         eprintln!("interleaving preprocessing: {:?}", start.elapsed());
         let start = std::time::Instant::now();

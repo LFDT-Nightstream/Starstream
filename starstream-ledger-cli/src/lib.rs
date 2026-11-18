@@ -199,6 +199,14 @@ enum ScriptCommand {
         #[arg(long)]
         simulate: bool,
 
+        /// Prove the transaction and check the proof before continuing.
+        /// The proof is not attached to the transaction yet. Compiling the
+        /// circuits takes about a minute on each run.
+        //
+        // TODO: cache the circuits?
+        #[arg(long)]
+        prove: bool,
+
         /// Write the encoded transaction to a file.
         #[arg(long, value_name = "PATH")]
         output_transaction: Option<PathBuf>,
@@ -542,6 +550,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             key,
             network,
             simulate,
+            prove,
             output_transaction,
             imports,
             cardano_block_height,
@@ -632,8 +641,33 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 &mut utxos,
             )
             .await?;
-            if let Err(err) = execution {
-                warn!(?err, "failed to check execution trace");
+            match execution {
+                Ok(execution) if prove => {
+                    use starstream_ledger::client::runtime::{ProofEngine, TransactionProver};
+                    info!("proving the transaction");
+                    let mut prover = TransactionProver::new(ProofEngine::Optimized);
+                    let (proof, timings) =
+                        starstream_ledger::client::runtime::prove(&store, &execution, &mut prover)
+                            .map_err(anyhow::Error::from)
+                            .context("failed to prove the transaction")?;
+                    prover
+                        .verify(&proof, &execution.transaction.statement)
+                        .map_err(anyhow::Error::from)
+                        .context("the transaction proof does not verify")?;
+                    info!(
+                        instances = proof.instances.len(),
+                        setup = ?timings.setup,
+                        proving = ?timings.proving,
+                        compression = ?timings.compression,
+                        "proved and verified the transaction"
+                    );
+                }
+                Ok(_) => {}
+                Err(err) if prove => {
+                    return Err(anyhow::Error::from(err))
+                        .context("failed to check execution trace");
+                }
+                Err(err) => warn!(?err, "failed to check execution trace"),
             }
             'outer: for result in &mut results {
                 if let &mut Val::Resource(utxo) = result {

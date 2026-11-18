@@ -304,21 +304,21 @@ impl Limits {
     }
 }
 
-pub struct TransactionProof {
+pub struct InterleavingProof {
     pub proof: nebula::Proof,
     // Authenticated by the memory verifier; terminal projection is checked below.
     pub final_state: Vec<F>,
 }
 
-/// A [`TransactionProof`] after compression: much smaller and cheaper to
+/// An [`InterleavingProof`] after compression: much smaller and cheaper to
 /// verify, at the cost of a compression pass by the prover.
-pub struct CompressedTransactionProof {
+pub struct CompressedInterleavingProof {
     pub proof: nebula::FinalProof,
-    // Authenticated by the memory verifier, as in `TransactionProof`.
+    // Authenticated by the memory verifier, as in `InterleavingProof`.
     pub final_state: Vec<F>,
 }
 
-pub struct TransactionProofContext {
+pub struct InterleavingProofContext {
     batch: Batch,
     config: ProofConfig,
     methods: Vec<MethodHash>,
@@ -351,7 +351,7 @@ pub fn method_dictionary(trace: &Trace) -> Vec<MethodHash> {
     crate::step::method_table(trace)
 }
 
-impl TransactionProofContext {
+impl InterleavingProofContext {
     /// Compile a verifier-owned relation and bind its method/effect ROM.
     /// Currently normalization requires the exact trace-local dictionary.
     pub fn new(config: ProofConfig, methods: Vec<MethodHash>) -> Result<Self, ProvingError> {
@@ -379,7 +379,7 @@ impl TransactionProofContext {
         trace: &Trace,
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
-    ) -> Result<TransactionProof, ProvingError> {
+    ) -> Result<InterleavingProof, ProvingError> {
         let normalized = normalize(trace);
         let padding = normalized
             .steps
@@ -400,7 +400,7 @@ impl TransactionProofContext {
         for segment in packed.rows.chunks(segment_rows) {
             run.segment(&step_inputs(&self.batch, segment)?)?;
         }
-        Ok(TransactionProof {
+        Ok(InterleavingProof {
             proof: run.finish()?,
             final_state,
         })
@@ -408,7 +408,7 @@ impl TransactionProofContext {
 
     pub fn verify(
         &self,
-        proof: &TransactionProof,
+        proof: &InterleavingProof,
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
     ) -> Result<(), ProvingError> {
@@ -435,10 +435,10 @@ impl TransactionProofContext {
 
     pub fn compress(
         &self,
-        proof: &TransactionProof,
+        proof: &InterleavingProof,
         setup: &nightstream::CompressionSetup,
-    ) -> Result<CompressedTransactionProof, ProvingError> {
-        Ok(CompressedTransactionProof {
+    ) -> Result<CompressedInterleavingProof, ProvingError> {
+        Ok(CompressedInterleavingProof {
             proof: self.prover.compress(&proof.proof, setup)?,
             final_state: proof.final_state.clone(),
         })
@@ -447,7 +447,7 @@ impl TransactionProofContext {
     /// Verify a compressed proof against the same claim as [`Self::verify`].
     pub fn verify_compressed(
         &self,
-        proof: &CompressedTransactionProof,
+        proof: &CompressedInterleavingProof,
         key: &nightstream::CompressionKey,
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
