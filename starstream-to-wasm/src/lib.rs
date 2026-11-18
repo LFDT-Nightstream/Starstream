@@ -1399,6 +1399,17 @@ impl Compiler {
                             .export_fn(name, &sig);
                     }
                 }
+                Type::Record(_) | Type::Enum(_) => {
+                    let abi_ty = self.star_to_component_type(&item.ty).unwrap();
+                    let name = to_kebab_case(item.imported.as_str());
+                    let iface = imported_interfaces
+                        .entry(module.to_owned())
+                        .or_insert_with(|| TypeBuilder::new_interface(&self.world_type));
+                    iface.export_ty(&name, &abi_ty);
+                    iface
+                        .exported_types
+                        .push((abi_ty, to_kebab_case(item.local.as_str()), name));
+                }
                 _ => todo!(),
             }
         }

@@ -23,6 +23,7 @@ pub struct TypeBuilder<T> {
     component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
     resources: Vec<(Rc<Resource>, u32)>,
     on_demand_resources: HashMap<Rc<Resource>, u32>,
+    pub(crate) exported_types: Vec<(Rc<ComponentAbiType>, String, String)>,
 }
 
 impl<T: TypeRegistry> TypeBuilder<T> {
@@ -287,6 +288,25 @@ impl TypeBuilder<ComponentType> {
             self.register_resource(resource, equality_idx);
             // Following must use alias_idx or else wit-parser hits an unreachable!(), nice.
             self.resources.push((resource.clone(), alias_idx));
+        }
+        for (abi_ty, import_name, export_name) in &child.exported_types {
+            let alias_idx = self.inner.type_count();
+            self.inner.alias(Alias::InstanceExport {
+                instance,
+                kind: ComponentExportKind::Type,
+                name: import_name,
+            });
+
+            // "equality" amounts to a `use` statement (mandatory).
+            let equality_idx = self.inner.type_count();
+            self.inner.import(
+                // The name to `use` as.
+                export_name.as_str(),
+                ComponentTypeRef::Type(TypeBounds::Eq(alias_idx)),
+            );
+
+            self.component_to_encoded
+                .insert(abi_ty.clone(), ComponentValType::Type(equality_idx));
         }
     }
 }

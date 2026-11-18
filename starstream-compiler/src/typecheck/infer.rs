@@ -570,6 +570,13 @@ impl Inferencer {
                                     ty: ci.ty.clone(),
                                 });
                             }
+                            if let Some(ty) = namespace.types.get(item.imported.as_str()) {
+                                typed_items.push(TypedImportItem {
+                                    imported: item.imported.clone(),
+                                    local: item.local.clone(),
+                                    ty: ty.ty.clone(),
+                                })
+                            }
                         }
                     }
                     ImportItems::Namespace(name) => {
