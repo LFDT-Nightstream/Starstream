@@ -32,16 +32,16 @@ use crate::{
 mod proving;
 
 #[cfg(feature = "proving")]
-pub use proving::prove;
+pub use proving::{TracedCall, VerificationSource, prepare_verification, prove};
 #[cfg(feature = "proving")]
 pub use starstream_proving_runtime::{
-    CapturedExecution, Engine as ProofEngine, ProofPhaseTimings, ProofTimings, TransactionProof,
-    TransactionProver, WasmProofTimings,
+    CapturedExecution, Engine as ProofEngine, PreparedVerification, ProofPhaseTimings,
+    ProofTimings, TransactionProof, TransactionProver, WasmProofTimings,
 };
 
-/// The execution captured by [`call_coordination_script`].
+/// The tracing result when proving is disabled.
 #[cfg(not(feature = "proving"))]
-pub type CapturedExecution = ();
+pub type TracedCall = ();
 
 /// Contract compiled from the instrumented component bytes
 #[derive(Clone)]
@@ -164,6 +164,8 @@ pub async fn compile_contract(
 /// loading UTXO arguments through `client`.
 ///
 /// `wasm` must be the original component bytes `contract` was compiled from.
+/// With proving enabled, the tracing result includes the loaded program sources
+/// needed for independent verification preparation.
 ///
 /// The execution check is best-effort for now, mainly to not block execution
 /// on configurations not supported by the current instrumentation, so its
@@ -181,7 +183,7 @@ pub async fn call_coordination_script(
     args: Vec<CoordinationScriptArg>,
     results: &mut [Val],
     utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
-) -> wasmtime::Result<(Transaction, wasmtime::Result<CapturedExecution>)> {
+) -> wasmtime::Result<(Transaction, wasmtime::Result<TracedCall>)> {
     let args_len = args.len();
     let param_len = export.ty().params().len();
     ensure!(

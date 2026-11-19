@@ -642,16 +642,25 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             )
             .await?;
             match execution {
-                Ok(execution) if prove => {
+                Ok(call) if prove => {
                     use starstream_ledger::client::runtime::{ProofEngine, TransactionProver};
                     info!("proving the transaction");
                     let mut prover = TransactionProver::new(ProofEngine::Optimized);
-                    let (proof, timings) =
-                        starstream_ledger::client::runtime::prove(&store, &execution, &mut prover)
-                            .map_err(anyhow::Error::from)
-                            .context("failed to prove the transaction")?;
+                    let (proof, timings) = starstream_ledger::client::runtime::prove(
+                        &store,
+                        &call.execution,
+                        &mut prover,
+                    )
+                    .map_err(anyhow::Error::from)
+                    .context("failed to prove the transaction")?;
+                    let expected = starstream_ledger::client::runtime::prepare_verification(
+                        &call.programs,
+                        proof.instances.iter().map(|instance| instance.size),
+                    )
+                    .map_err(anyhow::Error::from)
+                    .context("failed to prepare verification")?;
                     prover
-                        .verify(&proof, &execution.transaction.statement)
+                        .verify(&proof, &expected, &call.execution.transaction.statement)
                         .map_err(anyhow::Error::from)
                         .context("the transaction proof does not verify")?;
                     for instance in &timings.wasm {

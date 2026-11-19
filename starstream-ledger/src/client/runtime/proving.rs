@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use starstream_proving_runtime::{
     CapturedExecution, ComponentTemplates, MethodHash, ProofTimings, ResourceHandle,
-    TransactionProof, TransactionProver, WasmTraceSink, WasmtimeTraceRegistry,
+    TransactionProof, TransactionProver, WasmSize, WasmTraceSink, WasmtimeTraceRegistry,
     build_component_templates, check_captured_transaction, enable_tracing,
     register_tracing_component,
 };
@@ -13,6 +13,41 @@ use wasmtime::{Store, ensure};
 
 use crate::client::CoordinationScriptArg;
 use crate::client::runtime::{CompiledContract, Contract, Ctx};
+
+/// Loaded component bytes retained for independent verification preparation.
+#[derive(Debug)]
+pub struct VerificationSource {
+    wasm: bytes::Bytes,
+    scripts: Vec<String>,
+    digest: [u8; 32],
+}
+
+/// Checked execution and the component sources loaded for this call.
+#[derive(Debug)]
+pub struct TracedCall {
+    pub execution: CapturedExecution,
+    pub programs: Vec<VerificationSource>,
+}
+
+fn push_unique_program(
+    programs: &mut Vec<VerificationSource>,
+    contract: &CompiledContract,
+    digest: &[u8; 32],
+) {
+    if !programs
+        .iter()
+        .any(|source| source.digest == *digest && source.wasm == contract.instrumented)
+    {
+        programs.push(VerificationSource {
+            wasm: contract.instrumented.clone(),
+            scripts: contract
+                .coordination_script_names()
+                .map(str::to_owned)
+                .collect(),
+            digest: *digest,
+        });
+    }
+}
 
 impl WasmTraceSink for Ctx {
     fn wasm_trace_registry(&self) -> &WasmtimeTraceRegistry {
@@ -41,9 +76,12 @@ fn register_tracing(
     cx: &mut Ctx,
     contract: &CompiledContract,
     digest: &[u8; 32],
+    programs: &mut Vec<VerificationSource>,
 ) -> wasmtime::Result<()> {
     let templates = build_templates(contract, digest)?;
-    register_tracing_component(cx, &contract.instrumented, &templates.bindings)
+    register_tracing_component(cx, &contract.instrumented, &templates.bindings)?;
+    push_unique_program(programs, contract, digest);
+    Ok(())
 }
 
 /// Register compiled imports that have not been registered yet
@@ -51,13 +89,14 @@ fn register_imports(
     cx: &mut Ctx,
     imports: &HashMap<[u8; 32], Contract>,
     registered: &mut HashSet<[u8; 32]>,
+    programs: &mut Vec<VerificationSource>,
 ) -> wasmtime::Result<()> {
     for (digest, Contract { contract, .. }) in imports {
         let Some(contract) = contract else {
             continue;
         };
         if registered.insert(*digest) {
-            register_tracing(cx, contract, digest)?;
+            register_tracing(cx, contract, digest, programs)?;
         }
     }
     Ok(())
@@ -68,6 +107,7 @@ fn register_imports(
 /// The first error is kept and returned by [`Tracing::check`], it does not
 /// affect the call being traced.
 pub struct Tracing {
+    programs: Vec<VerificationSource>,
     templates: wasmtime::Result<ComponentTemplates>,
     registered: HashSet<[u8; 32]>,
     input_locals: Vec<usize>,
@@ -85,6 +125,7 @@ impl Tracing {
         args: &[CoordinationScriptArg],
     ) -> Self {
         let mut registered = HashSet::from([digest]);
+        let mut programs = Vec::new();
         let templates = (|| {
             if args
                 .iter()
@@ -118,10 +159,12 @@ impl Tracing {
             enable_tracing(store)?;
             let cx = store.data_mut();
             register_tracing_component(cx, &contract.instrumented, &templates.bindings)?;
-            register_imports(cx, imports, &mut registered)?;
+            push_unique_program(&mut programs, contract, &digest);
+            register_imports(cx, imports, &mut registered, &mut programs)?;
             Ok(templates)
         })();
         Self {
+            programs,
             templates,
             registered,
             input_locals: Vec::default(),
@@ -142,8 +185,10 @@ impl Tracing {
     ) {
         let cx = store.data_mut();
         if self.templates.is_ok()
-            && let Err(err) = register_tracing(cx, contract, &digest)
-                .and_then(|()| register_imports(cx, imports, &mut self.registered))
+            && let Err(err) =
+                register_tracing(cx, contract, &digest, &mut self.programs).and_then(|()| {
+                    register_imports(cx, imports, &mut self.registered, &mut self.programs)
+                })
         {
             self.templates = Err(err);
         }
@@ -161,7 +206,7 @@ impl Tracing {
         self,
         store: &Store<Ctx>,
         export: &CoordinationScriptExport,
-    ) -> wasmtime::Result<CapturedExecution> {
+    ) -> wasmtime::Result<TracedCall> {
         let templates = self.templates?;
         let mut handles = Vec::with_capacity(self.input_locals.len());
         if !self.input_locals.is_empty() {
@@ -189,18 +234,54 @@ impl Tracing {
                 handles.push(ResourceHandle(handle));
             }
         }
-        check_captured_transaction(&store.data().traces, handles, &self.input_methods)
+        let execution =
+            check_captured_transaction(&store.data().traces, handles, &self.input_methods)?;
+        Ok(TracedCall {
+            execution,
+            programs: self.programs,
+        })
     }
 }
 
 /// Prove `execution` using the traces captured in `store`.
 ///
 /// The proof is not attached to the transaction. Verify with
-/// [`TransactionProver::verify`] against `execution.transaction.statement`.
+/// [`TransactionProver::verify`] after [`prepare_verification`].
 pub fn prove(
     store: &Store<Ctx>,
     execution: &CapturedExecution,
     prover: &mut TransactionProver,
 ) -> wasmtime::Result<(TransactionProof, ProofTimings)> {
     prover.prove(&store.data().traces, execution)
+}
+
+/// Reprocess the loaded component bytes, independently of the proof's artifacts.
+pub fn prepare_verification(
+    sources: &[VerificationSource],
+    sizes: impl IntoIterator<Item = WasmSize>,
+) -> wasmtime::Result<starstream_proving_runtime::PreparedVerification> {
+    let scripts = sources
+        .iter()
+        .map(|source| {
+            source
+                .scripts
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let programs = sources
+        .iter()
+        .zip(&scripts)
+        .map(
+            |(source, scripts)| starstream_proving_runtime::VerificationProgram {
+                wasm: &source.wasm,
+                coordination_exports: scripts,
+                contract_digest: &source.digest,
+            },
+        )
+        .collect::<Vec<_>>();
+
+    starstream_proving_runtime::prepare_verification(&programs, sizes)
 }

@@ -1,8 +1,8 @@
 //! Compressed Wasm instance proofs linked by an interleaving proof.
 //!
-//! The full transaction proof has no wire format yet. For untrusted proofs,
-//! the verifier must rebuild program commitments from contracts and the
-//! statement from the ledger transaction instead of trusting the prover's values.
+//! Verification uses independently prepared programs and entry states.
+//! The caller still authenticates the component bytes and transaction statement.
+//! The full transaction proof has no wire format yet.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -18,7 +18,7 @@ use starstream_interleaving_spec::{MethodHash, TransactionStatement};
 use wasmtime::error::Context as _;
 use wasmtime::{bail, ensure};
 
-use crate::CapturedExecution;
+use crate::{CapturedExecution, PreparedVerification};
 
 /// Security target supported by the Wasm profiles and interleaving limits.
 const SECURITY_BITS: u32 = 109;
@@ -340,13 +340,16 @@ impl TransactionProver {
         ))
     }
 
-    /// Verify instance execution and interleaving against `statement`.
+    /// Verify against independently prepared programs and the expected statement.
     pub fn verify(
         &mut self,
         proof: &TransactionProof,
+        expected: &PreparedVerification,
         statement: &TransactionStatement,
     ) -> wasmtime::Result<()> {
         for (index, instance) in proof.instances.iter().enumerate() {
+            let (program, initial) =
+                expected.instance(instance.size, &instance.program, &instance.initial)?;
             ensure!(
                 instance.last.is_terminal() && !instance.last.trapped,
                 "instance {index} did not run to completion"
@@ -355,8 +358,8 @@ impl TransactionProver {
             circuit
                 .verifier
                 .verify_final(
-                    &instance.program,
-                    &instance.initial,
+                    program,
+                    initial,
                     &instance.last,
                     &circuit.key,
                     &instance.proof,

@@ -57,7 +57,7 @@ async fn coordination_script_execution_is_checked() -> anyhow::Result<()> {
         &mut Vec::default(),
     )
     .await?;
-    let execution = execution?;
+    let execution = execution?.execution;
     assert!(transaction.inputs.is_empty());
     assert_eq!(transaction.outputs.len(), 1);
     assert_eq!(execution.traces.len(), 2);
@@ -99,7 +99,7 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         &mut Vec::default(),
     )
     .await?;
-    let execution = execution?;
+    let execution = execution?.execution;
     assert!(transaction.inputs.is_empty());
     assert_eq!(transaction.outputs.len(), 1);
     assert_eq!(execution.traces.len(), 2);
@@ -123,7 +123,7 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         &mut Vec::default(),
     )
     .await?;
-    let execution = execution?;
+    let execution = execution?.execution;
     let utxo = client.0.unwrap();
     assert_eq!(transaction.inputs, slice::from_ref(&input));
     assert_eq!(transaction.outputs.len(), 1);
@@ -204,7 +204,7 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
         &mut Vec::default(),
     )
     .await?;
-    let execution = execution?;
+    let execution = execution?.execution;
     assert!(transaction.inputs.is_empty());
     assert_eq!(transaction.outputs.len(), 1);
     assert_eq!(transaction.outputs[0].contract.as_ref(), digest);
@@ -216,8 +216,9 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
 fn prove_and_verify(
     prover: &mut starstream_ledger::client::runtime::TransactionProver,
     store: &Store<Ctx>,
-    execution: &starstream_ledger::client::runtime::CapturedExecution,
+    call: &starstream_ledger::client::runtime::TracedCall,
 ) -> anyhow::Result<()> {
+    let execution = &call.execution;
     let (proof, timings) = starstream_ledger::client::runtime::prove(store, execution, prover)?;
     for instance in &timings.wasm {
         eprintln!(
@@ -231,16 +232,21 @@ fn prove_and_verify(
     );
     eprintln!("total: {:?}", timings.total);
     let statement = &execution.transaction.statement;
-    prover.verify(&proof, statement)?;
+    let started = std::time::Instant::now();
+    let expected = starstream_ledger::client::runtime::prepare_verification(
+        &call.programs,
+        proof.instances.iter().map(|instance| instance.size),
+    )?;
+    eprintln!("verification prepared in {:?}", started.elapsed());
     let (proof, sizes) = proof.through_bytes()?;
     eprintln!("{} proof bytes: {sizes:?}", sizes.total());
     let started = std::time::Instant::now();
-    prover.verify(&proof, statement)?;
+    prover.verify(&proof, &expected, statement)?;
     eprintln!("verified in {:?}", started.elapsed());
     let mut other = statement.clone();
     other.entry.script.0[0] ^= 1;
     ensure!(
-        prover.verify(&proof, &other).is_err(),
+        prover.verify(&proof, &expected, &other).is_err(),
         "a proof must not verify against another statement"
     );
     Ok(())
@@ -318,12 +324,13 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
         &mut vec![],
     )
     .await?;
-    let execution = execution?;
+    let call = execution?;
+    assert_eq!(call.programs.len(), 1);
     assert!(created.inputs.is_empty());
     assert_eq!(created.outputs.len(), 1);
     if let Some(prover) = &mut prover {
         eprintln!("create stored amount");
-        prove_and_verify(prover, &store, &execution)?;
+        prove_and_verify(prover, &store, &call)?;
     }
 
     let client = TestClient(Some(created.outputs[0].clone()));
@@ -357,7 +364,13 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
             continue;
         }
         let (transaction, execution) = result?;
-        let execution = execution?;
+        let call = execution?;
+        assert_eq!(
+            call.programs.len(),
+            2,
+            "retain the input snapshot as well as the coordinator"
+        );
+        let execution = &call.execution;
         let [event] = transaction.events.as_slice() else {
             anyhow::bail!("expected one amount event");
         };
@@ -368,7 +381,7 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
         assert!(execution.transaction.statement.outputs.is_empty());
         if let Some(prover) = &mut prover {
             eprintln!("spend stored amount");
-            prove_and_verify(prover, &store, &execution)?;
+            prove_and_verify(prover, &store, &call)?;
         }
     }
     Ok(())
