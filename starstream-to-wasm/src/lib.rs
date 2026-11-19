@@ -516,6 +516,7 @@ impl Compiler {
         }
 
         let storage_record = Rc::new(ComponentAbiType::Record {
+            name: "storage".to_owned(),
             fields: fields
                 .clone()
                 .map(|g| {
@@ -913,18 +914,20 @@ impl Compiler {
                             .map(|ty| (to_kebab_case(f.name.as_str()), ty))
                     })
                     .collect();
-                ComponentAbiType::Record { fields }
+                ComponentAbiType::Record {
+                    name: to_kebab_case(record.name.as_str()),
+                    fields,
+                }
             }
             Type::Enum(enum_variant_types) => {
                 // Detect builtin Option type
                 if enum_variant_types.name == "Option"
                     && enum_variant_types.variants.len() == 2
-                    && enum_variant_types.variants.iter().any(|v| v.name == "Some")
-                    && enum_variant_types.variants.iter().any(|v| v.name == "None")
                     && let Some(some_variant) = enum_variant_types
                         .variants
                         .iter()
                         .find(|v| v.name == "Some")
+                    && enum_variant_types.variants.iter().any(|v| v.name == "None")
                     && let EnumVariantKind::Tuple(fields) = &some_variant.kind
                     && let Some(inner) = self.star_to_component_type(&fields[0])
                 {
@@ -934,28 +937,25 @@ impl Compiler {
                 // Detect builtin Result type
                 if enum_variant_types.name == "Result"
                     && enum_variant_types.variants.len() == 2
-                    && enum_variant_types.variants.iter().any(|v| v.name == "Ok")
-                    && enum_variant_types.variants.iter().any(|v| v.name == "Err")
+                    && let Some(ok_v) = enum_variant_types.variants.iter().find(|v| v.name == "Ok")
+                    && let Some(err_v) =
+                        enum_variant_types.variants.iter().find(|v| v.name == "Err")
                 {
-                    let ok_variant = enum_variant_types.variants.iter().find(|v| v.name == "Ok");
-                    let err_variant = enum_variant_types.variants.iter().find(|v| v.name == "Err");
-                    if let (Some(ok_v), Some(err_v)) = (ok_variant, err_variant) {
-                        let ok = match &ok_v.kind {
-                            EnumVariantKind::Tuple(fields) => {
-                                Some(self.star_to_component_type(&fields[0])?)
-                            }
-                            EnumVariantKind::Unit => None,
-                            _ => None,
-                        };
-                        let err = match &err_v.kind {
-                            EnumVariantKind::Tuple(fields) => {
-                                Some(self.star_to_component_type(&fields[0])?)
-                            }
-                            EnumVariantKind::Unit => None,
-                            _ => None,
-                        };
-                        return Some(Rc::new(ComponentAbiType::Result { ok, err }));
-                    }
+                    let ok = match &ok_v.kind {
+                        EnumVariantKind::Tuple(fields) => {
+                            Some(self.star_to_component_type(&fields[0])?)
+                        }
+                        EnumVariantKind::Unit => None,
+                        _ => None,
+                    };
+                    let err = match &err_v.kind {
+                        EnumVariantKind::Tuple(fields) => {
+                            Some(self.star_to_component_type(&fields[0])?)
+                        }
+                        EnumVariantKind::Unit => None,
+                        _ => None,
+                    };
+                    return Some(Rc::new(ComponentAbiType::Result { ok, err }));
                 }
 
                 // Generic variant conversion
@@ -993,7 +993,10 @@ impl Compiler {
                         )
                     })
                     .collect();
-                ComponentAbiType::Variant { cases }
+                ComponentAbiType::Variant {
+                    name: to_kebab_case(enum_variant_types.name.as_str()),
+                    cases,
+                }
             }
             // Utxo and tuple handles are manually inserted on creation,
             // not handled here.
@@ -1101,7 +1104,7 @@ impl Compiler {
             ComponentAbiType::F32 => dest.push(ValType::F32),
             ComponentAbiType::F64 => dest.push(ValType::F64),
             ComponentAbiType::Char => dest.push(ValType::I32),
-            ComponentAbiType::Record { fields } => {
+            ComponentAbiType::Record { name: _, fields } => {
                 // flatten_record
                 for (_, f) in fields {
                     ok = self.component_to_core_types(span, dest, f).and(ok);
@@ -1113,7 +1116,7 @@ impl Compiler {
                     ok = self.component_to_core_types(span, dest, f).and(ok);
                 }
             }
-            ComponentAbiType::Variant { cases } => {
+            ComponentAbiType::Variant { name: _, cases } => {
                 // flatten_variant
                 let mut flat = Vec::new();
                 for (_, t) in cases {
@@ -1406,9 +1409,6 @@ impl Compiler {
                         .entry(module.to_owned())
                         .or_insert_with(|| TypeBuilder::new_interface(&self.world_type));
                     iface.export_ty(&name, &abi_ty);
-                    iface
-                        .exported_types
-                        .push((abi_ty, to_kebab_case(item.local.as_str()), name));
                 }
                 _ => todo!(),
             }
