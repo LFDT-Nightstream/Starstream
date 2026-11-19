@@ -30,11 +30,15 @@ utxo Holder {
     }
 }
 
+script fn attach_any(t: Token, to: Utxo) {
+    t.attach(to);
+}
+
 script fn move_token(source: Utxo, dest: Utxo) {
     let t = MyToken::my_mint();
     t.attach(source);
     t.detach(source);
-    t.attach(dest);
+    attach_any(t, dest);
 }
 
 test "Attach a token to concrete utxos" {
