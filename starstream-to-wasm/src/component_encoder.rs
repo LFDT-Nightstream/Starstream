@@ -342,9 +342,10 @@ impl TypeBuilder<ComponentType> {
 
             // "equality" amounts to a `use` statement (mandatory).
             let equality_idx = self.inner.type_count();
+            let name = self.fresh_name(name.as_str());
             self.inner.import(
                 // The name to `use` as.
-                name.as_str(),
+                &name,
                 ComponentTypeRef::Type(TypeBounds::Eq(alias_idx)),
             );
 
