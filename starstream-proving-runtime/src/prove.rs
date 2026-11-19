@@ -432,8 +432,11 @@ impl TransactionProver {
             let context = cached.as_ref().filter(|_| tail && all_reused);
             let started = Instant::now();
             let pools = context.and_then(|_| {
+                let share = if leading == 0 { 16 } else { 18 };
                 let threads = std::num::NonZeroUsize::new(
-                    rayon::current_num_threads().saturating_mul(16).div_ceil(30),
+                    rayon::current_num_threads()
+                        .saturating_mul(share)
+                        .div_ceil(30),
                 )?;
                 let pool = || nightstream::CpuProverPool::new(threads).ok();
                 pool().zip(pool())
