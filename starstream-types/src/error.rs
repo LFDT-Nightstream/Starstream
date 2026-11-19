@@ -4,7 +4,7 @@ use std::{fmt::Display, sync::Arc};
 
 use miette::{Diagnostic, LabeledSpan, Severity, SourceCode, SourceSpan};
 
-use crate::Span;
+use crate::{DUMMY_SPAN, ModuleId, Span};
 
 // ----------------------------------------------------------------------------
 /// Span extensions for Miette compatibility.
@@ -47,10 +47,18 @@ struct StarErrorCore {
     code: Option<String>,
     url: Option<String>,
     cause: Option<Arc<dyn Diagnostic + Send + Sync>>,
-    labels: Vec<LabeledSpan>,
+    labels: Vec<Label>,
     help: Option<String>,
     related: Vec<Arc<dyn Diagnostic + Send + Sync>>,
     source_code: Option<Arc<dyn SourceCode>>,
+}
+
+/// A label together with the span it was made from. The span records which
+/// module the label points into; the [LabeledSpan] alone only has offsets.
+#[derive(Debug, Clone)]
+struct Label {
+    span: Span,
+    inner: LabeledSpan,
 }
 
 // Could `impl<T> From<T> for StarError<T>` for [unspanned], but it would make
@@ -68,7 +76,10 @@ impl<T> StarError<T> {
         StarError {
             kind: Box::new(kind),
             core: Box::new(StarErrorCore {
-                labels: vec![LabeledSpan::new_primary_with_span(None, span.miette())],
+                labels: vec![Label {
+                    span,
+                    inner: LabeledSpan::new_primary_with_span(None, span.miette()),
+                }],
                 ..Default::default()
             }),
         }
@@ -99,20 +110,10 @@ impl<T> StarError<T> {
         self
     }
 
-    // with_label
-    // with_labels
-
-    pub fn and_label(mut self, label: impl Into<LabeledSpan>) -> Self {
-        self.core.labels.push(label.into());
-        self
-    }
-
-    // and_labels
-
     pub fn with_primary_message(mut self, message: impl Display) -> Self {
         for each in &mut self.core.labels {
-            if each.primary() {
-                each.set_label(Some(message.to_string()));
+            if each.inner.primary() {
+                each.inner.set_label(Some(message.to_string()));
                 break;
             }
         }
@@ -120,7 +121,41 @@ impl<T> StarError<T> {
     }
 
     pub fn with_secondary(mut self, span: Span, message: impl Display) -> Self {
-        self.core.labels.push(span.secondary(message));
+        self.core.labels.push(Label {
+            span,
+            inner: span.secondary(message),
+        });
+        self
+    }
+
+    /// Moves each secondary label that points into a module other than
+    /// `module` out of this error and into a related note carrying that
+    /// module's source from `source_of`.
+    ///
+    /// A diagnostic renders all of its labels against one source, so a label
+    /// pointing into another file would otherwise show unrelated text, or
+    /// nothing at all when its offset runs past the end of this file.
+    pub fn relocate_foreign_labels<S>(
+        mut self,
+        module: ModuleId,
+        source_of: impl Fn(ModuleId) -> S,
+    ) -> Self
+    where
+        S: SourceCode + std::fmt::Debug + Send + Sync + 'static,
+    {
+        let (foreign, own): (Vec<Label>, Vec<Label>) = std::mem::take(&mut self.core.labels)
+            .into_iter()
+            .partition(|label| {
+                !label.inner.primary() && label.span != DUMMY_SPAN && label.span.context != module
+            });
+        self.core.labels = own;
+        for label in foreign {
+            self.core.related.push(Arc::new(ForeignLabel {
+                message: label.inner.label().unwrap_or_default().to_string(),
+                span: label.span.miette(),
+                source: source_of(label.span.context),
+            }));
+        }
         self
     }
 
@@ -199,7 +234,7 @@ impl<T: Diagnostic> Diagnostic for StarError<T> {
         let us = if self.core.labels.is_empty() {
             None
         } else {
-            Some(self.core.labels.iter().cloned())
+            Some(self.core.labels.iter().map(|label| label.inner.clone()))
         };
         let them = self.kind.labels();
         if us.is_some() || them.is_some() {
@@ -238,6 +273,39 @@ impl<T: Diagnostic> Diagnostic for StarError<T> {
             .as_deref()
             .map(|x| x as &dyn Diagnostic)
             .or_else(|| self.kind.diagnostic_source())
+    }
+}
+
+/// A label that points into a different module than the diagnostic it came
+/// from, rendered as a note against that module's own source.
+#[derive(Debug)]
+struct ForeignLabel<S> {
+    message: String,
+    span: SourceSpan,
+    source: S,
+}
+
+impl<S> Display for ForeignLabel<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl<S: std::fmt::Debug> std::error::Error for ForeignLabel<S> {}
+
+impl<S: SourceCode + std::fmt::Debug> Diagnostic for ForeignLabel<S> {
+    fn severity(&self) -> Option<Severity> {
+        Some(Severity::Advice)
+    }
+
+    fn source_code(&self) -> Option<&dyn SourceCode> {
+        Some(&self.source)
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        Some(Box::new(std::iter::once(LabeledSpan::new_with_span(
+            None, self.span,
+        ))))
     }
 }
 

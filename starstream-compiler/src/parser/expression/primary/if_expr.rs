@@ -1,12 +1,16 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Block, Expr, IfCondition, Spanned};
 
-use crate::parser::{ParserExt, context::Extra, primitives};
+use crate::parser::{
+    ParserExt,
+    context::{Extra, ParserInput},
+    primitives,
+};
 
 pub fn parser<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+    block: impl Parser<'a, ParserInput<'a>, Block, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     let is_condition = primitives::identifier()
         .then_ignore(text::keyword("is").padded())
         .then(primitives::identifier())

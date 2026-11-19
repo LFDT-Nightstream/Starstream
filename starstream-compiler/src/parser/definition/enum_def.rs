@@ -1,9 +1,13 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{EnumDef, EnumVariant, EnumVariantPayload, StructField};
 
-use crate::parser::{comment, context::Extra, primitives, type_annotation};
+use crate::parser::{
+    comment,
+    context::{Extra, ParserInput},
+    primitives, type_annotation,
+};
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, EnumDef, Extra<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, ParserInput<'a>, EnumDef, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
 
     let tuple_payload = type_parser
@@ -91,7 +95,7 @@ mod tests {
     macro_rules! assert_enum_snapshot {
         ($code:expr) => {{
             let parsed = parser()
-                .parse(indoc! { $code })
+                .parse(indoc! { $code }.with_context(starstream_types::ModuleId::ENTRY))
                 .into_result()
                 .expect("enum should parse");
 

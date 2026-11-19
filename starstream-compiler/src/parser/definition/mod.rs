@@ -3,7 +3,7 @@ use starstream_types::ast::Definition;
 
 use crate::parser::recursives;
 
-use super::context::Extra;
+use super::context::{Extra, ParserInput};
 
 mod abi;
 mod contract;
@@ -25,7 +25,7 @@ pub use test::test;
 pub use token::token;
 pub use utxo::utxo;
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, ParserInput<'a>, Definition, Extra<'a>> {
     let (_, block, _) = recursives();
 
     choice((

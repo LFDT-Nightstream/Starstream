@@ -456,7 +456,7 @@ impl<'a> Builder<'a> {
 
     fn parse_star_module(&mut self, abs_path: &Path, idx: usize) -> std::io::Result<()> {
         let source = self.fs.read_to_string(abs_path)?;
-        let parse_output = parser::parse_program(&source);
+        let parse_output = parser::parse_module(&source, self.modules[idx].id);
         let source = Arc::<str>::from(source);
         self.modules[idx].source = source.clone();
         if let Some(program) = parse_output.program {

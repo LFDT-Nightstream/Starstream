@@ -1,11 +1,15 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Expr, Spanned};
 
-use crate::parser::{ParserExt, context::Extra, expression::postfix::arguments};
+use crate::parser::{
+    ParserExt,
+    context::{Extra, ParserInput},
+    expression::postfix::arguments,
+};
 
 pub fn emit<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     text::keyword("emit")
         .padded()
         // TODO: spec says any primary expression, we support only scoped names here
@@ -19,8 +23,8 @@ pub fn emit<'a>(
 }
 
 pub fn raise<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     text::keyword("raise")
         .padded()
         // TODO: spec says any primary expression, we support only scoped names here
@@ -34,8 +38,8 @@ pub fn raise<'a>(
 }
 
 pub fn runtime<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     text::keyword("runtime")
         .padded()
         // TODO: spec says any primary expression, we support only scoped names here
@@ -48,7 +52,7 @@ pub fn runtime<'a>(
         .spanned()
 }
 
-pub fn error<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+pub fn error<'a>() -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     text::keyword("error").to(Expr::Error).spanned()
 }
 

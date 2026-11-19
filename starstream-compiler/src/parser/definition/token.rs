@@ -2,15 +2,15 @@ use chumsky::prelude::*;
 use starstream_types::{Block, FunctionDef, FunctionExport, TokenDef, TokenGlobal, TokenPart};
 
 use crate::parser::{
-    context::Extra,
+    context::{Extra, ParserInput},
     definition::function::function,
     primitives::{self, identifier},
     type_annotation,
 };
 
 pub fn token<'a>(
-    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone,
-) -> impl Parser<'a, &'a str, TokenDef, Extra<'a>> {
+    block: impl Parser<'a, ParserInput<'a>, Block, Extra<'a>> + Clone,
+) -> impl Parser<'a, ParserInput<'a>, TokenDef, Extra<'a>> {
     let token_global = text::keyword("indexed")
         .padded()
         .or_not()
@@ -89,7 +89,7 @@ mod tests {
         ($code:expr) => {{
             let (_, block, _) = $crate::parser::recursives();
             let parsed = token(block)
-                .parse(indoc! { $code })
+                .parse(indoc! { $code }.with_context(starstream_types::ModuleId::ENTRY))
                 .into_result()
                 .expect("token should parse");
 
@@ -173,7 +173,10 @@ mod tests {
         let (_, block, _) = crate::parser::recursives();
         assert!(
             token(block)
-                .parse("token Foo { pub fn value() {} }")
+                .parse(
+                    "token Foo { pub fn value() {} }"
+                        .with_context(starstream_types::ModuleId::ENTRY)
+                )
                 .into_result()
                 .is_err()
         );

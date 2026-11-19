@@ -16,9 +16,9 @@ pub use program::parser as program;
 pub use statement::statement;
 
 use chumsky::prelude::*;
-use starstream_types::{Block, CommentMap, Expr, Spanned, Statement, ast::Program};
+use starstream_types::{Block, CommentMap, Expr, ModuleId, Spanned, Statement, ast::Program};
 
-use crate::parser::context::{Extra, State};
+use crate::parser::context::{Extra, ParserInput, State};
 
 pub struct ParseOutput {
     pub program: Option<Program>,
@@ -53,10 +53,18 @@ impl ParseOutput {
     }
 }
 
+/// Parse a standalone program, such as a single open file. Its spans belong
+/// to [`ModuleId::ENTRY`].
 pub fn parse_program(source: &str) -> ParseOutput {
+    parse_module(source, ModuleId::ENTRY)
+}
+
+/// Parse the source of one module in a module graph, so every span records
+/// that it points into `module`.
+pub fn parse_module(source: &str, module: ModuleId) -> ParseOutput {
     let mut state = context::State::new();
     let (program, errors) = program()
-        .parse_with_state(source, &mut state)
+        .parse_with_state(source.with_context(module), &mut state)
         .into_output_errors();
 
     let errors = errors.into_iter().map(error::ParseError::from).collect();
@@ -69,9 +77,9 @@ pub fn parse_program(source: &str) -> ParseOutput {
 }
 
 fn recursives<'a>() -> (
-    impl Parser<'a, &'a str, Statement, Extra<'a>> + Clone,
-    impl Parser<'a, &'a str, Block, Extra<'a>> + Clone,
-    impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone,
+    impl Parser<'a, ParserInput<'a>, Statement, Extra<'a>> + Clone,
+    impl Parser<'a, ParserInput<'a>, Block, Extra<'a>> + Clone,
+    impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone,
 ) {
     let mut statement_recursive = Recursive::declare();
     let mut block_recursive = Recursive::declare();
@@ -93,9 +101,9 @@ fn recursives<'a>() -> (
 
 trait ParserExt<'a, T>: Sized {
     /// Surround parse result in [Spanned].
-    fn spanned(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>>;
+    fn spanned(self) -> impl Parser<'a, ParserInput<'a>, Spanned<T>, Extra<'a>>;
     /// Surround parse result in [Spanned].
-    fn spanned_clone(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> + Clone
+    fn spanned_clone(self) -> impl Parser<'a, ParserInput<'a>, Spanned<T>, Extra<'a>> + Clone
     where
         Self: Clone;
 }
@@ -124,12 +132,12 @@ macro_rules! spanned_with_comments {
     }};
 }
 
-impl<'a, T, U: Parser<'a, &'a str, T, Extra<'a>>> ParserExt<'a, T> for U {
-    fn spanned(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> {
+impl<'a, T, U: Parser<'a, ParserInput<'a>, T, Extra<'a>>> ParserExt<'a, T> for U {
+    fn spanned(self) -> impl Parser<'a, ParserInput<'a>, Spanned<T>, Extra<'a>> {
         spanned_with_comments!(self)
     }
 
-    fn spanned_clone(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> + Clone
+    fn spanned_clone(self) -> impl Parser<'a, ParserInput<'a>, Spanned<T>, Extra<'a>> + Clone
     where
         Self: Clone,
     {

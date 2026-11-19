@@ -304,6 +304,18 @@ pub fn typecheck_modules(
         warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
     }
 
+    // A label can point into a different module than the one its diagnostic
+    // is reported in, such as an imported function's parameter. Give those
+    // labels their own module's source so they render against the right file.
+    let warnings: Vec<_> = warnings
+        .into_iter()
+        .map(|(id, w)| (id, w.relocate_foreign_labels(id, |m| graph.source(m))))
+        .collect();
+    let all_errors: Vec<_> = all_errors
+        .into_iter()
+        .map(|(id, e)| (id, e.relocate_foreign_labels(id, |m| graph.source(m))))
+        .collect();
+
     if !all_errors.is_empty() {
         return Err(TypecheckModulesFailure {
             errors: all_errors,
@@ -1635,9 +1647,12 @@ impl Inferencer {
                                 expected: abi_param.ty.clone(),
                                 found: impl_param.ty.clone(),
                                 position: i,
-                                param_span: Some(abi_param.ty_span),
                             },
                             impl_param.name.span(),
+                        )
+                        .with_secondary(
+                            abi_param.ty_span,
+                            format!("parameter expects `{}`", abi_param.ty.compact_display()),
                         ));
                     }
                 }
@@ -3821,22 +3836,30 @@ impl Inferencer {
             let typed_arg = self.coerce_utxo_upcast(typed_arg, &param.ty);
             let actual_ty = &typed_arg.node.ty;
 
-            let (_, unify_trace) = self.unify(
-                actual_ty,
-                &param.ty,
-                arg.span,
-                arg.span,
-                TypeErrorKind::ArgumentTypeMismatch {
-                    expected: param.ty.clone(),
-                    found: self.apply_for_display(actual_ty),
-                    position: index + 1,
-                    param_span: if param.ty_span == DUMMY_SPAN {
-                        None
-                    } else {
-                        Some(param.ty_span)
+            let (_, unify_trace) = self
+                .unify(
+                    actual_ty,
+                    &param.ty,
+                    arg.span,
+                    arg.span,
+                    TypeErrorKind::ArgumentTypeMismatch {
+                        expected: param.ty.clone(),
+                        found: self.apply_for_display(actual_ty),
+                        position: index + 1,
                     },
-                },
-            )?;
+                )
+                .map_err(|error| {
+                    if param.ty_span != DUMMY_SPAN
+                        && matches!(*error, TypeErrorKind::ArgumentTypeMismatch { .. })
+                    {
+                        error.with_secondary(
+                            param.ty_span,
+                            format!("parameter expects `{}`", param.ty.compact_display()),
+                        )
+                    } else {
+                        error
+                    }
+                })?;
 
             children.push(arg_trace);
             children.push(unify_trace);

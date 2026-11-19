@@ -1,10 +1,13 @@
-use chumsky::{prelude::*, span::SimpleSpan};
+use chumsky::prelude::*;
 use starstream_types::{
-    Arguments,
+    Arguments, Span,
     ast::{Expr, Identifier, Spanned},
 };
 
-use crate::parser::{context::Extra, primitives};
+use crate::parser::{
+    context::{Extra, ParserInput},
+    primitives,
+};
 
 enum Suffix {
     FieldAccess(Identifier),
@@ -12,8 +15,8 @@ enum Suffix {
 }
 
 pub fn arguments<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Arguments, Extra<'a>> {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Arguments, Extra<'a>> {
     expression
         .separated_by(just(',').padded())
         .allow_trailing()
@@ -22,9 +25,9 @@ pub fn arguments<'a>(
 }
 
 pub fn parser<'a>(
-    lower: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    lower: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     let field_access = just('.')
         .padded()
         .ignore_then(primitives::identifier())
@@ -39,7 +42,7 @@ pub fn parser<'a>(
         .foldl_with(suffix.repeated(), |target, suffix, extra| {
             let start = target.span.start;
             let end = extra.span().end;
-            let span = SimpleSpan::new((), start..end);
+            let span = Span::new(target.span.context, start..end);
 
             match suffix {
                 Suffix::FieldAccess(field) => Spanned::new(
