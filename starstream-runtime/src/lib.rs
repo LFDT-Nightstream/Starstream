@@ -1324,11 +1324,29 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
         Ok(())
     })?;
 
-    linker.func_wrap(
+    linker.func_wrap_async(
         "attach",
-        |store, (token, utxo): (ResourceAny, ResourceAny)| -> wasmtime::Result<()> {
-            _ = (store, token, utxo);
-            bail!("todo: attach");
+        |mut store, (token, utxo): (Resource<Token>, Resource<Utxo<T::UtxoContext>>)| {
+            Box::new(async move {
+                let &Token {
+                    ref component,
+                    instance,
+                    instance_idx,
+                    resource,
+                } = store.data_mut().table().get(&token)?;
+                let idx = component
+                    .get_export_index(Some(&instance_idx), "[method]token.attach")
+                    .context("`[method]token.attach` export was not found")?;
+                let utxo = utxo.try_into_resource_any(&mut store)?;
+                call_func(
+                    &mut store,
+                    &instance,
+                    idx,
+                    &[Val::Resource(resource), Val::Resource(utxo)],
+                    &mut [],
+                )
+                .await
+            })
         },
     )?;
 
