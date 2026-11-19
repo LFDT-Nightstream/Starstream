@@ -231,6 +231,7 @@ fn prove_and_verify(
         timings.interleaving_circuit_reused, timings.interleaving
     );
     eprintln!("total: {:?}", timings.total);
+    eprintln!("prove and compress wall: {:?}", timings.prove_compress_wall);
     let statement = &execution.transaction.statement;
     let started = std::time::Instant::now();
     let expected = starstream_ledger::client::runtime::prepare_verification(
