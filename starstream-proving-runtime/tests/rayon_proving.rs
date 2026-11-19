@@ -9,7 +9,7 @@ use starstream_proving_runtime::{Engine, TransactionProver, decode_captured_exec
 #[ignore = "Nebula proofs; run with --release --features proof-tests -- --ignored"]
 async fn warm_proof_on_the_only_global_rayon_worker_verifies() -> wasmtime::Result<()> {
     ThreadPoolBuilder::new().num_threads(1).build_global()?;
-    let (_, registry) =
+    let (common::TracedExecution { wasm, .. }, registry) =
         common::trace_coordination_script_with_registry(common::MINIMAL_METHOD_CALL, "example")
             .await?;
     let execution = decode_captured_execution(&registry, [])?;
@@ -37,5 +37,6 @@ async fn warm_proof_on_the_only_global_rayon_worker_verifies() -> wasmtime::Resu
             .map(|item| item.coroutine)
             .eq([0, 1].map(common::coroutine_id))
     );
-    prover.verify(&warm, &execution.transaction.statement)
+    let verification = common::prepare_contract_verification(&wasm, "example", &warm)?;
+    prover.verify(&warm, &verification, &execution.transaction.statement)
 }

@@ -327,6 +327,25 @@ impl TracedExecution {
     }
 }
 
+#[cfg(feature = "proof-tests")]
+pub fn prepare_contract_verification(
+    wasm: &[u8],
+    script: &str,
+    proof: &starstream_proving_runtime::TransactionProof,
+) -> wasmtime::Result<starstream_proving_runtime::PreparedVerification> {
+    use starstream_proving_runtime::{VerificationProgram, prepare_verification};
+
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(wasm).into();
+    prepare_verification(
+        &[VerificationProgram {
+            wasm,
+            coordination_exports: &[script],
+            contract_digest: &digest,
+        }],
+        proof.instances.iter().map(|instance| instance.size),
+    )
+}
+
 /// The interleaving prover's packed coroutine id of core instance `index`:
 /// instance 0 is the coordination script `Coord(1)`, later instances are
 /// `Utxo(0)`, `Utxo(1)`, ... in allocation order.

@@ -638,7 +638,7 @@ mod proving {
         assert_eq!(output.utxo, 1);
         let ids = [0, 1, 2].map(common::coroutine_id);
         assert_ne!(traced.commitments[&ids[1]], traced.commitments[&ids[2]]);
-        drop(traced);
+        let wasm = traced.wasm;
         let mut prover = TransactionProver::new(Engine::Optimized);
         let (cold, _) = prover.prove(&registry, &execution)?;
         let expected = cold.interleaving.to_bytes()?;
@@ -653,7 +653,8 @@ mod proving {
                 .eq(ids)
         );
         assert!(warm.interleaving.to_bytes()? == expected);
-        prover.verify(&warm, &execution.transaction.statement)?;
+        let verification = common::prepare_contract_verification(&wasm, "spend", &warm)?;
+        prover.verify(&warm, &verification, &execution.transaction.statement)?;
         drop(warm);
 
         execution.transaction.utxos.swap(0, 1);
