@@ -2161,7 +2161,7 @@ impl Compiler {
         self.upcast_fns.insert(this_ty.clone(), upcast_fn);
         iface.export_fn(
             "upcast",
-            &self.star_to_component_signature(Some(&this_ty), &[], &Type::UtxoAny),
+            &self.star_to_component_signature(Some(&this_ty), &[], &Type::TokenAny),
         );
 
         // Allocate imports for `mint fn`s, `burn fn`s, and ABI impl fns.
