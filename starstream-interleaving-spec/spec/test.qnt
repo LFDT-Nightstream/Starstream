@@ -1,18 +1,25 @@
 module replay_trace {
   import starstream.* from "./starstream"
 
-  action init = { state' = new_tx }
+  pure val ENTRY = "entry"
+  pure val TX_ENTRY = { script: ENTRY, arguments: UNIT_VALUE }
+  action fresh = { state' = new_tx }
+  // The transaction context calls the entry script, which then enters its body.
+  run enter_root = begin_execution(ENTRY, UNIT_VALUE).then(enter_call(ENTRY, UNIT_VALUE))
+  // Execution-only tests start inside the entry script, with no inputs.
+  run init = fresh.then(enter_root)
 
   def method = "0000000000000001000000000000000100000000000000010000000000000001";
   def other_method = "0000000000000002000000000000000100000000000000010000000000000001";
 
-  action init_transaction = { state' = new_transaction(
+  action init_transaction = { state' = new_transaction(TX_ENTRY, 
     List({ storage: UNIT_VALUE, methods: List(method) }),
     List({ utxo: 0, storage: UNIT_VALUE, methods: List(method) })) }
 
   run test_storage_roundtrip = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(method))
@@ -25,7 +32,7 @@ module replay_trace {
     state' = state,
   }
 
-  action init_empty_transaction = { state' = new_transaction(List(), List()) }
+  action init_empty_transaction = { state' = new_transaction(TX_ENTRY, List(), List()) }
 
   run test_constructor_cannot_rebind_even_consumed_resource = init
     .then(new_utxo(UNIT_VALUE))
@@ -40,6 +47,7 @@ module replay_trace {
   run test_constructor_cannot_rebind_input = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(new_utxo(UNIT_VALUE))
     .then(enter_constructor(UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
@@ -47,7 +55,7 @@ module replay_trace {
 
   run test_input_cannot_rebind_input = {
     val input = { storage: UNIT_VALUE, methods: List(method) }
-    val initial = new_transaction(List(input, input), List())
+    val initial = new_transaction(TX_ENTRY, List(input, input), List())
     { state' = initial }
       .then(set_storage(UNIT_VALUE, 0))
       .then(preload_method(method))
@@ -56,23 +64,64 @@ module replay_trace {
   }
 
   run test_coordinator_finalization_required = init_empty_transaction
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(finish_transaction)
     .fail()
 
   run test_coordinator_finalization_only_once = init_empty_transaction
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(finalize_coordinator)
     .then(finalize_coordinator)
     .fail()
 
+  run test_coordinator_finalization_before_entry = init_empty_transaction
+    .then(finalize_coordinator.fail())
+
   run test_coordinator_finalization_after_execution = init_empty_transaction
-    .then(finalize_coordinator)
-    .fail()
+    .then(enter_root)
+    .then(finalize_coordinator.fail())
+
+  run test_return_requires_entry = fresh.then(return({ value: UNIT_VALUE }).fail())
+  run test_call_requires_entry = fresh.then(new_utxo(UNIT_VALUE).fail())
+  run test_enter_requires_entry = fresh.then(enter_call(ENTRY, UNIT_VALUE).fail())
+
+  run test_entry_runs_once = init
+    .then(begin_execution(ENTRY, UNIT_VALUE).fail())
+
+  run test_entry_script_must_match_statement = fresh
+    .then(begin_execution(ENTRY, UNIT_VALUE))
+    .then(enter_call(method, UNIT_VALUE).fail())
+
+  run test_entry_arguments_must_match_statement = fresh
+    .then(begin_execution(ENTRY, List(1, 2, 3, 4)))
+    .then(enter_call(ENTRY, UNIT_VALUE).fail())
+
+  run test_entry_arguments_are_bound = fresh
+    .then(begin_execution(ENTRY, List(1, 2, 3, 4)))
+    .then(enter_call(ENTRY, List(1, 2, 3, 4)))
+    .then(return({ value: UNIT_VALUE }))
+    .then(execution_complete)
+
+  run test_entry_script_is_bound_by_statement = init_empty_transaction
+    .then(begin_execution(method, UNIT_VALUE).fail())
+
+  run test_entry_arguments_are_bound_by_statement = init_empty_transaction
+    .then(begin_execution(ENTRY, List(1, 2, 3, 4)).fail())
+
+  run test_entry_body_requires_enter = fresh
+    .then(begin_execution(ENTRY, UNIT_VALUE))
+    .then(new_utxo(UNIT_VALUE).fail())
+
+  run test_entry_return_requires_enter = fresh
+    .then(begin_execution(ENTRY, UNIT_VALUE))
+    .then(return({ value: UNIT_VALUE }).fail())
 
   run test_coordinator_finalization_after_utxos = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(finalize_coordinator)
     .fail()
@@ -80,6 +129,7 @@ module replay_trace {
   run test_coordinator_finalization_after_abis = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(finalize_coordinator)
@@ -92,8 +142,9 @@ module replay_trace {
     .then(preload_method(method))
     .then(preload_method(method))
     .then(check_abi_count)
+    .then(enter_root)
     .then(call_method(0, method, UNIT_VALUE))
-    .then(enter_method(method, UNIT_VALUE))
+    .then(enter_call(method, UNIT_VALUE))
     .then(yield_begin)
     .then(check_abi_count)
     .then(register_method(other_method))
@@ -107,6 +158,7 @@ module replay_trace {
   run test_missing_output_abi_read_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(finish_transaction)
@@ -115,6 +167,7 @@ module replay_trace {
   run test_extra_output_abi_read_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(method))
@@ -125,13 +178,14 @@ module replay_trace {
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(preload_method(other_method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(other_method))
     .fail()
 
   action init_abi_sequences(inputs: List[MethodHash], outputs: List[MethodHash]): bool = {
-    state' = new_transaction(
+    state' = new_transaction(TX_ENTRY, 
       List({ storage: UNIT_VALUE, methods: inputs }),
       List({ utxo: 0, storage: UNIT_VALUE, methods: outputs }))
   }
@@ -145,8 +199,9 @@ module replay_trace {
   run test_registration_count_bound_and_reset = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(255.reps(i => preload_method(method)))
+    .then(enter_root)
     .then(call_method(0, method, UNIT_VALUE))
-    .then(enter_method(method, UNIT_VALUE))
+    .then(enter_call(method, UNIT_VALUE))
     .then(yield_begin)
     .then(all { assert(state.abi_method_count.get(Utxo(0)) == 0), state' = state })
     .then(255.reps(i => register_method(method)))
@@ -156,6 +211,7 @@ module replay_trace {
   run test_missing_preload_rejected_at_finalization = init_abi_sequences(List(method, other_method), List(method))
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(method))
@@ -167,6 +223,7 @@ module replay_trace {
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(other_method))
     .then(preload_method(method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(other_method))
@@ -179,6 +236,7 @@ module replay_trace {
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(preload_method(other_method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(method))
@@ -191,6 +249,7 @@ module replay_trace {
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(preload_method(method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(method))
@@ -200,18 +259,19 @@ module replay_trace {
     .then(transaction_complete)
 
   run test_execution_does_not_change_initial_abi_binding = {
-    state' = new_transaction(
+    state' = new_transaction(TX_ENTRY, 
       List({ storage: UNIT_VALUE, methods: List(method) }),
       List({ utxo: 0, storage: UNIT_VALUE, methods: List(other_method) }))
   }
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(call_method(0, method, UNIT_VALUE))
-    .then(enter_method(method, UNIT_VALUE))
+    .then(enter_call(method, UNIT_VALUE))
     .then(yield_begin)
     .then(register_method(other_method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_method_result({ value: UNIT_VALUE }))
+    .then(receive_call_result({ value: UNIT_VALUE }))
     .then(return({ value: UNIT_VALUE }))
     .then(get_storage({ value: UNIT_VALUE }))
     .then(read_abi(other_method))
@@ -232,20 +292,21 @@ module replay_trace {
     )
     val first_handle = 7
     val second_handle = 8
-    { state' = new_transaction(inputs, outputs) }
+    { state' = new_transaction(TX_ENTRY, inputs, outputs) }
       .then(set_storage(first_storage, first_handle))
       .then(preload_method(method))
       .then(set_storage(second_storage, second_handle))
       .then(preload_method(other_method))
       // Both handles belong to the same coordinator, but resolve to different UTXOs.
+      .then(enter_root)
       .then(call_method(first_handle, method, UNIT_VALUE))
-      .then(enter_method(method, UNIT_VALUE))
+      .then(enter_call(method, UNIT_VALUE))
       .then(return({ value: UNIT_VALUE }))
-      .then(receive_method_result({ value: UNIT_VALUE }))
+      .then(receive_call_result({ value: UNIT_VALUE }))
       .then(call_method(second_handle, other_method, UNIT_VALUE))
-      .then(enter_method(other_method, UNIT_VALUE))
+      .then(enter_call(other_method, UNIT_VALUE))
       .then(return({ value: UNIT_VALUE }))
-      .then(receive_method_result({ value: UNIT_VALUE }))
+      .then(receive_call_result({ value: UNIT_VALUE }))
       .then(return({ value: UNIT_VALUE }))
       .then(get_storage({ value: first_storage }))
       .then(read_abi(method))
@@ -259,17 +320,18 @@ module replay_trace {
   run test_storage_during_execution_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(call_method(0, method, UNIT_VALUE))
     .then(set_storage(UNIT_VALUE, 0))
     .fail()
 
   run test_execution_before_inputs_loaded_fails = init_transaction
-    .then(return({ value: UNIT_VALUE }))
-    .fail()
+    .then(begin_execution(ENTRY, UNIT_VALUE).fail())
 
   run test_export_during_execution_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(call_method(0, method, UNIT_VALUE))
     .then(get_storage({ value: UNIT_VALUE }))
     .fail()
@@ -277,18 +339,19 @@ module replay_trace {
   run test_preload_after_execution_starts_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(call_method(0, method, UNIT_VALUE))
     .then(preload_method(method))
     .fail()
 
   run test_execution_before_input_abi_loaded_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
-    .then(return({ value: UNIT_VALUE }))
-    .fail()
+    .then(begin_execution(ENTRY, UNIT_VALUE).fail())
 
   run test_missing_storage_export_fails = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
+    .then(enter_root)
     .then(return({ value: UNIT_VALUE }))
     .then(finish_transaction)
     .fail()
@@ -352,9 +415,9 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
-    .then(enter_method(method, List(42, 0, 0, 0)))
+    .then(enter_call(method, List(42, 0, 0, 0)))
     .then(return({ value: List(7, 8, 0, 0) }))
-    .then(receive_method_result({ value: List(7, 8, 0, 0) }))
+    .then(receive_call_result({ value: List(7, 8, 0, 0) }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
@@ -389,7 +452,7 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, method, UNIT_VALUE))
-    .then(enter_method(method, UNIT_VALUE))
+    .then(enter_call(method, UNIT_VALUE))
     .then(yield_begin)
     .then(raise_effect(method, UNIT_VALUE))
     .fail()
@@ -403,13 +466,13 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
-    .then(enter_method(method, List(42, 0, 0, 0)))
+    .then(enter_call(method, List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_method_result({ value: UNIT_VALUE }))
+    .then(receive_call_result({ value: UNIT_VALUE }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
-    .then(enter_method(method, List(42, 0, 0, 0)))
+    .then(enter_call(method, List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_method_result({ value: UNIT_VALUE }))
+    .then(receive_call_result({ value: UNIT_VALUE }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
@@ -420,7 +483,7 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, method, UNIT_VALUE))
-    .then(enter_method(method, UNIT_VALUE))
+    .then(enter_call(method, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
     .then(return({ value: UNIT_VALUE }))
     .fail()
@@ -432,7 +495,7 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, method, UNIT_VALUE))
-    .then(enter_method(method, UNIT_VALUE))
+    .then(enter_call(method, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
     .then(raise_effect(other_method, UNIT_VALUE))
     .fail()
@@ -461,7 +524,7 @@ module replay_trace {
     .then(return({ value: List(1, 0, 0, 0) }))
     .fail()
 
-  run test_enter_method_twice_fails =
+  run test_enter_call_twice_fails =
     init
     .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
@@ -469,11 +532,11 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
-    .then(enter_method(method, List(42, 0, 0, 0)))
-    .then(enter_method(method, List(42, 0, 0, 0)))
+    .then(enter_call(method, List(42, 0, 0, 0)))
+    .then(enter_call(method, List(42, 0, 0, 0)))
     .fail()
 
-  run test_enter_method_with_wrong_method_fails =
+  run test_enter_call_with_wrong_method_fails =
     init
     .then(new_utxo(List(42, 0, 0, 0)))
     .then(enter_constructor(List(42, 0, 0, 0)))
@@ -481,7 +544,7 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
-    .then(enter_method(other_method, List(42, 0, 0, 0)))
+    .then(enter_call(other_method, List(42, 0, 0, 0)))
     .fail()
 
   run test_call_unregistered_method_fails =
@@ -522,15 +585,15 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 1 }))
     .then(call_method(0, method, UNIT_VALUE))
-    .then(enter_method(method, UNIT_VALUE))
+    .then(enter_call(method, UNIT_VALUE))
     .then(yield_begin)
     .then(register_method(other_method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_method_result({ value: UNIT_VALUE }))
+    .then(receive_call_result({ value: UNIT_VALUE }))
     .then(call_method(1, method, UNIT_VALUE))
-    .then(enter_method(method, UNIT_VALUE))
+    .then(enter_call(method, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_method_result({ value: UNIT_VALUE }))
+    .then(receive_call_result({ value: UNIT_VALUE }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
@@ -553,11 +616,11 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
-    .then(enter_method(method, List(42, 0, 0, 0)))
+    .then(enter_call(method, List(42, 0, 0, 0)))
     .then(yield_begin)
     .then(register_method(other_method))
     .then(return({ value: UNIT_VALUE }))
-    .then(receive_method_result({ value: UNIT_VALUE }))
+    .then(receive_call_result({ value: UNIT_VALUE }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
     .fail()
 
@@ -569,7 +632,7 @@ module replay_trace {
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(call_method(0, method, List(42, 0, 0, 0)))
-    .then(enter_method(method, List(42, 0, 0, 0)))
+    .then(enter_call(method, List(42, 0, 0, 0)))
     .then(return({ value: List(7, 9, 0, 0) }))
-    .then(receive_method_result({ value: List(7, 8, 0, 0) }).fail())
+    .then(receive_call_result({ value: List(7, 8, 0, 0) }).fail())
 }

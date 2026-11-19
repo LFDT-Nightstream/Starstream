@@ -8,23 +8,28 @@ pub(crate) fn fixture() -> (Trace, TransactionStatement) {
     let method = MethodHash([1; 8]);
     let storage = StarstreamValue([11, 12, 13, 14]);
     (
-        Trace::new([
-            Step::SetStorage {
-                storage: storage.clone(),
-                coordinator_handle: ResourceHandle(0),
-            },
-            Step::PreloadMethod { method },
-            Step::Return {
-                result: StarstreamValue::UNIT_VALUE.into(),
-            },
-            Step::GetStorage {
-                storage: storage.clone().into(),
-            },
-            Step::ReadAbi { method },
-            Step::FinalizeCoordinator,
-            Step::FinishTransaction,
-        ]),
+        crate::tests::loaded(
+            [
+                Step::SetStorage {
+                    storage: storage.clone(),
+                    entry_utxo_handle: ResourceHandle(0),
+                },
+                Step::PreloadMethod { method },
+            ],
+            [
+                Step::Return {
+                    result: StarstreamValue::UNIT_VALUE.into(),
+                },
+                Step::GetStorage {
+                    storage: storage.clone().into(),
+                },
+                Step::ReadAbi { method },
+                Step::FinalizeCoordinator,
+                Step::FinishTransaction,
+            ],
+        ),
         TransactionStatement {
+            entry: crate::tests::ENTRY,
             inputs: vec![InputUtxo {
                 storage: storage.clone(),
                 methods: vec![method],
@@ -41,7 +46,7 @@ pub(crate) fn fixture() -> (Trace, TransactionStatement) {
 #[test]
 fn final_instance_roots_are_authenticated_by_memory() {
     let unit = StarstreamValue::UNIT_VALUE;
-    let consumed = Trace::new([
+    let consumed = crate::tests::entered([
         Step::NewUtxo {
             arguments: unit.clone(),
         },
@@ -99,17 +104,24 @@ fn count_ram_resets_and_outputs_accept_multiple_registrations() {
     let method = MethodHash([1; 8]);
     let (mut trace, _) = fixture();
     trace.0.insert(trace.0.len() - 2, Step::ReadAbi { method });
+    // Two more preloads while loading, then a call in the entry body.
     trace.0.splice(
         2..2,
         [
             Step::PreloadMethod { method },
             Step::PreloadMethod { method },
+        ],
+    );
+    let body = 4 + crate::tests::ENTRY_STEPS;
+    trace.0.splice(
+        body..body,
+        [
             Step::CallMethod {
                 resource: ResourceHandle(0),
                 method,
                 arguments: StarstreamValue::UNIT_VALUE,
             },
-            Step::EnterMethod {
+            Step::EnterCall {
                 method,
                 arguments: StarstreamValue::UNIT_VALUE,
             },
@@ -119,7 +131,7 @@ fn count_ram_resets_and_outputs_accept_multiple_registrations() {
             Step::Return {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
-            Step::ReceiveMethodResult {
+            Step::ReceiveCallResult {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
         ],
@@ -200,14 +212,15 @@ fn registration_counts_are_bounded_and_reset_per_generation() {
     for opcode in [Opcode::PreloadMethod, Opcode::RegisterMethod] {
         let mut trace = Trace::new([base.0[0].clone()]);
         if opcode == Opcode::RegisterMethod {
+            trace.0.push(Step::PreloadMethod { method });
+            trace.0.extend(crate::tests::entered([]).0);
             trace.0.extend([
-                Step::PreloadMethod { method },
                 Step::CallMethod {
                     resource: ResourceHandle(0),
                     method,
                     arguments: StarstreamValue::UNIT_VALUE,
                 },
-                Step::EnterMethod {
+                Step::EnterCall {
                     method,
                     arguments: StarstreamValue::UNIT_VALUE,
                 },
@@ -344,30 +357,106 @@ fn execution_phase_transition_is_one_way() {
         .iter()
         .find(|step| step.opcode.is_execution())
         .unwrap();
+    let entry = normalized
+        .steps
+        .iter()
+        .find(|step| step.opcode == Opcode::BeginExecution)
+        .unwrap();
     let relation = crate::ccs::build_relation().unwrap();
-    for before in [TxPhase::Loading, TxPhase::Running, TxPhase::Finished] {
-        let mut row = build_witness_vector(step);
-        row[COL_TX_PHASE_BEFORE] = F::new(before as u64);
-        range_check_layout().assign_bits(&mut row).unwrap();
-        let result = neo_ccs::check_ccs_rowwise_zero(
-            relation.r1cs().structure(),
-            &row[..PUBLIC_INPUTS],
-            &row[PUBLIC_INPUTS..],
-        );
-        // Check the row in isolation so continuity cannot mask a missing phase guard.
-        if matches!(before, TxPhase::Loading | TxPhase::Running) {
-            result.unwrap();
-            assert_eq!(row[COL_TX_PHASE_AFTER], F::new(TxPhase::Running as u64));
-        } else {
-            let Err(neo_ccs::CcsError::RowFail { row }) = result else {
-                panic!("unexpected phase check: {result:?}");
-            };
-            assert_eq!(
-                relation.r1cs().catalog().rows()[row].tag().label(),
-                "transaction boundaries"
+    // Only the entry call leaves Loading; execution rows stay in Running.
+    for (step, accepted) in [(entry, TxPhase::Loading), (step, TxPhase::Running)] {
+        for before in [TxPhase::Loading, TxPhase::Running, TxPhase::Finished] {
+            let mut row = build_witness_vector(step);
+            row[COL_TX_PHASE_BEFORE] = F::new(before as u64);
+            range_check_layout().assign_bits(&mut row).unwrap();
+            let result = neo_ccs::check_ccs_rowwise_zero(
+                relation.r1cs().structure(),
+                &row[..PUBLIC_INPUTS],
+                &row[PUBLIC_INPUTS..],
             );
+            // Check the row in isolation so continuity cannot mask a missing phase guard.
+            if before == accepted {
+                result.unwrap();
+                assert_eq!(row[COL_TX_PHASE_AFTER], F::new(TxPhase::Running as u64));
+            } else {
+                let Err(neo_ccs::CcsError::RowFail { row }) = result else {
+                    panic!(
+                        "unexpected phase check: {:?}, {before:?}: {result:?}",
+                        step.opcode
+                    );
+                };
+                assert_eq!(
+                    relation.r1cs().catalog().rows()[row].tag().label(),
+                    "transaction boundaries"
+                );
+            }
         }
     }
+}
+
+#[test]
+fn entry_call_is_bound_to_the_statement_and_the_entry_event() {
+    let (trace, statement) = fixture();
+    let normalized = normalize(&trace);
+    let rows = normalized
+        .steps
+        .iter()
+        .map(build_witness_vector)
+        .collect::<Vec<_>>();
+    let preload = crate::memory::preload_tables(&normalized.method_table);
+    check_statement(&rows, &statement).unwrap();
+    // A different script or argument root is a different statement.
+    let mut script = statement.clone();
+    script.entry.script.0[0] ^= 1;
+    let mut arguments = statement.clone();
+    arguments.entry.arguments.0[0] += 1;
+    for changed in [script, arguments] {
+        assert!(matches!(
+            check_statement(&rows, &changed),
+            Err(Error::Unsatisfied(Unsatisfied::TransactionStatement))
+        ));
+    }
+    // The entry coordinator's own event must name the called script and
+    // arguments: the frame pushed by the entry call is read back on entry.
+    let begin = normalized
+        .steps
+        .iter()
+        .position(|step| step.opcode == Opcode::BeginExecution)
+        .unwrap();
+    for column in [
+        COL_METHOD_HASH_VALUE[0],
+        COL_CALL_STACK_EXPECTED_ARG_VALUE[0],
+    ] {
+        let mut changed = rows.clone();
+        changed[begin][column] += F::ONE;
+        crate::commitment::assign_from_bus(&mut changed[begin], Opcode::BeginExecution);
+        range_check_layout()
+            .assign_bits(&mut changed[begin])
+            .unwrap();
+        // Refresh the transaction chain so only the frame read can reject.
+        let mut chain = [F::ZERO; 4];
+        for (row, step) in changed.iter_mut().zip(&normalized.steps) {
+            for (c, value) in COL_IO_BEFORE.into_iter().zip(chain) {
+                row[c] = value;
+            }
+            crate::commitment::assign_from_bus(row, step.opcode);
+            chain = COL_IO_AFTER.map(|c| row[c]);
+        }
+        assert!(
+            matches!(
+                crate::verify_witness_rows(&changed, &preload),
+                Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
+            ),
+            "column {column}"
+        );
+    }
+    // Execution cannot start without the entry call, nor the call repeat.
+    let mut skipped = trace.clone();
+    skipped.0.remove(begin);
+    assert!(crate::verify_sat(&skipped).is_err());
+    let mut repeated = trace;
+    repeated.0.insert(begin, repeated.0[begin].clone());
+    assert!(crate::verify_sat(&repeated).is_err());
 }
 
 #[test]
@@ -385,6 +474,11 @@ fn transaction_witness_tampering_is_rejected() {
 
     for (opcode, column, value) in [
         (Opcode::SetStorage, COL_TX_PHASE_BEFORE, F::ONE),
+        (Opcode::BeginExecution, COL_TX_PHASE_BEFORE, F::ONE),
+        (Opcode::BeginExecution, COL_TX_PHASE_AFTER, F::ZERO),
+        (Opcode::BeginExecution, COL_CALL_TARGET, F::new(4)),
+        (Opcode::BeginExecution, COL_CALL_SP_AFTER, F::ZERO),
+        (Opcode::EnterCall, COL_TX_PHASE_BEFORE, F::ZERO),
         (Opcode::Return, COL_TX_PHASE_AFTER, F::ZERO),
         (Opcode::Return, COL_TX_PHASE_BEFORE, F::new(2)),
         (Opcode::PreloadMethod, COL_METHOD_APPEND, F::ZERO),
@@ -411,8 +505,8 @@ fn transaction_witness_tampering_is_rejected() {
         ),
         (
             Opcode::FinalizeCoordinator,
-            COL_COORD_FINALIZED_BEFORE,
-            F::ONE,
+            COL_COORD_CURSOR_BEFORE,
+            F::new(2),
         ),
         (Opcode::FinalizeCoordinator, COL_TRACE_ROOT_READ, F::ZERO),
     ] {

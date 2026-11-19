@@ -111,7 +111,8 @@ impl From<Vec<u32>> for StarstreamValue {
 /// coroutine that produced it.
 ///
 /// Execution-only replay starts in `new_tx`; transaction replay starts in
-/// `new_transaction` and includes loading/finalization steps.
+/// `new_transaction` and includes loading/finalization steps. Both open with
+/// `BeginExecution` once any inputs are loaded.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Step {
@@ -119,7 +120,7 @@ pub enum Step {
         storage: StarstreamValue,
         /// Host-supplied Coord(1)-local binding, not a wasm return value.
         /// Excluded from both the program event and transaction IO commitments.
-        coordinator_handle: ResourceHandle,
+        entry_utxo_handle: ResourceHandle,
     },
     /// Ledger-supplied ABI entry for the most recently loaded UTXO; no program event.
     PreloadMethod {
@@ -134,9 +135,22 @@ pub enum Step {
     },
     /// Advance the finalization scan without exporting a consumed UTXO.
     SkipConsumed,
-    /// Enumerate Coord(1)'s final trace root after all UTXOs; no program event.
+    /// Enumerate the next coordinator's final trace root after all UTXOs; no program event.
     FinalizeCoordinator,
     FinishTransaction,
+    /// Host-synthesized call from the transaction context into the entry
+    /// script, after loading; no program event. Bound by the statement's
+    /// [`EntryCall`] and matched by the entry coordinator's `EnterCall`.
+    BeginExecution {
+        script: MethodHash,
+        arguments: StarstreamValue,
+    },
+    /// Imported script call. Identity binds contract, export name, and scalar ABI.
+    /// The fresh callee opens with a matching `EnterCall`.
+    CallCoordinator {
+        script: MethodHash,
+        arguments: StarstreamValue,
+    },
     NewUtxo {
         arguments: StarstreamValue,
     },
@@ -158,12 +172,15 @@ pub enum Step {
         method: MethodHash,
         arguments: StarstreamValue,
     },
-    /// Receive the completed top frame's result; the Wasm proof pairs this
-    /// return with its suspended method import.
-    ReceiveMethodResult {
+    /// Receive the completed top frame's result, from a UTXO method or an
+    /// imported script alike; the Wasm proof pairs this return with its
+    /// suspended import.
+    ReceiveCallResult {
         result: Out<StarstreamValue>,
     },
-    EnterMethod {
+    /// Entry into a called export: a UTXO method (method hash) or a
+    /// coordination script (script identity), including the entry script.
+    EnterCall {
         method: MethodHash,
         arguments: StarstreamValue,
     },
@@ -222,9 +239,17 @@ pub struct OutputUtxo {
     pub methods: Vec<MethodHash>,
 }
 
+/// The script the transaction runs, and its (opaque) argument root.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntryCall {
+    pub script: MethodHash,
+    pub arguments: StarstreamValue,
+}
+
 /// Inputs receive consecutive UTXO IDs; outputs are ordered by surviving ID.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransactionStatement {
+    pub entry: EntryCall,
     pub inputs: Vec<InputUtxo>,
     pub outputs: Vec<OutputUtxo>,
 }
@@ -232,5 +257,25 @@ pub struct TransactionStatement {
 impl Trace {
     pub fn new(steps: impl IntoIterator<Item = Step>) -> Self {
         Self(steps.into_iter().collect())
+    }
+
+    /// An interleaved execution of `body`, the entry coordinator's steps after
+    /// its entry event: `BeginExecution` and the matching `EnterCall` first.
+    pub fn with_entry(entry: &EntryCall, body: impl IntoIterator<Item = Step>) -> Self {
+        Self(
+            [
+                Step::BeginExecution {
+                    script: entry.script,
+                    arguments: entry.arguments.clone(),
+                },
+                Step::EnterCall {
+                    method: entry.script,
+                    arguments: entry.arguments.clone(),
+                },
+            ]
+            .into_iter()
+            .chain(body)
+            .collect(),
+        )
     }
 }

@@ -23,17 +23,25 @@ impl WasmTraceSink for Ctx {
     }
 }
 
-fn build_templates(contract: &CompiledContract) -> wasmtime::Result<ComponentTemplates> {
+/// Templates of the contract identified by its raw SHA-256 digest.
+fn build_templates(
+    contract: &CompiledContract,
+    digest: &[u8; 32],
+) -> wasmtime::Result<ComponentTemplates> {
     let scripts = contract
         .contract
         .coordination_script_names()
         .collect::<Vec<_>>();
-    build_component_templates(&contract.instrumented, &scripts)
+    build_component_templates(&contract.instrumented, &scripts, digest)
         .context("failed to build trace templates")
 }
 
-fn register_tracing(cx: &mut Ctx, contract: &CompiledContract) -> wasmtime::Result<()> {
-    let templates = build_templates(contract)?;
+fn register_tracing(
+    cx: &mut Ctx,
+    contract: &CompiledContract,
+    digest: &[u8; 32],
+) -> wasmtime::Result<()> {
+    let templates = build_templates(contract, digest)?;
     register_tracing_component(cx, &contract.instrumented, &templates.bindings)
 }
 
@@ -48,7 +56,7 @@ fn register_imports(
             continue;
         };
         if registered.insert(*digest) {
-            register_tracing(cx, contract)?;
+            register_tracing(cx, contract, digest)?;
         }
     }
     Ok(())
@@ -105,7 +113,7 @@ impl Tracing {
                     "traced input loading requires direct scalar/resource arguments"
                 );
             }
-            let templates = build_templates(contract)?;
+            let templates = build_templates(contract, &digest)?;
             enable_tracing(store)?;
             let cx = store.data_mut();
             register_tracing_component(cx, &contract.instrumented, &templates.bindings)?;
@@ -120,18 +128,20 @@ impl Tracing {
         }
     }
 
-    /// Register `contract` of an input UTXO passed as the coordinator's core local `local`
+    /// Register `contract`, identified by `digest`, of an input UTXO passed as
+    /// the coordinator's core local `local`
     pub fn register_input(
         &mut self,
         store: &mut Store<Ctx>,
         contract: &CompiledContract,
+        digest: [u8; 32],
         imports: &HashMap<[u8; 32], Contract>,
         local: usize,
         methods: &BTreeSet<(u64, u64, u64, u64)>,
     ) {
         let cx = store.data_mut();
         if self.templates.is_ok()
-            && let Err(err) = register_tracing(cx, contract)
+            && let Err(err) = register_tracing(cx, contract, &digest)
                 .and_then(|()| register_imports(cx, imports, &mut self.registered))
         {
             self.templates = Err(err);

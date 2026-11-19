@@ -29,16 +29,27 @@ The core specification is in the `spec/starstream.qnt` file.
 [`src/events.rs`](src/events.rs) defines the outer event encoding for program trace commitments.
 
 Transaction replay uses `new_transaction` / `verify_transaction`: load storage and
-ABIs, then execute (the first execution step closes loading). After the terminal
-return, the empty call stack allows output processing; the phase stays `Running`
-until `finish_transaction` sets `Finished`.
+ABIs, then `begin_execution` closes loading by calling the entry script. This step
+is host-synthesized, like `preload_method`: the transaction context, Coord(0), calls
+a fresh coordinator (always Coord(1)) with the script identity and argument root of
+the statement's entry call, and the entry coordinator's own `enter_call` event must
+match them. The entry script is therefore entered exactly like an imported one, and
+a transaction commits to what it ran. After the terminal return, the empty call
+stack allows output processing; the phase stays `Running` until `finish_transaction`
+sets `Finished`.
 Finalization scans every UTXO in ID order (`get_storage` or `skip_consumed`). Each
 `get_storage` is followed by `read_abi` for every final-generation registration,
 in order, including duplicates, matching `OutputUtxo.methods`. These host-synthesized
 reads are not program events. After the UTXO/ABI scan, `finalize_coordinator`
-enumerates Coord(1)'s trace root exactly once, then `finish_transaction` completes
-the transaction. Coord(0) is only a sentinel; multiple coordinators are not modeled yet.
-Execution-only tests can still use `new_tx` / `verify`.
+enumerates every allocated coordinator in ID order, starting at Coord(1), then
+`finish_transaction` completes the transaction once the scan has reached the
+allocator. Coord(0) owns no trace and is never finalized.
+The circuit arithmetizes both the entry call and `call_coordinator`: each
+targets the next coordinator from an allocator carried in the IVC state, and the
+finalization scan reads every allocated coordinator's final trace root into the
+transaction digest.
+Execution-only tests can still use `new_tx` / `verify`; they also open with
+`begin_execution`, with no statement to check the entry call against.
 
 The shared `spec/sim_core.qnt` loads sampled inputs, explores execution, then
 synthesizes matching outputs once, tracked by a simulator-only `outputs_installed`

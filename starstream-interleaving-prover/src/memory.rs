@@ -25,8 +25,8 @@ use crate::ccs::layout::{
     COL_METHOD_HASH_VALUE, COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR,
     COL_OUT_WORDS, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE,
     COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
-    COL_SEL_CALL_METHOD, COL_SEL_ENTER_EFFECT_HANDLER, COL_SEL_ENTER_METHOD,
-    COL_SEL_EXIT_EFFECT_HANDLER, COL_SEL_READ_ABI, COL_SEL_RECEIVE_METHOD_RESULT,
+    COL_SEL_CALL_METHOD, COL_SEL_ENTER_CALL, COL_SEL_ENTER_EFFECT_HANDLER,
+    COL_SEL_EXIT_EFFECT_HANDLER, COL_SEL_READ_ABI, COL_SEL_RECEIVE_CALL_RESULT,
     COL_SEL_RECEIVE_NEW_UTXO_HANDLE, COL_SEL_RESUME_EFFECT, COL_SEL_RETURN, COL_SEL_YIELD_BEGIN,
     COL_TRACE_ROOT_READ, range_check_layout,
 };
@@ -465,7 +465,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
                             address_columns: vec![address],
                             value_column: value,
                             kind: MemoryPortKind::Read,
-                            activation: MemoryPortActivation::When(COL_SEL_RECEIVE_METHOD_RESULT),
+                            activation: MemoryPortActivation::When(COL_SEL_RECEIVE_CALL_RESULT),
                         }),
                 )
                 .collect(),
@@ -488,7 +488,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
                     .into_iter()
                     .chain(
                         [
-                            COL_SEL_ENTER_METHOD,
+                            COL_SEL_ENTER_CALL,
                             COL_SEL_ENTER_EFFECT_HANDLER,
                             COL_SEL_SKIP_EFFECT_HANDLER,
                         ]
@@ -584,7 +584,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
                     address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
                     value_column: COL_CALL_FRAME_SAVED_PHASE,
                     kind: MemoryPortKind::Read,
-                    activation: MemoryPortActivation::When(COL_SEL_RECEIVE_METHOD_RESULT),
+                    activation: MemoryPortActivation::When(COL_SEL_RECEIVE_CALL_RESULT),
                 },
             ],
         },

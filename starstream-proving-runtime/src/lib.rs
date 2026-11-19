@@ -1,3 +1,4 @@
+mod coordinator_abi;
 mod decoder;
 mod effect_abi;
 mod execution;

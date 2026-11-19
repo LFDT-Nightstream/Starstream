@@ -72,6 +72,19 @@ fn method_hash(name: &str) -> MethodHash {
     method_hash_from_name(name)
 }
 
+/// The entry call the coordinator's own trace commits to: these fixtures'
+/// entry scripts take no arguments. The statement must carry the same call.
+fn entry_call(execution: &TracedExecution) -> starstream_interleaving_spec::EntryCall {
+    let Some(Step::EnterCall { method, arguments }) = execution.instances[0].steps.0.first() else {
+        panic!("the entry coordinator must open with its entry event");
+    };
+    assert_eq!(*arguments, UNIT);
+    starstream_interleaving_spec::EntryCall {
+        script: *method,
+        arguments: arguments.clone(),
+    }
+}
+
 fn call(resource: ResourceHandle, method: &str, argument: u64) -> Step {
     Step::CallMethod {
         resource,
@@ -80,12 +93,12 @@ fn call(resource: ResourceHandle, method: &str, argument: u64) -> Step {
     }
 }
 
-fn receive_method_result() -> Step {
-    Step::ReceiveMethodResult { result: Out(UNIT) }
+fn receive_call_result() -> Step {
+    Step::ReceiveCallResult { result: Out(UNIT) }
 }
 
 fn enter(method: &str, argument: u64) -> Step {
-    Step::EnterMethod {
+    Step::EnterCall {
         method: method_hash(method),
         arguments: u64_root(argument),
     }
@@ -95,6 +108,14 @@ fn register(method: &str) -> Step {
     Step::RegisterMethod {
         method: method_hash(method),
     }
+}
+
+/// The entry coordinator's own trace: its entry event, then `body`.
+fn entry_coordinator(
+    entry: &starstream_interleaving_spec::EntryCall,
+    body: impl IntoIterator<Item = Step>,
+) -> Trace {
+    Trace::new(Trace::with_entry(entry, body).0.split_off(1))
 }
 
 /// The resource handle the coordinator observed for its single constructor.
@@ -125,7 +146,7 @@ fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
             resource: Out(resource),
         },
         call(resource, "accept", 13),
-        receive_method_result(),
+        receive_call_result(),
         ret(),
     ]);
     let utxo = Trace::new([
@@ -150,7 +171,7 @@ fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
         },
     ];
     for (method, argument) in calls {
-        coordinator.extend([call(resource, method, argument), receive_method_result()]);
+        coordinator.extend([call(resource, method, argument), receive_call_result()]);
     }
     coordinator.push(ret());
 
@@ -185,7 +206,11 @@ fn check_execution(
         bail!("expected one coordinator and one UTXO trace, got {traces:?}");
     };
     let [expected_coordinator, expected_utxo] = expected(constructed_resource(coordinator));
-    assert_eq!(*coordinator, expected_coordinator);
+    // The coordinator's body follows its entry event.
+    assert_eq!(
+        *coordinator,
+        entry_coordinator(&entry_call(execution), expected_coordinator.0)
+    );
     let Some((Step::GetStorage { storage }, executed)) = utxo.0.split_last() else {
         bail!("the surviving UTXO must end with its storage read: {utxo:?}");
     };
@@ -202,6 +227,7 @@ fn check_transaction(
     assert_eq!(
         transaction.statement,
         TransactionStatement {
+            entry: entry_call(execution),
             inputs: vec![],
             outputs: vec![OutputUtxo {
                 utxo: 0,
@@ -277,7 +303,8 @@ async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> 
     let effect = effect_hash_from_names("foo", "hello");
     // The compiler numbers `try` blocks from 1.
     let frame_id = 1;
-    let expected = Trace::new([
+    let entry = entry_call(&execution);
+    let body = [
         Step::PushEffectHandlerFrame { frame_id },
         Step::AddEffectHandler { effect },
         Step::RaiseEffect {
@@ -296,12 +323,16 @@ async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> 
         Step::ResumeEffect { result: Out(UNIT) },
         Step::PopEffectHandlerFrame,
         ret(),
-    ]);
+    ];
     assert_eq!(
         execution.semantic_traces().as_slice(),
-        std::slice::from_ref(&expected)
+        [entry_coordinator(&entry, body.clone())]
     );
-    assert_eq!(execution.transaction.execution, expected);
+    // The interleaved execution opens with the host's entry call.
+    assert_eq!(
+        execution.transaction.execution,
+        Trace::with_entry(&entry, body)
+    );
     verify_sat(&execution.transaction.execution)
         .map_err(|error| wasmtime::format_err!("circuit rejected effect re-entry: {error}"))?;
     Ok(())
@@ -401,7 +432,7 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
                 method: method_hash(method),
                 arguments: UNIT,
             },
-            Step::EnterMethod {
+            Step::EnterCall {
                 method: method_hash(method),
                 arguments: UNIT,
             },
@@ -410,10 +441,13 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
             expected.push(Step::YieldBegin);
         }
         expected.push(ret());
-        expected.push(receive_method_result());
+        expected.push(receive_call_result());
     }
     expected.push(ret());
-    assert_eq!(execution.transaction.execution, Trace::new(expected));
+    assert_eq!(
+        execution.transaction.execution,
+        Trace::with_entry(&entry_call(&execution), expected)
+    );
 
     let storage_root = |instance: usize| match execution.instances[instance].steps.0.last() {
         Some(Step::GetStorage { storage }) => storage.0.clone(),
@@ -437,6 +471,7 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
     assert_eq!(
         transaction.statement,
         TransactionStatement {
+            entry: entry_call(&execution),
             inputs: vec![],
             outputs: vec![
                 OutputUtxo {
@@ -499,7 +534,7 @@ fn call_other_types_method(trace: &Trace) -> (Trace, usize) {
     // the missing membership in the target UTXO's ABI.
     for step in &mut invalid.0[index..=index + 1] {
         match step {
-            Step::CallMethod { method, .. } | Step::EnterMethod { method, .. } => {
+            Step::CallMethod { method, .. } | Step::EnterCall { method, .. } => {
                 *method = method_hash("finish")
             }
             other => panic!("expected call/enter pair, got {other:?}"),
@@ -537,7 +572,7 @@ async fn distinct_utxo_types_route_shared_methods_and_reject_foreign_methods()
         let entered: Vec<_> = steps
             .iter()
             .filter_map(|step| match step {
-                Step::EnterMethod { method, .. } => Some(*method),
+                Step::EnterCall { method, .. } => Some(*method),
                 _ => None,
             })
             .collect();
@@ -678,7 +713,7 @@ async fn storage_counter_transaction_satisfies_the_circuit() -> wasmtime::Result
     assert_eq!(execution.instances.len(), 2);
     assert_eq!(
         execution.transaction.statement,
-        common::storage_counter_statement()
+        common::storage_counter_statement(entry_call(&execution))
     );
     verify_transaction_sat(
         &execution.transaction.trace,

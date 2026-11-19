@@ -20,7 +20,7 @@ use crate::{
             COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER,
             COL_NEXT_UTXO_ID_BEFORE, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_READ,
             COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_RESULT_ROOT,
-            COL_RETURN_REQUIRES_UNIT, COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO, COL_SEL_RAISE_EFFECT,
+            COL_RETURN_REQUIRES_UNIT, COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO,
             COL_SEL_RECEIVE_NEW_UTXO_HANDLE, SELECTORS, range_check_layout,
         },
         tags::{ConstraintScope, always, opcode_tag, opcode_tags},
@@ -92,10 +92,13 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     );
 
     b.with_tag(always("non-execution preserves coroutine state"), |b| {
-        // Padding already preserves these carried columns above.
+        // Padding already preserves these carried columns above. The entry
+        // call is the one host step that hands control to a coroutine.
         let non_execution = Opcode::all()
             .into_iter()
-            .filter(|op| !op.is_execution() && *op != Opcode::Padding)
+            .filter(|op| {
+                !op.is_execution() && !matches!(op, Opcode::Padding | Opcode::BeginExecution)
+            })
             .map(|op| (op.selector(), F::ONE))
             .collect::<Vec<_>>();
         b.push_row(
@@ -129,21 +132,6 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     b.with_tag(always("call target zero test"), |b| {
         CALL_TARGET_ZERO_TEST.push_constraints(b);
     });
-
-    b.with_tag(
-        opcode_tags(
-            "call stack push global condition",
-            &[Opcode::NewUtxo, Opcode::CallMethod, Opcode::RaiseEffect],
-        ),
-        |b| {
-            b.push_linear_zero([
-                (COL_SEL_NEW_UTXO, F::ONE),
-                (COL_SEL_CALL_METHOD, F::ONE),
-                (COL_SEL_RAISE_EFFECT, F::ONE),
-                (COL_CALL_STACK_PUSH, -F::ONE),
-            ]);
-        },
-    );
 
     // One-hot selectors make the RHS the active opcode's required flag value.
     let effect_frame_opcodes = Opcode::all()
@@ -196,6 +184,43 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             (layout::COL_SEL_SET_STORAGE, -F::ONE),
         ]);
     });
+
+    let coordinator_allocating_opcodes = Opcode::all()
+        .into_iter()
+        .filter(Opcode::allocates_coordinator)
+        .collect::<Vec<_>>();
+    b.with_tag(always("next coordinator allocator transition"), |b| {
+        b.push_linear_zero(
+            [
+                (layout::COL_NEXT_COORD_ID_AFTER, F::ONE),
+                (layout::COL_NEXT_COORD_ID_BEFORE, -F::ONE),
+            ]
+            .into_iter()
+            .chain(
+                coordinator_allocating_opcodes
+                    .iter()
+                    .map(|op| (op.selector(), -F::ONE)),
+            ),
+        );
+    });
+    b.with_tag(
+        opcode_tags(
+            "script calls target a fresh coordinator",
+            &coordinator_allocating_opcodes,
+        ),
+        |b| {
+            // Coord(i) is packed as 2 * i. An instance never runs twice, so
+            // a callee's state cannot leak between calls.
+            b.push_row(
+                selector_sum(coordinator_allocating_opcodes.iter().copied()),
+                [
+                    (COL_CALL_TARGET, F::ONE),
+                    (layout::COL_NEXT_COORD_ID_BEFORE, -F::new(2)),
+                ],
+                [],
+            );
+        },
+    );
 
     b.with_tag(always("resource resolver access flags"), |b| {
         b.push_linear_zero([
@@ -436,15 +461,20 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         visit_call_method,
     );
     b.with_tag(
-        opcode_tag(
-            "receive method result constraints",
-            Opcode::ReceiveMethodResult,
-        ),
-        visit_receive_method_result,
+        opcode_tag("receive call result constraints", Opcode::ReceiveCallResult),
+        visit_receive_call_result,
     );
     b.with_tag(
-        opcode_tag("enter method constraints", Opcode::EnterMethod),
-        visit_enter_method,
+        opcode_tag("begin execution constraints", Opcode::BeginExecution),
+        visit_begin_execution,
+    );
+    b.with_tag(
+        opcode_tag("call coordinator constraints", Opcode::CallCoordinator),
+        visit_call_coordinator,
+    );
+    b.with_tag(
+        opcode_tag("enter call constraints", Opcode::EnterCall),
+        visit_enter_call,
     );
     b.with_tag(
         opcode_tag("raise effect constraints", Opcode::RaiseEffect),
@@ -552,18 +582,56 @@ fn require_equal(
     b.push_gated_linear_zero(opcode.selector(), [(left, F::ONE), (right, -F::ONE)]);
 }
 
-fn visit_enter_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
-    require_coroutine_kind(b, Opcode::EnterMethod, COL_CURR_BEFORE, CoroutineKind::Utxo);
+/// The transaction context, Coord(0), calls the entry script as Coord(1):
+/// an ordinary frame push whose caller is the context, so the entry
+/// coordinator's own EnterCall must match the statement's script and
+/// arguments, and its Return pops straight back to the context.
+///
+/// The target comes from the coordinator allocator, as for CallCoordinator.
+/// Fixing it here as well keeps the entry coordinator's identity local: input
+/// handles are bound to the constant Coord(1) while loading.
+fn visit_begin_execution(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    let opcode = Opcode::BeginExecution;
+    let constant = |b: &mut TaggedR1csBuilder<'_, ConstraintScope>, column, value: F| {
+        b.push_gated_linear_zero(opcode.selector(), [(column, F::ONE), (COL_ONE, -value)]);
+    };
+    constant(
+        b,
+        COL_CURR_BEFORE,
+        crate::ivc_state::CoroutineId::Coord(0).field(),
+    );
+    constant(
+        b,
+        COL_CALL_TARGET,
+        crate::ivc_state::CoroutineId::Coord(1).field(),
+    );
+    constant(b, COL_CALL_SP_BEFORE, F::ZERO);
+    require_phase_before(b, opcode, crate::ivc_state::CurrPhase::Executing);
+    require_phase_after(b, opcode, crate::ivc_state::CurrPhase::CallEnterPending);
+}
+
+/// A coordinator calls an imported script. Like the entry call, this pushes a
+/// program frame holding the script identity and argument root for the
+/// callee's EnterCall. The callee is a fresh instance on the runtime
+/// invocation stack; it starts with no scopes of its own but inherits the
+/// caller's visible effect chain, so its effects can reach the caller.
+fn visit_call_coordinator(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+    let opcode = Opcode::CallCoordinator;
+    // UTXOs are leaves: only a coordinator can call a script.
+    require_coroutine_kind(b, opcode, COL_CURR_BEFORE, CoroutineKind::Coord);
+    require_program_call_phase(b, opcode);
+    require_phase_after(b, opcode, crate::ivc_state::CurrPhase::CallEnterPending);
+}
+
+// The callee is a UTXO for a method call and a coordinator for a script call;
+// either way the frame's identity and arguments must match its entry event.
+fn visit_enter_call(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_phase_before(
         b,
-        Opcode::EnterMethod,
-        crate::ivc_state::CurrPhase::MethodEnterPending,
+        Opcode::EnterCall,
+        crate::ivc_state::CurrPhase::CallEnterPending,
     );
-    require_phase_after(
-        b,
-        Opcode::EnterMethod,
-        crate::ivc_state::CurrPhase::Executing,
-    );
+    require_phase_after(b, Opcode::EnterCall, crate::ivc_state::CurrPhase::Executing);
 }
 
 fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -573,7 +641,7 @@ fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_phase_after(
         b,
         Opcode::CallMethod,
-        crate::ivc_state::CurrPhase::MethodEnterPending,
+        crate::ivc_state::CurrPhase::CallEnterPending,
     );
     require_equal(
         b,
@@ -586,12 +654,6 @@ fn visit_call_method(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::CallMethod,
         COL_RESOURCE_RESOLVER_VALUE,
         COL_CALL_TARGET,
-    );
-    require_equal(
-        b,
-        Opcode::CallMethod,
-        COL_CALL_FRAME_SAVED_PHASE,
-        COL_CURR_PHASE_BEFORE,
     );
     require_equal(
         b,
@@ -622,9 +684,9 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         [(phase_before[2], F::ONE), (phase_before[3], F::ONE)],
     );
     require_coroutine_kind(b, Opcode::Return, COL_CURR_AFTER, CoroutineKind::Coord);
-    // Constructors and the root coordinator have statically unit return
+    // Constructors and the entry coordinator have statically unit return
     // types. A nonzero frame caller means that a caller-side Receive* event
-    // still has to consume this frame. Constructor and root indicators are
+    // still has to consume this frame. Constructor and entry indicators are
     // mutually exclusive, so this relation is linear.
     b.push_gated_linear_zero(
         Opcode::Return.selector(),
@@ -638,7 +700,7 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         b.push_row([(COL_RETURN_REQUIRES_UNIT, F::ONE)], [(limb, F::ONE)], []);
     }
     // A root return pops immediately. Other program returns leave their frame
-    // live for ReceiveMethodResult or ReceiveNewUtxoHandle to consume.
+    // live for ReceiveCallResult or ReceiveNewUtxoHandle to consume.
     b.push_gated_linear_zero(
         Opcode::Return.selector(),
         [
@@ -648,7 +710,7 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         ],
     );
     let root_phase = F::new(crate::ivc_state::CurrPhase::Executing.value() as u64);
-    let method_phase = F::new(crate::ivc_state::CurrPhase::MethodResultPending.value() as u64);
+    let method_phase = F::new(crate::ivc_state::CurrPhase::CallResultPending.value() as u64);
     let constructor_phase =
         F::new(crate::ivc_state::CurrPhase::NewUtxoHandlePending.value() as u64);
     // Start with the method receive phase, then select the root or constructor
@@ -775,12 +837,6 @@ fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             (COL_ONE, -F::ONE),
         ],
     );
-    require_equal(
-        b,
-        Opcode::NewUtxo,
-        COL_CALL_FRAME_SAVED_PHASE,
-        COL_CURR_PHASE_BEFORE,
-    );
 }
 
 fn visit_receive_new_utxo_handle(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -809,21 +865,21 @@ fn visit_receive_new_utxo_handle(b: &mut TaggedR1csBuilder<'_, ConstraintScope>)
     );
 }
 
-fn visit_receive_method_result(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+fn visit_receive_call_result(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_phase_before(
         b,
-        Opcode::ReceiveMethodResult,
-        crate::ivc_state::CurrPhase::MethodResultPending,
+        Opcode::ReceiveCallResult,
+        crate::ivc_state::CurrPhase::CallResultPending,
     );
     require_equal(
         b,
-        Opcode::ReceiveMethodResult,
+        Opcode::ReceiveCallResult,
         COL_CALL_TARGET,
         COL_CURR_BEFORE,
     );
     require_equal(
         b,
-        Opcode::ReceiveMethodResult,
+        Opcode::ReceiveCallResult,
         COL_CURR_PHASE_AFTER,
         COL_CALL_FRAME_SAVED_PHASE,
     );
@@ -843,12 +899,6 @@ fn visit_raise_effect(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         crate::ivc_state::CurrPhase::EffectHandlerPending,
     );
     require_equal(b, Opcode::RaiseEffect, COL_CALL_TARGET, COL_CURR_BEFORE);
-    require_equal(
-        b,
-        Opcode::RaiseEffect,
-        COL_CALL_FRAME_SAVED_PHASE,
-        COL_CURR_PHASE_BEFORE,
-    );
 }
 
 fn visit_enter_effect_handler(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
@@ -915,15 +965,15 @@ fn require_program_call_phase(b: &mut TaggedR1csBuilder<'_, ConstraintScope>, op
 fn instance_stack_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     use layout::*;
     b.with_tag(always("runtime invocation stack"), |b| {
-        b.push_linear_zero([
-            (COL_INSTANCE_PUSH, F::ONE),
-            (COL_SEL_NEW_UTXO, -F::ONE),
-            (COL_SEL_CALL_METHOD, -F::ONE),
-        ]);
+        b.push_linear_zero(
+            selector_sum(Opcode::all().into_iter().filter(Opcode::pushes_instance))
+                .into_iter()
+                .chain([(COL_INSTANCE_PUSH, -F::ONE)]),
+        );
         b.push_linear_zero([
             (COL_INSTANCE_POP, F::ONE),
             (COL_SEL_RECEIVE_NEW_UTXO_HANDLE, -F::ONE),
-            (COL_SEL_RECEIVE_METHOD_RESULT, -F::ONE),
+            (COL_SEL_RECEIVE_CALL_RESULT, -F::ONE),
         ]);
         b.push_linear_zero([
             (COL_INSTANCE_DEPTH_AFTER, F::ONE),
@@ -1057,7 +1107,12 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         );
     });
 
-    let fresh = [Opcode::NewUtxo, Opcode::CallMethod, enter];
+    let fresh = [
+        Opcode::NewUtxo,
+        Opcode::CallMethod,
+        Opcode::CallCoordinator,
+        enter,
+    ];
     let restoring = [Opcode::Return, exit];
     let balanced = [Opcode::Return, Opcode::YieldBegin, exit];
     b.with_tag(
@@ -1068,6 +1123,7 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 pop,
                 Opcode::NewUtxo,
                 Opcode::CallMethod,
+                Opcode::CallCoordinator,
                 enter,
                 Opcode::Return,
                 Opcode::YieldBegin,
@@ -1117,8 +1173,11 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         },
     );
 
-    b.with_tag(always("call frames save the effect context"), |b| {
+    // Every push saves what the frame's consumer restores: the caller's phase
+    // on Receive* and resume, its effect context on return and handler exit.
+    b.with_tag(always("call frames save the caller's context"), |b| {
         for (saved, current) in [
+            (COL_CALL_FRAME_SAVED_PHASE, COL_CURR_PHASE_BEFORE),
             (COL_CALL_FRAME_SAVED_EFFECT_HEAD, COL_EFFECT_HEAD_BEFORE),
             (COL_CALL_FRAME_SAVED_EFFECT_DEPTH, COL_EFFECT_DEPTH_BEFORE),
         ] {

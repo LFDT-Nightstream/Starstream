@@ -3,9 +3,12 @@ use super::*;
 fn transaction_fixture() -> (Trace, TransactionStatement, crate::TraceCommitments) {
     use crate::ivc_state::CoroutineId::{Coord, Utxo};
     let (trace, statement) = crate::transaction::tests::fixture();
-    // Only these three steps emit program events.
-    let events = Trace::new([trace.0[0].clone(), trace.0[2].clone(), trace.0[3].clone()]);
-    let roots = crate::commitment::tests::expected(&events, &[Utxo(0), Coord(1), Utxo(0)]);
+    // Loading, the entry coordinator's entry and return, and the storage read
+    // are the only program events; `expected` skips the host steps.
+    let roots = crate::commitment::tests::expected(
+        &Trace::new(trace.0[..6].to_vec()),
+        &[Utxo(0), Coord(1), Coord(1), Utxo(0)],
+    );
     (trace, statement, roots)
 }
 

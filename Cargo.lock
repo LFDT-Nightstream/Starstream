@@ -3825,6 +3825,8 @@ dependencies = [
 name = "starstream-proving-runtime"
 version = "0.0.0"
 dependencies = [
+ "multibase",
+ "multihash",
  "neo-ccs",
  "neo-math",
  "neo-wasm",
@@ -3835,6 +3837,7 @@ dependencies = [
  "starstream-interleaving-spec",
  "starstream-runtime",
  "starstream-to-wasm",
+ "starstream-types",
  "thiserror 2.0.21",
  "tokio",
  "wasmparser 0.263.0",

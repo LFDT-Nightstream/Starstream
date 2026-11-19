@@ -7,11 +7,12 @@
     "simulate": "node scripts/quint.mjs simulate",
     "repl": "node scripts/quint.mjs repl",
     "check": "node scripts/quint.mjs check",
-    "test_spec": "quint test spec/test.qnt --main replay_trace --match \"^test_\" --verbosity=3 && npm run test_effect_scopes",
+    "test_spec": "quint test spec/test.qnt --main replay_trace --match \"^test_\" --verbosity=3 && npm run test_effect_scopes && npm run test_coordinator_calls",
     "test_rust": "cargo test -p starstream-interleaving-spec -- --include-ignored",
     "test_circuit": "cargo test -p starstream-interleaving-prover --test quint_conformance --test transaction_conformance -- --include-ignored",
     "test": "npm run test_spec && npm run test_rust && npm run test_circuit",
-    "test_effect_scopes": "quint test spec/effect_scopes_test.qnt --main effect_scopes_test --match \"^test_\" --verbosity=3"
+    "test_effect_scopes": "quint test spec/effect_scopes_test.qnt --main effect_scopes_test --match \"^test_\" --verbosity=3",
+    "test_coordinator_calls": "quint test spec/coordinator_calls_test.qnt --main coordinator_calls_test --match \"^test_\" --verbosity=3"
   },
   "engines": {
     "node": ">=20.11"

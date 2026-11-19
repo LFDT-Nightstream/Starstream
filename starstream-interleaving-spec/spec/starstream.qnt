@@ -24,6 +24,7 @@ module starstream {
   type ResourceHandle = int
   type MethodHash = str
   type CoroutineId = Coord(int) | Utxo(int)
+  pure val ENTRY_COORDINATOR = Coord(1)
 
   type ResourceKey = {
     holder: CoroutineId,
@@ -32,14 +33,14 @@ module starstream {
 
   type CurrPhase =
       CtorEnterPending
-    | MethodEnterPending
+    | CallEnterPending
     | Executing
     | ConstructorExecuting
     | Registering
     | EffectHandlerPending
     | EffectHandlerExecuting
     | EffectResumePending
-    | MethodResultPending
+    | CallResultPending
     | NewUtxoHandlePending
 
   type CallFrameKind = ProgramCall | ConstructorCall | EffectCall
@@ -71,6 +72,7 @@ module starstream {
     methods: List[MethodHash]
   }
   type OutputUtxo = { utxo: int, storage: StarstreamValue, methods: List[MethodHash] }
+  type EntryCall = { script: MethodHash, arguments: StarstreamValue }
 
   // just a tagged type so that the action signature reflects what's input and
   // output (in the corresponding wasm function)
@@ -78,13 +80,17 @@ module starstream {
 
   type State = {
     tx_phase: TxPhase,
+    // The entry script call of the statement; execution-only replay has none.
+    tx_entry: Option[EntryCall],
     tx_inputs: List[InputUtxo],
     // Initial preload sequences, framed per input and unchanged by execution.
     loaded_input_methods: List[List[MethodHash]],
     tx_outputs: List[OutputUtxo],
     output_cursor: int,
     outputs_seen: int,
-    coordinator_finalized: bool,
+    // Coordinators are allocated per call; Coord(0) is the transaction context.
+    next_coordinator_id: int,
+    next_coordinator_to_finalize: int,
     curr: CoroutineId,
     call_stack: List[CallFrame],
     effect_arena: List[EffectScope],
@@ -121,9 +127,10 @@ module starstream {
       NewUtxo
     | ReceiveNewUtxoHandle
     | EnterConstructor
+    | CallCoordinator
     | CallMethod
-    | ReceiveMethodResult
-    | EnterMethod
+    | ReceiveCallResult
+    | EnterCall
     | RaiseEffect
     | PushEffectHandlerFrame
     | AddEffectHandler
@@ -137,18 +144,19 @@ module starstream {
     | RegisterMethod
 
   def action_allowed(op: Opcode): bool = all {
-    state.tx_phase == Running or (state.tx_phase == Loading and inputs_loaded),
-    // the call stack starts with length = 1 (as a sentinel/top level coord
-    // script to make the logic more uniform)
-    // so an empty call stack is a termination condition
+    // begin_execution is the only Loading -> Running transition
+    state.tx_phase == Running,
+    // begin_execution pushes the entry frame, so an empty call stack is a
+    // termination condition
     state.call_stack.length() > 0,
     match op {
       | NewUtxo => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
       | ReceiveNewUtxoHandle => state.curr_cid_phase == NewUtxoHandlePending
       | EnterConstructor => state.curr_cid_phase == CtorEnterPending
+      | CallCoordinator => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
       | CallMethod => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
-      | ReceiveMethodResult => state.curr_cid_phase == MethodResultPending
-      | EnterMethod => state.curr_cid_phase == MethodEnterPending
+      | ReceiveCallResult => state.curr_cid_phase == CallResultPending
+      | EnterCall => state.curr_cid_phase == CallEnterPending
       | Return =>
           state.curr_cid_phase == Executing or
           state.curr_cid_phase == ConstructorExecuting or
@@ -199,56 +207,49 @@ module starstream {
   //
   // that makes it easier to add ghost variables to the state later for
   // verification/tracing purposes
+  // The transaction context is Coord(0). It owns no trace and runs no code:
+  // begin_execution is its (host-synthesized) call into the entry script.
   pure def new_tx(): State = {
-    val cid = Coord(1)
-
-    {
-      tx_phase: Running,
-      tx_inputs: List(),
-      loaded_input_methods: List(),
-      tx_outputs: List(),
-      output_cursor: 0,
-      outputs_seen: 0,
-      coordinator_finalized: false,
-      curr: cid,
-      instance_stack: List(cid),
-      effect_arena: List(),
-      effect_head: None,
-      effect_local_depth: 0,
-      call_stack: List({
-        kind: ProgramCall,
-        caller: Coord(0),
-        expected_arguments: UNIT_VALUE,
-        expected_result: UNIT_VALUE,
-        expected_method: None,
-        saved_phase: Executing,
-        saved_effect_head: None,
-        saved_effect_depth: 0,
-      }),
-      curr_cid_phase: Executing,
-      utxo_lifecycle: Map(),
-      next_utxo_id: 0,
-      enabled_methods: Map(),
-      abi_method_count: Map(),
-      abi_registrations: Map(),
-      abi_read_remaining: 0,
-      abi_read_ordinal: 0,
-      resource_resolver: Map(),
-    }
+    tx_phase: Loading,
+    tx_entry: None,
+    tx_inputs: List(),
+    loaded_input_methods: List(),
+    tx_outputs: List(),
+    output_cursor: 0,
+    outputs_seen: 0,
+    next_coordinator_id: 1,
+    next_coordinator_to_finalize: 1,
+    curr: Coord(0),
+    instance_stack: List(),
+    effect_arena: List(),
+    effect_head: None,
+    effect_local_depth: 0,
+    call_stack: List(),
+    curr_cid_phase: Executing,
+    utxo_lifecycle: Map(),
+    next_utxo_id: 0,
+    enabled_methods: Map(),
+    abi_method_count: Map(),
+    abi_registrations: Map(),
+    abi_read_remaining: 0,
+    abi_read_ordinal: 0,
+    resource_resolver: Map(),
   }
 
   // Execution-only tests use new_tx; transaction replay includes the boundaries.
-  pure def new_transaction(inputs: List[InputUtxo], outputs: List[OutputUtxo]): State = {
-    tx_phase: Loading, tx_inputs: inputs, tx_outputs: outputs, ...new_tx
+  pure def new_transaction(entry: EntryCall, inputs: List[InputUtxo], outputs: List[OutputUtxo]): State = {
+    tx_entry: Some(entry), tx_inputs: inputs, tx_outputs: outputs, ...new_tx
   }
 
   def last_input_has_abi: bool = state.next_utxo_id == 0 or
     not(state.enabled_methods.get(Utxo(state.next_utxo_id - 1)).is_empty_set())
 
-  // coordinator_handle is host metadata, not a return value of the UTXO export.
-  action set_storage(storage: StarstreamValue, coordinator_handle: ResourceHandle): bool = all {
+  // entry_utxo_handle is host metadata, not a return value of the UTXO export.
+  // Inputs are bound to the entry coordinator, which is always Coord(1).
+  // TODO: Replace with resource translation of the entry arguments.
+  action set_storage(storage: StarstreamValue, entry_utxo_handle: ResourceHandle): bool = all {
     state.tx_phase == Loading,
-    not(state.resource_resolver.keys().contains({ holder: state.curr, handle: coordinator_handle })),
+    not(state.resource_resolver.keys().contains({ holder: ENTRY_COORDINATOR, handle: entry_utxo_handle })),
     last_input_has_abi,
     state.next_utxo_id < state.tx_inputs.length(),
     storage.is_valid(),
@@ -265,8 +266,8 @@ module starstream {
       abi_registrations: state.abi_registrations.put(target, List()),
       loaded_input_methods: state.loaded_input_methods.append(List()),
       resource_resolver: state.resource_resolver.put({
-        holder: state.curr,
-        handle: coordinator_handle
+        holder: ENTRY_COORDINATOR,
+        handle: entry_utxo_handle
       }, target),
       ...state
     }
@@ -335,17 +336,20 @@ module starstream {
   }
 
   // Host-synthesized root enumeration; hashing belongs to the circuit.
-  // TODO: Enumerate all coordinators once the model supports coordinator calls.
+  // Enumerate Coord(1)..Coord(next_coordinator_id - 1), including the root.
   action finalize_coordinator: bool = all {
     finalization_allowed,
     state.abi_read_remaining == 0,
     state.output_cursor == state.next_utxo_id,
-    not(state.coordinator_finalized),
-    state' = { coordinator_finalized: true, ...state }
+    state.next_coordinator_to_finalize < state.next_coordinator_id,
+    state' = {
+      next_coordinator_to_finalize: state.next_coordinator_to_finalize + 1,
+      ...state
+    }
   }
 
   action finish_transaction: bool = all {
-    state.coordinator_finalized,
+    state.next_coordinator_to_finalize == state.next_coordinator_id,
     state.abi_read_remaining == 0,
     finalization_allowed,
     state.output_cursor == state.next_utxo_id,
@@ -361,6 +365,57 @@ module starstream {
     state' = state,
   }
 
+  // Transfer control to a freshly allocated coordinator. The callee inherits
+  // the visible effect chain and must open with a matching enter_call.
+  pure def enter_fresh_coordinator(s: State, script: MethodHash, arguments: StarstreamValue): State = {
+    val target = Coord(s.next_coordinator_id)
+    {
+      curr: target,
+      next_coordinator_id: s.next_coordinator_id + 1,
+      instance_stack: s.instance_stack.append(target),
+      curr_cid_phase: CallEnterPending,
+      effect_local_depth: 0,
+      call_stack: s.call_stack.append({
+        kind: ProgramCall,
+        caller: s.curr,
+        expected_arguments: arguments,
+        expected_result: UNIT_VALUE,
+        expected_method: Some(script),
+        saved_phase: s.curr_cid_phase,
+        saved_effect_head: s.effect_head,
+        saved_effect_depth: s.effect_local_depth,
+      }),
+      ...s
+    }
+  }
+
+  // Host-synthesized call from the transaction context into the entry script,
+  // once the inputs are loaded. The script identity and arguments are part of
+  // the transaction statement; the entry coordinator's own enter_call event
+  // must match them, exactly as for an imported script call.
+  action begin_execution(script: MethodHash, arguments: StarstreamValue): bool = all {
+    state.tx_phase == Loading,
+    inputs_loaded,
+    arguments.is_valid(),
+    // Keep statement binding local for simulation, as for input storage. The
+    // circuit binds the entry call through the transaction IO commitment.
+    match state.tx_entry {
+      | Some(entry) => entry.script == script and entry.arguments == arguments
+      | None => true
+    },
+    state' = { tx_phase: Running, ...enter_fresh_coordinator(state, script, arguments) },
+  }
+
+  // A script identity binds the target contract and exported scalar signature.
+  // Fresh instances are allocated on every imported call, even for the same script.
+  // Resource arguments/results and their cross-instance translation are deferred.
+  action call_coordinator(script: MethodHash, arguments: StarstreamValue): bool = all {
+    action_allowed(CallCoordinator),
+    state.curr.is_coord(),
+    arguments.is_valid(),
+    state' = enter_fresh_coordinator(state, script, arguments),
+  }
+
   // triggers on a call to a utxo main function, in a coord script context
   action new_utxo(arguments: StarstreamValue): bool = {
     val caller = state.curr
@@ -374,7 +429,6 @@ module starstream {
         curr: target,
         effect_local_depth: 0,
         instance_stack: state.instance_stack.append(target),
-        tx_phase: Running,
         call_stack: state.call_stack.append(
           {
             kind: ConstructorCall,
@@ -407,7 +461,6 @@ module starstream {
       state.call_stack.last().expected_arguments == arguments,
 
       state' = {
-        tx_phase: Running,
         // Constructors establish generation zero without a preceding runtime
         // `resume` call. Their main body runs before its first registration.
         curr_cid_phase: ConstructorExecuting,
@@ -426,7 +479,6 @@ module starstream {
       abi_method_count: state.abi_method_count.put(state.curr, 0),
       abi_registrations: state.abi_registrations.put(state.curr, List()),
       curr_cid_phase: Registering,
-      tx_phase: Running,
       enabled_methods:
         // begin yield (a `resume` keyword in a utxo method) resets the abi set
         state.enabled_methods.put(state.curr, Set()),
@@ -444,7 +496,6 @@ module starstream {
       abi_method_count: state.abi_method_count.setBy(state.curr, count => count + 1),
       abi_registrations: state.abi_registrations.setBy(state.curr, methods => methods.append(method)),
       curr_cid_phase: Registering,
-      tx_phase: Running,
       // Set insertion makes repeated registrations semantically idempotent.
       enabled_methods:
         state.enabled_methods.setBy(state.curr, prev => prev.insert(method)),
@@ -487,7 +538,6 @@ module starstream {
       state' = {
         curr: frame.caller,
         effect_local_depth: frame.saved_effect_depth,
-        tx_phase: Running,
         call_stack:
           if (returning_to_import)
             state.call_stack.replaceAt(
@@ -498,7 +548,7 @@ module starstream {
         curr_cid_phase:
           if (not(returning_to_import)) Executing
           else if (frame.kind == ConstructorCall) NewUtxoHandlePending
-          else MethodResultPending,
+          else CallResultPending,
         ...state
       },
     }
@@ -557,8 +607,7 @@ module starstream {
         effect_local_depth: 0,
         instance_stack: state.instance_stack.append(target),
         call_stack: state.call_stack.append(frame),
-        tx_phase: Running,
-        curr_cid_phase: MethodEnterPending,
+        curr_cid_phase: CallEnterPending,
 
         ...state
       }
@@ -566,10 +615,10 @@ module starstream {
   }
 
 
-  action receive_method_result(result: Output[StarstreamValue]): bool = {
+  action receive_call_result(result: Output[StarstreamValue]): bool = {
     val frame = state.call_stack.last()
     all {
-      action_allowed(ReceiveMethodResult),
+      action_allowed(ReceiveCallResult),
       result.value.is_valid(),
       frame.caller == state.curr,
       frame.expected_result == result.value,
@@ -583,27 +632,24 @@ module starstream {
     }
   }
 
-  // triggers immediately before entering the body of a utxo function that is
-  // registered as a method
+  // triggers immediately before entering the body of a called export: a utxo
+  // method, an imported coordination script, or the transaction's entry script
   //
-  // this is attributed to the receiver
-  action enter_method(
+  // this is attributed to the receiver. The identity is a method hash for a
+  // utxo and a (domain-separated) script identity for a coordinator.
+  action enter_call(
     method: MethodHash,
     arguments: StarstreamValue
   ): bool = all {
-    action_allowed(EnterMethod),
+    action_allowed(EnterCall),
     arguments.is_valid(),
 
-    // the utxo "calls" this
-    state.curr.is_utxo(),
-    state.call_stack.length() > 0,
-    state.call_stack.last().kind != ConstructorCall,
+    state.call_stack.last().kind == ProgramCall,
     state.call_stack.last().expected_arguments == arguments,
     state.call_stack.last().expected_method == Some(method),
 
     state' = {
       curr_cid_phase: Executing,
-      tx_phase: Running,
 
       ...state
     }
@@ -622,7 +668,6 @@ module starstream {
         effects: Set(),
       }),
       effect_local_depth: state.effect_local_depth + 1,
-      tx_phase: Running,
       ...state
     },
   }
@@ -643,7 +688,6 @@ module starstream {
                 ...scope
               }
             ),
-            tx_phase: Running,
             ...state
           }
         }
@@ -658,7 +702,6 @@ module starstream {
       | Some(id) => state' = {
           effect_head: state.effect_arena[id].parent,
           effect_local_depth: state.effect_local_depth - 1,
-          tx_phase: Running,
           ...state
         }
       | None => all { false, state' = state }
@@ -681,7 +724,6 @@ module starstream {
         saved_effect_depth: state.effect_local_depth,
       }),
       curr_cid_phase: EffectHandlerPending,
-      tx_phase: Running,
       ...state
     }
   }
@@ -890,6 +932,42 @@ module starstream {
       }
     }
 
+  pure def coordinator_allocated(cid: CoroutineId, next_id: int): bool =
+    match cid {
+      | Coord(id) => 0 <= id and id < next_id
+      | Utxo(_) => true
+    }
+
+  val coordinator_ids_are_allocated = all {
+    state.next_coordinator_id >= 1,
+    coordinator_allocated(state.curr, state.next_coordinator_id),
+    state.instance_stack.indices().forall(i =>
+      coordinator_allocated(state.instance_stack[i], state.next_coordinator_id)),
+    state.call_stack.indices().forall(i =>
+      coordinator_allocated(state.call_stack[i].caller, state.next_coordinator_id)),
+  }
+
+  val coordinator_scan_is_bounded =
+    1 <= state.next_coordinator_to_finalize and state.next_coordinator_to_finalize <= state.next_coordinator_id
+
+  // A coordinator runs only between its call and the matching receive, so its
+  // trace is complete once it leaves the instance stack. Handlers run as the
+  // owner of a visible scope, which is still a live invocation.
+  val running_coroutine_is_live =
+    state.call_stack.length() > 0 implies
+      state.instance_stack.indices().exists(i => state.instance_stack[i] == state.curr)
+
+  val visible_scope_owners_are_live =
+    scope_ids(state.effect_arena, state.effect_head).to_set().forall(id =>
+      state.instance_stack.indices().exists(i =>
+        state.instance_stack[i] == state.effect_arena[id].owner))
+
+  // Each invocation is a distinct instance: no coordinator is re-entered.
+  val coordinator_instances_are_fresh =
+    state.instance_stack.indices().forall(i => state.instance_stack.indices().forall(j =>
+      (i != j and state.instance_stack[i].is_coord()) implies
+        state.instance_stack[i] != state.instance_stack[j]))
+
   val coord_stack =
     state.curr.is_utxo() implies state.call_stack.length() > 1
 
@@ -905,7 +983,7 @@ module starstream {
 
   // Once execution ends, the ABI count determines which UTXOs survive.
   val completed_lifecycle_matches_abi_count =
-    state.call_stack.length() == 0 implies
+    (state.tx_phase != Loading and state.call_stack.length() == 0) implies
       state.utxo_lifecycle.keys().forall(u =>
         (state.utxo_lifecycle.get(u) == Live) == (state.abi_method_count.get(u) > 0)
       )

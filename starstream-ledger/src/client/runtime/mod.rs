@@ -237,7 +237,14 @@ pub async fn call_coordination_script(
                 )
                 .await?;
                 #[cfg(feature = "proving")]
-                tracing.register_input(store, &contract, imports, params.len(), &utxo.methods);
+                tracing.register_input(
+                    store,
+                    &contract,
+                    utxo_contract_digest,
+                    imports,
+                    params.len(),
+                    &utxo.methods,
+                );
                 let utxo_export = contract.get_utxo(&utxo.instance)?;
                 let storage_export = utxo_export.storage().context("UTXO has no storage")?;
                 let mut storage = Val::Record(Vec::default());

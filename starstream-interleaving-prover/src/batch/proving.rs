@@ -210,7 +210,7 @@ fn application(
 /// Dictionary used by normalization. A verifier must agree on this table
 /// independently; deriving it from the trace is suitable for local tests.
 pub fn method_dictionary(trace: &Trace) -> Vec<MethodHash> {
-    normalize(trace).method_table
+    crate::step::method_table(trace)
 }
 
 impl TransactionProofContext {
@@ -333,16 +333,19 @@ fn initial_state() -> Vec<F> {
         .iter()
         .flat_map(|group| &group.links)
         .map(|link| match link.next_step_column {
-            COL_CURR_BEFORE => crate::ivc_state::CoroutineId::Coord(1).field(),
+            // The transaction context has the turn, with an empty call stack.
+            COL_CURR_BEFORE => crate::ivc_state::CoroutineId::Coord(0).field(),
             COL_CURR_PHASE_BEFORE => F::from_u8(crate::ivc_state::CurrPhase::Executing.value()),
-            COL_CALL_SP_BEFORE | COL_LAST_INPUT_HAS_ABI_BEFORE => F::ONE,
-            COL_INSTANCE_DEPTH_BEFORE
+            COL_LAST_INPUT_HAS_ABI_BEFORE => F::ONE,
+            // Coord(0) is the transaction context: scripts start at Coord(1).
+            COL_NEXT_COORD_ID_BEFORE | COL_COORD_CURSOR_BEFORE => F::ONE,
+            COL_CALL_SP_BEFORE
+            | COL_INSTANCE_DEPTH_BEFORE
             | COL_EFFECT_HEAD_BEFORE
             | COL_EFFECT_DEPTH_BEFORE
             | COL_EFFECT_ARENA_LEN_BEFORE
             | COL_NEXT_UTXO_ID_BEFORE
             | COL_TX_PHASE_BEFORE
-            | COL_COORD_FINALIZED_BEFORE
             | COL_ABI_READ_REMAINING_BEFORE
             | COL_ABI_READ_ORDINAL_BEFORE
             | COL_OUTPUT_CURSOR_BEFORE

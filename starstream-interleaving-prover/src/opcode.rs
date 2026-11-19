@@ -13,8 +13,8 @@ pub(crate) enum Opcode {
     RegisterMethod,
     Return,
     CallMethod,
-    ReceiveMethodResult,
-    EnterMethod,
+    ReceiveCallResult,
+    EnterCall,
     RaiseEffect,
     EnterEffectHandler,
     ExitEffectHandler,
@@ -31,6 +31,8 @@ pub(crate) enum Opcode {
     AddEffectHandler,
     PopEffectHandlerFrame,
     SkipEffectHandler,
+    BeginExecution,
+    CallCoordinator,
 }
 
 /// Linear terms for the sum of the supplied opcode selectors.
@@ -45,6 +47,8 @@ pub(crate) fn selector_sum(opcodes: impl IntoIterator<Item = Opcode>) -> Vec<(us
 impl From<&starstream_interleaving_spec::Step> for Opcode {
     fn from(value: &starstream_interleaving_spec::Step) -> Self {
         match value {
+            starstream_interleaving_spec::Step::CallCoordinator { .. } => Self::CallCoordinator,
+            starstream_interleaving_spec::Step::BeginExecution { .. } => Self::BeginExecution,
             starstream_interleaving_spec::Step::PushEffectHandlerFrame { .. } => {
                 Self::PushEffectHandlerFrame
             }
@@ -77,13 +81,13 @@ impl From<&starstream_interleaving_spec::Step> for Opcode {
                 method: _,
                 arguments: _,
             } => Opcode::CallMethod,
-            starstream_interleaving_spec::Step::ReceiveMethodResult { .. } => {
-                Opcode::ReceiveMethodResult
+            starstream_interleaving_spec::Step::ReceiveCallResult { .. } => {
+                Opcode::ReceiveCallResult
             }
-            starstream_interleaving_spec::Step::EnterMethod {
+            starstream_interleaving_spec::Step::EnterCall {
                 method: _,
                 arguments: _,
-            } => Opcode::EnterMethod,
+            } => Opcode::EnterCall,
             starstream_interleaving_spec::Step::RaiseEffect { .. } => Opcode::RaiseEffect,
             starstream_interleaving_spec::Step::EnterEffectHandler { .. } => {
                 Opcode::EnterEffectHandler
@@ -107,8 +111,9 @@ impl Opcode {
                 | Self::RegisterMethod
                 | Self::Return
                 | Self::CallMethod
-                | Self::ReceiveMethodResult
-                | Self::EnterMethod
+                | Self::CallCoordinator
+                | Self::ReceiveCallResult
+                | Self::EnterCall
                 | Self::RaiseEffect
                 | Self::PushEffectHandlerFrame
                 | Self::AddEffectHandler
@@ -150,10 +155,12 @@ impl Opcode {
         use crate::ivc_state::CurrPhase;
         Some(match self {
             Self::NewUtxo => CurrPhase::CtorEnterPending,
-            Self::CallMethod => CurrPhase::MethodEnterPending,
+            Self::CallMethod | Self::CallCoordinator | Self::BeginExecution => {
+                CurrPhase::CallEnterPending
+            }
             Self::EnterConstructor => CurrPhase::ConstructorExecuting,
             Self::YieldBegin => CurrPhase::Registering,
-            Self::EnterMethod => CurrPhase::Executing,
+            Self::EnterCall => CurrPhase::Executing,
             Self::RegisterMethod => CurrPhase::Registering,
             Self::RaiseEffect => CurrPhase::EffectHandlerPending,
             Self::EnterEffectHandler => CurrPhase::EffectHandlerExecuting,
@@ -162,7 +169,7 @@ impl Opcode {
                 before
             }
             Self::ReceiveNewUtxoHandle
-            | Self::ReceiveMethodResult
+            | Self::ReceiveCallResult
             | Self::Return
             | Self::ExitEffectHandler
             | Self::ResumeEffect => return None,
@@ -185,8 +192,8 @@ impl Opcode {
             Opcode::RegisterMethod,
             Opcode::Return,
             Opcode::CallMethod,
-            Opcode::ReceiveMethodResult,
-            Opcode::EnterMethod,
+            Opcode::ReceiveCallResult,
+            Opcode::EnterCall,
             Opcode::RaiseEffect,
             Opcode::EnterEffectHandler,
             Opcode::ExitEffectHandler,
@@ -203,6 +210,8 @@ impl Opcode {
             Self::AddEffectHandler,
             Self::PopEffectHandlerFrame,
             Self::SkipEffectHandler,
+            Self::BeginExecution,
+            Self::CallCoordinator,
         ]
     }
 
@@ -220,7 +229,9 @@ impl Opcode {
             Self::NewUtxo
             | Self::EnterConstructor
             | Self::CallMethod
-            | Self::EnterMethod
+            | Self::CallCoordinator
+            | Self::BeginExecution
+            | Self::EnterCall
             | Self::Return => Some(false),
             _ => None,
         }
@@ -232,19 +243,41 @@ impl Opcode {
     pub fn required_constructor_frame(&self) -> Option<bool> {
         match self {
             Self::NewUtxo | Self::EnterConstructor => Some(true),
-            Self::CallMethod | Self::EnterMethod => Some(false),
+            Self::CallMethod | Self::CallCoordinator | Self::BeginExecution | Self::EnterCall => {
+                Some(false)
+            }
             _ => None,
         }
     }
 
     pub fn pushes_to_call_stack(&self) -> bool {
-        matches!(self, Self::NewUtxo | Self::CallMethod | Self::RaiseEffect)
+        matches!(
+            self,
+            Self::NewUtxo
+                | Self::CallMethod
+                | Self::CallCoordinator
+                | Self::RaiseEffect
+                | Self::BeginExecution
+        )
+    }
+
+    pub fn allocates_coordinator(&self) -> bool {
+        matches!(self, Self::BeginExecution | Self::CallCoordinator)
+    }
+
+    /// Pushes a program invocation that a later `Receive*` pops. The entry
+    /// coordinator is not counted: nothing receives its result.
+    pub fn pushes_instance(&self) -> bool {
+        matches!(
+            self,
+            Self::NewUtxo | Self::CallMethod | Self::CallCoordinator
+        )
     }
 
     pub fn pops_from_call_stack_unconditionally(&self) -> bool {
         matches!(
             self,
-            Self::ReceiveNewUtxoHandle | Self::ReceiveMethodResult | Self::ResumeEffect
+            Self::ReceiveNewUtxoHandle | Self::ReceiveCallResult | Self::ResumeEffect
         )
     }
 
@@ -252,7 +285,7 @@ impl Opcode {
         matches!(
             self,
             Self::EnterConstructor
-                | Self::EnterMethod
+                | Self::EnterCall
                 | Self::SkipEffectHandler
                 | Self::EnterEffectHandler
                 | Self::ExitEffectHandler
@@ -276,6 +309,8 @@ impl Opcode {
             Self::SkipEffectHandler => COL_SEL_SKIP_EFFECT_HANDLER,
             Self::ReadAbi => COL_SEL_READ_ABI,
             Self::FinalizeCoordinator => COL_SEL_FINALIZE_COORDINATOR,
+            Self::BeginExecution => COL_SEL_BEGIN_EXECUTION,
+            Self::CallCoordinator => COL_SEL_CALL_COORDINATOR,
             Self::SetStorage => COL_SEL_SET_STORAGE,
             Self::PreloadMethod => COL_SEL_PRELOAD_METHOD,
             Self::GetStorage => COL_SEL_GET_STORAGE,
@@ -289,8 +324,8 @@ impl Opcode {
             Opcode::RegisterMethod => COL_SEL_REGISTER_METHOD,
             Opcode::Return => COL_SEL_RETURN,
             Opcode::CallMethod => COL_SEL_CALL_METHOD,
-            Opcode::ReceiveMethodResult => COL_SEL_RECEIVE_METHOD_RESULT,
-            Opcode::EnterMethod => COL_SEL_ENTER_METHOD,
+            Opcode::ReceiveCallResult => COL_SEL_RECEIVE_CALL_RESULT,
+            Opcode::EnterCall => COL_SEL_ENTER_CALL,
             Opcode::RaiseEffect => COL_SEL_RAISE_EFFECT,
             Opcode::EnterEffectHandler => COL_SEL_ENTER_EFFECT_HANDLER,
             Opcode::ExitEffectHandler => COL_SEL_EXIT_EFFECT_HANDLER,

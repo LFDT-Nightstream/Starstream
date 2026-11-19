@@ -19,18 +19,18 @@ pub struct CapturedExecution {
 /// coordination-script call.
 pub fn decode_captured_execution(
     registry: &neo_wasm::WasmtimeTraceRegistry,
-    coordinator_handles: impl IntoIterator<Item = ResourceHandle>,
+    entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
 ) -> wasmtime::Result<CapturedExecution> {
-    decode_captured_transaction(registry, coordinator_handles, &[])
+    decode_captured_transaction(registry, entry_utxo_handles, &[])
 }
 
 /// Decode loaded inputs followed by constructed UTXOs, using the ledger's ABI lists.
 pub fn decode_captured_transaction(
     registry: &neo_wasm::WasmtimeTraceRegistry,
-    coordinator_handles: impl IntoIterator<Item = ResourceHandle>,
+    entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
     input_methods: &[Vec<MethodHash>],
 ) -> wasmtime::Result<CapturedExecution> {
-    let mut coordinator_handles = coordinator_handles.into_iter();
+    let mut entry_utxo_handles = entry_utxo_handles.into_iter();
     let mut traces = Vec::new();
     for (instance, captured) in registry
         .instances()
@@ -46,7 +46,7 @@ pub fn decode_captured_transaction(
         })?;
         let blocks = absorbed_event_blocks(&trace);
         let blocks = blocks.iter().map(|block| block.words).collect::<Vec<_>>();
-        let trace = decode_tagged_blocks(&blocks, &mut coordinator_handles).map_err(|error| {
+        let trace = decode_tagged_blocks(&blocks, &mut entry_utxo_handles).map_err(|error| {
             wasmtime::format_err!("failed to decode instance {instance}: {error}")
         })?;
         traces.push(trace);
@@ -65,18 +65,18 @@ pub fn decode_captured_transaction(
 /// binding are intentionally outside this initial integration.
 pub fn check_captured_execution(
     registry: &neo_wasm::WasmtimeTraceRegistry,
-    coordinator_handles: impl IntoIterator<Item = ResourceHandle>,
+    entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
 ) -> wasmtime::Result<CapturedExecution> {
-    check_captured_transaction(registry, coordinator_handles, &[])
+    check_captured_transaction(registry, entry_utxo_handles, &[])
 }
 
 /// Check loading and execution; transaction I/O binding remains deferred.
 pub fn check_captured_transaction(
     registry: &neo_wasm::WasmtimeTraceRegistry,
-    coordinator_handles: impl IntoIterator<Item = ResourceHandle>,
+    entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
     input_methods: &[Vec<MethodHash>],
 ) -> wasmtime::Result<CapturedExecution> {
-    let execution = decode_captured_transaction(registry, coordinator_handles, input_methods)?;
+    let execution = decode_captured_transaction(registry, entry_utxo_handles, input_methods)?;
     starstream_interleaving_prover::verify_sat(&execution.transaction.execution).map_err(
         |error| wasmtime::format_err!("interleaving relation rejected execution: {error}"),
     )?;

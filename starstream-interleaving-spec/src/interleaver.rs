@@ -2,7 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{InputUtxo, MethodHash, OutputUtxo, ResourceHandle, Step, Trace, TransactionStatement};
+use crate::{
+    EntryCall, InputUtxo, MethodHash, OutputUtxo, ResourceHandle, Step, Trace, TransactionStatement,
+};
 
 /// A registered `try` scope in the transaction-wide, append-only arena.
 struct EffectScope {
@@ -54,7 +56,8 @@ pub struct InterleavedTransaction {
 /// Merge process-local semantic traces in cooperative control-flow order.
 ///
 /// `traces[0]` is the coordinator. The caller must supply subsequent traces in
-/// `NewUtxo` allocation order; loading inputs via `SetStorage` isn't supported yet.
+/// `NewUtxo` / `CallCoordinator` instantiation order; loading inputs via
+/// `SetStorage` isn't supported yet.
 /// Handles are bound on constructor return. All steps must be consumed when
 /// the coordinator returns; use [`interleave_transaction`] for storage reads.
 pub fn interleave_execution_only(traces: &[Trace]) -> Result<Trace, InterleavingError> {
@@ -80,7 +83,8 @@ pub fn interleave_transaction(
     interleave_transaction_with_inputs(traces, &[])
 }
 
-/// Input traces follow the coordinator, in loading order, then constructor traces.
+/// Input traces follow the root, in loading order, then constructor and
+/// coordinator traces in instantiation order.
 /// Each input starts with `SetStorage`; its stored ABI is host-supplied metadata.
 pub fn interleave_transaction_with_inputs(
     traces: &[Trace],
@@ -90,15 +94,19 @@ pub fn interleave_transaction_with_inputs(
         mut merged,
         cursors,
         allocation_order,
+        coordinators,
         registrations,
         inputs,
+        entry,
     } = schedule_execution(traces, input_methods)?;
-    if cursors[0] != traces[0].0.len() {
-        return Err(InterleavingError::UnconsumedSteps {
-            process: ProcessIndex(0),
-            next_step_index: cursors[0],
-            remaining: traces[0].0.len() - cursors[0],
-        });
+    for &process in &coordinators {
+        if cursors[process] != traces[process].0.len() {
+            return Err(InterleavingError::UnconsumedSteps {
+                process: ProcessIndex(process),
+                next_step_index: cursors[process],
+                remaining: traces[process].0.len() - cursors[process],
+            });
+        }
     }
     let execution = Trace(merged.clone());
 
@@ -133,22 +141,28 @@ pub fn interleave_transaction_with_inputs(
             methods: methods.clone(),
         });
     }
-    merged.push(Step::FinalizeCoordinator);
+    merged.extend(coordinators.iter().map(|_| Step::FinalizeCoordinator));
     merged.push(Step::FinishTransaction);
 
     Ok(InterleavedTransaction {
         execution,
         trace: Trace(merged),
-        statement: TransactionStatement { inputs, outputs },
+        statement: TransactionStatement {
+            entry,
+            inputs,
+            outputs,
+        },
     })
 }
 
 struct Scheduled {
+    entry: EntryCall,
     inputs: Vec<InputUtxo>,
     merged: Vec<Step>,
     cursors: Vec<usize>,
     /// Process index of each allocated UTXO, by UTXO id.
     allocation_order: Vec<usize>,
+    coordinators: Vec<usize>,
     /// Final-generation method registrations of each process.
     registrations: Vec<Vec<MethodHash>>,
 }
@@ -169,6 +183,7 @@ fn schedule_execution(
     let mut cursors = vec![0_usize; traces.len()];
     let mut registrations = vec![Vec::new(); traces.len()];
     let mut allocation_order = Vec::with_capacity(traces.len().saturating_sub(1));
+    let mut coordinators = vec![0];
     let mut current = 0_usize;
     let mut next_process = 1_usize;
     let mut call_stack = Vec::new();
@@ -188,7 +203,7 @@ fn schedule_execution(
         let process = next_process;
         let Some(Step::SetStorage {
             storage,
-            coordinator_handle,
+            entry_utxo_handle,
         }) = traces.get(process).and_then(|trace| trace.0.first())
         else {
             return Err(InterleavingError::MissingStorageLoad {
@@ -205,11 +220,25 @@ fn schedule_execution(
         registrations[process] = methods.clone();
         cursors[process] = 1;
         allocation_order.push(process);
-        resource_targets.insert((0, *coordinator_handle), process);
+        resource_targets.insert((0, *entry_utxo_handle), process);
         // SetStorage takes the role of NewUtxo for inputs
         // so new coroutines get ids after the inputs
         next_process += 1;
     }
+
+    // The transaction context calls the entry script with the identity and
+    // arguments its own entry event commits to; the statement binds them.
+    let Some(Step::EnterCall { method, arguments }) = traces[0].0.first() else {
+        return Err(InterleavingError::MissingEntry);
+    };
+    let entry = EntryCall {
+        script: *method,
+        arguments: arguments.clone(),
+    };
+    merged.push(Step::BeginExecution {
+        script: entry.script,
+        arguments: entry.arguments.clone(),
+    });
 
     loop {
         let step_index = cursors[current];
@@ -221,6 +250,21 @@ fn schedule_execution(
         cursors[current] += 1;
 
         match step {
+            Step::CallCoordinator { .. } => {
+                if next_process >= traces.len() {
+                    return Err(InterleavingError::MissingCoordinatorTrace {
+                        caller: ProcessIndex(current),
+                        step_index,
+                    });
+                }
+                let target = next_process;
+                next_process += 1;
+                coordinators.push(target);
+                instance_stack.push(target);
+                call_stack.push(current);
+                merged.push(step);
+                current = target;
+            }
             Step::NewUtxo { .. } => {
                 if let Some(&target) = pending_constructors
                     .get(&current)
@@ -286,7 +330,7 @@ fn schedule_execution(
                 resource_targets.insert((current, resource.0), target);
                 merged.push(step);
             }
-            Step::ReceiveMethodResult { .. } => {
+            Step::ReceiveCallResult { .. } => {
                 instance_stack.pop();
                 merged.push(step);
             }
@@ -361,8 +405,9 @@ fn schedule_execution(
                 registrations[current].push(method);
                 merged.push(step);
             }
-            Step::EnterConstructor { .. } | Step::EnterMethod { .. } => merged.push(step),
+            Step::EnterConstructor { .. } | Step::EnterCall { .. } => merged.push(step),
             Step::GetStorage { .. }
+            | Step::BeginExecution { .. }
             | Step::SetStorage { .. }
             | Step::SkipEffectHandler
             | Step::PreloadMethod { .. }
@@ -385,10 +430,12 @@ fn schedule_execution(
     }
 
     Ok(Scheduled {
+        entry,
         inputs,
         merged,
         cursors,
         allocation_order,
+        coordinators,
         registrations,
     })
 }
@@ -396,6 +443,13 @@ fn schedule_execution(
 /// Scheduling failure. Quint or the circuit must still validate the merged trace.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InterleavingError {
+    #[error("the entry coordinator's trace does not start with its entry event")]
+    MissingEntry,
+    #[error("no coordinator trace for call from {caller:?} at step {step_index}")]
+    MissingCoordinatorTrace {
+        caller: ProcessIndex,
+        step_index: usize,
+    },
     #[error("effect dispatch has no matching pending search or resumption")]
     InvalidEffectDispatch,
     #[error("no registered scope handles effect {effect:?}")]
@@ -484,14 +538,29 @@ mod tests {
         StarstreamValue::from(words.into())
     }
 
+    const ENTRY: MethodHash = MethodHash([0xe, 0, 0, 0, 0, 0, 0, 0xe]);
+
+    /// The entry coordinator's own entry event.
+    fn entry() -> Step {
+        enter_call(ENTRY, [])
+    }
+
+    /// The host-synthesized call that the entry event answers.
+    fn begin() -> Step {
+        Step::BeginExecution {
+            script: ENTRY,
+            arguments: value([]),
+        }
+    }
+
     fn ret() -> Step {
         Step::Return {
             result: Out(StarstreamValue::default()),
         }
     }
 
-    fn enter_method(method: MethodHash, arguments: impl Into<Vec<u32>>) -> Step {
-        Step::EnterMethod {
+    fn enter_call(method: MethodHash, arguments: impl Into<Vec<u32>>) -> Step {
+        Step::EnterCall {
             method,
             arguments: value(arguments),
         }
@@ -527,8 +596,8 @@ mod tests {
         }
     }
 
-    fn receive_method_result() -> Step {
-        Step::ReceiveMethodResult {
+    fn receive_call_result() -> Step {
+        Step::ReceiveCallResult {
             result: Out(StarstreamValue::default()),
         }
     }
@@ -547,19 +616,20 @@ mod tests {
         let live = ResourceHandle(7);
         let consumed = ResourceHandle(8);
         let coordinator = Trace::new([
+            entry(),
             new_utxo([1]),
             receive_new_utxo_handle(live),
             new_utxo([2]),
             receive_new_utxo_handle(consumed),
             call_method(live, method(9), [13]),
-            receive_method_result(),
+            receive_call_result(),
             ret(),
         ]);
         let live_utxo = Trace::new([
             enter_constructor([1]),
             register(method(9)),
             ret(),
-            enter_method(method(9), [13]),
+            enter_call(method(9), [13]),
             Step::YieldBegin,
             register(method(1)),
             register(method(2)),
@@ -576,16 +646,17 @@ mod tests {
         interleave_transaction_with_inputs(
             &[
                 Trace::new([
+                    entry(),
                     call_method(handle, method(9), [13]),
-                    receive_method_result(),
+                    receive_call_result(),
                     ret(),
                 ]),
                 Trace::new([
                     Step::SetStorage {
                         storage: value([42]),
-                        coordinator_handle: handle,
+                        entry_utxo_handle: handle,
                     },
-                    enter_method(method(9), [13]),
+                    enter_call(method(9), [13]),
                     ret(),
                     get_storage([55]),
                 ]),
@@ -601,7 +672,7 @@ mod tests {
         assert!(matches!(
             transaction.trace.0[0],
             Step::SetStorage {
-                coordinator_handle: ResourceHandle(7),
+                entry_utxo_handle: ResourceHandle(7),
                 ..
             }
         ));
@@ -639,9 +710,9 @@ mod tests {
     #[test]
     fn transaction_finalizes_live_and_consumed_utxos() {
         let transaction = interleave_transaction(&transaction_traces()).unwrap();
-        assert_eq!(transaction.execution.0.len(), 17);
+        assert_eq!(transaction.execution.0.len(), 19);
         assert_eq!(
-            transaction.trace.0[17..],
+            transaction.trace.0[19..],
             [
                 get_storage([21, 22]),
                 Step::ReadAbi { method: method(1) },
@@ -654,6 +725,10 @@ mod tests {
         assert_eq!(
             transaction.statement,
             TransactionStatement {
+                entry: EntryCall {
+                    script: ENTRY,
+                    arguments: value([]),
+                },
                 inputs: vec![],
                 outputs: vec![OutputUtxo {
                     utxo: 0,
@@ -667,7 +742,12 @@ mod tests {
     #[test]
     fn transaction_requires_exactly_one_storage_read_per_live_utxo() {
         let resource = ResourceHandle(7);
-        let coordinator = Trace::new([new_utxo([1]), receive_new_utxo_handle(resource), ret()]);
+        let coordinator = Trace::new([
+            entry(),
+            new_utxo([1]),
+            receive_new_utxo_handle(resource),
+            ret(),
+        ]);
         let without_read = Trace::new([enter_constructor([1]), register(method(1)), ret()]);
         assert_eq!(
             interleave_transaction(&[coordinator.clone(), without_read]),
@@ -689,12 +769,12 @@ mod tests {
 
     #[test]
     fn execution_rejects_transaction_boundary_steps() {
-        let coordinator = Trace::new([Step::FinishTransaction, ret()]);
+        let coordinator = Trace::new([entry(), Step::FinishTransaction, ret()]);
         assert_eq!(
             interleave_execution_only(&[coordinator]),
             Err(InterleavingError::UnexpectedTransactionStep {
                 process: ProcessIndex(0),
-                step_index: 0
+                step_index: 1
             })
         );
     }
@@ -702,12 +782,13 @@ mod tests {
     fn reentered_method_traces() -> Vec<Trace> {
         let resource = ResourceHandle(7);
         let coordinator = Trace::new([
+            entry(),
             new_utxo([55]),
             receive_new_utxo_handle(resource),
             call_method(resource, method(1), [13]),
-            receive_method_result(),
+            receive_call_result(),
             call_method(resource, method(2), []),
-            receive_method_result(),
+            receive_call_result(),
             ret(),
         ]);
         let utxo = Trace::new([
@@ -715,9 +796,9 @@ mod tests {
             Step::RegisterMethod { method: method(1) },
             Step::RegisterMethod { method: method(2) },
             ret(),
-            enter_method(method(1), [13]),
+            enter_call(method(1), [13]),
             ret(),
-            enter_method(method(2), []),
+            enter_call(method(2), []),
             Step::YieldBegin,
             Step::RegisterMethod { method: method(3) },
             ret(),
@@ -735,6 +816,8 @@ mod tests {
         assert_eq!(
             merged,
             Trace::new([
+                begin(),
+                entry(),
                 new_utxo([55]),
                 enter_constructor([55]),
                 Step::RegisterMethod { method: method(1) },
@@ -742,15 +825,15 @@ mod tests {
                 ret(),
                 receive_new_utxo_handle(resource),
                 call_method(resource, method(1), [13]),
-                enter_method(method(1), [13]),
+                enter_call(method(1), [13]),
                 ret(),
-                receive_method_result(),
+                receive_call_result(),
                 call_method(resource, method(2), []),
-                enter_method(method(2), []),
+                enter_call(method(2), []),
                 Step::YieldBegin,
                 Step::RegisterMethod { method: method(3) },
                 ret(),
-                receive_method_result(),
+                receive_call_result(),
                 ret(),
             ])
         );
@@ -758,28 +841,29 @@ mod tests {
 
     fn two_utxo_traces() -> Vec<Trace> {
         let coordinator = Trace::new([
+            entry(),
             new_utxo([1]),
             receive_new_utxo_handle(ResourceHandle(0)),
             new_utxo([2]),
             receive_new_utxo_handle(ResourceHandle(1)),
             call_method(ResourceHandle(1), method(2), []),
-            receive_method_result(),
+            receive_call_result(),
             call_method(ResourceHandle(0), method(1), []),
-            receive_method_result(),
+            receive_call_result(),
             ret(),
         ]);
         let first = Trace::new([
             enter_constructor([1]),
             Step::RegisterMethod { method: method(1) },
             ret(),
-            enter_method(method(1), []),
+            enter_call(method(1), []),
             ret(),
         ]);
         let second = Trace::new([
             enter_constructor([2]),
             Step::RegisterMethod { method: method(2) },
             ret(),
-            enter_method(method(2), []),
+            enter_call(method(2), []),
             ret(),
         ]);
 
@@ -791,16 +875,16 @@ mod tests {
         let merged = interleave_execution_only(&two_utxo_traces()).expect("traces interleave");
 
         assert_eq!(
-            merged.0[10..],
+            merged.0[12..],
             [
                 call_method(ResourceHandle(1), method(2), []),
-                enter_method(method(2), []),
+                enter_call(method(2), []),
                 ret(),
-                receive_method_result(),
+                receive_call_result(),
                 call_method(ResourceHandle(0), method(1), []),
-                enter_method(method(1), []),
+                enter_call(method(1), []),
                 ret(),
-                receive_method_result(),
+                receive_call_result(),
                 ret(),
             ]
         );
@@ -862,6 +946,7 @@ mod tests {
     // it and dispatches to the coordinator's scope.
     fn skipped_scope_traces() -> Vec<Trace> {
         let coordinator = Trace::new([
+            entry(),
             Step::PushEffectHandlerFrame { frame_id: 1 },
             Step::AddEffectHandler { effect: effect(1) },
             new_utxo([]),
@@ -887,7 +972,7 @@ mod tests {
     fn effect_search_skips_scopes_without_the_effect() {
         let merged = interleave_execution_only(&skipped_scope_traces()).unwrap();
         assert_eq!(
-            merged.0[4..12],
+            merged.0[6..14],
             [
                 Step::PushEffectHandlerFrame { frame_id: 2 },
                 Step::AddEffectHandler { effect: effect(2) },
@@ -905,6 +990,7 @@ mod tests {
     // the same coordinator, which is entered as a second activation.
     fn declined_handler_traces() -> Vec<Trace> {
         vec![Trace::new([
+            entry(),
             Step::PushEffectHandlerFrame { frame_id: 1 },
             Step::AddEffectHandler { effect: effect(1) },
             Step::PushEffectHandlerFrame { frame_id: 2 },
@@ -924,12 +1010,14 @@ mod tests {
     #[test]
     fn declined_handler_continues_from_the_selected_scope_parent() {
         let traces = declined_handler_traces();
-        assert_eq!(interleave_execution_only(&traces).unwrap(), traces[0]);
+        let mut expected = vec![begin()];
+        expected.extend(traces[0].0.iter().cloned());
+        assert_eq!(interleave_execution_only(&traces).unwrap(), Trace(expected));
     }
 
     #[test]
     fn unhandled_effect_is_rejected() {
-        let coordinator = Trace::new([raise(effect(1)), ret()]);
+        let coordinator = Trace::new([entry(), raise(effect(1)), ret()]);
         assert_eq!(
             interleave_execution_only(&[coordinator]),
             Err(InterleavingError::UnhandledEffect { effect: effect(1) })
@@ -953,7 +1041,11 @@ mod tests {
 
     #[test]
     fn rejects_calls_through_unbound_resources() {
-        let coordinator = Trace::new([call_method(ResourceHandle(3), method(1), []), ret()]);
+        let coordinator = Trace::new([
+            entry(),
+            call_method(ResourceHandle(3), method(1), []),
+            ret(),
+        ]);
 
         assert_eq!(
             interleave_execution_only(&[coordinator]),
@@ -966,20 +1058,46 @@ mod tests {
 
     #[test]
     fn rejects_constructors_without_a_process_trace() {
-        let coordinator = Trace::new([new_utxo([]), ret()]);
+        let coordinator = Trace::new([entry(), new_utxo([]), ret()]);
 
         assert_eq!(
             interleave_execution_only(&[coordinator]),
             Err(InterleavingError::MissingUtxoTrace {
                 caller: ProcessIndex(0),
-                step_index: 0,
+                step_index: 1,
             })
         );
     }
 
     #[test]
+    fn entry_call_is_synthesized_from_the_entry_event() {
+        let arguments = [3, 4];
+        let coordinator = Trace::new([enter_call(method(5), arguments), ret()]);
+        let transaction = interleave_transaction(std::slice::from_ref(&coordinator)).unwrap();
+        assert_eq!(
+            transaction.execution.0[0],
+            Step::BeginExecution {
+                script: method(5),
+                arguments: value(arguments),
+            }
+        );
+        assert_eq!(transaction.execution.0[1..], coordinator.0[..]);
+        assert_eq!(
+            transaction.statement.entry,
+            EntryCall {
+                script: method(5),
+                arguments: value(arguments),
+            }
+        );
+        assert_eq!(
+            interleave_execution_only(&[Trace::new([ret()])]),
+            Err(InterleavingError::MissingEntry)
+        );
+    }
+
+    #[test]
     fn rejects_unassigned_traces() {
-        let coordinator = Trace::new([ret()]);
+        let coordinator = Trace::new([entry(), ret()]);
         let utxo = Trace::new([enter_constructor([]), ret()]);
         assert_eq!(
             interleave_execution_only(&[coordinator, utxo]),
@@ -991,7 +1109,7 @@ mod tests {
 
     #[test]
     fn rejects_an_entrypoint_that_never_returns() {
-        let coordinator = Trace::new([new_utxo([])]);
+        let coordinator = Trace::new([entry(), new_utxo([])]);
         let utxo = Trace::new([enter_constructor([]), ret()]);
 
         assert_eq!(
@@ -1004,7 +1122,7 @@ mod tests {
 
     #[test]
     fn rejects_unconsumed_trailing_utxo_return() {
-        let coordinator = Trace::new([new_utxo([]), ret()]);
+        let coordinator = Trace::new([entry(), new_utxo([]), ret()]);
         let utxo = Trace::new([enter_constructor([]), ret(), ret()]);
 
         assert_eq!(
