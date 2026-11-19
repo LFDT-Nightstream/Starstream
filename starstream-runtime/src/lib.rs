@@ -851,7 +851,9 @@ fn link_typed_token_burn<T: Host>(
                 bail!("first parameter is not a resource")
             };
             let token = token.try_into_resource::<Token>(&mut store)?;
-            let Token { instance, resource } = store.data_mut().table().delete(token)?;
+            let Token {
+                instance, resource, ..
+            } = store.data_mut().table().delete(token)?;
             let params = {
                 let mut ps = Vec::with_capacity(params.len());
                 ps.push(Val::Resource(resource));
@@ -877,7 +879,9 @@ fn link_typed_token_attach_detach<T: Host>(
         name,
         move |mut store, (token, utxo): (Resource<Token>, Resource<Utxo<T::UtxoContext>>)| {
             Box::new(async move {
-                let &Token { instance, resource } = store.data_mut().table().get(&token)?;
+                let &Token {
+                    instance, resource, ..
+                } = store.data_mut().table().get(&token)?;
                 let utxo = utxo.try_into_resource_any(&mut store)?;
                 call_func(
                     &mut store,
@@ -899,27 +903,28 @@ fn link_token_downcast<T: Host>(
     linker: &mut LinkerInstance<T>,
     instance_idx: ComponentExportIndex,
 ) -> wasmtime::Result<()> {
-    linker.func_wrap(
-        "downcast",
-        move |store,
-              (token,): (Resource<Token>,)|
-              -> wasmtime::Result<(Option<Resource<Token>>,)> {
-            _ = (&component, store, token, instance_idx);
-            todo!("token downcast")
-        },
-    )
+    linker.func_wrap("downcast", move |mut store, (token,)| {
+        let token = store.data_mut().table().get::<Token>(&token)?;
+        if !Component::same(&token.component, &component) {
+            return Ok((None,));
+        }
+        if token.instance_idx != instance_idx {
+            return Ok((None,));
+        }
+        let token = token.clone();
+        let token = store.data_mut().table().push(token)?;
+        Ok((Some(token),))
+    })
 }
 
 /// Link token upcast.
 #[instrument(level = "trace", skip_all)]
 fn link_token_upcast<T: Host>(linker: &mut LinkerInstance<T>) -> wasmtime::Result<()> {
-    linker.func_wrap(
-        "upcast",
-        move |store, (token,): (Resource<Token>,)| -> wasmtime::Result<(Resource<Token>,)> {
-            _ = (store, token);
-            todo!("token upcast")
-        },
-    )
+    linker.func_wrap("upcast", move |mut store, (token,)| {
+        let token = store.data_mut().table().get::<Token>(&token).cloned()?;
+        let token = store.data_mut().table().push(token)?;
+        Ok((token,))
+    })
 }
 
 /// Link typed token [`types::ComponentFunc`] in a [`LinkerInstance`]
@@ -2137,12 +2142,14 @@ impl ContractInstance {
     async fn construct_token(
         &self,
         store: impl AsContextMut<Data: Host>,
-        name: impl ExportLookup,
+        name: ComponentExportIndex,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Token> {
         let resource = self.call_constructor(store, name, params).await?;
         Ok(Token {
+            component: self.component.clone(),
             instance: self.instance,
+            instance_idx: name,
             resource,
         })
     }
@@ -2154,7 +2161,7 @@ impl ContractInstance {
         TokenMintExport { idx, .. }: &TokenMintExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Token> {
-        self.construct_token(store, idx, params).await
+        self.construct_token(store, *idx, params).await
     }
 
     #[instrument(level = "trace", skip_all)]
@@ -2164,7 +2171,7 @@ impl ContractInstance {
         StorageExport { set, .. }: &StorageExport,
         fields: impl Into<Vec<(String, Val)>>,
     ) -> wasmtime::Result<Token> {
-        self.construct_token(store, set, [Val::Record(fields.into())])
+        self.construct_token(store, *set, [Val::Record(fields.into())])
             .await
     }
 
@@ -2357,9 +2364,11 @@ impl<T> Utxo<T> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Token {
+    component: Component,
     instance: Instance,
+    instance_idx: ComponentExportIndex,
     resource: ResourceAny,
 }
 
