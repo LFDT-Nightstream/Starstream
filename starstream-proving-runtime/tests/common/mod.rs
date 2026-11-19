@@ -382,6 +382,15 @@ pub async fn trace_coordination_script(
     source: &str,
     script: &str,
 ) -> wasmtime::Result<TracedExecution> {
+    Ok(trace_coordination_script_with_registry(source, script)
+        .await?
+        .0)
+}
+
+pub async fn trace_coordination_script_with_registry(
+    source: &str,
+    script: &str,
+) -> wasmtime::Result<(TracedExecution, neo_wasm::WasmtimeTraceRegistry)> {
     let wasm = wit_component::ComponentEncoder::default()
         .validate(true)
         .module(&compile_contract(source))
@@ -482,15 +491,18 @@ pub async fn trace_coordination_script(
         commitments.insert(coroutine_id(index), chain);
     }
 
-    Ok(TracedExecution {
-        wasm,
-        templates,
-        artifacts,
-        instances,
-        transaction,
-        commitments,
-        storage: storage_records,
-    })
+    Ok((
+        TracedExecution {
+            wasm,
+            templates,
+            artifacts,
+            instances,
+            transaction,
+            commitments,
+            storage: storage_records,
+        },
+        ctx.traces,
+    ))
 }
 
 /// Expected count and suspended constructor state for STORAGE_COUNTER, run

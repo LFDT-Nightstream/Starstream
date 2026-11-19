@@ -4,16 +4,20 @@
 //! the verifier must rebuild program commitments from contracts and the
 //! statement from the ledger transaction instead of trusting the prover's values.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::{ScopedJoinHandle, scope};
 use std::time::{Duration, Instant};
 
-use neo_wasm::nebula::{WasmApplication, WasmSize};
-use neo_wasm::{CommChainState, WasmStepState};
+use neo_wasm::nebula::{WasmApplication, WasmSize, WasmStep};
+use neo_wasm::{CommChainState, WasmStepState, WasmVmStep, WasmtimeTraceState};
 use nightstream::nebula::{self, Circuit};
 use starstream_interleaving_prover::proving::{
-    CompressedInterleavingProof, InterleavingProofContext, Limits, ProofConfig, method_dictionary,
+    CompressedInterleavingProof, InterleavingProof, InterleavingProofContext, Limits, ProofConfig,
+    ProvingError, method_dictionary,
 };
-use starstream_interleaving_prover::{CoroutineId, TraceCommitments};
+use starstream_interleaving_prover::{CoroutineId, TraceCommitments, Unsatisfied};
+use starstream_interleaving_spec::interleaver::InterleavedTransaction;
 use starstream_interleaving_spec::{MethodHash, TransactionStatement};
 use wasmtime::error::Context as _;
 use wasmtime::{bail, ensure};
@@ -30,14 +34,80 @@ const BATCH_SIZE: usize = 16;
 struct WasmCircuit {
     prover: nebula::Prover<WasmApplication>,
     verifier: nebula::Verifier<WasmApplication>,
-    setup: nightstream::CompressionSetup,
-    key: nightstream::CompressionKey,
+    compression: Arc<Compression>,
 }
 
 struct Interleaving {
     context: InterleavingProofContext,
+    compression: Arc<Compression>,
+}
+
+struct InterleavingResult {
+    proof: Result<CompressedInterleavingProof, ProvingError>,
+    proving: Duration,
+    compression: Duration,
+}
+
+impl Interleaving {
+    fn prove_with_finalized_roots(
+        &self,
+        transaction: &InterleavedTransaction,
+        slots: &CompressionSlots,
+    ) -> wasmtime::Result<(TraceCommitments, InterleavingResult)> {
+        let started = Instant::now();
+        let (proof, roots) = self
+            .context
+            .prove_with_finalized_roots(&transaction.trace, &transaction.statement)
+            .context("failed to prove the interleaving")?;
+        Ok((roots, self.compress(&proof, started.elapsed(), slots)))
+    }
+
+    fn compress(
+        &self,
+        proof: &InterleavingProof,
+        proving: Duration,
+        slots: &CompressionSlots,
+    ) -> InterleavingResult {
+        let _slot = slots.acquire();
+        let started = Instant::now();
+        let proof = self.context.compress(proof, &self.compression.setup);
+        InterleavingResult {
+            proof,
+            proving,
+            compression: started.elapsed(),
+        }
+    }
+}
+
+struct Compression {
     setup: nightstream::CompressionSetup,
     key: nightstream::CompressionKey,
+}
+
+#[derive(Default)]
+struct CompressionSlots {
+    active: Mutex<usize>,
+    available: Condvar,
+}
+
+impl CompressionSlots {
+    fn acquire(&self) -> CompressionSlot<'_> {
+        let mut active = self
+            .available
+            .wait_while(self.active.lock().unwrap(), |active| *active == 2)
+            .unwrap();
+        *active += 1;
+        CompressionSlot(self)
+    }
+}
+
+struct CompressionSlot<'a>(&'a CompressionSlots);
+
+impl Drop for CompressionSlot<'_> {
+    fn drop(&mut self) {
+        *self.0.active.lock().unwrap() -= 1;
+        self.0.available.notify_one();
+    }
 }
 
 /// A core Wasm instance proof and its verification inputs.
@@ -128,7 +198,7 @@ pub struct ProofTimings {
     pub wasm: Vec<WasmProofTimings>,
     pub interleaving: ProofPhaseTimings,
     pub interleaving_circuit_reused: bool,
-    /// Sum of measured phases; excludes trace preparation and serialization.
+    /// Sum of phase durations, including work that ran concurrently. Trace preparation and serialization are excluded.
     pub total: ProofPhaseTimings,
 }
 
@@ -140,11 +210,167 @@ impl ProofPhaseTimings {
     }
 }
 
+struct WasmInput {
+    index: u32,
+    size: WasmSize,
+    program: nebula::Program,
+    initial: WasmStepState,
+    last: WasmStepState,
+    trace: Vec<WasmVmStep>,
+}
+
+impl WasmInput {
+    fn from_capture(
+        index: u32,
+        captured: &WasmtimeTraceState,
+        circuits: &BTreeMap<WasmSize, Arc<WasmCircuit>>,
+    ) -> wasmtime::Result<Self> {
+        let artifacts = captured.artifacts();
+        let trace = neo_wasm::traces_from_wasmtime_steps_with_host_events(
+            captured.steps(),
+            artifacts,
+            CommChainState::default(),
+        )
+        .map_err(|error| wasmtime::format_err!("failed to normalize instance {index}: {error}"))?;
+        let last = trace
+            .last()
+            .with_context(|| format!("instance {index} ran nothing"))?
+            .state_after;
+        ensure!(
+            last.is_terminal() && !last.trapped,
+            "instance {index} did not run to completion"
+        );
+
+        let mut preload = neo_wasm::preload_from_program_artifacts(artifacts);
+        neo_wasm::memory_semantics::preload_host_event_tables(
+            &mut preload,
+            &artifacts.host_event_bindings,
+            artifacts,
+        );
+        let entry_fref = captured
+            .steps()
+            .first()
+            .and_then(|row| row.current_function_ref)
+            .with_context(|| format!("instance {index} has no entry function"))?;
+        let entry_pc = artifacts
+            .tables
+            .function_entries
+            .iter()
+            .find(|&&(fref, _)| fref == u64::from(entry_fref))
+            .map(|&(_, pc)| pc)
+            .with_context(|| format!("instance {index} enters an unknown function"))?;
+        let initial = neo_wasm::host_event_top_level_initial_state(
+            &artifacts.tables,
+            entry_pc,
+            &artifacts.host_event_bindings,
+            entry_fref,
+            CommChainState::default(),
+        )
+        .map_err(|error| wasmtime::format_err!("instance {index}: {error}"))?;
+        ensure!(
+            trace[0].state_before == initial,
+            "instance {index} does not start at its entry function"
+        );
+
+        let size = WasmSize::for_run(&preload, &trace)
+            .map_err(|error| wasmtime::format_err!("instance {index}: {error}"))?;
+        let program = match circuits.get(&size) {
+            Some(circuit) => circuit.prover.application().program(&preload)?,
+            None => size.application()?.program(&preload)?,
+        };
+        Ok(Self {
+            index,
+            size,
+            program,
+            initial,
+            last,
+            trace,
+        })
+    }
+
+    fn segments(
+        &self,
+    ) -> wasmtime::Result<impl Iterator<Item = wasmtime::Result<Vec<WasmStep>>> + '_> {
+        let index = self.index;
+        Ok(self.size.segments(&self.trace)?.map(move |segment| {
+            segment.map_err(|error| wasmtime::format_err!("instance {index}: {error}"))
+        }))
+    }
+
+    fn run(
+        &self,
+        circuit: &WasmCircuit,
+        segments: impl IntoIterator<Item = wasmtime::Result<Vec<WasmStep>>>,
+    ) -> wasmtime::Result<(nebula::Proof, Duration)> {
+        let started = Instant::now();
+        let mut run = circuit.prover.start(&self.program, self.initial)?;
+        let mut proving = started.elapsed();
+        for segment in segments {
+            let segment = segment?;
+            let started = Instant::now();
+            run.segment(&segment)?;
+            proving += started.elapsed();
+        }
+        let started = Instant::now();
+        ensure!(
+            *run.state() == self.last,
+            "instance {} ended in another state",
+            self.index
+        );
+        let proof = run.finish()?;
+        Ok((proof, proving + started.elapsed()))
+    }
+
+    fn prove(
+        self,
+        circuit: &WasmCircuit,
+        mut timings: WasmProofTimings,
+        prebuilt: Option<Vec<Vec<WasmStep>>>,
+        slots: &CompressionSlots,
+    ) -> wasmtime::Result<(WasmInstanceProof, WasmProofTimings)> {
+        let (proof, proving) = match prebuilt {
+            Some(segments) => self.run(circuit, segments.into_iter().map(Ok)),
+            None => {
+                let result = self.run(circuit, self.segments()?);
+                if result.is_err() {
+                    self.segments()?.try_for_each(|segment| segment.map(drop))?;
+                }
+                result
+            }
+        }?;
+        drop(self.trace);
+        timings.phases.proving = proving;
+        let _slot = slots.acquire();
+        let started = Instant::now();
+        let proof = circuit
+            .prover
+            .compress(&proof, &circuit.compression.setup)?;
+        timings.phases.compression = started.elapsed();
+        Ok((
+            WasmInstanceProof {
+                coroutine: timings.coroutine.encoded(),
+                size: self.size,
+                program: self.program,
+                initial: self.initial,
+                last: self.last,
+                proof,
+            },
+            timings,
+        ))
+    }
+}
+
+fn join<T>(worker: ScopedJoinHandle<'_, T>) -> T {
+    worker
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
 /// Reuse across transactions to amortize circuit compilation and key setup.
 pub struct TransactionProver {
     engine: nightstream::Engine,
-    wasm: BTreeMap<WasmSize, WasmCircuit>,
-    interleaving: Option<Interleaving>,
+    wasm: BTreeMap<WasmSize, Arc<WasmCircuit>>,
+    interleaving: Option<Arc<Interleaving>>,
 }
 
 impl TransactionProver {
@@ -156,21 +382,35 @@ impl TransactionProver {
         }
     }
 
-    fn wasm_circuit(&mut self, size: WasmSize) -> wasmtime::Result<&WasmCircuit> {
+    fn shared_compression(&self, key: &nightstream::CompressionKey) -> Option<Arc<Compression>> {
+        self.wasm
+            .values()
+            .map(|circuit| &circuit.compression)
+            .chain(self.interleaving.iter().map(|circuit| &circuit.compression))
+            .find(|compression| compression.key == *key)
+            .cloned()
+    }
+
+    fn wasm_circuit(&mut self, size: WasmSize) -> wasmtime::Result<&Arc<WasmCircuit>> {
         if !self.wasm.contains_key(&size) {
             let circuit = Circuit::compile(size.geometry(), size.application()?)?;
             let prover = circuit.prover(self.engine, SECURITY_BITS)?;
             let verifier = circuit.verifier(self.engine, SECURITY_BITS)?;
-            let setup = prover.compression_setup()?;
             let key = verifier.compression_key()?;
+            let compression = match self.shared_compression(&key) {
+                Some(shared) => shared,
+                None => Arc::new(Compression {
+                    setup: prover.compression_setup()?,
+                    key,
+                }),
+            };
             self.wasm.insert(
                 size,
-                WasmCircuit {
+                Arc::new(WasmCircuit {
                     prover,
                     verifier,
-                    setup,
-                    key,
-                },
+                    compression,
+                }),
             );
         }
         Ok(&self.wasm[&size])
@@ -181,15 +421,20 @@ impl TransactionProver {
             let mut config = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, BATCH_SIZE)?;
             config.engine = self.engine;
             let context = InterleavingProofContext::new(config)?;
-            let setup = context.compression_setup()?;
             let key = context.compression_key()?;
-            self.interleaving = Some(Interleaving {
+            let compression = match self.shared_compression(&key) {
+                Some(shared) => shared,
+                None => Arc::new(Compression {
+                    setup: context.compression_setup()?,
+                    key,
+                }),
+            };
+            self.interleaving = Some(Arc::new(Interleaving {
                 context,
-                setup,
-                key,
-            });
+                compression,
+            }));
         }
-        Ok(self.interleaving.as_ref().expect("set above"))
+        Ok(self.interleaving.as_deref().expect("set above"))
     }
 
     /// `execution` must have been decoded from `registry`.
@@ -216,118 +461,112 @@ impl TransactionProver {
             captured.len(),
             coroutines.len()
         );
-        for ((index, captured), &coroutine) in captured.into_iter().zip(&coroutines) {
-            let artifacts = captured.artifacts();
-            let trace = neo_wasm::traces_from_wasmtime_steps_with_host_events(
-                captured.steps(),
-                artifacts,
-                CommChainState::default(),
-            )
-            .map_err(|error| {
-                wasmtime::format_err!("failed to normalize instance {index}: {error}")
-            })?;
-            let last = trace
-                .last()
-                .with_context(|| format!("instance {index} ran nothing"))?
-                .state_after;
-            ensure!(
-                last.is_terminal() && !last.trapped,
-                "instance {index} did not run to completion"
-            );
-
-            let mut preload = neo_wasm::preload_from_program_artifacts(artifacts);
-            neo_wasm::memory_semantics::preload_host_event_tables(
-                &mut preload,
-                &artifacts.host_event_bindings,
-                artifacts,
-            );
-            let entry_fref = captured
-                .steps()
-                .first()
-                .and_then(|row| row.current_function_ref)
-                .with_context(|| format!("instance {index} has no entry function"))?;
-            let entry_pc = artifacts
-                .tables
-                .function_entries
-                .iter()
-                .find(|&&(fref, _)| fref == u64::from(entry_fref))
-                .map(|&(_, pc)| pc)
-                .with_context(|| format!("instance {index} enters an unknown function"))?;
-            let initial = neo_wasm::host_event_top_level_initial_state(
-                &artifacts.tables,
-                entry_pc,
-                &artifacts.host_event_bindings,
-                entry_fref,
-                CommChainState::default(),
-            )
-            .map_err(|error| wasmtime::format_err!("instance {index}: {error}"))?;
-            ensure!(
-                trace[0].state_before == initial,
-                "instance {index} does not start at its entry function"
-            );
-
-            let size = WasmSize::for_run(&preload, &trace)
-                .map_err(|error| wasmtime::format_err!("instance {index}: {error}"))?;
-            let program = size.application()?.program(&preload)?;
-            let segments = size
-                .segments(&trace)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| wasmtime::format_err!("instance {index}: {error}"))?;
-
-            let circuit_reused = self.wasm.contains_key(&size);
-            let started = Instant::now();
-            let circuit = self.wasm_circuit(size)?;
-            let setup = started.elapsed();
-
-            let started = Instant::now();
-            let mut run = circuit.prover.start(&program, initial)?;
-            for segment in &segments {
-                run.segment(segment)?;
-            }
-            let proof = run.finish()?;
-            let proving = started.elapsed();
-
-            let started = Instant::now();
-            let proof = circuit.prover.compress(&proof, &circuit.setup)?;
-            let phases = ProofPhaseTimings {
-                setup,
-                proving,
-                compression: started.elapsed(),
+        let mut early_interleaving = None;
+        let slots = CompressionSlots::default();
+        scope(|workers| -> wasmtime::Result<()> {
+            let slots = &slots;
+            let mut early = self
+                .interleaving
+                .as_ref()
+                .filter(|_| {
+                    self.engine == nightstream::Engine::Optimized
+                        && !coroutines.is_empty()
+                        && rayon_core::current_thread_index().is_none()
+                })
+                .map(|context| {
+                    let context = Arc::clone(context);
+                    workers.spawn(move || context.prove_with_finalized_roots(transaction, slots))
+                });
+            let mut overlap = early.is_some();
+            let mut pending: VecDeque<ScopedJoinHandle<'_, _>> = VecDeque::new();
+            let mut record = |(instance, timing): (WasmInstanceProof, WasmProofTimings)| {
+                timings.total.accumulate(timing.phases);
+                timings.wasm.push(timing);
+                instances.push(instance);
             };
-            timings.total.accumulate(phases);
-            timings.wasm.push(WasmProofTimings {
-                coroutine,
-                size,
-                circuit_reused,
-                phases,
-            });
-
-            instances.push(WasmInstanceProof {
-                coroutine: coroutine.encoded(),
-                size,
-                program,
-                initial,
-                last,
-                proof,
-            });
-        }
-        let roots = trace_commitments(&instances);
+            for ((index, captured), &coroutine) in captured.into_iter().zip(&coroutines) {
+                if pending.len() == 2 {
+                    record(join(pending.pop_front().expect("two pending jobs"))?);
+                }
+                let input = WasmInput::from_capture(index, captured, &self.wasm);
+                let circuit_reused = input
+                    .as_ref()
+                    .is_ok_and(|input| self.wasm.contains_key(&input.size));
+                if !circuit_reused {
+                    for worker in pending.drain(..) {
+                        record(join(worker)?);
+                    }
+                    if let Some(worker) = early.take() {
+                        early_interleaving = Some(join(worker));
+                    }
+                    overlap = false;
+                }
+                let input = input?;
+                let prebuilt = if overlap {
+                    None
+                } else {
+                    Some(input.segments()?.collect::<wasmtime::Result<Vec<_>>>()?)
+                };
+                let started = Instant::now();
+                let circuit = Arc::clone(self.wasm_circuit(input.size)?);
+                let timing = WasmProofTimings {
+                    coroutine,
+                    size: input.size,
+                    circuit_reused,
+                    phases: ProofPhaseTimings {
+                        setup: started.elapsed(),
+                        ..Default::default()
+                    },
+                };
+                let job = move || input.prove(&circuit, timing, prebuilt, slots);
+                if overlap {
+                    pending.push_back(workers.spawn(job));
+                } else {
+                    record(job()?);
+                }
+            }
+            for worker in pending {
+                record(join(worker)?);
+            }
+            if let Some(worker) = early {
+                early_interleaving = Some(join(worker));
+            }
+            Ok(())
+        })?;
         let methods = method_dictionary(&transaction.trace);
         timings.interleaving_circuit_reused = self.interleaving.is_some();
         let started = Instant::now();
         let interleaving = self.interleaving()?;
         timings.interleaving.setup = started.elapsed();
 
-        let started = Instant::now();
-        let proof = interleaving
-            .context
-            .prove(&transaction.trace, &transaction.statement, &roots)
-            .context("failed to prove the interleaving")?;
-        timings.interleaving.proving = started.elapsed();
-
-        let started = Instant::now();
-        let proof = interleaving.context.compress(&proof, &interleaving.setup)?;
-        timings.interleaving.compression = started.elapsed();
+        let result = match early_interleaving {
+            Some(result) => {
+                let (finalized, result) = result?;
+                if finalized.len() != instances.len()
+                    || instances.iter().any(|instance| {
+                        finalized.get(&instance.coroutine) != Some(&instance.last.comm_chain)
+                    })
+                {
+                    return Err(ProvingError::Circuit(
+                        Unsatisfied::TransactionCommitment.into(),
+                    ))
+                    .context("failed to prove the interleaving");
+                }
+                result
+            }
+            None => {
+                let roots = trace_commitments(&instances);
+                let started = Instant::now();
+                let proof = interleaving
+                    .context
+                    .prove(&transaction.trace, &transaction.statement, &roots)
+                    .context("failed to prove the interleaving")?;
+                interleaving.compress(&proof, started.elapsed(), &slots)
+            }
+        };
+        let proof = result.proof?;
+        timings.interleaving.proving = result.proving;
+        timings.interleaving.compression = result.compression;
         timings.total.accumulate(timings.interleaving);
 
         Ok((
@@ -358,7 +597,7 @@ impl TransactionProver {
                     &instance.program,
                     &instance.initial,
                     &instance.last,
-                    &circuit.key,
+                    &circuit.compression.key,
                     &instance.proof,
                 )
                 .with_context(|| format!("instance {index} has an invalid proof"))?;
@@ -373,7 +612,7 @@ impl TransactionProver {
             .verify_compressed(
                 &proof.methods,
                 &proof.interleaving,
-                &interleaving.key,
+                &interleaving.compression.key,
                 statement,
                 &roots,
             )

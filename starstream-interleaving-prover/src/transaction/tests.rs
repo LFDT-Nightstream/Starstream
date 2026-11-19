@@ -404,7 +404,7 @@ fn entry_call_is_bound_to_the_statement_and_the_entry_event() {
         .map(build_witness_vector)
         .collect::<Vec<_>>();
     let preload = crate::memory::preload_tables(&normalized.method_table);
-    check_statement(&rows, &statement).unwrap();
+    check_statement(&rows, &statement, None).unwrap();
     // A different script or argument root is a different statement.
     let mut script = statement.clone();
     script.entry.script.0[0] ^= 1;
@@ -412,7 +412,7 @@ fn entry_call_is_bound_to_the_statement_and_the_entry_event() {
     arguments.entry.arguments.0[0] += 1;
     for changed in [script, arguments] {
         assert!(matches!(
-            check_statement(&rows, &changed),
+            check_statement(&rows, &changed, None),
             Err(Error::Unsatisfied(Unsatisfied::TransactionStatement))
         ));
     }
@@ -471,7 +471,7 @@ fn transaction_witness_tampering_is_rejected() {
         .collect::<Vec<_>>();
     let preload = crate::memory::preload_tables(&normalized.method_table);
     crate::verify_witness_rows(&rows, &preload).unwrap();
-    check_statement(&rows, &statement).unwrap();
+    check_statement(&rows, &statement, None).unwrap();
 
     for (opcode, column, value) in [
         (Opcode::SetStorage, COL_TX_PHASE_BEFORE, F::ONE),
@@ -560,7 +560,7 @@ fn output_binding_reads_checked_witness_not_source_trace() {
     // A different opaque result is locally valid; the old transaction output isn't.
     crate::verify_witness_rows(&rows, &preload).unwrap();
     assert!(matches!(
-        check_statement(&rows, &statement),
+        check_statement(&rows, &statement, None),
         Err(Error::Unsatisfied(Unsatisfied::TransactionStatement))
     ));
 }

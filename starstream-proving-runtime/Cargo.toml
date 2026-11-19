@@ -17,6 +17,7 @@ multibase = { workspace = true }
 multihash = { workspace = true }
 neo-wasm = { workspace = true }
 nightstream = { workspace = true }
+rayon-core = { workspace = true }
 sha2 = { workspace = true }
 starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 starstream-runtime = { workspace = true }
