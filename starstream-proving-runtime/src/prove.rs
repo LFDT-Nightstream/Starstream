@@ -177,6 +177,7 @@ impl PreparedWasm {
         index: u32,
         captured: &WasmtimeTraceState,
         coroutine: CoroutineId,
+        circuits: &BTreeMap<WasmSize, WasmCircuit>,
     ) -> wasmtime::Result<Self> {
         let artifacts = captured.artifacts();
         let trace = neo_wasm::traces_from_wasmtime_steps_with_host_events(
@@ -227,7 +228,10 @@ impl PreparedWasm {
 
         let size = WasmSize::for_run(&preload, &trace)
             .map_err(|error| wasmtime::format_err!("instance {index}: {error}"))?;
-        let program = size.application()?.program(&preload)?;
+        let program = match circuits.get(&size) {
+            Some(circuit) => circuit.prover.application().program(&preload)?,
+            None => size.application()?.program(&preload)?,
+        };
         let segments = size
             .segments(&trace)?
             .collect::<Result<Vec<_>, _>>()
@@ -375,23 +379,25 @@ impl TransactionProver {
             captured.len(),
             coroutines.len()
         );
-        let mut prepared = captured
-            .into_iter()
-            .zip(coroutines)
-            .map(|((index, captured), coroutine)| PreparedWasm::new(index, captured, coroutine));
+        let mut pending = captured.into_iter().zip(coroutines);
         let warm_tail = if self.engine == nightstream::Engine::Optimized
             && self.interleaving.is_some()
             && rayon::current_thread_index().is_none()
         {
-            prepared.len().min(MAX_CONCURRENT_WASM_PROOFS)
+            pending.len().min(MAX_CONCURRENT_WASM_PROOFS)
         } else {
             0
         };
-        let leading = prepared.len() - warm_tail;
-        for instance in prepared.by_ref().take(leading) {
-            self.prove_wasm_instance(instance?, &mut instances, &mut timings)?;
+        let leading = pending.len() - warm_tail;
+        for ((index, captured), coroutine) in pending.by_ref().take(leading) {
+            let instance = PreparedWasm::new(index, captured, coroutine, &self.wasm)?;
+            self.prove_wasm_instance(instance, &mut instances, &mut timings)?;
         }
-        let tail: Vec<_> = prepared.collect();
+        let tail: Vec<_> = pending
+            .map(|((index, captured), coroutine)| {
+                PreparedWasm::new(index, captured, coroutine, &self.wasm)
+            })
+            .collect();
         let ready = warm_tail > 0
             && tail.iter().all(|instance| {
                 instance
