@@ -4,16 +4,19 @@
 //! The caller still authenticates the component bytes and transaction statement.
 //! The full transaction proof has no wire format yet.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
+use std::thread::{ScopedJoinHandle, scope};
 use std::time::{Duration, Instant};
 
 use neo_wasm::nebula::{WasmApplication, WasmSize, WasmStep};
-use neo_wasm::{CommChainState, WasmStepState, WasmtimeTraceState};
+use neo_wasm::{CommChainState, WasmStepState, WasmVmStep, WasmtimeTraceState};
 use nightstream::nebula::{self, Circuit};
 use starstream_interleaving_prover::proving::{
-    CompressedInterleavingProof, InterleavingProofContext, Limits, ProofConfig, method_dictionary,
+    CompressedInterleavingProof, InterleavingProof, InterleavingProofContext, Limits, ProofConfig,
+    ProvingError, method_dictionary,
 };
-use starstream_interleaving_prover::{CoroutineId, TraceCommitments};
+use starstream_interleaving_prover::{CoroutineId, TraceCommitments, Unsatisfied};
 use starstream_interleaving_spec::interleaver::InterleavedTransaction;
 use starstream_interleaving_spec::{MethodHash, TransactionStatement};
 use wasmtime::error::Context as _;
@@ -41,6 +44,36 @@ struct Interleaving {
     context: InterleavingProofContext,
     setup: nightstream::CompressionSetup,
     key: nightstream::CompressionKey,
+}
+
+struct InterleavingResult {
+    proof: Result<CompressedInterleavingProof, ProvingError>,
+    proving: Duration,
+    compression: Duration,
+}
+
+impl Interleaving {
+    fn prove_with_finalized_roots(
+        &self,
+        transaction: &InterleavedTransaction,
+    ) -> wasmtime::Result<(TraceCommitments, InterleavingResult)> {
+        let started = Instant::now();
+        let (proof, roots) = self
+            .context
+            .prove_with_finalized_roots(&transaction.trace, &transaction.statement)
+            .context("failed to prove the interleaving")?;
+        Ok((roots, self.compress(&proof, started.elapsed())))
+    }
+
+    fn compress(&self, proof: &InterleavingProof, proving: Duration) -> InterleavingResult {
+        let started = Instant::now();
+        let proof = self.context.compress(proof, &self.setup);
+        InterleavingResult {
+            proof,
+            proving,
+            compression: started.elapsed(),
+        }
+    }
 }
 
 /// A core Wasm instance proof and its verification inputs.
@@ -145,39 +178,20 @@ impl ProofPhaseTimings {
     }
 }
 
-impl ProofTimings {
-    fn record_wasm(
-        &mut self,
-        coroutine: CoroutineId,
-        size: WasmSize,
-        reused: bool,
-        phases: ProofPhaseTimings,
-    ) {
-        self.total.accumulate(phases);
-        self.wasm.push(WasmProofTimings {
-            coroutine,
-            size,
-            circuit_reused: reused,
-            phases,
-        });
-    }
-}
-
-struct PreparedWasm {
-    coroutine: CoroutineId,
+struct WasmInput {
+    index: u32,
     size: WasmSize,
     program: nebula::Program,
     initial: WasmStepState,
     last: WasmStepState,
-    segments: Vec<Vec<WasmStep>>,
+    trace: Vec<WasmVmStep>,
 }
 
-impl PreparedWasm {
-    fn new(
+impl WasmInput {
+    fn from_capture(
         index: u32,
         captured: &WasmtimeTraceState,
-        coroutine: CoroutineId,
-        circuits: &BTreeMap<WasmSize, WasmCircuit>,
+        circuits: &BTreeMap<WasmSize, Arc<WasmCircuit>>,
     ) -> wasmtime::Result<Self> {
         let artifacts = captured.artifacts();
         let trace = neo_wasm::traces_from_wasmtime_steps_with_host_events(
@@ -232,82 +246,95 @@ impl PreparedWasm {
             Some(circuit) => circuit.prover.application().program(&preload)?,
             None => size.application()?.program(&preload)?,
         };
-        let segments = size
-            .segments(&trace)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| wasmtime::format_err!("instance {index}: {error}"))?;
-
         Ok(Self {
-            coroutine,
+            index,
             size,
             program,
             initial,
             last,
-            segments,
+            trace,
         })
+    }
+
+    fn segments(
+        &self,
+    ) -> wasmtime::Result<impl Iterator<Item = wasmtime::Result<Vec<WasmStep>>> + '_> {
+        let index = self.index;
+        Ok(self.size.segments(&self.trace)?.map(move |segment| {
+            segment.map_err(|error| wasmtime::format_err!("instance {index}: {error}"))
+        }))
+    }
+
+    fn run(
+        &self,
+        circuit: &WasmCircuit,
+        segments: impl IntoIterator<Item = wasmtime::Result<Vec<WasmStep>>>,
+    ) -> wasmtime::Result<(nebula::Proof, Duration)> {
+        let started = Instant::now();
+        let mut run = circuit.prover.start(&self.program, self.initial)?;
+        let mut proving = started.elapsed();
+        for segment in segments {
+            let segment = segment?;
+            let started = Instant::now();
+            run.segment(&segment)?;
+            proving += started.elapsed();
+        }
+        let started = Instant::now();
+        ensure!(
+            *run.state() == self.last,
+            "instance {} ended in another state",
+            self.index
+        );
+        let proof = run.finish()?;
+        Ok((proof, proving + started.elapsed()))
     }
 
     fn prove(
         self,
         circuit: &WasmCircuit,
-    ) -> wasmtime::Result<(WasmInstanceProof, ProofPhaseTimings)> {
-        let start = Instant::now();
-        let mut run = circuit.prover.start(&self.program, self.initial)?;
-        for segment in &self.segments {
-            run.segment(segment)?;
-        }
-        let proof = run.finish()?;
-        let compression = Instant::now();
+        mut timings: WasmProofTimings,
+        prebuilt: Option<Vec<Vec<WasmStep>>>,
+    ) -> wasmtime::Result<(WasmInstanceProof, WasmProofTimings)> {
+        let (proof, proving) = match prebuilt {
+            Some(segments) => self.run(circuit, segments.into_iter().map(Ok)),
+            None => {
+                let result = self.run(circuit, self.segments()?);
+                if result.is_err() {
+                    self.segments()?.try_for_each(|segment| segment.map(drop))?;
+                }
+                result
+            }
+        }?;
+        drop(self.trace);
+        timings.phases.proving = proving;
+        let started = Instant::now();
         let proof = circuit.prover.compress(&proof, &circuit.setup)?;
-        let finish = Instant::now();
+        timings.phases.compression = started.elapsed();
         Ok((
             WasmInstanceProof {
-                coroutine: self.coroutine.encoded(),
+                coroutine: timings.coroutine.encoded(),
                 size: self.size,
                 program: self.program,
                 initial: self.initial,
                 last: self.last,
                 proof,
             },
-            ProofPhaseTimings {
-                setup: Duration::ZERO,
-                proving: compression - start,
-                compression: finish - compression,
-            },
+            timings,
         ))
     }
 }
 
-impl Interleaving {
-    fn prove(
-        &self,
-        transaction: &InterleavedTransaction,
-        roots: &TraceCommitments,
-    ) -> wasmtime::Result<(CompressedInterleavingProof, ProofPhaseTimings)> {
-        let start = Instant::now();
-        let proof = self
-            .context
-            .prove(&transaction.trace, &transaction.statement, roots)
-            .context("failed to prove the interleaving")?;
-        let compression = Instant::now();
-        let proof = self.context.compress(&proof, &self.setup)?;
-        let finish = Instant::now();
-        Ok((
-            proof,
-            ProofPhaseTimings {
-                setup: Duration::ZERO,
-                proving: compression - start,
-                compression: finish - compression,
-            },
-        ))
-    }
+fn join<T>(worker: ScopedJoinHandle<'_, T>) -> T {
+    worker
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 /// Reuse across transactions to amortize circuit compilation and key setup.
 pub struct TransactionProver {
     engine: nightstream::Engine,
-    wasm: BTreeMap<WasmSize, WasmCircuit>,
-    interleaving: Option<Interleaving>,
+    wasm: BTreeMap<WasmSize, Arc<WasmCircuit>>,
+    interleaving: Option<Arc<Interleaving>>,
 }
 
 impl TransactionProver {
@@ -319,7 +346,7 @@ impl TransactionProver {
         }
     }
 
-    fn wasm_circuit(&mut self, size: WasmSize) -> wasmtime::Result<&WasmCircuit> {
+    fn wasm_circuit(&mut self, size: WasmSize) -> wasmtime::Result<&Arc<WasmCircuit>> {
         if !self.wasm.contains_key(&size) {
             let circuit = Circuit::compile(size.geometry(), size.application()?)?;
             let prover = circuit.prover(self.engine, SECURITY_BITS)?;
@@ -328,12 +355,12 @@ impl TransactionProver {
             let key = verifier.compression_key()?;
             self.wasm.insert(
                 size,
-                WasmCircuit {
+                Arc::new(WasmCircuit {
                     prover,
                     verifier,
                     setup,
                     key,
-                },
+                }),
             );
         }
         Ok(&self.wasm[&size])
@@ -346,13 +373,13 @@ impl TransactionProver {
             let context = InterleavingProofContext::new(config)?;
             let setup = context.compression_setup()?;
             let key = context.compression_key()?;
-            self.interleaving = Some(Interleaving {
+            self.interleaving = Some(Arc::new(Interleaving {
                 context,
                 setup,
                 key,
-            });
+            }));
         }
-        Ok(self.interleaving.as_ref().expect("set above"))
+        Ok(self.interleaving.as_deref().expect("set above"))
     }
 
     /// `execution` must have been decoded from `registry`.
@@ -379,145 +406,169 @@ impl TransactionProver {
             captured.len(),
             coroutines.len()
         );
-        let mut pending = captured.into_iter().zip(coroutines);
-        let warm_tail = if self.engine == nightstream::Engine::Optimized
-            && self.interleaving.is_some()
-            && rayon::current_thread_index().is_none()
-        {
-            pending.len().min(MAX_CONCURRENT_WASM_PROOFS)
+        let cached = self
+            .interleaving
+            .as_ref()
+            .filter(|_| {
+                self.engine == nightstream::Engine::Optimized
+                    && !coroutines.is_empty()
+                    && rayon::current_thread_index().is_none()
+            })
+            .cloned();
+        let mut early_interleaving = None;
+        let mut proof_wall = Duration::ZERO;
+        let mut inputs = captured.into_iter().zip(coroutines);
+        let count = inputs.len();
+        let leading = if cached.is_some() {
+            count.saturating_sub(MAX_CONCURRENT_WASM_PROOFS)
         } else {
             0
         };
-        let leading = pending.len() - warm_tail;
-        for ((index, captured), coroutine) in pending.by_ref().take(leading) {
-            let instance = PreparedWasm::new(index, captured, coroutine, &self.wasm)?;
-            self.prove_wasm_instance(instance, &mut instances, &mut timings)?;
-        }
-        let tail: Vec<_> = pending
-            .map(|((index, captured), coroutine)| {
-                PreparedWasm::new(index, captured, coroutine, &self.wasm)
-            })
-            .collect();
-        let ready = warm_tail > 0
-            && tail.iter().all(|instance| {
-                instance
-                    .as_ref()
-                    .is_ok_and(|instance| self.wasm.contains_key(&instance.size))
+        let mut all_reused = true;
+        for (count, tail) in [(leading, false), (count - leading, true)] {
+            if count == 0 {
+                continue;
+            }
+            let context = cached.as_ref().filter(|_| tail && all_reused);
+            let started = Instant::now();
+            let pools = context.and_then(|_| {
+                let threads = std::num::NonZeroUsize::new(
+                    rayon::current_num_threads().saturating_mul(16).div_ceil(30),
+                )?;
+                let pool = || nightstream::CpuProverPool::new(threads).ok();
+                pool().zip(pool())
             });
-        timings.interleaving_circuit_reused = self.interleaving.is_some();
-        let (proof, phases) =
-            if let Some(interleaving) = self.interleaving.as_ref().filter(|_| ready) {
-                self.prove_parallel(
-                    tail.into_iter().collect::<Result<_, _>>()?,
-                    transaction,
-                    interleaving,
-                    &mut instances,
-                    &mut timings,
-                )?
-            } else {
-                for instance in tail {
-                    self.prove_wasm_instance(instance?, &mut instances, &mut timings)?;
+            let pools = pools.as_ref();
+            scope(|workers| -> wasmtime::Result<()> {
+                let mut early = context.map(|context| {
+                    workers.spawn(move || {
+                        let job = || context.prove_with_finalized_roots(transaction);
+                        match pools {
+                            Some((_, pool)) => pool.install(job),
+                            None => job(),
+                        }
+                    })
+                });
+                let mut overlap = early.is_some();
+                let mut pending: VecDeque<ScopedJoinHandle<'_, _>> = VecDeque::new();
+                let mut record = |(instance, timing): (WasmInstanceProof, WasmProofTimings)| {
+                    timings.total.accumulate(timing.phases);
+                    timings.wasm.push(timing);
+                    instances.push(instance);
+                };
+                let mut wasm_result =
+                    inputs
+                        .by_ref()
+                        .take(count)
+                        .try_for_each(|((index, captured), coroutine)| {
+                            let input = WasmInput::from_capture(index, captured, &self.wasm);
+                            let circuit_reused = input
+                                .as_ref()
+                                .is_ok_and(|input| self.wasm.contains_key(&input.size));
+                            if !circuit_reused {
+                                all_reused = false;
+                                while let Some(worker) = pending.pop_front() {
+                                    record(join(worker)?);
+                                }
+                                if let Some(worker) = early.take() {
+                                    early_interleaving = Some(worker.join());
+                                    proof_wall += started.elapsed();
+                                }
+                                overlap = false;
+                            }
+                            let input = input?;
+                            let prebuilt = if overlap || (!tail && all_reused) {
+                                None
+                            } else {
+                                Some(input.segments()?.collect::<wasmtime::Result<Vec<_>>>()?)
+                            };
+                            let started = Instant::now();
+                            let circuit = Arc::clone(self.wasm_circuit(input.size)?);
+                            let timing = WasmProofTimings {
+                                coroutine,
+                                size: input.size,
+                                circuit_reused,
+                                phases: ProofPhaseTimings {
+                                    setup: started.elapsed(),
+                                    ..Default::default()
+                                },
+                            };
+                            let job = move || input.prove(&circuit, timing, prebuilt);
+                            if overlap {
+                                pending.push_back(workers.spawn(move || match pools {
+                                    Some((pool, _)) => pool.install(job),
+                                    None => job(),
+                                }));
+                            } else {
+                                let (instance, timing) = job()?;
+                                proof_wall += timing.phases.proving + timing.phases.compression;
+                                record((instance, timing));
+                            }
+                            Ok(())
+                        });
+                for worker in pending {
+                    let joined = worker.join();
+                    if wasm_result.is_ok() {
+                        wasm_result = joined
+                            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+                            .map(&mut record);
+                    }
                 }
+                if let Some(worker) = early {
+                    early_interleaving = Some(worker.join());
+                    proof_wall += started.elapsed();
+                }
+                wasm_result
+            })?;
+        }
+        let methods = method_dictionary(&transaction.trace);
+        timings.interleaving_circuit_reused = self.interleaving.is_some();
+        let started = Instant::now();
+        let interleaving = self.interleaving()?;
+        timings.interleaving.setup = started.elapsed();
+
+        let result = match early_interleaving {
+            Some(result) => {
+                let (finalized, result) =
+                    result.unwrap_or_else(|panic| std::panic::resume_unwind(panic))?;
+                if finalized.len() != instances.len()
+                    || instances.iter().any(|instance| {
+                        finalized.get(&instance.coroutine) != Some(&instance.last.comm_chain)
+                    })
+                {
+                    return Err(ProvingError::Circuit(
+                        Unsatisfied::TransactionCommitment.into(),
+                    ))
+                    .context("failed to prove the interleaving");
+                }
+                result
+            }
+            None => {
                 let roots = trace_commitments(&instances);
                 let started = Instant::now();
-                let interleaving = self.interleaving()?;
-                let setup = started.elapsed();
-                let (proof, mut phases) = interleaving.prove(transaction, &roots)?;
-                phases.setup = setup;
-                timings.prove_compress_wall += phases.proving + phases.compression;
-                (proof, phases)
-            };
-        timings.interleaving = phases;
-        timings.total.accumulate(phases);
+                let proof = interleaving
+                    .context
+                    .prove(&transaction.trace, &transaction.statement, &roots)
+                    .context("failed to prove the interleaving")?;
+                let result = interleaving.compress(&proof, started.elapsed());
+                proof_wall += result.proving + result.compression;
+                result
+            }
+        };
+        let proof = result.proof?;
+        timings.prove_compress_wall = proof_wall;
+        timings.interleaving.proving = result.proving;
+        timings.interleaving.compression = result.compression;
+        timings.total.accumulate(timings.interleaving);
 
         Ok((
             TransactionProof {
                 instances,
                 interleaving: proof,
-                methods: method_dictionary(&transaction.trace),
+                methods,
             },
             timings,
         ))
-    }
-
-    fn prove_wasm_instance(
-        &mut self,
-        instance: PreparedWasm,
-        instances: &mut Vec<WasmInstanceProof>,
-        timings: &mut ProofTimings,
-    ) -> wasmtime::Result<()> {
-        let size = instance.size;
-        let coroutine = instance.coroutine;
-        let circuit_reused = self.wasm.contains_key(&size);
-        let started = Instant::now();
-        let circuit = self.wasm_circuit(size)?;
-        let setup = started.elapsed();
-
-        let (proof, mut phases) = instance.prove(circuit)?;
-        phases.setup = setup;
-        timings.prove_compress_wall += phases.proving + phases.compression;
-        timings.record_wasm(coroutine, size, circuit_reused, phases);
-        instances.push(proof);
-        Ok(())
-    }
-
-    fn prove_parallel(
-        &self,
-        prepared: Vec<PreparedWasm>,
-        transaction: &InterleavedTransaction,
-        interleaving: &Interleaving,
-        instances: &mut Vec<WasmInstanceProof>,
-        timings: &mut ProofTimings,
-    ) -> wasmtime::Result<(CompressedInterleavingProof, ProofPhaseTimings)> {
-        let mut roots = trace_commitments(instances);
-        roots.extend(
-            prepared
-                .iter()
-                .map(|instance| (instance.coroutine.encoded(), instance.last.comm_chain)),
-        );
-        let started = Instant::now();
-        let count = rayon::current_num_threads();
-        let pool = |part: usize| {
-            let threads = (count.saturating_mul(part)).div_ceil(30);
-            nightstream::CpuProverPool::new(std::num::NonZeroUsize::new(threads)?).ok()
-        };
-        let workers = pool(18).zip(pool(18));
-        let workers = workers.as_ref();
-        let (wasm, interleaving) = std::thread::scope(|scope| {
-            let interleaving = scope.spawn(|| match workers {
-                Some((_, pool)) => pool.install(|| interleaving.prove(transaction, &roots)),
-                None => interleaving.prove(transaction, &roots),
-            });
-            let workers = prepared
-                .into_iter()
-                .map(|instance| {
-                    let coroutine = instance.coroutine;
-                    let size = instance.size;
-                    let circuit = &self.wasm[&size];
-                    (
-                        coroutine,
-                        size,
-                        scope.spawn(move || match workers {
-                            Some((pool, _)) => pool.install(|| instance.prove(circuit)),
-                            None => instance.prove(circuit),
-                        }),
-                    )
-                })
-                .collect::<Vec<_>>();
-            let wasm = workers
-                .into_iter()
-                .map(|(coroutine, size, worker)| (coroutine, size, worker.join()))
-                .collect::<Vec<_>>();
-            (wasm, interleaving.join())
-        });
-        timings.prove_compress_wall += started.elapsed();
-        for (coroutine, size, result) in wasm {
-            let (proof, phases) =
-                result.unwrap_or_else(|panic| std::panic::resume_unwind(panic))?;
-            instances.push(proof);
-            timings.record_wasm(coroutine, size, true, phases);
-        }
-        interleaving.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
     }
 
     /// Verify against independently prepared programs and the expected statement.
