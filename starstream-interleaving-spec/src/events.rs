@@ -175,10 +175,7 @@ impl EventKind {
             }
         }
         words.resize(words.len().div_ceil(BLOCK_SIZE) * BLOCK_SIZE, Constant(0));
-        words
-            .chunks_exact(BLOCK_SIZE)
-            .map(|b| b.try_into().unwrap())
-            .collect()
+        words.as_chunks::<BLOCK_SIZE>().0.to_vec()
     }
 
     /// Decode an event using this kind's layout. `expected_method`, when supplied,

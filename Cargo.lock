@@ -3638,6 +3638,7 @@ dependencies = [
  "tokio",
  "tokio-io-timeout",
  "tokio-util",
+ "toml",
  "tracing",
  "wasm-encoder 0.263.0",
  "wasm-tokio",
@@ -3730,6 +3731,7 @@ dependencies = [
 name = "starstream-proving-runtime"
 version = "0.0.0"
 dependencies = [
+ "minicbor",
  "multibase",
  "multihash",
  "neo-ccs",

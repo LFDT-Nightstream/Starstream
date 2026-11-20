@@ -199,9 +199,7 @@ enum ScriptCommand {
         #[arg(long)]
         simulate: bool,
 
-        /// Prove the transaction and check the proof before continuing.
-        /// The proof is not attached to the transaction yet. Compiling the
-        /// circuits takes about a minute on each run.
+        /// Attach and verify an execution proof. Circuit setup takes about a minute.
         //
         // TODO: cache the circuits?
         #[arg(long)]
@@ -628,6 +626,10 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 ..Ctx::default()
             };
             let mut store = Store::new(client.engine(), ctx);
+            use starstream_ledger::client::runtime::{
+                ProofEngine, TransactionProver, verify_transaction_proof,
+            };
+            let mut prover = prove.then(|| TransactionProver::new(ProofEngine::Optimized));
             let (tx, execution) = call_coordination_script(
                 &mut store,
                 &imports,
@@ -639,54 +641,34 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 params,
                 &mut results,
                 &mut utxos,
+                prover.as_mut(),
             )
             .await?;
-            match execution {
-                Ok(call) if prove => {
-                    use starstream_ledger::client::runtime::{ProofEngine, TransactionProver};
-                    info!("proving the transaction");
-                    let mut prover = TransactionProver::new(ProofEngine::Optimized);
-                    let (proof, timings) = starstream_ledger::client::runtime::prove(
-                        &store,
-                        &call.execution,
-                        &mut prover,
-                    )
-                    .map_err(anyhow::Error::from)
-                    .context("failed to prove the transaction")?;
-                    let expected = starstream_ledger::client::runtime::prepare_verification(
-                        &call.programs,
-                        proof.instances.iter().map(|instance| instance.size),
-                    )
-                    .map_err(anyhow::Error::from)
-                    .context("failed to prepare verification")?;
-                    prover
-                        .verify(&proof, &expected, &call.execution.transaction.statement)
-                        .map_err(anyhow::Error::from)
-                        .context("the transaction proof does not verify")?;
-                    for instance in &timings.wasm {
-                        info!(coroutine = ?instance.coroutine, size = ?instance.size,
+            if let Some(prover) = prover.as_mut() {
+                let call = execution?;
+                verify_transaction_proof(prover, &tx, &imports, client.engine(), client.wizer())
+                    .await
+                    .context("the attached transaction proof does not verify")?;
+                let (timings, _) = call.proof_stats.context("missing proof timings")?;
+                for instance in &timings.wasm {
+                    info!(coroutine = ?instance.coroutine, size = ?instance.size,
                             circuit_reused = instance.circuit_reused,
                             setup = ?instance.phases.setup, proving = ?instance.phases.proving,
                             compression = ?instance.phases.compression, "Wasm proof timings");
-                    }
-                    info!(circuit_reused = timings.interleaving_circuit_reused,
+                }
+                info!(circuit_reused = timings.interleaving_circuit_reused,
                         setup = ?timings.interleaving.setup, proving = ?timings.interleaving.proving,
                         compression = ?timings.interleaving.compression, "interleaving proof timings");
-                    info!(
-                        instances = proof.instances.len(),
-                        setup = ?timings.total.setup,
-                        proving = ?timings.total.proving,
-                        compression = ?timings.total.compression,
-                        prove_compress_wall = ?timings.prove_compress_wall,
-                        "proved and verified the transaction"
-                    );
-                }
-                Ok(_) => {}
-                Err(err) if prove => {
-                    return Err(anyhow::Error::from(err))
-                        .context("failed to check execution trace");
-                }
-                Err(err) => warn!(?err, "failed to check execution trace"),
+                info!(
+                    instances = timings.wasm.len(),
+                    setup = ?timings.total.setup,
+                    proving = ?timings.total.proving,
+                    compression = ?timings.total.compression,
+                    prove_compress_wall = ?timings.prove_compress_wall,
+                    "proved and verified the transaction"
+                );
+            } else if let Err(err) = execution {
+                warn!(?err, "failed to check execution trace");
             }
             'outer: for result in &mut results {
                 if let &mut Val::Resource(utxo) = result {

@@ -463,6 +463,7 @@ async fn http() {
             Vec::default(),
             &mut [],
             &mut utxos,
+            None,
         )
         .await
         .unwrap();
@@ -741,6 +742,7 @@ script fn create() {
         Vec::default(),
         &mut [],
         &mut Vec::default(),
+        None,
     )
     .await
     .unwrap();

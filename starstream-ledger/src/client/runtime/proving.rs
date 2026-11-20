@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use starstream_proving_runtime::{
     CapturedExecution, ComponentTemplates, MethodHash, ProofTimings, ResourceHandle,
@@ -20,6 +20,7 @@ pub struct VerificationSource {
     wasm: bytes::Bytes,
     scripts: Vec<String>,
     digest: [u8; 32],
+    pub(super) input_utxos: Vec<(usize, String)>,
 }
 
 /// Checked execution and the component sources loaded for this call.
@@ -27,26 +28,30 @@ pub struct VerificationSource {
 pub struct TracedCall {
     pub execution: CapturedExecution,
     pub programs: Vec<VerificationSource>,
+    pub proof_stats: Option<(ProofTimings, starstream_proving_runtime::ProofSizes)>,
 }
 
-fn push_unique_program(
-    programs: &mut Vec<VerificationSource>,
+pub(super) fn get_or_insert_program<'a>(
+    programs: &'a mut Vec<VerificationSource>,
     contract: &CompiledContract,
     digest: &[u8; 32],
-) {
-    if !programs
+) -> &'a mut VerificationSource {
+    let index = programs
         .iter()
-        .any(|source| source.digest == *digest && source.wasm == contract.instrumented)
-    {
-        programs.push(VerificationSource {
-            wasm: contract.instrumented.clone(),
-            scripts: contract
-                .coordination_script_names()
-                .map(str::to_owned)
-                .collect(),
-            digest: *digest,
+        .position(|source| source.digest == *digest && source.wasm == contract.instrumented)
+        .unwrap_or_else(|| {
+            programs.push(VerificationSource {
+                wasm: contract.instrumented.clone(),
+                scripts: contract
+                    .coordination_script_names()
+                    .map(str::to_owned)
+                    .collect(),
+                digest: *digest,
+                input_utxos: Vec::new(),
+            });
+            programs.len() - 1
         });
-    }
+    &mut programs[index]
 }
 
 impl WasmTraceSink for Ctx {
@@ -72,16 +77,15 @@ fn build_templates(
         .context("failed to build trace templates")
 }
 
-fn register_tracing(
+fn register_tracing<'a>(
     cx: &mut Ctx,
     contract: &CompiledContract,
     digest: &[u8; 32],
-    programs: &mut Vec<VerificationSource>,
-) -> wasmtime::Result<()> {
+    programs: &'a mut Vec<VerificationSource>,
+) -> wasmtime::Result<&'a mut VerificationSource> {
     let templates = build_templates(contract, digest)?;
     register_tracing_component(cx, &contract.instrumented, &templates.bindings)?;
-    push_unique_program(programs, contract, digest);
-    Ok(())
+    Ok(get_or_insert_program(programs, contract, digest))
 }
 
 /// Register compiled imports that have not been registered yet
@@ -159,7 +163,7 @@ impl Tracing {
             enable_tracing(store)?;
             let cx = store.data_mut();
             register_tracing_component(cx, &contract.instrumented, &templates.bindings)?;
-            push_unique_program(&mut programs, contract, &digest);
+            get_or_insert_program(&mut programs, contract, &digest);
             register_imports(cx, imports, &mut registered, &mut programs)?;
             Ok(templates)
         })();
@@ -181,20 +185,24 @@ impl Tracing {
         digest: [u8; 32],
         imports: &HashMap<[u8; 32], Contract>,
         local: usize,
-        methods: &BTreeSet<(u64, u64, u64, u64)>,
+        utxo: &crate::TransactionOutput,
     ) {
         let cx = store.data_mut();
+        let mut register = || {
+            let source = register_tracing(cx, contract, &digest, &mut self.programs)?;
+            source
+                .input_utxos
+                .push((self.input_locals.len(), utxo.instance.to_string()));
+            register_imports(cx, imports, &mut self.registered, &mut self.programs)
+        };
         if self.templates.is_ok()
-            && let Err(err) =
-                register_tracing(cx, contract, &digest, &mut self.programs).and_then(|()| {
-                    register_imports(cx, imports, &mut self.registered, &mut self.programs)
-                })
+            && let Err(err) = register()
         {
             self.templates = Err(err);
         }
         self.input_locals.push(local);
         self.input_methods.push(
-            methods
+            utxo.methods
                 .iter()
                 .map(|&(a, b, c, d)| MethodHash::from_u64_words([a, b, c, d]))
                 .collect(),
@@ -239,14 +247,14 @@ impl Tracing {
         Ok(TracedCall {
             execution,
             programs: self.programs,
+            proof_stats: None,
         })
     }
 }
 
 /// Prove `execution` using the traces captured in `store`.
 ///
-/// The proof is not attached to the transaction. Verify with
-/// [`TransactionProver::verify`] after [`prepare_verification`].
+/// Use [`super::attach_proof`] to include the result in a ledger transaction.
 pub fn prove(
     store: &Store<Ctx>,
     execution: &CapturedExecution,
@@ -279,6 +287,7 @@ pub fn prepare_verification(
                 wasm: &source.wasm,
                 coordination_exports: scripts,
                 contract_digest: &source.digest,
+                input_utxos: &source.input_utxos,
             },
         )
         .collect::<Vec<_>>();

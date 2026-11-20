@@ -30,6 +30,10 @@ use crate::{
 
 #[cfg(feature = "proving")]
 mod proving;
+#[cfg(feature = "proving")]
+mod transaction_proof;
+#[cfg(feature = "proving")]
+pub use transaction_proof::{attach_proof, verify_transaction_proof};
 
 #[cfg(feature = "proving")]
 pub use proving::{TracedCall, VerificationSource, prepare_verification, prove};
@@ -38,6 +42,10 @@ pub use starstream_proving_runtime::{
     CapturedExecution, Engine as ProofEngine, PreparedVerification, ProofPhaseTimings,
     ProofTimings, TransactionProof, TransactionProver, WasmProofTimings,
 };
+
+/// Without the proving backend, callers can only pass `None` as the prover.
+#[cfg(not(feature = "proving"))]
+pub enum TransactionProver {}
 
 /// The tracing result when proving is disabled.
 #[cfg(not(feature = "proving"))]
@@ -167,10 +175,8 @@ pub async fn compile_contract(
 /// With proving enabled, the tracing result includes the loaded program sources
 /// needed for independent verification preparation.
 ///
-/// The execution check is best-effort for now, mainly to not block execution
-/// on configurations not supported by the current instrumentation, so its
-/// result is returned next to the transaction and it is up to the caller to
-/// report the error, if any.
+/// Supplying a prover attaches a proof and propagates tracing and proving errors.
+/// Otherwise the trace check is best-effort and its result accompanies the transaction.
 #[allow(clippy::too_many_arguments)]
 pub async fn call_coordination_script(
     store: &mut Store<Ctx>,
@@ -183,6 +189,7 @@ pub async fn call_coordination_script(
     args: Vec<CoordinationScriptArg>,
     results: &mut [Val],
     utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
+    prover: Option<&mut TransactionProver>,
 ) -> wasmtime::Result<(Transaction, wasmtime::Result<TracedCall>)> {
     let args_len = args.len();
     let param_len = export.ty().params().len();
@@ -217,7 +224,7 @@ pub async fn call_coordination_script(
                 } else if let Some(Contract { wasm, .. }) = imports.get(&utxo_contract_digest) {
                     let wasm =
                         apply_state(wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    (Some(Arc::from(utxo.contract)), wasm)
+                    (Some(Arc::from(utxo.contract.as_ref())), wasm)
                 } else {
                     let wasm = client
                         .get_contract(utxo_contract_digest)
@@ -232,7 +239,7 @@ pub async fn call_coordination_script(
                     );
                     let wasm =
                         apply_state(&wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    (Some(Arc::from(utxo.contract)), wasm)
+                    (Some(Arc::from(utxo.contract.as_ref())), wasm)
                 };
                 let contract = compile_contract(
                     client,
@@ -250,7 +257,7 @@ pub async fn call_coordination_script(
                     utxo_contract_digest,
                     imports,
                     params.len(),
-                    &utxo.methods,
+                    &utxo,
                 );
                 let utxo_export = contract.get_utxo(&utxo.instance)?;
                 let storage_export = utxo_export.storage().context("UTXO has no storage")?;
@@ -355,18 +362,37 @@ pub async fn call_coordination_script(
         });
     }
     #[cfg(not(feature = "proving"))]
-    let execution = Ok(());
+    let execution = {
+        let _ = prover;
+        Ok(())
+    };
     #[cfg(feature = "proving")]
     let execution = tracing.check(store, export);
-    Ok((
-        Transaction {
-            inputs,
-            outputs: tx_outputs,
-            events,
-            proof: Box::default(), // TODO: add proof
-        },
-        execution,
-    ))
+    let transaction = Transaction {
+        inputs,
+        outputs: tx_outputs,
+        events,
+        proof: Box::default(),
+    };
+    #[cfg(feature = "proving")]
+    if let Some(prover) = prover {
+        let mut call = execution.context("failed to check execution trace")?;
+        let (proof, timings) =
+            prove(store, &call.execution, prover).context("failed to prove transaction")?;
+        let mut transaction = transaction;
+        let sizes = attach_proof(
+            &mut transaction,
+            digest,
+            export.name(),
+            &call.execution.transaction.statement,
+            &proof,
+        )
+        .map_err(wasmtime::Error::from_anyhow)
+        .context("failed to attach transaction proof")?;
+        call.proof_stats = Some((timings, sizes));
+        return Ok((transaction, Ok(call)));
+    }
+    Ok((transaction, execution))
 }
 
 #[derive(Debug, Default)]
