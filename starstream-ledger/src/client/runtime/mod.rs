@@ -30,6 +30,10 @@ use crate::{
 
 #[cfg(feature = "proving")]
 mod proving;
+#[cfg(feature = "proving")]
+mod transaction_proof;
+#[cfg(feature = "proving")]
+pub use transaction_proof::{attach_proof, verify_transaction_proof};
 
 #[cfg(feature = "proving")]
 pub use proving::{TracedCall, VerificationSource, prepare_verification, prove};
@@ -217,7 +221,7 @@ pub async fn call_coordination_script(
                 } else if let Some(Contract { wasm, .. }) = imports.get(&utxo_contract_digest) {
                     let wasm =
                         apply_state(wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    (Some(Arc::from(utxo.contract)), wasm)
+                    (Some(Arc::from(utxo.contract.as_ref())), wasm)
                 } else {
                     let wasm = client
                         .get_contract(utxo_contract_digest)
@@ -232,7 +236,7 @@ pub async fn call_coordination_script(
                     );
                     let wasm =
                         apply_state(&wasm, &utxo.state).map_err(wasmtime::Error::from_anyhow)?;
-                    (Some(Arc::from(utxo.contract)), wasm)
+                    (Some(Arc::from(utxo.contract.as_ref())), wasm)
                 };
                 let contract = compile_contract(
                     client,
@@ -250,7 +254,7 @@ pub async fn call_coordination_script(
                     utxo_contract_digest,
                     imports,
                     params.len(),
-                    &utxo.methods,
+                    &utxo,
                 );
                 let utxo_export = contract.get_utxo(&utxo.instance)?;
                 let storage_export = utxo_export.storage().context("UTXO has no storage")?;
@@ -363,7 +367,7 @@ pub async fn call_coordination_script(
             inputs,
             outputs: tx_outputs,
             events,
-            proof: Box::default(), // TODO: add proof
+            proof: Box::default(),
         },
         execution,
     ))

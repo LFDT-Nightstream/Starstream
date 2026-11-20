@@ -3,8 +3,13 @@ use std::slice;
 
 use anyhow::{Context as _, ensure};
 use bytes::Bytes;
+use sha2::{Digest as _, Sha256};
+use starstream_ledger::Transaction;
 use starstream_ledger::client::CoordinationScriptArg;
 use starstream_ledger::client::runtime::{Client, Ctx, call_coordination_script, compile_contract};
+use starstream_ledger::client::runtime::{
+    TracedCall, TransactionProver, attach_proof, verify_transaction_proof,
+};
 use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest};
 use wasmtime::{Engine, Store};
 use wasmtime_wizer::Wizer;
@@ -213,43 +218,109 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
     Ok(())
 }
 
-fn prove_and_verify(
-    prover: &mut starstream_ledger::client::runtime::TransactionProver,
-    store: &Store<Ctx>,
-    call: &starstream_ledger::client::runtime::TracedCall,
-) -> anyhow::Result<()> {
-    let execution = &call.execution;
-    let (proof, timings) = starstream_ledger::client::runtime::prove(store, execution, prover)?;
-    for instance in &timings.wasm {
-        eprintln!(
-            "{:?} ({:?}, circuit reused: {}): {:?}",
-            instance.coroutine, instance.size, instance.circuit_reused, instance.phases
+struct ProofFixture<'a> {
+    wasm: &'a [u8],
+    previous: Option<&'a Transaction>,
+}
+
+impl Client for ProofFixture<'_> {
+    async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
+        ensure!(
+            <[u8; 32]>::from(Sha256::digest(self.wasm)) == digest,
+            "unknown fixture contract"
         );
+        Ok(Bytes::copy_from_slice(self.wasm))
     }
-    eprintln!(
-        "interleaving (circuit reused: {}): {:?}",
-        timings.interleaving_circuit_reused, timings.interleaving
-    );
-    eprintln!("total: {:?}", timings.total);
-    let statement = &execution.transaction.statement;
-    let started = std::time::Instant::now();
-    let expected = starstream_ledger::client::runtime::prepare_verification(
-        &call.programs,
-        proof.instances.iter().map(|instance| instance.size),
-    )?;
-    eprintln!("verification prepared in {:?}", started.elapsed());
-    let (proof, sizes) = proof.through_bytes()?;
-    eprintln!("{} proof bytes: {sizes:?}", sizes.total());
-    let started = std::time::Instant::now();
-    prover.verify(&proof, &expected, statement)?;
-    eprintln!("verified in {:?}", started.elapsed());
-    let mut other = statement.clone();
-    other.entry.script.0[0] ^= 1;
-    ensure!(
-        prover.verify(&proof, &expected, &other).is_err(),
-        "a proof must not verify against another statement"
-    );
-    Ok(())
+
+    async fn get_input_utxo(&self, input: &TransactionInput) -> anyhow::Result<TransactionOutput> {
+        let previous = self.previous.context("missing previous transaction")?;
+        ensure!(
+            input.transaction.as_ref() == encode_digest(&previous.digest()?),
+            "unknown fixture transaction"
+        );
+        previous
+            .outputs
+            .get(input.index as usize)
+            .cloned()
+            .context("unknown fixture output")
+    }
+}
+
+impl ProofFixture<'_> {
+    async fn round_trip(
+        &self,
+        prover: &mut TransactionProver,
+        store: Store<Ctx>,
+        call: TracedCall,
+        mut transaction: Transaction,
+        script: &str,
+    ) -> anyhow::Result<Transaction> {
+        let execution = &call.execution;
+        let (proof, timings) =
+            starstream_ledger::client::runtime::prove(&store, execution, prover)?;
+        for instance in &timings.wasm {
+            eprintln!(
+                "{:?} ({:?}, circuit reused: {}): {:?}",
+                instance.coroutine, instance.size, instance.circuit_reused, instance.phases
+            );
+        }
+        eprintln!(
+            "interleaving (circuit reused: {}): {:?}",
+            timings.interleaving_circuit_reused, timings.interleaving
+        );
+        eprintln!("total: {:?}", timings.total);
+        let sizes = attach_proof(
+            &mut transaction,
+            Sha256::digest(self.wasm).into(),
+            script,
+            &execution.transaction.statement,
+            &proof,
+        )?;
+        eprintln!("{} proof bytes: {sizes:?}", sizes.total());
+        drop(proof);
+        drop(call);
+        let engine = store.engine().clone();
+        drop(store);
+        let bytes = minicbor::to_vec(&transaction)?;
+        drop(transaction);
+        let decoded: Transaction = minicbor::decode(&bytes)?;
+        eprintln!("{} transaction proof bytes", decoded.proof.len());
+        let started = std::time::Instant::now();
+        verify_transaction_proof(prover, &decoded, self, &engine, &Wizer::new()).await?;
+        eprintln!("prepared and verified in {:?}", started.elapsed());
+        if let Some(previous) = self.previous {
+            for change_storage in [true, false] {
+                let mut other = previous.clone();
+                let output = &mut other.outputs[0];
+                if change_storage {
+                    // Change the low bit of the first encoded integer, keeping its LEB length.
+                    output.storage[0] ^= 1;
+                } else {
+                    output.methods.clear();
+                }
+                let mut changed = decoded.clone();
+                changed.inputs[0] = TransactionInput::new(other.digest()?, 0);
+                let other_store = ProofFixture {
+                    wasm: self.wasm,
+                    previous: Some(&other),
+                };
+                let err = verify_transaction_proof(
+                    prover,
+                    &changed,
+                    &other_store,
+                    &engine,
+                    &Wizer::new(),
+                )
+                .await
+                .unwrap_err();
+                ensure!(
+                    format!("{err:#}").contains("interleaving proof is invalid"),
+                    "expected a rejected input commitment, got {err:#}"
+                );
+            }
+        }
+        Ok(decoded)
+    }
 }
 
 async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
@@ -328,10 +399,17 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
     assert_eq!(call.programs.len(), 1);
     assert!(created.inputs.is_empty());
     assert_eq!(created.outputs.len(), 1);
-    if let Some(prover) = &mut prover {
+    let created = if let Some(prover) = &mut prover {
         eprintln!("create stored amount");
-        prove_and_verify(prover, &store, &call)?;
-    }
+        ProofFixture {
+            wasm: &wasm,
+            previous: None,
+        }
+        .round_trip(prover, store, call, created, "create")
+        .await?
+    } else {
+        created
+    };
 
     let client = TestClient(Some(created.outputs[0].clone()));
     // Each branch spends the same fixture independently.
@@ -339,7 +417,7 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
         let spend = contract.get_coordination_script(script)?;
         let mut store = Store::new(&engine, Ctx::default());
         let input = TransactionInput {
-            transaction: "fixture".into(),
+            transaction: encode_digest(&created.digest()?).into(),
             index: 0,
         };
         let result = call_coordination_script(
@@ -370,6 +448,12 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
             2,
             "retain the input snapshot as well as the coordinator"
         );
+        if !prove {
+            starstream_ledger::client::runtime::prepare_verification(
+                &call.programs,
+                [starstream_proving_runtime::WasmSize::Small],
+            )?;
+        }
         let execution = &call.execution;
         let [event] = transaction.events.as_slice() else {
             anyhow::bail!("expected one amount event");
@@ -381,7 +465,12 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
         assert!(execution.transaction.statement.outputs.is_empty());
         if let Some(prover) = &mut prover {
             eprintln!("spend stored amount");
-            prove_and_verify(prover, &store, &call)?;
+            ProofFixture {
+                wasm: &wasm,
+                previous: Some(&created),
+            }
+            .round_trip(prover, store, call, transaction, script)
+            .await?;
         }
     }
     Ok(())
@@ -450,9 +539,14 @@ async fn coordination_script_transactions_prove_and_verify() -> anyhow::Result<(
     )
     .await?;
     assert_eq!(transaction.outputs.len(), 1);
-    prove_and_verify(&mut prover, &store, &execution?)?;
+    let created = ProofFixture {
+        wasm: &wasm,
+        previous: None,
+    }
+    .round_trip(&mut prover, store, execution?, transaction, "example")
+    .await?;
 
-    let client = TestClient(Some(transaction.outputs[0].clone()));
+    let client = TestClient(Some(created.outputs[0].clone()));
     let again = contract.get_coordination_script("again")?;
     let mut store = Store::new(&engine, Ctx::default());
     let (transaction, execution) = call_coordination_script(
@@ -464,7 +558,7 @@ async fn coordination_script_transactions_prove_and_verify() -> anyhow::Result<(
         &again,
         &mut imports,
         vec![CoordinationScriptArg::Utxo(TransactionInput {
-            transaction: "fixture".into(),
+            transaction: encode_digest(&created.digest()?).into(),
             index: 0,
         })],
         &mut [],
@@ -472,6 +566,11 @@ async fn coordination_script_transactions_prove_and_verify() -> anyhow::Result<(
     )
     .await?;
     assert_eq!(transaction.inputs.len(), 1);
-    prove_and_verify(&mut prover, &store, &execution?)?;
+    ProofFixture {
+        wasm: &wasm,
+        previous: Some(&created),
+    }
+    .round_trip(&mut prover, store, execution?, transaction, "again")
+    .await?;
     Ok(())
 }

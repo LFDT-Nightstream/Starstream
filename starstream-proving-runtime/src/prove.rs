@@ -2,7 +2,9 @@
 //!
 //! Verification uses independently prepared programs and entry states.
 //! The caller still authenticates the component bytes and transaction statement.
-//! The full transaction proof has no wire format yet.
+
+mod wire;
+pub use wire::EncodedTransactionProof;
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -347,9 +349,17 @@ impl TransactionProver {
         expected: &PreparedVerification,
         statement: &TransactionStatement,
     ) -> wasmtime::Result<()> {
+        ensure!(
+            expected.input_count() == statement.inputs.len(),
+            "missing verification program for a transaction input"
+        );
         for (index, instance) in proof.instances.iter().enumerate() {
-            let (program, initial) =
-                expected.instance(instance.size, &instance.program, &instance.initial)?;
+            let (program, initial) = expected.instance(
+                instance.coroutine,
+                instance.size,
+                &instance.program,
+                &instance.initial,
+            )?;
             ensure!(
                 instance.last.is_terminal() && !instance.last.trapped,
                 "instance {index} did not run to completion"
