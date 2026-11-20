@@ -556,7 +556,14 @@ impl Compiler {
             }
         }
 
-        if let Some(context_global) = self.context_global {
+        // Only a UTXO's set-storage takes a context, to restore the global its
+        // `yield` and `resume` use. The global exists whenever the module has
+        // any UTXO, so tokens have to be excluded explicitly.
+        let context_global = match ty {
+            Type::Utxo(_) => self.context_global,
+            _ => None,
+        };
+        if let Some(context_global) = context_global {
             // set-storage(ctx: own<utxo-context>, storage: storage) -> utxo
             let utxo_context_own = Rc::new(ComponentAbiType::Own {
                 resource: self.builtins.utxo_context_resource.clone().unwrap(),
@@ -1004,7 +1011,12 @@ impl Compiler {
             Type::Utxo(utxo) => panic!("referencing unregistered utxo {utxo:?}"),
             Type::TokenAny => unreachable!(), // Always preregistered.
             Type::Token(token) => panic!("referencing unregistered token {token:?}"),
-            // ABI handle types currently decompose to `utxo`.
+            // The prelude's `Token` is an ABI, but its values are builtin
+            // `token` handles: upcasts produce them and `attach` takes them.
+            Type::Abi(abi) if **abi == *Type::token() => {
+                return Some(self.star_to_component.get(&Type::TokenAny).unwrap().clone());
+            }
+            // Other ABI handle types currently decompose to `utxo`.
             Type::Abi(_) => {
                 return Some(self.star_to_component.get(&Type::UtxoAny).unwrap().clone());
             }
