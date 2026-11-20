@@ -3,10 +3,14 @@ use starstream_types::ast::Program;
 
 use crate::parser::ParserExt;
 
-use super::{comment, context::Extra, definition};
+use super::{
+    comment,
+    context::{Extra, ParserInput},
+    definition,
+};
 
 /// Get a parser for a Starstream source file.
-pub fn parser<'a>() -> impl Parser<'a, &'a str, Program, Extra<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, ParserInput<'a>, Program, Extra<'a>> {
     comment::shebang()
         .or_not()
         .then(

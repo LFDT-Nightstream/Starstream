@@ -1,9 +1,9 @@
 use chumsky::prelude::*;
 use starstream_types::Comment;
 
-use crate::parser::context::Extra;
+use crate::parser::context::{Extra, ParserInput};
 
-pub fn shebang<'a>() -> impl Parser<'a, &'a str, Comment, Extra<'a>> {
+pub fn shebang<'a>() -> impl Parser<'a, ParserInput<'a>, Comment, Extra<'a>> {
     just("#!")
         .then(none_of("\n").repeated())
         .then(just("\n"))
@@ -14,7 +14,7 @@ pub fn shebang<'a>() -> impl Parser<'a, &'a str, Comment, Extra<'a>> {
 /// Parse a comment and return its span.
 /// Used by tests; production code uses `comment_collecting` which pushes to State.
 #[allow(dead_code)]
-pub fn comment<'a>() -> impl Parser<'a, &'a str, Comment, Extra<'a>> + Clone {
+pub fn comment<'a>() -> impl Parser<'a, ParserInput<'a>, Comment, Extra<'a>> + Clone {
     let line_comment = just("//")
         .then(none_of("\n").repeated())
         .then(just("\n"))
@@ -31,7 +31,7 @@ pub fn comment<'a>() -> impl Parser<'a, &'a str, Comment, Extra<'a>> + Clone {
 /// WARNING: Semantically meaningful side-effects in map_with contradicts chumsky intent.
 /// https://docs.rs/chumsky/latest/chumsky/guide/_06_technical_notes/index.html#purity-and-optimisation
 /// Don't use `ignore_then` or comments will be dropped.
-pub fn comment_collecting<'a>() -> impl Parser<'a, &'a str, (), Extra<'a>> + Clone {
+pub fn comment_collecting<'a>() -> impl Parser<'a, ParserInput<'a>, (), Extra<'a>> + Clone {
     let line_comment = just("//")
         .then(none_of("\n").repeated())
         .then(just("\n").or_not())
@@ -41,7 +41,7 @@ pub fn comment_collecting<'a>() -> impl Parser<'a, &'a str, (), Extra<'a>> + Clo
         .then(just("*/"))
         .to_span();
     choice((line_comment, block_comment)).map_with(
-        |span, extra: &mut chumsky::input::MapExtra<'_, '_, &str, Extra<'a>>| {
+        |span, extra: &mut chumsky::input::MapExtra<'_, '_, ParserInput<'a>, Extra<'a>>| {
             extra.state().comments.push(Comment(span));
         },
     )
@@ -57,7 +57,12 @@ mod tests {
         let source = "/// This is a doc comment\n";
         let mut state = State::new();
 
-        let result = comment().parse_with_state(source, &mut state).into_result();
+        let result = comment()
+            .parse_with_state(
+                source.with_context(starstream_types::ModuleId::ENTRY),
+                &mut state,
+            )
+            .into_result();
 
         assert!(result.is_ok(), "Comment should parse");
         let comment = result.unwrap();
@@ -82,7 +87,12 @@ mod tests {
         let source = "// Regular comment\n";
         let mut state = State::new();
 
-        let result = comment().parse_with_state(source, &mut state).into_result();
+        let result = comment()
+            .parse_with_state(
+                source.with_context(starstream_types::ModuleId::ENTRY),
+                &mut state,
+            )
+            .into_result();
 
         assert!(result.is_ok());
         let comment = result.unwrap();

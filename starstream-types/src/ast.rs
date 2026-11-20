@@ -7,20 +7,49 @@ use serde::Serialize;
 // ----------------------------------------------------------------------------
 // Basics
 
-pub type Span = SimpleSpan;
+/// Stable identifier for a module within a ModuleGraph.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+pub struct ModuleId(u32);
+
+impl ModuleId {
+    /// The entry file of a `ModuleGraph::from_entry` graph, which is always
+    /// loaded first. Lets callers attribute errors to it even when building
+    /// the graph fails. Also the module of a standalone parse and of
+    /// [`DUMMY_SPAN`].
+    pub const ENTRY: ModuleId = ModuleId(0);
+
+    pub fn from_index(idx: usize) -> ModuleId {
+        ModuleId(idx.try_into().expect("ModuleId overflow"))
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl std::fmt::Debug for ModuleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Always put on one line, ignoring alternate formatting.
+        write!(f, "ModuleId({})", self.0)
+    }
+}
+
+/// A byte range within the source of one module. The module is the span's
+/// context, so a span that points into another file stays tied to it.
+pub type Span = SimpleSpan<usize, ModuleId>;
 
 pub const DUMMY_SPAN: Span = Span {
     start: 0,
     end: 0,
-    context: (),
+    context: ModuleId::ENTRY,
 };
 
-/// Create a span from start and end offsets.
+/// Create a span in the entry module from start and end offsets.
 ///
 /// This is a convenience function that avoids needing to import the chumsky Span trait.
 #[must_use]
 pub fn span(start: usize, end: usize) -> Span {
-    Span::new((), start..end)
+    Span::new(ModuleId::ENTRY, start..end)
 }
 
 fn span_or(first: Span, second: Span) -> Span {
@@ -51,11 +80,7 @@ impl<T> Spanned<T> {
     pub fn none(node: T) -> Spanned<T> {
         Spanned {
             node,
-            span: Span {
-                start: 0,
-                end: 0,
-                context: (),
-            },
+            span: DUMMY_SPAN,
         }
     }
 }
@@ -923,7 +948,7 @@ mod tests {
     use chumsky::span::Span as SpanTrait;
 
     fn span(start: usize, end: usize) -> Span {
-        Span::new((), start..end)
+        Span::new(ModuleId::ENTRY, start..end)
     }
 
     #[test]

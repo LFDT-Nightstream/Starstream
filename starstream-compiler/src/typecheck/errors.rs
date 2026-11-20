@@ -1,8 +1,8 @@
 use std::{fmt, path::PathBuf};
 
-use miette::{Diagnostic, LabeledSpan};
+use miette::Diagnostic;
 use starstream_types::{
-    ErrorCode, FunctionKind, Span, SpanExt, StarError, Type,
+    ErrorCode, FunctionKind, Span, StarError, Type,
     ast::{BinaryOp, UnaryOp},
     error_code,
 };
@@ -137,7 +137,6 @@ pub enum TypeErrorKind {
         expected: Type,
         found: Type,
         position: usize,
-        param_span: Option<Span>,
     },
     /// Attempted to emit an event that doesn't exist.
     UnknownEvent {
@@ -768,25 +767,6 @@ impl Diagnostic for TypeErrorKind {
             "https://starstream.nightstream.dev/errors/{}",
             self.error_code()
         )))
-    }
-
-    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
-        let mut labels = Vec::new();
-        if let TypeErrorKind::ArgumentTypeMismatch {
-            expected,
-            param_span: Some(span),
-            ..
-        } = self
-        {
-            labels.push(LabeledSpan::new_with_span(
-                Some(format!(
-                    "parameter expects `{}`",
-                    expected.compact_display()
-                )),
-                span.miette(),
-            ));
-        }
-        Some(Box::new(labels.into_iter()))
     }
 
     fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {

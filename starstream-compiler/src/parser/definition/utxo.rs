@@ -2,15 +2,15 @@ use chumsky::prelude::*;
 use starstream_types::{Block, FunctionDef, FunctionExport, UtxoDef, UtxoGlobal, UtxoPart};
 
 use crate::parser::{
-    context::Extra,
+    context::{Extra, ParserInput},
     definition::function::function,
     primitives::{self, identifier},
     type_annotation,
 };
 
 pub fn utxo<'a>(
-    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone,
-) -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
+    block: impl Parser<'a, ParserInput<'a>, Block, Extra<'a>> + Clone,
+) -> impl Parser<'a, ParserInput<'a>, UtxoDef, Extra<'a>> {
     let utxo_global = text::keyword("let")
         .padded()
         .then(text::keyword("mut"))
@@ -72,7 +72,7 @@ mod tests {
         ($code:expr) => {{
             let (_, block, _) = $crate::parser::recursives();
             let parsed = utxo(block)
-                .parse(indoc! { $code })
+                .parse(indoc! { $code }.with_context(starstream_types::ModuleId::ENTRY))
                 .into_result()
                 .expect("utxo should parse");
 
@@ -122,7 +122,10 @@ mod tests {
         let (_, block, _) = crate::parser::recursives();
         assert!(
             utxo(block)
-                .parse("utxo Foo { impl Extra { pub fn value() {} } }")
+                .parse(
+                    "utxo Foo { impl Extra { pub fn value() {} } }"
+                        .with_context(starstream_types::ModuleId::ENTRY)
+                )
                 .into_result()
                 .is_err()
         );
@@ -133,7 +136,10 @@ mod tests {
         let (_, block, _) = crate::parser::recursives();
         assert!(
             utxo(block)
-                .parse("utxo Foo { pub main fn new() {} }")
+                .parse(
+                    "utxo Foo { pub main fn new() {} }"
+                        .with_context(starstream_types::ModuleId::ENTRY)
+                )
                 .into_result()
                 .is_err()
         );

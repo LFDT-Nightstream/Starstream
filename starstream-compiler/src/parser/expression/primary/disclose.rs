@@ -1,11 +1,14 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Expr, Spanned};
 
-use crate::parser::{ParserExt, context::Extra};
+use crate::parser::{
+    ParserExt,
+    context::{Extra, ParserInput},
+};
 
 pub fn parser<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     text::keyword("disclose")
         .padded()
         .ignore_then(expression.delimited_by(just('(').padded(), just(')').padded()))

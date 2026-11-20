@@ -19,5 +19,5 @@
 ## Non-Obvious Gotchas
 
 - Wasm tests assert `source == formatted_source`, so test `.star` files must be pre-formatted.
-- `Span` is chumsky's `SimpleSpan`; use the `dummy_span()` helper rather than `Span::new()`.
+- `Span` is chumsky's `SimpleSpan<usize, ModuleId>`, so it knows which file it points into. Use `span(start, end)` or `DUMMY_SPAN` rather than `Span::new()`, and `parse_module` when parsing a file in a module graph.
 - Generated `tree-sitter-starstream/src/` output must be committed (CI checks `git diff --exit-code`).

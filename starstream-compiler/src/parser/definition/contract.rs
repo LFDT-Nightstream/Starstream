@@ -1,9 +1,9 @@
 use chumsky::prelude::*;
 
-use crate::parser::context::Extra;
+use crate::parser::context::{Extra, ParserInput};
 
 /// `contract;` — marks the file as a contract entry point.
-pub fn parser<'a>() -> impl Parser<'a, &'a str, (), Extra<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, ParserInput<'a>, (), Extra<'a>> {
     text::keyword("contract")
         .padded()
         .then_ignore(just(';').padded())
@@ -16,16 +16,27 @@ mod tests {
 
     #[test]
     fn bare_contract() {
-        parser().parse("contract;").into_result().expect("parses");
+        parser()
+            .parse("contract;".with_context(starstream_types::ModuleId::ENTRY))
+            .into_result()
+            .expect("parses");
     }
 
     #[test]
     fn contract_with_whitespace() {
-        parser().parse("contract ;").into_result().expect("parses");
+        parser()
+            .parse("contract ;".with_context(starstream_types::ModuleId::ENTRY))
+            .into_result()
+            .expect("parses");
     }
 
     #[test]
     fn rejects_missing_semicolon() {
-        assert!(parser().parse("contract").into_result().is_err());
+        assert!(
+            parser()
+                .parse("contract".with_context(starstream_types::ModuleId::ENTRY))
+                .into_result()
+                .is_err()
+        );
     }
 }

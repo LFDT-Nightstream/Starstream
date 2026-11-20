@@ -4,9 +4,12 @@ use starstream_types::{
     ast::{Pattern, StructPatternField},
 };
 
-use super::{context::Extra, primitives};
+use super::{
+    context::{Extra, ParserInput},
+    primitives,
+};
 
-pub fn pattern<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> + Clone {
+pub fn pattern<'a>() -> impl Parser<'a, ParserInput<'a>, Pattern, Extra<'a>> + Clone {
     recursive(|pattern| {
         let identifier = primitives::identifier().boxed();
 
@@ -89,8 +92,8 @@ pub fn pattern<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> + Clone {
 }
 
 pub fn tuple_pattern<'a>(
-    pattern: impl Parser<'a, &'a str, Pattern, Extra<'a>> + Clone,
-) -> impl Parser<'a, &'a str, (ScopedName, Vec<Pattern>), Extra<'a>> + Clone {
+    pattern: impl Parser<'a, ParserInput<'a>, Pattern, Extra<'a>> + Clone,
+) -> impl Parser<'a, ParserInput<'a>, (ScopedName, Vec<Pattern>), Extra<'a>> + Clone {
     primitives::scoped_name().clone().then(
         pattern
             .separated_by(just(',').padded())
