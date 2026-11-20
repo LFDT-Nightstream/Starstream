@@ -2515,7 +2515,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 [[package]]
 name = "neo-ajtai"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "keccak 0.2.2",
  "neo-ccs",
@@ -2532,7 +2532,7 @@ dependencies = [
 [[package]]
 name = "neo-application"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2544,7 +2544,7 @@ dependencies = [
 [[package]]
 name = "neo-ccs"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "neo-math",
  "neo-params",
@@ -2559,7 +2559,7 @@ dependencies = [
 [[package]]
 name = "neo-math"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "neo-params",
  "num-bigint",
@@ -2572,7 +2572,7 @@ dependencies = [
 [[package]]
 name = "neo-params"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "num-bigint",
  "thiserror 2.0.21",
@@ -2581,7 +2581,7 @@ dependencies = [
 [[package]]
 name = "neo-prover-metal"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "block2",
  "dispatch2",
@@ -2600,7 +2600,7 @@ dependencies = [
 [[package]]
 name = "neo-reductions"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "neo-ajtai",
  "neo-ccs",
@@ -2616,7 +2616,7 @@ dependencies = [
 [[package]]
 name = "neo-transcript"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2626,7 +2626,7 @@ dependencies = [
 [[package]]
 name = "neo-wasm"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "futures",
  "neo-application",
@@ -2642,7 +2642,7 @@ dependencies = [
 [[package]]
 name = "nightstream"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "bincode",
  "neo-ajtai",
@@ -2666,7 +2666,7 @@ dependencies = [
 [[package]]
 name = "nightstream-fprime"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "neo-ajtai",
  "neo-ccs",
@@ -2683,7 +2683,7 @@ dependencies = [
 [[package]]
 name = "ns-compress"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=08bc8b8f44ec77cdc5bb8c06c42274858e0a5982#08bc8b8f44ec77cdc5bb8c06c42274858e0a5982"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e7da05656409009d2aaf5827481c1206fc2c865c#e7da05656409009d2aaf5827481c1206fc2c865c"
 dependencies = [
  "akita-config 0.1.0 (git+https://github.com/nicarq/akita.git?rev=6e45884694d0f9f678c0c228580a01f2683c0929)",
  "akita-config 0.1.0 (git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1)",
