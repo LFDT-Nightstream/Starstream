@@ -65,7 +65,9 @@ impl MethodHash {
     #[must_use]
     pub fn to_hex(self) -> String {
         self.0
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| format!("{:08x}{:08x}", pair[1], pair[0]))
             .collect()
     }

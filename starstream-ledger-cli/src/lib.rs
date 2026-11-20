@@ -199,6 +199,12 @@ enum ScriptCommand {
         #[arg(long)]
         simulate: bool,
 
+        /// Attach and verify an execution proof. Circuit setup takes about a minute.
+        //
+        // TODO: cache the circuits?
+        #[arg(long)]
+        prove: bool,
+
         /// Write the encoded transaction to a file.
         #[arg(long, value_name = "PATH")]
         output_transaction: Option<PathBuf>,
@@ -542,6 +548,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
             key,
             network,
             simulate,
+            prove,
             output_transaction,
             imports,
             cardano_block_height,
@@ -619,6 +626,10 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 ..Ctx::default()
             };
             let mut store = Store::new(client.engine(), ctx);
+            use starstream_ledger::client::runtime::{
+                ProofEngine, TransactionProver, verify_transaction_proof,
+            };
+            let mut prover = prove.then(|| TransactionProver::new(ProofEngine::Optimized));
             let (tx, execution) = call_coordination_script(
                 &mut store,
                 &imports,
@@ -630,9 +641,32 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 params,
                 &mut results,
                 &mut utxos,
+                prover.as_mut(),
             )
             .await?;
-            if let Err(err) = execution {
+            if let Some(prover) = prover.as_mut() {
+                let call = execution?;
+                verify_transaction_proof(prover, &tx, &imports, client.engine(), client.wizer())
+                    .await
+                    .context("the attached transaction proof does not verify")?;
+                let (timings, _) = call.proof_stats.context("missing proof timings")?;
+                for instance in &timings.wasm {
+                    info!(coroutine = ?instance.coroutine, size = ?instance.size,
+                            circuit_reused = instance.circuit_reused,
+                            setup = ?instance.phases.setup, proving = ?instance.phases.proving,
+                            compression = ?instance.phases.compression, "Wasm proof timings");
+                }
+                info!(circuit_reused = timings.interleaving_circuit_reused,
+                        setup = ?timings.interleaving.setup, proving = ?timings.interleaving.proving,
+                        compression = ?timings.interleaving.compression, "interleaving proof timings");
+                info!(
+                    instances = timings.wasm.len(),
+                    setup = ?timings.total.setup,
+                    proving = ?timings.total.proving,
+                    compression = ?timings.total.compression,
+                    "proved and verified the transaction"
+                );
+            } else if let Err(err) = execution {
                 warn!(?err, "failed to check execution trace");
             }
             'outer: for result in &mut results {

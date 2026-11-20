@@ -51,6 +51,12 @@ pub struct InterleavedTransaction {
     pub trace: Trace,
     /// Loaded inputs and synthesized outputs.
     pub statement: TransactionStatement,
+    /// For each UTXO id, the position in the supplied trace list of the
+    /// process that became that UTXO.
+    pub utxos: Vec<ProcessIndex>,
+    /// The same for coordinators, in allocation order: the entry script
+    /// first, then each called coordinator.
+    pub coordinators: Vec<ProcessIndex>,
 }
 
 /// Merge process-local semantic traces in cooperative control-flow order.
@@ -152,6 +158,8 @@ pub fn interleave_transaction_with_inputs(
             inputs,
             outputs,
         },
+        utxos: allocation_order.into_iter().map(ProcessIndex).collect(),
+        coordinators: coordinators.into_iter().map(ProcessIndex).collect(),
     })
 }
 

@@ -38,10 +38,11 @@ define_column_region! {
         COL_SEL_FINALIZE_COORDINATOR: Boolean => "enumerate the next coordinator's final trace root, in allocation order",
         COL_SEL_CALL_COORDINATOR: Boolean => "selector for the CallCoordinator action",
         COL_SEL_BEGIN_EXECUTION: Boolean => "the transaction context calls the entry script once inputs are loaded",
-        COL_TRACE_ROOT_READ: Boolean => "read a final trace root without emitting a program event",
         COL_METHOD_APPEND: Boolean => "RegisterMethod or PreloadMethod",
         COL_EVENT_ACTIVE: Boolean => "this row emits a program event",
         COL_EVENT_OWNER: U32 => "packed instance owning the program event or final trace root being read",
+        COL_UTXO_EVENT: Boolean => "this row emits a program event owned by a UTXO",
+        COL_COORD_EVENT: Boolean => "this row emits a program event owned by a coordinator",
         COL_BOUNDARY_UTXO: U32 => "packed UTXO ID for loading or the output scan",
         COL_OUTPUT_REMAINING: U32 => "instances after this one in the active scan: next_utxo_id - output_cursor - 1 on output scans, next_coordinator_id - coordinator_cursor - 1 on coordinator finalization",
         COL_CURR_BEFORE: U32 => "packed coroutine id that has the turn",
@@ -69,22 +70,21 @@ define_column_region! {
         COL_EFFECT_HANDLED: Boolean => "handler exit status: continue search = 0, resume = 1",
         COL_CALL_SP_BEFORE_INVERSE: Field => "inverse proving that an execution row starts with a nonempty call stack",
         // TODO: limit sp so that this doesn't overflow
-        COL_CALL_STACK_MUL_STRIDE_8: [U32; 8] => "SP * 8 + i (push/pop/peek)",
-        // TODO: limit sp so that this doesn't overflow
-        COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8: [U32; 8] => "SP * 8 + i",
-        COL_CALL_STACK_EXPECTED_ARG_VALUE: [U32; 8] => "opaque argument root, little-endian 32-bit limbs; written on call, read on entry",
-        COL_CALL_STACK_EXPECTED_RESULT_VALUE: [U32; 8] => "opaque result root, little-endian 32-bit limbs; updated on return/handler exit and read when the caller/effect resumes",
+        COL_CALL_STACK_FRAME: U32 => "call-stack frame accessed: SP on a push, SP - 1 on a pop or peek",
+        COL_CALL_STACK_MUL_STRIDE_8: [U32; 8] => "accessed frame * 8 + i, for the frame's eight-word fields",
+        COL_CALL_STACK_EXPECTED_ARG_VALUE: [U32; 8] => "opaque argument root, little-endian 32-bit limbs; an effect frame stores them on raise and handler entry reads them",
         // using 8 limbs for exact sha256 repr for now (in 32-bit limbs), we
         // could improve this, but the memory argument as currently implemented
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
-        COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: call-stack expected-method value and method-table ROM lookup value",
+        COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: event identity, pending-method hand-off and method-table ROM lookup value",
         COL_METHOD_INDEX: (Bits(29)) => "trace-local compact index for the method hash",
-        COL_METHOD_LOOKUP: Boolean => "RegisterMethod, PreloadMethod, CallMethod or ReadAbi resolves a method hash",
+        COL_METHOD_LOOKUP: Boolean => "a method, ABI or effect step resolves a method hash through the method table",
         COL_METHOD_TABLE_ADDR: [U32; 8] => "method_index * 8 + hash limb offset",
+        COL_ABI_GENERATION_READ: Boolean => "RegisterMethod, PreloadMethod, CallMethod or ReadAbi reads a UTXO's current ABI generation",
         COL_CALL_TARGET: U32 => "packed coroutine id that gets control in the next step",
         COL_CALL_TARGET_IS_ZERO: Boolean => "whether the call target is Coord(0), the transaction context",
         COL_CALL_TARGET_INVERSE: Field => "inverse proving that a call target is nonzero",
-        COL_ABI_METHOD_COUNT_ADDR: U32 => "packed UTXO key for current-generation registration count",
+        COL_ABI_METHOD_COUNT_ADDR: U32 => "UTXO local index (packed id without the tag) keying the current-generation registration count",
         COL_SEL_READ_ABI: Boolean => "host-synthesized output ABI enumeration",
         COL_ABI_READ_REMAINING_BEFORE: (Bits(8)) => "unread registrations of the last exported UTXO",
         COL_ABI_READ_REMAINING_AFTER: (Bits(8)) => "remaining registrations after GetStorage loads the count or ReadAbi decrements it",
@@ -99,7 +99,7 @@ define_column_region! {
         COL_ENABLED_METHOD_LOG_ADDR: U32 => "append-log entry written by RegisterMethod/PreloadMethod or selected by CallMethod",
         COL_ENABLED_METHOD_LOG_UTXO: U32 => "packed UTXO id stored in the enabled-method log entry",
         COL_ENABLED_METHOD_LOG_GENERATION: U32 => "ABI generation stored in the enabled-method log entry",
-        COL_ABI_GENERATION_ADDR: U32 => "packed UTXO id whose current ABI generation is accessed",
+        COL_ABI_GENERATION_ADDR: U32 => "UTXO local index (packed id without the tag) whose current ABI generation is accessed",
         COL_ABI_GENERATION_BEFORE: U32 => "current ABI generation read from memory",
         COL_ABI_GENERATION_AFTER: U32 => "next ABI generation written by YieldBegin",
 
@@ -111,7 +111,7 @@ define_column_region! {
         COL_RESOURCE_RESOLVER_READ: Boolean => "1 if reading from the resource resolver map (on call_method)",
 
         // TODO: limit curr side so that this doesn't overflow
-        COL_EVENT_OWNER_STRIDE_8: [U32; 8] => "event_owner * 8 + i for trace digest RAM",
+        COL_EVENT_OWNER_STRIDE_8: [U32; 8] => "event owner local index * 8 + i, the address in its kind's trace digest RAM",
 
 
     ]
@@ -148,6 +148,10 @@ define_column_region! {
         COL_EFFECT_DEPTH_AFTER: U32 => "local scope depth after this step",
         COL_EFFECT_ARENA_LEN_BEFORE: U32 => "scopes allocated so far; ids are never reused",
         COL_EFFECT_ARENA_LEN_AFTER: U32 => "scopes allocated after this step",
+        COL_PENDING_ROOT_BEFORE: [Field; 4] => "hand-off register: the argument root of the pending program call, or the result root of the pending return or handler exit",
+        COL_PENDING_ROOT_AFTER: [Field; 4] => "hand-off root after this row",
+        COL_PENDING_METHOD_BEFORE: [Field; 8] => "hand-off register: method or script hash limbs of the pending program call",
+        COL_PENDING_METHOD_AFTER: [Field; 8] => "hand-off method after this row",
     ]
 }
 
@@ -162,10 +166,10 @@ define_column_region! {
         COL_OUT: [Field; 4] => "the carried 4-limb poseidon2 commitment",
         COL_IN_WORDS: [U32; 8] => "canonical input digest limbs for trace RAM",
         COL_OUT_WORDS: [U32; 8] => "canonical output digest limbs for trace RAM",
-        COL_ARGUMENT_ROOT: [Field; 4] => "opaque argument root reconstructed from call-stack bus",
-        COL_RESULT_ROOT: [Field; 4] => "opaque result root reconstructed from call-stack bus",
-        COL_CANONICAL_HIGH_MAX: [Boolean; 16] => "whether the high u32 limb equals 0xffffffff",
-        COL_CANONICAL_HIGH_INV: [Field; 16] => "inverse of high limb minus 0xffffffff",
+        COL_ARGUMENT_ROOT: [Field; 4] => "opaque argument root of this row's event, tied to its 32-bit limbs",
+        COL_RESULT_ROOT: [Field; 4] => "opaque result root of this row's event",
+        COL_CANONICAL_HIGH_MAX: [Boolean; 12] => "whether the high u32 limb equals 0xffffffff",
+        COL_CANONICAL_HIGH_INV: [Field; 12] => "inverse of high limb minus 0xffffffff",
         COL_POSEIDON_INPUT_ROOT: [Field; 12] => "selected input roots for three shared program/transaction compression gadgets",
         COL_EVENT_BLOCKS: [Field; 24] => "three shared program/transaction blocks; program blocks precede transaction blocks",
         COL_EVENT_HASHES: [Field; 12] => "shared compression outputs selected separately for each chain",
@@ -212,9 +216,9 @@ pub(crate) fn range_check_layout() -> &'static RangeCheckLayout {
         RangeCheckLayout::new(
             MAIN_COLUMN_FAMILIES
                 .iter()
-                .copied()
-                .chain(IVC_COLUMN_FAMILIES.iter().copied())
-                .chain(TRACE_COMM_COLUMN_FAMILIES.iter().copied()),
+                .cloned()
+                .chain(IVC_COLUMN_FAMILIES.iter().cloned())
+                .chain(TRACE_COMM_COLUMN_FAMILIES.iter().cloned()),
             RangeCheckBitFamily {
                 region: "range_check_bits",
                 name: "RANGE_CHECK_BITS",

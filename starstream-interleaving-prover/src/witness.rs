@@ -1,6 +1,6 @@
 use crate::{ccs::layout::*, opcode::Opcode, step::Wit};
 use neo_math::F;
-use p3_field::{Field, PrimeCharacteristicRing};
+use p3_field::{Field, PrimeCharacteristicRing, PrimeField64};
 
 pub fn build_witness_vector(input: &Wit) -> Vec<F> {
     let mut wit = assign_base_columns(input);
@@ -67,7 +67,6 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_NEXT_COORD_ID_AFTER] = F::new(u64::from(input.next_coordinator_id_after));
     wit[COL_COORD_CURSOR_BEFORE] = F::new(u64::from(input.tx_before.coordinator_cursor));
     wit[COL_COORD_CURSOR_AFTER] = F::new(u64::from(input.tx_after.coordinator_cursor));
-    wit[COL_TRACE_ROOT_READ] = F::from_bool(input.opcode.reads_trace_root());
     wit[COL_ABI_READ_REMAINING_BEFORE] = F::new(u64::from(input.tx_before.abi_read_remaining));
     wit[COL_ABI_READ_REMAINING_AFTER] = F::new(u64::from(input.tx_after.abi_read_remaining));
     wit[COL_ABI_READ_ORDINAL_BEFORE] = F::new(u64::from(input.tx_before.abi_read_ordinal));
@@ -89,9 +88,9 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_ABI_METHOD_COUNT_READ] = F::from_bool(count_read);
     if count_write || count_read {
         wit[COL_ABI_METHOD_COUNT_ADDR] = if count_read {
-            input.boundary_utxo.field()
+            input.boundary_utxo.local_index()
         } else {
-            input.abi_generation_address.field()
+            input.abi_generation_address.local_index()
         };
         wit[COL_ABI_METHOD_COUNT_BEFORE] = F::new(u64::from(input.abi_method_count_before));
         wit[COL_ABI_METHOD_COUNT_AFTER] = F::new(u64::from(input.abi_method_count_after));
@@ -133,7 +132,7 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_ENABLED_METHOD_LOG_LEN_BEFORE] = F::new(u64::from(input.enabled_method_log_len_before));
     wit[COL_ENABLED_METHOD_LOG_LEN_AFTER] = F::new(u64::from(input.enabled_method_log_len_after));
     wit[COL_METHOD_INDEX] = F::new(u64::from(input.method_index));
-    wit[COL_ABI_GENERATION_ADDR] = input.abi_generation_address.field();
+    wit[COL_ABI_GENERATION_ADDR] = input.abi_generation_address.local_index();
     wit[COL_ABI_GENERATION_BEFORE] = F::new(u64::from(input.abi_generation_before));
     wit[COL_ABI_GENERATION_AFTER] = F::new(u64::from(input.abi_generation_after));
     wit[COL_ENABLED_METHOD_LOG_ADDR] = F::new(u64::from(input.enabled_method_log_address));
@@ -165,6 +164,11 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     {
         wit[COL_METHOD_LOOKUP] = F::ONE;
     }
+
+    wit[COL_ABI_GENERATION_READ] = F::from_bool(
+        input.opcode.appends_method()
+            || matches!(input.opcode, Opcode::CallMethod | Opcode::ReadAbi),
+    );
 
     if wit[COL_METHOD_LOOKUP] == F::ONE {
         for (offset, address) in COL_METHOD_TABLE_ADDR.iter().enumerate() {
@@ -200,9 +204,26 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     }
 
     if let Some(expected_result) = &input.expected_result {
-        debug_assert!(expected_result.len() <= COL_CALL_STACK_EXPECTED_RESULT_VALUE.len());
-        for (offset, col) in COL_CALL_STACK_EXPECTED_RESULT_VALUE.iter().enumerate() {
-            wit[*col] = expected_result.get(offset).copied().unwrap_or(F::ZERO);
+        debug_assert_eq!(expected_result.len(), 8);
+        for (col, limbs) in COL_RESULT_ROOT.iter().zip(expected_result.chunks(2)) {
+            wit[*col] = limbs[0] + F::new(1 << 32) * limbs[1];
+        }
+    }
+
+    for (cols, values) in [
+        (COL_PENDING_ROOT_BEFORE, input.pending_root_before),
+        (COL_PENDING_ROOT_AFTER, input.pending_root_after),
+    ] {
+        for (col, value) in cols.into_iter().zip(values) {
+            wit[col] = value;
+        }
+    }
+    for (cols, values) in [
+        (COL_PENDING_METHOD_BEFORE, input.pending_method_before),
+        (COL_PENDING_METHOD_AFTER, input.pending_method_after),
+    ] {
+        for (col, value) in cols.into_iter().zip(values) {
+            wit[col] = value;
         }
     }
 
@@ -224,13 +245,18 @@ pub(crate) fn assign_stride_columns(wit: &mut [F]) {
         - wit[COL_CALL_STACK_POP]
         - wit[COL_SEL_RETURN];
 
+    wit[COL_CALL_STACK_FRAME] = call_stack_access;
     for (i, col) in COL_CALL_STACK_MUL_STRIDE_8.iter().enumerate() {
         wit[*col] = call_stack_access * F::new(8) + F::new(i as u64);
     }
-    for (i, col) in COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8.iter().enumerate() {
-        wit[*col] = call_stack_access * F::new(8) + F::new(i as u64);
-    }
+    // The owner's kind bit selects the trace commitment memory, and the
+    // rest of its packed id is the address there.
+    let event_owner = wit[COL_EVENT_OWNER].as_canonical_u64();
+    let event_owner_index = event_owner / 2;
+    let utxo_owner = event_owner % 2 == u64::from(crate::ivc_state::CoroutineKind::Utxo.tag());
+    wit[COL_UTXO_EVENT] = wit[COL_EVENT_ACTIVE] * F::from_bool(utxo_owner);
+    wit[COL_COORD_EVENT] = wit[COL_EVENT_ACTIVE] * F::from_bool(!utxo_owner);
     for (i, col) in COL_EVENT_OWNER_STRIDE_8.iter().enumerate() {
-        wit[*col] = wit[COL_EVENT_OWNER] * F::new(8) + F::new(i as u64);
+        wit[*col] = F::new(event_owner_index * 8 + i as u64);
     }
 }

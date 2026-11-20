@@ -116,11 +116,6 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             op.scans_output()
                 || matches!(op, Opcode::FinalizeCoordinator | Opcode::FinishTransaction)
         });
-        b.push_linear_zero(
-            sum(Opcode::reads_trace_root)
-                .into_iter()
-                .chain([(COL_TRACE_ROOT_READ, -F::ONE)]),
-        );
         // Coordinators are enumerated in allocation order, Coord(1) first.
         b.push_linear_zero([
             (COL_COORD_CURSOR_AFTER, F::ONE),
@@ -250,7 +245,12 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                             (COL_ONE, F::ONE),
                         ],
                     );
-                    equal(b, COL_ABI_GENERATION_ADDR, COL_BOUNDARY_UTXO);
+                    crate::ccs::require_utxo_index(
+                        b,
+                        op,
+                        COL_ABI_GENERATION_ADDR,
+                        COL_BOUNDARY_UTXO,
+                    );
                     equal(b, COL_ENABLED_METHOD_LOG_UTXO, COL_BOUNDARY_UTXO);
                     equal(
                         b,
@@ -326,7 +326,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 equal(b, COL_RESOURCE_RESOLVER_VALUE, COL_BOUNDARY_UTXO);
             }
             if op == Opcode::PreloadMethod {
-                equal(b, COL_ABI_GENERATION_ADDR, COL_BOUNDARY_UTXO);
+                crate::ccs::require_utxo_index(b, op, COL_ABI_GENERATION_ADDR, COL_BOUNDARY_UTXO);
                 equal(b, COL_ENABLED_METHOD_LOG_UTXO, COL_BOUNDARY_UTXO);
                 equal(
                     b,
@@ -359,7 +359,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                     constant(b, COL_ABI_METHOD_COUNT_AFTER, 0);
                 }
             } else if op.scans_output() {
-                equal(b, COL_ABI_METHOD_COUNT_ADDR, COL_BOUNDARY_UTXO);
+                crate::ccs::require_utxo_index(b, op, COL_ABI_METHOD_COUNT_ADDR, COL_BOUNDARY_UTXO);
                 if op == Opcode::SkipConsumed {
                     constant(b, COL_ABI_METHOD_COUNT_BEFORE, 0);
                 }

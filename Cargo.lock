@@ -36,6 +36,237 @@ dependencies = [
 ]
 
 [[package]]
+name = "akita-algebra"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-error",
+ "akita-serialization",
+ "jolt-field",
+ "jolt-poly",
+ "rand_core 0.6.4",
+ "rayon",
+ "tracing",
+]
+
+[[package]]
+name = "akita-challenges"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-error",
+ "akita-transcript",
+ "jolt-field",
+ "serde",
+ "smallvec",
+]
+
+[[package]]
+name = "akita-config"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-challenges",
+ "akita-error",
+ "akita-params",
+ "akita-schedules",
+ "akita-serialization",
+ "akita-transcript",
+ "akita-types",
+ "jolt-field",
+]
+
+[[package]]
+name = "akita-cpu-backend"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-algebra",
+ "akita-challenges",
+ "akita-config",
+ "akita-error",
+ "akita-params",
+ "akita-prover",
+ "akita-serialization",
+ "akita-sumcheck",
+ "akita-transcript",
+ "akita-types",
+ "jolt-field",
+ "jolt-poly",
+ "rayon",
+ "tracing",
+]
+
+[[package]]
+name = "akita-error"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "akita-params"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-algebra",
+ "akita-challenges",
+ "akita-error",
+ "akita-serialization",
+ "akita-sumcheck",
+ "akita-transcript",
+ "jolt-field",
+ "jolt-transcript",
+ "serde",
+ "sha3 0.12.0",
+]
+
+[[package]]
+name = "akita-pcs"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-algebra",
+ "akita-challenges",
+ "akita-config",
+ "akita-cpu-backend",
+ "akita-error",
+ "akita-params",
+ "akita-prover",
+ "akita-serialization",
+ "akita-setup",
+ "akita-transcript",
+ "akita-types",
+ "akita-verifier",
+ "jolt-field",
+ "rayon",
+ "tracing",
+]
+
+[[package]]
+name = "akita-prover"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-algebra",
+ "akita-challenges",
+ "akita-config",
+ "akita-error",
+ "akita-params",
+ "akita-serialization",
+ "akita-sumcheck",
+ "akita-transcript",
+ "akita-types",
+ "jolt-field",
+ "jolt-poly",
+ "tracing",
+]
+
+[[package]]
+name = "akita-schedules"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-challenges",
+ "akita-error",
+ "akita-params",
+ "postcard",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+]
+
+[[package]]
+name = "akita-serialization"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "jolt-field",
+ "jolt-poly",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "akita-setup"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-config",
+ "akita-cpu-backend",
+ "akita-error",
+ "akita-params",
+ "akita-serialization",
+ "akita-types",
+ "jolt-field",
+ "tracing",
+]
+
+[[package]]
+name = "akita-sumcheck"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-algebra",
+ "akita-error",
+ "akita-serialization",
+ "akita-transcript",
+ "jolt-field",
+ "jolt-poly",
+]
+
+[[package]]
+name = "akita-transcript"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-error",
+ "jolt-field",
+ "jolt-transcript",
+ "sha3 0.12.0",
+ "spongefish",
+]
+
+[[package]]
+name = "akita-types"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-algebra",
+ "akita-challenges",
+ "akita-error",
+ "akita-params",
+ "akita-serialization",
+ "akita-sumcheck",
+ "akita-transcript",
+ "jolt-field",
+ "jolt-poly",
+ "rand_core 0.6.4",
+ "shake",
+ "tracing",
+]
+
+[[package]]
+name = "akita-verifier"
+version = "0.1.0"
+source = "git+https://github.com/LayerZero-Labs/akita.git?rev=d50f700fb1a292395a717cef0e6f437c7ce2cdb1#d50f700fb1a292395a717cef0e6f437c7ce2cdb1"
+dependencies = [
+ "akita-algebra",
+ "akita-challenges",
+ "akita-config",
+ "akita-error",
+ "akita-params",
+ "akita-serialization",
+ "akita-sumcheck",
+ "akita-transcript",
+ "akita-types",
+ "jolt-field",
+ "jolt-poly",
+ "rayon",
+ "tracing",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -371,6 +602,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "block-buffer"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "block2"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -432,17 +672,6 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
-
-[[package]]
-name = "chacha20"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.3.1",
- "rand_core 0.10.1",
-]
 
 [[package]]
 name = "chumsky"
@@ -566,6 +795,12 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "const-oid"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be95d4a884358a21a199689323c29e9256b4a1b315e22f183d155422041d3a9a"
 
 [[package]]
 name = "const-str"
@@ -814,6 +1049,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crypto-common"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
+dependencies = [
+ "hybrid-array",
+]
+
+[[package]]
 name = "curve25519-dalek"
 version = "4.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -822,7 +1066,7 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
- "digest",
+ "digest 0.10.7",
  "fiat-crypto",
  "rustc_version",
  "subtle",
@@ -886,7 +1130,7 @@ version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
- "const-oid",
+ "const-oid 0.9.6",
  "zeroize",
 ]
 
@@ -896,8 +1140,19 @@ version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
- "block-buffer",
- "crypto-common",
+ "block-buffer 0.10.4",
+ "crypto-common 0.1.7",
+]
+
+[[package]]
+name = "digest"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
+dependencies = [
+ "block-buffer 0.12.1",
+ "const-oid 0.10.3",
+ "crypto-common 0.2.2",
 ]
 
 [[package]]
@@ -1261,9 +1516,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
- "rand_core 0.10.1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -1735,19 +1991,67 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "jolt-algebra"
+version = "0.1.0"
+source = "git+https://github.com/a16z/jolt?rev=25d87ba68bde9f4a85ac986f5487b2e7b7db2699#25d87ba68bde9f4a85ac986f5487b2e7b7db2699"
+dependencies = [
+ "cc",
+ "num-traits",
+ "rand_core 0.6.4",
+ "rayon",
+ "serde",
+ "spongefish",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "jolt-field"
+version = "0.1.0"
+source = "git+https://github.com/a16z/jolt?rev=25d87ba68bde9f4a85ac986f5487b2e7b7db2699#25d87ba68bde9f4a85ac986f5487b2e7b7db2699"
+dependencies = [
+ "jolt-algebra",
+]
+
+[[package]]
+name = "jolt-poly"
+version = "0.1.0"
+source = "git+https://github.com/a16z/jolt?rev=25d87ba68bde9f4a85ac986f5487b2e7b7db2699#25d87ba68bde9f4a85ac986f5487b2e7b7db2699"
+dependencies = [
+ "jolt-field",
+ "jolt-utils",
+ "num-traits",
+ "rand_core 0.6.4",
+ "rayon",
+ "serde",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "jolt-transcript"
+version = "0.1.0"
+source = "git+https://github.com/a16z/jolt?rev=25d87ba68bde9f4a85ac986f5487b2e7b7db2699#25d87ba68bde9f4a85ac986f5487b2e7b7db2699"
+dependencies = [
+ "getrandom 0.4.3",
+ "jolt-field",
+ "sha3 0.12.0",
+ "shake",
+ "spongefish",
+]
+
+[[package]]
+name = "jolt-utils"
+version = "0.1.0"
+source = "git+https://github.com/a16z/jolt?rev=25d87ba68bde9f4a85ac986f5487b2e7b7db2699#25d87ba68bde9f4a85ac986f5487b2e7b7db2699"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "js-sys"
@@ -2057,50 +2361,42 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 [[package]]
 name = "neo-ajtai"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "keccak 0.2.2",
  "neo-ccs",
  "neo-math",
  "neo-params",
- "p3-field 0.5.3",
- "p3-goldilocks 0.5.3",
+ "p3-field",
  "rand 0.9.5",
  "rayon",
  "serde",
- "sha3",
+ "sha3 0.10.9",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "neo-application"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "neo-ccs",
  "neo-math",
- "p3-field 0.5.3",
- "p3-goldilocks 0.5.3",
- "p3-poseidon2 0.5.3",
- "p3-symmetric 0.5.3",
+ "p3-field",
+ "p3-poseidon2",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "neo-ccs"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "neo-math",
  "neo-params",
- "once_cell",
- "p3-field 0.5.3",
- "p3-goldilocks 0.5.3",
- "p3-matrix 0.5.3",
- "p3-poseidon2 0.5.3",
- "p3-symmetric 0.5.3",
- "rand 0.10.3",
- "rand_chacha 0.10.0",
+ "p3-field",
+ "p3-matrix",
+ "p3-poseidon2",
  "rayon",
  "serde",
  "thiserror 2.0.21",
@@ -2109,28 +2405,29 @@ dependencies = [
 [[package]]
 name = "neo-math"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "neo-params",
- "p3-field 0.5.3",
- "p3-goldilocks 0.5.3",
- "p3-matrix 0.5.3",
+ "num-bigint",
+ "p3-field",
+ "p3-matrix",
  "rand 0.9.5",
+ "serde",
 ]
 
 [[package]]
 name = "neo-params"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
- "num-bigint 0.4.8",
+ "num-bigint",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "neo-prover-metal"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "dispatch2",
  "neo-ajtai",
@@ -2140,7 +2437,7 @@ dependencies = [
  "objc2",
  "objc2-foundation",
  "objc2-metal",
- "p3-field 0.5.3",
+ "p3-field",
  "rayon",
  "thiserror 2.0.21",
 ]
@@ -2148,47 +2445,14 @@ dependencies = [
 [[package]]
 name = "neo-reductions"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "neo-ajtai",
  "neo-ccs",
  "neo-math",
  "neo-params",
  "neo-transcript",
- "p3-field 0.5.3",
- "p3-goldilocks 0.5.3",
- "p3-symmetric 0.5.3",
- "rand_chacha 0.10.0",
- "rayon",
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "neo-spartan"
-version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
-dependencies = [
- "bincode",
- "neo-ajtai",
- "neo-ccs",
- "neo-math",
- "neo-reductions",
- "neo-transcript",
- "p3-challenger 0.8.0",
- "p3-commit",
- "p3-dft 0.8.0",
- "p3-field 0.5.3",
- "p3-field 0.8.0",
- "p3-goldilocks 0.8.0",
- "p3-matrix 0.8.0",
- "p3-merkle-tree",
- "p3-multilinear-util",
- "p3-security",
- "p3-sumcheck",
- "p3-symmetric 0.8.0",
- "p3-whir",
- "rand_chacha 0.10.0",
+ "p3-field",
  "rayon",
  "serde",
  "thiserror 2.0.21",
@@ -2197,27 +2461,24 @@ dependencies = [
 [[package]]
 name = "neo-transcript"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "neo-ccs",
  "neo-math",
- "p3-field 0.5.3",
- "p3-goldilocks 0.5.3",
- "p3-symmetric 0.5.3",
+ "p3-field",
 ]
 
 [[package]]
 name = "neo-wasm"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "futures",
  "neo-application",
  "neo-ccs",
  "neo-math",
  "nightstream",
- "p3-field 0.5.3",
- "p3-goldilocks 0.5.3",
+ "p3-field",
  "thiserror 2.0.21",
  "wasmparser 0.240.0",
  "wasmtime",
@@ -2226,7 +2487,7 @@ dependencies = [
 [[package]]
 name = "nightstream"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "bincode",
  "neo-ajtai",
@@ -2236,11 +2497,11 @@ dependencies = [
  "neo-params",
  "neo-prover-metal",
  "neo-reductions",
- "neo-spartan",
  "neo-transcript",
  "nightstream-fprime",
- "p3-field 0.5.3",
- "p3-goldilocks 0.5.3",
+ "ns-compress",
+ "p3-field",
+ "rayon",
  "ruzstd",
  "serde",
  "serde_json",
@@ -2250,16 +2511,39 @@ dependencies = [
 [[package]]
 name = "nightstream-fprime"
 version = "0.1.0"
-source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=18f7955673b4ce37204c76eff027e6edff470a94#18f7955673b4ce37204c76eff027e6edff470a94"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
 dependencies = [
  "neo-ajtai",
  "neo-ccs",
+ "neo-math",
+ "neo-params",
  "neo-transcript",
- "p3-field 0.5.3",
- "p3-goldilocks 0.5.3",
+ "p3-field",
  "rayon",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ns-compress"
+version = "0.1.0"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=cdc29e826bb167fa58d9a14425693503f149b892#cdc29e826bb167fa58d9a14425693503f149b892"
+dependencies = [
+ "akita-config",
+ "akita-params",
+ "akita-pcs",
+ "akita-serialization",
+ "akita-types",
+ "akita-verifier",
+ "jolt-field",
+ "neo-ajtai",
+ "neo-ccs",
+ "neo-math",
+ "neo-reductions",
+ "neo-transcript",
+ "p3-field",
+ "rayon",
  "thiserror 2.0.21",
 ]
 
@@ -2277,16 +2561,6 @@ name = "num-bigint"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
-dependencies = [
- "num-integer",
- "num-traits",
-]
-
-[[package]]
-name = "num-bigint"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -2397,105 +2671,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c45bb4a6ae1280ec0803b1ef9d3455eb50f01efbbe1447ab020f1d54fba9d8"
 
 [[package]]
-name = "p3-air"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be7a317aa82ba3d758229db6dd1e2baa75f9aa6f1179d98b3b1e0c2c6b930d59"
-dependencies = [
- "p3-field 0.8.0",
- "p3-matrix 0.8.0",
- "serde",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
-name = "p3-binary-field"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fae8d58121ed5478834484dc0371302c8a4684287c3e90781d9872580b92c88"
-dependencies = [
- "num-bigint 0.5.1",
- "p3-challenger 0.8.0",
- "p3-field 0.8.0",
- "p3-maybe-rayon 0.8.0",
- "p3-symmetric 0.8.0",
- "rand 0.10.3",
- "serde",
- "tracing",
-]
-
-[[package]]
-name = "p3-challenger"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8972ccd1d5dc90e46cdb1f2ab4ee2bae49b3917e5e98aa533f0c2b779c010445"
-dependencies = [
- "p3-field 0.5.3",
- "p3-maybe-rayon 0.5.4",
- "p3-monty-31",
- "p3-symmetric 0.5.3",
- "p3-util 0.5.4",
- "tracing",
-]
-
-[[package]]
-name = "p3-challenger"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92cccaed1c107ad279e76dfd10aa71cff1c1898eb282f406288ad556e65e5a8f"
-dependencies = [
- "p3-field 0.8.0",
- "p3-keccak",
- "p3-maybe-rayon 0.8.0",
- "p3-symmetric 0.8.0",
- "p3-util 0.8.0",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
-name = "p3-commit"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e53fe56a74c49a5511a68d0953527b8efc7e68d729bf773be5d1f34998b81e7"
-dependencies = [
- "itertools 0.15.0",
- "p3-dft 0.8.0",
- "p3-field 0.8.0",
- "p3-matrix 0.8.0",
- "p3-util 0.8.0",
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "p3-dft"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17771aca44632f9cc11f2718d7ea7ec06794946c4190ef3a985bfc893f14c18a"
 dependencies = [
- "itertools 0.14.0",
- "p3-field 0.5.3",
- "p3-matrix 0.5.3",
- "p3-maybe-rayon 0.5.4",
- "p3-util 0.5.4",
- "spin 0.10.1",
- "tracing",
-]
-
-[[package]]
-name = "p3-dft"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03c2282e0a50da4b65c508fdcf4b12ce9db65aa0efa9b521a361b8565815d2b8"
-dependencies = [
- "itertools 0.15.0",
- "p3-field 0.8.0",
- "p3-matrix 0.8.0",
- "p3-maybe-rayon 0.8.0",
- "p3-util 0.8.0",
- "spin 0.12.3",
+ "itertools",
+ "p3-field",
+ "p3-matrix",
+ "p3-maybe-rayon",
+ "p3-util",
+ "spin",
  "tracing",
 ]
 
@@ -2505,80 +2691,14 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f3eb24d0591fd4d282d89cbe4e4efba5571c699375006f80b2cbf53ce83461c"
 dependencies = [
- "itertools 0.14.0",
- "num-bigint 0.4.8",
- "p3-maybe-rayon 0.5.4",
- "p3-util 0.5.4",
+ "itertools",
+ "num-bigint",
+ "p3-maybe-rayon",
+ "p3-util",
  "paste",
  "rand 0.10.3",
  "serde",
  "tracing",
-]
-
-[[package]]
-name = "p3-field"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7cc6ecaf9cd198bb7d3b07eedf0c1524ca8fff07cffe8928785e302f45156cf"
-dependencies = [
- "itertools 0.15.0",
- "num-bigint 0.5.1",
- "p3-maybe-rayon 0.8.0",
- "p3-util 0.8.0",
- "paste",
- "rand 0.10.3",
- "serde",
- "tracing",
-]
-
-[[package]]
-name = "p3-goldilocks"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5751c6591a0d2397d726620c2c29a7436ec6c5e19d2ed74ca5d078d4fbb18eb5"
-dependencies = [
- "num-bigint 0.4.8",
- "p3-challenger 0.5.3",
- "p3-dft 0.5.3",
- "p3-field 0.5.3",
- "p3-mds 0.5.3",
- "p3-poseidon1 0.5.3",
- "p3-poseidon2 0.5.3",
- "p3-symmetric 0.5.3",
- "p3-util 0.5.4",
- "paste",
- "rand 0.10.3",
- "serde",
-]
-
-[[package]]
-name = "p3-goldilocks"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "325a854e1232dd1ce270245d9c978b71897c286f072d2fa31740956a800e70c5"
-dependencies = [
- "num-bigint 0.5.1",
- "p3-dft 0.8.0",
- "p3-field 0.8.0",
- "p3-mds 0.8.0",
- "p3-poseidon1 0.8.0",
- "p3-poseidon2 0.8.0",
- "p3-symmetric 0.8.0",
- "p3-util 0.8.0",
- "rand 0.10.3",
- "serde",
- "spin 0.12.3",
-]
-
-[[package]]
-name = "p3-keccak"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "649a30fbdf0592023f0964563afc118a22c09eb7c214f87f7fd6ea9080930748"
-dependencies = [
- "p3-symmetric 0.8.0",
- "p3-util 0.8.0",
- "tiny-keccak",
 ]
 
 [[package]]
@@ -2587,25 +2707,10 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea9c94c0714944e7b8a9a62e6340b1e3e1d3f8ecfd3e35c08798360200e73eff"
 dependencies = [
- "itertools 0.14.0",
- "p3-field 0.5.3",
- "p3-maybe-rayon 0.5.4",
- "p3-util 0.5.4",
- "rand 0.10.3",
- "serde",
- "tracing",
-]
-
-[[package]]
-name = "p3-matrix"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35016a778f1da67e06a56b26320cdb72fd000045576a92bbf942289cb8be12bb"
-dependencies = [
- "itertools 0.15.0",
- "p3-field 0.8.0",
- "p3-maybe-rayon 0.8.0",
- "p3-util 0.8.0",
+ "itertools",
+ "p3-field",
+ "p3-maybe-rayon",
+ "p3-util",
  "rand 0.10.3",
  "serde",
  "tracing",
@@ -2618,119 +2723,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d1ffb2d24a932d4fa5258f3288130973175f1982c7606f9f7df5270c895531c"
 
 [[package]]
-name = "p3-maybe-rayon"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe1d83295d958b3d098e11b7868ac35c866c9c0432ce5266b90f7844dad513de"
-dependencies = [
- "rayon",
-]
-
-[[package]]
 name = "p3-mds"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b5441fa8116246ec9e6c835f15273cb27777ca572960ec87476b67fef13e01e"
 dependencies = [
- "p3-dft 0.5.3",
- "p3-field 0.5.3",
- "p3-symmetric 0.5.3",
- "p3-util 0.5.4",
- "rand 0.10.3",
-]
-
-[[package]]
-name = "p3-mds"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b87bac3d0e7f7c5da90e833734062eaaaadf9628047b569077068fae5a2d83f3"
-dependencies = [
- "p3-dft 0.8.0",
- "p3-field 0.8.0",
- "p3-symmetric 0.8.0",
- "p3-util 0.8.0",
- "rand 0.10.3",
-]
-
-[[package]]
-name = "p3-merkle-tree"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "004eca9836b55d68f6a9e37a4544100495249dba6ed721763c9fce61534f12cd"
-dependencies = [
- "itertools 0.15.0",
- "p3-commit",
- "p3-field 0.8.0",
- "p3-matrix 0.8.0",
- "p3-maybe-rayon 0.8.0",
- "p3-symmetric 0.8.0",
- "p3-util 0.8.0",
- "rand 0.10.3",
- "serde",
- "spin 0.12.3",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
-name = "p3-monty-31"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8724f330ea6d19dd4f2436aa0f88b5fcbf88f0f55ca7fccd3fea8b736dbcddad"
-dependencies = [
- "itertools 0.14.0",
- "num-bigint 0.4.8",
- "p3-dft 0.5.3",
- "p3-field 0.5.3",
- "p3-matrix 0.5.3",
- "p3-maybe-rayon 0.5.4",
- "p3-mds 0.5.3",
- "p3-poseidon1 0.5.3",
- "p3-poseidon2 0.5.3",
- "p3-symmetric 0.5.3",
- "p3-util 0.5.4",
- "paste",
- "rand 0.10.3",
- "serde",
- "spin 0.10.1",
- "tracing",
-]
-
-[[package]]
-name = "p3-multilinear-util"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63ae4486768daec9d5f1af277b3514d839409fb90887a617e4ba721e597a17df"
-dependencies = [
- "itertools 0.15.0",
- "p3-field 0.8.0",
- "p3-matrix 0.8.0",
- "p3-maybe-rayon 0.8.0",
- "p3-util 0.8.0",
- "rand 0.10.3",
- "serde",
-]
-
-[[package]]
-name = "p3-poseidon1"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04e2a562fea210baae390a32f9ecf0dd8724ae3f4352d1c8e413077b6f00a162"
-dependencies = [
- "p3-field 0.5.3",
- "p3-symmetric 0.5.3",
- "rand 0.10.3",
-]
-
-[[package]]
-name = "p3-poseidon1"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f58309738855348b9a6d9ff1d4009f4cdd04463dfa1e27552dcd25cc75b9513f"
-dependencies = [
- "p3-field 0.8.0",
- "p3-mds 0.8.0",
- "p3-symmetric 0.8.0",
+ "p3-dft",
+ "p3-field",
+ "p3-symmetric",
+ "p3-util",
  "rand 0.10.3",
 ]
 
@@ -2740,62 +2741,11 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06394851c161d17e4aa4ad2aad5557d32f14cadd1dc838f965d8e1821a63b8c5"
 dependencies = [
- "p3-field 0.5.3",
- "p3-mds 0.5.3",
- "p3-symmetric 0.5.3",
- "p3-util 0.5.4",
+ "p3-field",
+ "p3-mds",
+ "p3-symmetric",
+ "p3-util",
  "rand 0.10.3",
-]
-
-[[package]]
-name = "p3-poseidon2"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3950061c69b220c60f76c72e6de54be97e2e5dc169a5374e9b57d6118114c8cf"
-dependencies = [
- "p3-field 0.8.0",
- "p3-mds 0.8.0",
- "p3-symmetric 0.8.0",
- "p3-util 0.8.0",
- "rand 0.10.3",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "p3-security"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c20542aa9e2a1249996d4cb0a461a236a58d2cf61fae712cec63c04b3765c03"
-dependencies = [
- "libm",
- "p3-air",
- "p3-commit",
- "p3-field 0.8.0",
- "serde",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "p3-sumcheck"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afcc26cd496671e2d01c89d18a637bad0a4ef2e3b8e56f0b23cb34cf3e943c4b"
-dependencies = [
- "itertools 0.15.0",
- "p3-binary-field",
- "p3-challenger 0.8.0",
- "p3-commit",
- "p3-field 0.8.0",
- "p3-matrix 0.8.0",
- "p3-maybe-rayon 0.8.0",
- "p3-multilinear-util",
- "p3-security",
- "p3-util 0.8.0",
- "p3-zk-codes",
- "rand 0.10.3",
- "serde",
- "thiserror 2.0.21",
- "tracing",
 ]
 
 [[package]]
@@ -2804,23 +2754,10 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ac1a276d421f8ef3361bb7d8c39a02c93c6b3f10eeaa559cc4c50222f9a5b82"
 dependencies = [
- "itertools 0.14.0",
- "p3-field 0.5.3",
- "p3-util 0.5.4",
+ "itertools",
+ "p3-field",
+ "p3-util",
  "serde",
-]
-
-[[package]]
-name = "p3-symmetric"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb7b7cc37b4f9592c57bfceabc737de757267b23ae956b2e648d24461f93fb42"
-dependencies = [
- "itertools 0.15.0",
- "p3-field 0.8.0",
- "p3-util 0.8.0",
- "serde",
- "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2831,57 +2768,6 @@ checksum = "d67ad92cd9397a7377acd7116d0920b603ba7bec9a3528ab56fe1224586f44c6"
 dependencies = [
  "serde",
  "transpose",
-]
-
-[[package]]
-name = "p3-util"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2deb6b0e30be32c696ab3cd443cc6f10b2ffce0faa31d37bd59e58789dd6df1"
-dependencies = [
- "p3-maybe-rayon 0.8.0",
- "serde",
-]
-
-[[package]]
-name = "p3-whir"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc06f2c693397c13aab1b6cf4ac415bb340818a9438f915cc7b3d2431b8790d7"
-dependencies = [
- "itertools 0.15.0",
- "libm",
- "p3-challenger 0.8.0",
- "p3-commit",
- "p3-dft 0.8.0",
- "p3-field 0.8.0",
- "p3-matrix 0.8.0",
- "p3-maybe-rayon 0.8.0",
- "p3-merkle-tree",
- "p3-multilinear-util",
- "p3-security",
- "p3-sumcheck",
- "p3-symmetric 0.8.0",
- "p3-util 0.8.0",
- "p3-zk-codes",
- "rand 0.10.3",
- "serde",
- "spin 0.12.3",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
-name = "p3-zk-codes"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7758e0589b60e7289fc1750e7ff444ac21201ae79e7143bc6dca64e29047a542"
-dependencies = [
- "p3-dft 0.8.0",
- "p3-field 0.8.0",
- "p3-matrix 0.8.0",
- "p3-util 0.8.0",
- "rand 0.10.3",
 ]
 
 [[package]]
@@ -3104,7 +2990,7 @@ version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
 dependencies = [
- "rand_chacha 0.9.0",
+ "rand_chacha",
  "rand_core 0.9.5",
 ]
 
@@ -3114,8 +3000,6 @@ version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
 dependencies = [
- "chacha20",
- "getrandom 0.4.3",
  "rand_core 0.10.1",
 ]
 
@@ -3127,16 +3011,6 @@ checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
 dependencies = [
  "ppv-lite86",
  "rand_core 0.9.5",
-]
-
-[[package]]
-name = "rand_chacha"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e6af7f3e25ded52c41df4e0b1af2d047e45896c2f3281792ed68a1c243daedb"
-dependencies = [
- "ppv-lite86",
- "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -3439,7 +3313,7 @@ checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
- "digest",
+ "digest 0.10.7",
 ]
 
 [[package]]
@@ -3456,8 +3330,30 @@ version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
 dependencies = [
- "digest",
+ "digest 0.10.7",
  "keccak 0.1.6",
+]
+
+[[package]]
+name = "sha3"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc9bad02c26382724b2d2692c6f179285e4b54eeecd7968f52a50059c3c11759"
+dependencies = [
+ "digest 0.11.3",
+ "keccak 0.2.2",
+ "sponge-cursor",
+]
+
+[[package]]
+name = "shake"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09057cb2149ad4cbd2da1e26b351f9a4c354219421229c69c3063e6f61947c4a"
+dependencies = [
+ "digest 0.11.3",
+ "keccak 0.2.2",
+ "sponge-cursor",
 ]
 
 [[package]]
@@ -3556,15 +3452,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spin"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0134f9043ed38b087ac4f7d4af44c79e2c9e5094421fe3164f435ce585953b10"
-dependencies = [
- "lock_api",
-]
-
-[[package]]
 name = "spki"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3572,6 +3459,24 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
+]
+
+[[package]]
+name = "sponge-cursor"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a0219bd7d979d58245a4f41f695e1ac9f8befdffadd7f61f1bae9e39abc6620"
+
+[[package]]
+name = "spongefish"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62560b5029264a655fc461a0ecadc4d24862799190897d3225b3272b7a3f13b7"
+dependencies = [
+ "digest 0.11.3",
+ "getrandom 0.4.3",
+ "keccak 0.2.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -3646,7 +3551,7 @@ dependencies = [
  "neo-ccs",
  "neo-math",
  "nightstream",
- "p3-field 0.5.3",
+ "p3-field",
  "starstream-interleaving-spec",
  "thiserror 2.0.21",
 ]
@@ -3733,6 +3638,7 @@ dependencies = [
  "tokio",
  "tokio-io-timeout",
  "tokio-util",
+ "toml",
  "tracing",
  "wasm-encoder 0.263.0",
  "wasm-tokio",
@@ -3825,6 +3731,7 @@ dependencies = [
 name = "starstream-proving-runtime"
 version = "0.0.0"
 dependencies = [
+ "minicbor",
  "multibase",
  "multihash",
  "neo-ccs",
@@ -4146,15 +4053,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "tiny-keccak"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
-dependencies = [
- "crunchy",
 ]
 
 [[package]]
@@ -4927,7 +4825,7 @@ dependencies = [
  "cranelift-frontend",
  "cranelift-native",
  "gimli 0.33.0",
- "itertools 0.14.0",
+ "itertools",
  "log",
  "object 0.40.0",
  "pulley-interpreter",
@@ -5451,6 +5349,20 @@ name = "zeroize"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+dependencies = [
+ "zeroize_derive",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "zerotrie"

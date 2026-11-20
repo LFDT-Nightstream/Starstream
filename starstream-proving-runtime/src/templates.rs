@@ -45,6 +45,8 @@ pub struct ComponentTemplates {
     pub import_frefs: BTreeMap<(String, String), u32>,
     /// Export frefs keyed by name.
     pub export_frefs: BTreeMap<String, u32>,
+    /// Exports that can start a coordinator, new UTXO, or loaded input.
+    pub(crate) initial_exports: Vec<u32>,
 }
 
 impl ComponentTemplates {
@@ -144,7 +146,7 @@ struct ImportEvents {
 /// whether it runs as the transaction's entry or through a script import, so a
 /// contract has one binding set regardless of its role.
 /// `contract_digest` is the raw SHA-256 digest supplied by the loader.
-/// Authenticating it against a program proof is deferred.
+/// The caller authenticates this identity; it is included in the program bindings.
 pub fn build_component_templates(
     wasm: &[u8],
     coordination_exports: &[&str],
@@ -173,11 +175,18 @@ fn build_templates(
     let mut bindings = HostEventBindingsBuilder::new(&artifacts.tables);
     let mut import_frefs = BTreeMap::new();
     let mut export_frefs = BTreeMap::new();
+    let mut initial_exports = Vec::new();
 
     for export in &exports {
         let fref = export.index.saturating_add(1);
         export_frefs.insert(export.name.clone(), fref);
         let classified = classify_export(export, &coordination_exports)?;
+        if matches!(
+            classified,
+            ExportKind::CoordinationScript | ExportKind::Constructor | ExportKind::SetStorage
+        ) {
+            initial_exports.push(fref);
+        }
         if matches!(classified, ExportKind::CoordinationScript) {
             matched_coordination_exports.insert(export.name.as_str());
         }
@@ -237,6 +246,7 @@ fn build_templates(
         bindings,
         import_frefs,
         export_frefs,
+        initial_exports,
     })
 }
 
@@ -250,8 +260,8 @@ fn build_templates(
 pub fn method_hash_from_name(name: &str) -> MethodHash {
     let digest = Sha256::digest(name.replace('-', "_").as_bytes());
     let mut words = [0; METHOD_WORDS];
-    for (word, bytes) in words.iter_mut().zip(digest.chunks_exact(4)) {
-        *word = u32::from_le_bytes(bytes.try_into().expect("SHA-256 chunks have four bytes"));
+    for (word, bytes) in words.iter_mut().zip(digest.as_chunks::<4>().0) {
+        *word = u32::from_le_bytes(*bytes);
     }
     MethodHash(words)
 }

@@ -94,6 +94,11 @@ impl CoroutineId {
     pub(crate) fn field(self) -> F {
         F::new(u64::from(self.encoded()))
     }
+
+    pub(crate) fn local_index(self) -> F {
+        let (Self::Coord(id) | Self::Utxo(id)) = self;
+        F::new(u64::from(id))
+    }
 }
 
 const fn link(previous_step_column: usize, next_step_column: usize) -> ContinuityLink {
@@ -149,6 +154,20 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
                 link(COL_EFFECT_DEPTH_AFTER, COL_EFFECT_DEPTH_BEFORE),
                 link(COL_EFFECT_ARENA_LEN_AFTER, COL_EFFECT_ARENA_LEN_BEFORE),
             ],
+        },
+        ContinuityGroup {
+            name: "call_handoff",
+            role: "argument, method and result that a call, return or handler exit hands to the next step",
+            links: COL_PENDING_ROOT_AFTER
+                .into_iter()
+                .zip(COL_PENDING_ROOT_BEFORE)
+                .chain(
+                    COL_PENDING_METHOD_AFTER
+                        .into_iter()
+                        .zip(COL_PENDING_METHOD_BEFORE),
+                )
+                .map(|(a, b)| link(a, b))
+                .collect(),
         },
         ContinuityGroup {
             name: "call_stack_pointer_continuity",

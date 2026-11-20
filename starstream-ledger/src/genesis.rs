@@ -126,6 +126,7 @@ pub async fn build_genesis(
             params,
             &mut results,
             &mut Vec::default(),
+            None,
         )
         .await?;
         if let Err(err) = execution {

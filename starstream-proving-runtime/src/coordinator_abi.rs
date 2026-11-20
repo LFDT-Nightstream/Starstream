@@ -236,6 +236,15 @@ fn identity(
     })))
 }
 
+/// Identity committed by the entry event of a coordination script.
+pub fn coordination_script_identity(
+    wasm: &[u8],
+    digest: &[u8; 32],
+    name: &str,
+) -> Result<MethodHash, TemplateBuildError> {
+    Ok(CoordinatorAbis::decode(wasm, &[name], digest)?.exports[name])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

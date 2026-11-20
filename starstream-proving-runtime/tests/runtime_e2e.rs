@@ -23,7 +23,7 @@ use crate::common::{
 };
 
 /// Batch size of the interleaving relation used by the checks below.
-const BATCH_SIZE: usize = 3;
+const BATCH_SIZE: usize = 16;
 
 const UNIT: StarstreamValue = StarstreamValue::UNIT_VALUE;
 
@@ -630,7 +630,7 @@ mod proving {
 
     fn prove_interleaving(execution: &TracedExecution) -> wasmtime::Result<()> {
         use starstream_interleaving_prover::proving::{
-            ProofConfig, TransactionProofContext, method_dictionary,
+            InterleavingProofContext, Limits, ProofConfig, method_dictionary,
         };
 
         let transaction = &execution.transaction;
@@ -648,17 +648,8 @@ mod proving {
         let mut config = if std::env::var_os("STARSTREAM_PROOF_TIGHT_MEMORY").is_some() {
             ProofConfig::for_trace_benchmark(&transaction.trace, batch_size, segment_batches)?
         } else {
-            let mut config = ProofConfig::small(batch_size)?;
-            let g = config.geometry;
-            config.geometry = nightstream::nebula::Geometry::new(
-                g.r,
-                g.mu,
-                g.b_ops,
-                segment_batches,
-                4096usize.checked_div(segment_batches).unwrap_or(0),
-            )
-            .ok_or_else(|| wasmtime::format_err!("invalid segment size"))?;
-            config
+            ProofConfig::for_limits(Limits::SMALL_DEFAULTS, batch_size)?
+                .with_segment_batches(segment_batches)?
         };
         config.engine = common::proof_engine();
         eprintln!(
@@ -667,8 +658,9 @@ mod proving {
             config.geometry,
             config.engine
         );
-        let context = TransactionProofContext::new(config, method_dictionary(&transaction.trace))
+        let context = InterleavingProofContext::new(config)
             .map_err(|error| wasmtime::format_err!("preprocessing failed: {error}"))?;
+        let methods = method_dictionary(&transaction.trace);
         eprintln!("interleaving preprocessing: {:?}", start.elapsed());
         let start = std::time::Instant::now();
         let proof = context
@@ -681,7 +673,12 @@ mod proving {
         eprintln!("interleaving proving: {:?}", start.elapsed());
         let start = std::time::Instant::now();
         context
-            .verify(&proof, &transaction.statement, &execution.commitments)
+            .verify(
+                &methods,
+                &proof,
+                &transaction.statement,
+                &execution.commitments,
+            )
             .map_err(|error| wasmtime::format_err!("verification failed: {error}"))?;
         eprintln!("interleaving verification: {:?}", start.elapsed());
 
@@ -690,7 +687,7 @@ mod proving {
             other_statement.outputs[0].storage.0[0].wrapping_add(1);
         assert!(
             context
-                .verify(&proof, &other_statement, &execution.commitments)
+                .verify(&methods, &proof, &other_statement, &execution.commitments)
                 .is_err(),
             "a proof must not verify against another statement"
         );
@@ -698,9 +695,60 @@ mod proving {
         other_commitments.get_mut(&2).expect("Coord(1)")[1] ^= 1;
         assert!(
             context
-                .verify(&proof, &transaction.statement, &other_commitments)
+                .verify(&methods, &proof, &transaction.statement, &other_commitments)
                 .is_err(),
             "a proof must not verify against other coroutine roots"
+        );
+        let start = std::time::Instant::now();
+        let setup = context
+            .compression_setup()
+            .map_err(|error| wasmtime::format_err!("compression setup failed: {error}"))?;
+        let key = context
+            .compression_key()
+            .map_err(|error| wasmtime::format_err!("compression key failed: {error}"))?;
+        eprintln!("interleaving compression setup: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        let compressed = context
+            .compress(&proof, &setup)
+            .map_err(|error| wasmtime::format_err!("compression failed: {error}"))?;
+        eprintln!("interleaving compression: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        context
+            .verify_compressed(
+                &methods,
+                &compressed,
+                &key,
+                &transaction.statement,
+                &execution.commitments,
+            )
+            .map_err(|error| wasmtime::format_err!("compressed verification failed: {error}"))?;
+        eprintln!(
+            "interleaving compressed verification: {:?}",
+            start.elapsed()
+        );
+        assert!(
+            context
+                .verify_compressed(
+                    &methods,
+                    &compressed,
+                    &key,
+                    &other_statement,
+                    &execution.commitments
+                )
+                .is_err(),
+            "a compressed proof must not verify against another statement"
+        );
+        assert!(
+            context
+                .verify_compressed(
+                    &methods,
+                    &compressed,
+                    &key,
+                    &transaction.statement,
+                    &other_commitments
+                )
+                .is_err(),
+            "a compressed proof must not verify against other coroutine roots"
         );
         Ok(())
     }
@@ -733,6 +781,7 @@ async fn minimal_method_call_runs_through_nebula() -> wasmtime::Result<()> {
     neo_wasm::memory_semantics::preload_host_event_tables(
         &mut preload,
         &execution.templates.bindings,
+        &execution.artifacts,
     );
     for instance in &execution.instances {
         let size = neo_wasm::nebula::WasmSize::for_run(&preload, &instance.trace)?;
@@ -740,7 +789,7 @@ async fn minimal_method_call_runs_through_nebula() -> wasmtime::Result<()> {
         let program = app.program(&preload)?;
         let mut run = nightstream::nebula::Run::new(app, &program, instance.trace[0].state_before);
         for segment in size.segments(&instance.trace)? {
-            run.segment(&segment)?;
+            run.segment(&segment?)?;
         }
         assert_eq!(*run.state(), instance.trace.last().unwrap().state_after);
     }

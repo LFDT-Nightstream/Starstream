@@ -61,10 +61,9 @@ fn bindings_require_empty_keys_at_both_write_sites() {
         assert!(matches!(
             verify_witness_rows(&rows, &preload),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
-                constraint: "resource bindings are fresh",
+                constraint,
                 ..
-            }))
-        ));
+            })) if constraint == "resource bindings are fresh"));
     }
 }
 

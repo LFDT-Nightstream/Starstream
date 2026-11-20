@@ -1,14 +1,19 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use neo_application::{
-    MemoryCatalog, MemoryCheckPolicy, MemoryKind, MemoryPortActivation, MemoryPortKind,
-    MemoryPortSpec, MemoryPreload, MemorySpec, RamInitialization,
+    MemoryActivationFacts, MemoryCatalog, MemoryCheckPolicy, MemoryKind, MemoryPortActivation,
+    MemoryPortKind, MemoryPortSpec, MemoryPreload, MemorySpec, RamInitialization,
+    plan_ordered_memory_slots,
 };
+use neo_math::F;
+use p3_field::PrimeCharacteristicRing;
 
 use crate::ccs::layout::{
     COL_CALL_FRAME_SAVED_EFFECT_DEPTH, COL_CALL_FRAME_SAVED_EFFECT_HEAD,
     COL_EFFECT_ARENA_LEN_AFTER, COL_EFFECT_FRAME_ID, COL_EFFECT_HEAD_AFTER, COL_EFFECT_HEAD_BEFORE,
     COL_EFFECT_REGISTERED, COL_EFFECT_SCOPE_READ, COL_INSTANCE_DEPTH_AFTER,
     COL_INSTANCE_DEPTH_BEFORE, COL_INSTANCE_PUSH, COL_SEL_ADD_EFFECT_HANDLER,
-    COL_SEL_PUSH_EFFECT_HANDLER_FRAME, COL_SEL_SKIP_EFFECT_HANDLER,
+    COL_SEL_PUSH_EFFECT_HANDLER_FRAME, COL_SEL_RAISE_EFFECT, COL_SEL_SKIP_EFFECT_HANDLER,
 };
 use crate::opcode::Opcode;
 
@@ -16,28 +21,25 @@ use crate::ccs::layout::{
     COL_ABI_GENERATION_ADDR, COL_ABI_GENERATION_AFTER, COL_ABI_GENERATION_BEFORE,
     COL_ABI_METHOD_COUNT_ADDR, COL_ABI_METHOD_COUNT_AFTER, COL_ABI_METHOD_COUNT_BEFORE,
     COL_ABI_METHOD_COUNT_READ, COL_ABI_METHOD_COUNT_WRITE, COL_CALL_FRAME_CONSTRUCTOR,
-    COL_CALL_FRAME_IS_EFFECT, COL_CALL_FRAME_SAVED_PHASE, COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8,
-    COL_CALL_STACK_EXPECTED_ARG_VALUE, COL_CALL_STACK_EXPECTED_RESULT_VALUE,
-    COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH, COL_CALL_STACK_TOP,
+    COL_CALL_FRAME_IS_EFFECT, COL_CALL_FRAME_SAVED_PHASE, COL_CALL_STACK_EXPECTED_ARG_VALUE,
+    COL_CALL_STACK_FRAME, COL_CALL_STACK_MUL_STRIDE_8, COL_CALL_STACK_POP, COL_CALL_STACK_PUSH,
     COL_CALL_TARGET, COL_CURR_BEFORE, COL_ENABLED_METHOD_LOG_ADDR,
     COL_ENABLED_METHOD_LOG_GENERATION, COL_ENABLED_METHOD_LOG_ORDINAL, COL_ENABLED_METHOD_LOG_UTXO,
-    COL_EVENT_ACTIVE, COL_EVENT_OWNER_STRIDE_8, COL_IN_WORDS, COL_METHOD_APPEND,
-    COL_METHOD_HASH_VALUE, COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR,
-    COL_OUT_WORDS, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE,
-    COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
-    COL_SEL_CALL_METHOD, COL_SEL_ENTER_CALL, COL_SEL_ENTER_EFFECT_HANDLER,
-    COL_SEL_EXIT_EFFECT_HANDLER, COL_SEL_READ_ABI, COL_SEL_RECEIVE_CALL_RESULT,
-    COL_SEL_RECEIVE_NEW_UTXO_HANDLE, COL_SEL_RESUME_EFFECT, COL_SEL_RETURN, COL_SEL_YIELD_BEGIN,
-    COL_TRACE_ROOT_READ, range_check_layout,
+    COL_EVENT_OWNER_STRIDE_8, COL_IN_WORDS, COL_METHOD_APPEND, COL_METHOD_HASH_VALUE,
+    COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_OUT_WORDS,
+    COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
+    COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD,
+    COL_SEL_ENTER_EFFECT_HANDLER, COL_SEL_EXIT_EFFECT_HANDLER, COL_SEL_READ_ABI,
+    COL_SEL_RECEIVE_CALL_RESULT, COL_SEL_RECEIVE_NEW_UTXO_HANDLE, COL_SEL_RESUME_EFFECT,
+    COL_SEL_RETURN, COL_SEL_YIELD_BEGIN, range_check_layout,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MemoryId {
     InstanceStack,
     CallStackCaller,
-    CallStackExpectedArgument,
-    CallStackExpectedResult,
-    CallStackExpectedMethod,
+    CallStackEffectArgument,
+    CallStackEffectIndex,
     CallStackIsEffect,
     CallStackConstructor,
     CallStackSavedPhase,
@@ -55,7 +57,138 @@ pub enum MemoryId {
     EnabledMethodLogOrdinal,
     MethodTable,
     ResourceResolver,
-    TraceCommitments,
+    UtxoTraceCommitments,
+    CoordTraceCommitments,
+}
+
+/// Activation facts of the single-step relation, read from its own rows.
+///
+/// The support atoms are the opcode selectors, which the one-hot row makes
+/// pairwise exclusive. A selector gate supports itself. Any other gate gets a
+/// support from one of two row shapes:
+///
+/// - `gate = sum of selectors`: the support is those selectors.
+/// - `gate = base * factor`, with `base` a gate that has a support: the
+///   product is 1 only when `base` is, so it inherits that support.
+///
+/// A gate with neither row has no support, and the planner then never shares
+/// its ports. Two product gates of the same base whose factors add up to one
+/// cannot both be 1; these pairs are the exclusions.
+///
+/// A wrong fact cannot make the binding accept a bad row: the binding
+/// requires at most one active port per slot, so it would reject an honest
+/// row instead.
+fn activation_facts<Owner>(
+    relation: &neo_application::R1csRelation<Owner>,
+    catalog: &MemoryCatalog<MemoryId>,
+) -> MemoryActivationFacts {
+    use crate::ccs::layout::{COL_ONE, SELECTORS};
+    let rows = relation.catalog().rows();
+
+    // filtering rows that repeat a column (since there is no reason to do that
+    // and should not happen) to simplify the filtering below
+    for row in rows.iter().map(|tagged| tagged.row()) {
+        for side in [row.a_terms(), row.b_terms(), row.c_terms()] {
+            let columns: BTreeSet<usize> = side.iter().map(|(column, _)| *column).collect();
+            assert_eq!(columns.len(), side.len(), "a row repeats a column");
+        }
+    }
+
+    let sum_support = |gate: usize| -> Option<BTreeSet<usize>> {
+        if SELECTORS.contains(&gate) {
+            return Some(BTreeSet::from([gate]));
+        }
+        rows.iter().map(|tagged| tagged.row()).find_map(|row| {
+            if row.b_terms() != [(COL_ONE, F::ONE)] || !row.c_terms().is_empty() {
+                return None;
+            }
+            let &(_, sign) = row.a_terms().iter().find(|(column, _)| *column == gate)?;
+            if sign != F::ONE && sign != -F::ONE {
+                return None;
+            }
+            let atoms: BTreeSet<usize> = row
+                .a_terms()
+                .iter()
+                .filter(|(column, _)| *column != gate)
+                .map(|&(column, value)| {
+                    (SELECTORS.contains(&column) && value == -sign).then_some(column)
+                })
+                .collect::<Option<_>>()?;
+            Some(atoms)
+        })
+    };
+    // The base and factor of the row `base * factor = gate`.
+    let product = |gate: usize| -> Option<(usize, BTreeMap<usize, F>)> {
+        rows.iter().map(|tagged| tagged.row()).find_map(|row| {
+            let (&[(base, base_coefficient)], &[(column, coefficient)]) =
+                (row.a_terms(), row.c_terms())
+            else {
+                return None;
+            };
+            let factor: BTreeMap<usize, F> = row.b_terms().iter().copied().collect();
+            (column == gate && coefficient == F::ONE && base_coefficient == F::ONE)
+                .then_some((base, factor))
+        })
+    };
+    let gates: BTreeSet<usize> = catalog
+        .entries()
+        .iter()
+        .flat_map(|memory| &memory.ports)
+        .filter_map(|port| match port.activation {
+            MemoryPortActivation::When(gate) => Some(gate),
+            MemoryPortActivation::Always | MemoryPortActivation::Unless(_) => None,
+        })
+        .collect();
+    let products: BTreeMap<usize, (usize, BTreeMap<usize, F>)> = gates
+        .iter()
+        .filter_map(|&gate| Some((gate, product(gate)?)))
+        .collect();
+    let supports = gates
+        .iter()
+        .filter_map(|&gate| {
+            let support = sum_support(gate)
+                .or_else(|| products.get(&gate).and_then(|(base, _)| sum_support(*base)))?;
+            Some((gate, support))
+        })
+        .collect();
+    let complementary = |a: &BTreeMap<usize, F>, b: &BTreeMap<usize, F>| {
+        let mut sum = a.clone();
+        for (&column, &value) in b {
+            *sum.entry(column).or_insert(F::ZERO) += value;
+        }
+        sum.retain(|_, value| *value != F::ZERO);
+        sum == BTreeMap::from([(COL_ONE, F::ONE)])
+    };
+    let gate_exclusions = products
+        .iter()
+        .flat_map(|(&a, (base_a, factor_a))| {
+            products
+                .range(a + 1..)
+                .filter(move |(_, (base_b, factor_b))| {
+                    base_a == base_b
+                        && sum_support(*base_a).is_some()
+                        && complementary(factor_a, factor_b)
+                })
+                .map(move |(&b, _)| (a, b))
+        })
+        .collect();
+    MemoryActivationFacts {
+        supports,
+        gate_exclusions,
+    }
+}
+
+pub(crate) fn planned_slots(
+    batch_size: std::num::NonZeroUsize,
+) -> Result<Vec<Vec<usize>>, crate::batch::proving::ProvingError> {
+    let relation = crate::ccs::build_relation()?;
+    let catalog = build_memory_layout();
+    let plan = plan_ordered_memory_slots(&catalog, &activation_facts(relation.r1cs(), &catalog));
+    Ok(nightstream::nebula::batched_slots(
+        &catalog,
+        &plan.slots,
+        batch_size,
+    )?)
 }
 
 pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
@@ -166,9 +299,12 @@ fn effect_scope_layout() -> [MemorySpec<MemoryId>; 4] {
     ]
 }
 
-fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 1] {
-    [MemorySpec {
-        id: MemoryId::TraceCommitments,
+fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 2] {
+    use crate::ccs::layout::{
+        COL_COORD_EVENT, COL_SEL_FINALIZE_COORDINATOR, COL_SEL_SKIP_CONSUMED, COL_UTXO_EVENT,
+    };
+    let memory = |id, event, read| MemorySpec {
+        id,
         kind: MemoryKind::Ram,
         ports: COL_EVENT_OWNER_STRIDE_8
             .into_iter()
@@ -180,18 +316,30 @@ fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 1] {
                 kind: MemoryPortKind::Write {
                     value_before_column: Some(value_before),
                 },
-                activation: MemoryPortActivation::When(COL_EVENT_ACTIVE),
+                activation: MemoryPortActivation::When(event),
             })
             .chain(COL_EVENT_OWNER_STRIDE_8.into_iter().zip(COL_IN_WORDS).map(
                 |(address, value)| MemoryPortSpec {
                     address_columns: vec![address],
                     value_column: value,
                     kind: MemoryPortKind::Read,
-                    activation: MemoryPortActivation::When(COL_TRACE_ROOT_READ),
+                    activation: MemoryPortActivation::When(read),
                 },
             ))
             .collect(),
-    }]
+    };
+    [
+        memory(
+            MemoryId::UtxoTraceCommitments,
+            COL_UTXO_EVENT,
+            COL_SEL_SKIP_CONSUMED,
+        ),
+        memory(
+            MemoryId::CoordTraceCommitments,
+            COL_COORD_EVENT,
+            COL_SEL_FINALIZE_COORDINATOR,
+        ),
+    ]
 }
 
 fn resource_resolver_layout() -> [MemorySpec<MemoryId>; 1] {
@@ -247,7 +395,7 @@ fn abi_generation_layout() -> [MemorySpec<MemoryId>; 1] {
                 address_columns: vec![COL_ABI_GENERATION_ADDR],
                 value_column: COL_ABI_GENERATION_BEFORE,
                 kind: MemoryPortKind::Read,
-                activation: MemoryPortActivation::When(COL_METHOD_LOOKUP),
+                activation: MemoryPortActivation::When(crate::ccs::layout::COL_ABI_GENERATION_READ),
             },
         ],
     }]
@@ -358,16 +506,15 @@ fn abi_method_count_layout() -> [MemorySpec<MemoryId>; 1] {
     }]
 }
 
-fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
+fn call_stack_layout() -> [MemorySpec<MemoryId>; 8] {
     [
         MemorySpec {
             id: MemoryId::CallStackCaller,
             kind: MemoryKind::Ram,
-            // Reuse the first limb-stride address for caller words: pushes
-            // select the next free frame and peeks/pops select the current top.
+            // Pushes select the next free frame and peeks/pops the current top.
             ports: vec![
                 MemoryPortSpec {
-                    address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                    address_columns: vec![COL_CALL_STACK_FRAME],
                     value_column: COL_CURR_BEFORE,
                     kind: MemoryPortKind::Write {
                         value_before_column: None,
@@ -375,139 +522,79 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
                     activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
                 },
                 MemoryPortSpec {
-                    address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                    address_columns: vec![COL_CALL_STACK_FRAME],
                     value_column: COL_CALL_TARGET,
                     kind: MemoryPortKind::Read,
                     activation: MemoryPortActivation::When(COL_CALL_STACK_POP),
                 },
                 MemoryPortSpec {
-                    address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                    address_columns: vec![COL_CALL_STACK_FRAME],
                     value_column: COL_CALL_TARGET,
                     kind: MemoryPortKind::Read,
                     activation: MemoryPortActivation::When(COL_SEL_RETURN),
                 },
             ],
         },
+        // Program calls hand their argument, method and result to the next
+        // step through the carried hand-off registers. A raised effect is
+        // different: a handler that declines returns to the search, so its
+        // argument and identity must outlive the handler bodies in between.
         MemorySpec {
-            id: MemoryId::CallStackExpectedArgument,
+            id: MemoryId::CallStackEffectArgument,
             kind: MemoryKind::Ram,
             ports: COL_CALL_STACK_EXPECTED_ARG_VALUE
                 .into_iter()
                 .zip(COL_CALL_STACK_MUL_STRIDE_8)
                 .flat_map(|(value, address)| {
-                    vec![
+                    [
                         MemoryPortSpec {
                             address_columns: vec![address],
                             value_column: value,
                             kind: MemoryPortKind::Write {
                                 value_before_column: None,
                             },
-                            activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
+                            activation: MemoryPortActivation::When(COL_SEL_RAISE_EFFECT),
                         },
                         MemoryPortSpec {
                             address_columns: vec![address],
                             value_column: value,
                             kind: MemoryPortKind::Read,
-                            activation: MemoryPortActivation::When(COL_CALL_STACK_TOP),
+                            activation: MemoryPortActivation::When(COL_SEL_ENTER_EFFECT_HANDLER),
                         },
                     ]
-                    .into_iter()
                 })
                 .collect(),
         },
         MemorySpec {
-            id: MemoryId::CallStackExpectedResult,
-            kind: neo_application::MemoryKind::Ram,
-
-            ports: COL_CALL_STACK_EXPECTED_RESULT_VALUE
-                .into_iter()
-                .zip(COL_CALL_STACK_MUL_STRIDE_8)
-                .flat_map(|(value, address)| {
-                    vec![
-                        MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Write {
-                                value_before_column: None,
-                            },
-                            activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
-                        },
-                        MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Write {
-                                value_before_column: None,
-                            },
-                            activation: MemoryPortActivation::When(COL_SEL_EXIT_EFFECT_HANDLER),
-                        },
-                        MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Write {
-                                value_before_column: None,
-                            },
-                            activation: MemoryPortActivation::When(COL_SEL_RETURN),
-                        },
-                        MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Read,
-                            activation: MemoryPortActivation::When(COL_SEL_RESUME_EFFECT),
-                        },
-                    ]
+            id: MemoryId::CallStackEffectIndex,
+            kind: MemoryKind::Ram,
+            // The method-table lookup of each of these steps ties the index
+            // to the effect hash that its event commits to.
+            ports: std::iter::once(MemoryPortSpec {
+                address_columns: vec![COL_CALL_STACK_FRAME],
+                value_column: COL_METHOD_INDEX,
+                kind: MemoryPortKind::Write {
+                    value_before_column: None,
+                },
+                activation: MemoryPortActivation::When(COL_SEL_RAISE_EFFECT),
+            })
+            .chain(
+                [COL_SEL_ENTER_EFFECT_HANDLER, COL_SEL_SKIP_EFFECT_HANDLER]
                     .into_iter()
-                })
-                .chain(
-                    COL_CALL_STACK_EXPECTED_RESULT_VALUE
-                        .into_iter()
-                        .zip(COL_CALL_STACK_MUL_STRIDE_8)
-                        .map(|(value, address)| MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Read,
-                            activation: MemoryPortActivation::When(COL_SEL_RECEIVE_CALL_RESULT),
-                        }),
-                )
-                .collect(),
-        },
-        MemorySpec {
-            id: MemoryId::CallStackExpectedMethod,
-            kind: neo_application::MemoryKind::Ram,
-            ports: COL_METHOD_HASH_VALUE
-                .into_iter()
-                .zip(COL_CALL_STACK_EXPECTED_ADDR_STRIDE_8)
-                .flat_map(|(value, address)| {
-                    [MemoryPortSpec {
-                        address_columns: vec![address],
-                        value_column: value,
-                        kind: MemoryPortKind::Write {
-                            value_before_column: None,
-                        },
-                        activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
-                    }]
-                    .into_iter()
-                    .chain(
-                        [
-                            COL_SEL_ENTER_CALL,
-                            COL_SEL_ENTER_EFFECT_HANDLER,
-                            COL_SEL_SKIP_EFFECT_HANDLER,
-                        ]
-                        .into_iter()
-                        .map(move |selector| MemoryPortSpec {
-                            address_columns: vec![address],
-                            value_column: value,
-                            kind: MemoryPortKind::Read,
-                            activation: MemoryPortActivation::When(selector),
-                        }),
-                    )
-                })
-                .collect(),
+                    .map(|selector| MemoryPortSpec {
+                        address_columns: vec![COL_CALL_STACK_FRAME],
+                        value_column: COL_METHOD_INDEX,
+                        kind: MemoryPortKind::Read,
+                        activation: MemoryPortActivation::When(selector),
+                    }),
+            )
+            .collect(),
         },
         MemorySpec {
             id: MemoryId::CallStackIsEffect,
             kind: MemoryKind::Ram,
             ports: std::iter::once(MemoryPortSpec {
-                address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                address_columns: vec![COL_CALL_STACK_FRAME],
                 value_column: COL_CALL_FRAME_IS_EFFECT,
                 kind: MemoryPortKind::Write {
                     value_before_column: None,
@@ -519,7 +606,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
                     .into_iter()
                     .filter(|op| op.required_effect_frame().is_some() && !op.pushes_to_call_stack())
                     .map(|op| MemoryPortSpec {
-                        address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                        address_columns: vec![COL_CALL_STACK_FRAME],
                         value_column: COL_CALL_FRAME_IS_EFFECT,
                         kind: MemoryPortKind::Read,
                         activation: MemoryPortActivation::When(op.selector()),
@@ -531,7 +618,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
             id: MemoryId::CallStackConstructor,
             kind: MemoryKind::Ram,
             ports: std::iter::once(MemoryPortSpec {
-                address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                address_columns: vec![COL_CALL_STACK_FRAME],
                 value_column: COL_CALL_FRAME_CONSTRUCTOR,
                 kind: MemoryPortKind::Write {
                     value_before_column: None,
@@ -548,7 +635,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
                             && !op.pushes_to_call_stack()
                     })
                     .map(|op| MemoryPortSpec {
-                        address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                        address_columns: vec![COL_CALL_STACK_FRAME],
                         value_column: COL_CALL_FRAME_CONSTRUCTOR,
                         kind: MemoryPortKind::Read,
                         activation: MemoryPortActivation::When(op.selector()),
@@ -561,7 +648,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
             kind: MemoryKind::Ram,
             ports: vec![
                 MemoryPortSpec {
-                    address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                    address_columns: vec![COL_CALL_STACK_FRAME],
                     value_column: COL_CALL_FRAME_SAVED_PHASE,
                     kind: MemoryPortKind::Write {
                         value_before_column: None,
@@ -569,19 +656,19 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 9] {
                     activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
                 },
                 MemoryPortSpec {
-                    address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                    address_columns: vec![COL_CALL_STACK_FRAME],
                     value_column: COL_CALL_FRAME_SAVED_PHASE,
                     kind: MemoryPortKind::Read,
                     activation: MemoryPortActivation::When(COL_SEL_RESUME_EFFECT),
                 },
                 MemoryPortSpec {
-                    address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                    address_columns: vec![COL_CALL_STACK_FRAME],
                     value_column: COL_CALL_FRAME_SAVED_PHASE,
                     kind: MemoryPortKind::Read,
                     activation: MemoryPortActivation::When(COL_SEL_RECEIVE_NEW_UTXO_HANDLE),
                 },
                 MemoryPortSpec {
-                    address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+                    address_columns: vec![COL_CALL_STACK_FRAME],
                     value_column: COL_CALL_FRAME_SAVED_PHASE,
                     kind: MemoryPortKind::Read,
                     activation: MemoryPortActivation::When(COL_SEL_RECEIVE_CALL_RESULT),
@@ -611,7 +698,7 @@ fn saved_effect_context(
         id,
         kind: MemoryKind::Ram,
         ports: std::iter::once(MemoryPortSpec {
-            address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+            address_columns: vec![COL_CALL_STACK_FRAME],
             value_column,
             kind: MemoryPortKind::Write {
                 value_before_column: None,
@@ -619,7 +706,7 @@ fn saved_effect_context(
             activation: MemoryPortActivation::When(COL_CALL_STACK_PUSH),
         })
         .chain(readers.iter().map(|&selector| MemoryPortSpec {
-            address_columns: vec![COL_CALL_STACK_MUL_STRIDE_8[0]],
+            address_columns: vec![COL_CALL_STACK_FRAME],
             value_column,
             kind: MemoryPortKind::Read,
             activation: MemoryPortActivation::When(selector),
@@ -639,9 +726,8 @@ pub(crate) fn sanity_checking_policy(
         vec![
             (InstanceStack, RamInitialization::Zero),
             (CallStackCaller, RamInitialization::Zero),
-            (CallStackExpectedArgument, RamInitialization::Zero),
-            (CallStackExpectedResult, RamInitialization::Zero),
-            (CallStackExpectedMethod, RamInitialization::Zero),
+            (CallStackEffectArgument, RamInitialization::Zero),
+            (CallStackEffectIndex, RamInitialization::Zero),
             (CallStackIsEffect, RamInitialization::Zero),
             (CallStackConstructor, RamInitialization::Zero),
             (CallStackSavedPhase, RamInitialization::Zero),
@@ -658,7 +744,8 @@ pub(crate) fn sanity_checking_policy(
             (EnabledMethodLogGeneration, RamInitialization::Zero),
             (EnabledMethodLogOrdinal, RamInitialization::Zero),
             (ResourceResolver, RamInitialization::Zero),
-            (TraceCommitments, RamInitialization::Zero),
+            (UtxoTraceCommitments, RamInitialization::Zero),
+            (CoordTraceCommitments, RamInitialization::Zero),
         ],
     )
     .unwrap()
@@ -695,9 +782,8 @@ impl MemoryId {
         match self {
             MemoryId::InstanceStack => "instance_stack",
             MemoryId::CallStackCaller => "call_stack_caller",
-            MemoryId::CallStackExpectedArgument => "call_stack_expected_argument",
-            MemoryId::CallStackExpectedResult => "call_stack_expected_result",
-            MemoryId::CallStackExpectedMethod => "call_stack_expected_method",
+            MemoryId::CallStackEffectArgument => "call_stack_effect_argument",
+            MemoryId::CallStackEffectIndex => "call_stack_effect_index",
             MemoryId::CallStackIsEffect => "call_stack_is_effect",
             MemoryId::CallStackConstructor => "call_stack_constructor",
             MemoryId::CallStackSavedPhase => "call_stack_saved_phase",
@@ -715,7 +801,8 @@ impl MemoryId {
             MemoryId::EnabledMethodLogOrdinal => "enabled_method_log_ordinal",
             MemoryId::MethodTable => "method_table",
             MemoryId::ResourceResolver => "resource_resolver",
-            MemoryId::TraceCommitments => "trace_commitments",
+            MemoryId::UtxoTraceCommitments => "utxo_trace_commitments",
+            MemoryId::CoordTraceCommitments => "coord_trace_commitments",
         }
     }
 }
@@ -723,5 +810,64 @@ impl MemoryId {
 impl std::fmt::Display for MemoryId {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.name())
+    }
+}
+
+#[cfg(test)]
+mod port_load {
+    use super::*;
+
+    /// Ports that each opcode can activate, by memory. The heaviest opcode is
+    /// the fewest slots that any plan of this catalog can reach.
+    #[test]
+    #[ignore = "prints a table; run with -- --ignored --nocapture"]
+    fn ports_by_opcode() {
+        let relation = crate::ccs::build_relation().unwrap();
+        let catalog = build_memory_layout();
+        let facts = activation_facts(relation.r1cs(), &catalog);
+        let plan = plan_ordered_memory_slots(&catalog, &facts);
+        println!(
+            "{} ports, {} slots, {} ports without support",
+            plan.logical_ports,
+            plan.slots.len(),
+            plan.ports_without_support
+        );
+        let mut loads = Opcode::all()
+            .into_iter()
+            .map(|opcode| {
+                let by_memory: Vec<(MemoryId, usize)> = catalog
+                    .entries()
+                    .iter()
+                    .filter_map(|memory| {
+                        let ports = memory
+                            .ports
+                            .iter()
+                            .filter(|port| match port.activation {
+                                MemoryPortActivation::When(gate) => facts
+                                    .supports
+                                    .get(&gate)
+                                    .is_none_or(|atoms| atoms.contains(&opcode.selector())),
+                                _ => true,
+                            })
+                            .count();
+                        (ports > 0).then_some((memory.id, ports))
+                    })
+                    .collect();
+                (
+                    by_memory.iter().map(|(_, n)| n).sum::<usize>(),
+                    opcode,
+                    by_memory,
+                )
+            })
+            .collect::<Vec<_>>();
+        loads.sort_by_key(|(total, ..)| std::cmp::Reverse(*total));
+        for (total, opcode, by_memory) in loads {
+            let parts = by_memory
+                .iter()
+                .map(|(id, n)| format!("{id:?} {n}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("{total:>3} {opcode:?}: {parts}");
+        }
     }
 }

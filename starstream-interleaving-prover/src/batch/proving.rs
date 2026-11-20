@@ -3,6 +3,7 @@
 use super::*;
 pub use crate::memory::MemoryId;
 use crate::terminal::TerminalClaim;
+use neo_application::MemoryPortActivation;
 use nightstream::Engine;
 use nightstream::nebula::{self, R1csApplication, RowRelation, Size};
 use p3_field::PrimeField64;
@@ -33,6 +34,34 @@ pub enum ProvingError {
     Configuration(&'static str),
     #[error("method dictionary must be sorted, unique, and match the normalized trace")]
     MethodDictionary,
+}
+
+/// Statistical security that the local profiles ask of the backend.
+const MINIMUM_SECURITY_BITS: u32 = 109;
+
+/// The most steps of one proof. Up to 65 steps a proof never reaches a
+/// refresh fold, and the backend then compresses it in its light form, with
+/// two claims instead of three. That is about three times faster to compress
+/// and twenty times faster to verify. One step is a batch of rows, so a
+/// transaction has at most `MAX_STEPS * batch_size` rows.
+const MAX_STEPS: usize = 64;
+
+/// The geometry with the most segments, halving from `limit`, that the
+/// backend accepts at [`MINIMUM_SECURITY_BITS`].
+///
+/// The backend charges the memory fingerprint term `2 * m_mem / q^2` once per
+/// segment, so the memory sizes and the slot count bound the segment count.
+fn secure_geometry(
+    r: usize,
+    mu: usize,
+    b_ops: usize,
+    n: usize,
+    limit: usize,
+) -> Option<nebula::Geometry> {
+    std::iter::successors(Some(limit), |s_max| Some(s_max / 2))
+        .take_while(|s_max| *s_max > 0)
+        .filter_map(|s_max| nebula::Geometry::new(r, mu, b_ops, n, s_max))
+        .find(|geometry| geometry.segments_security_bits() >= MINIMUM_SECURITY_BITS)
 }
 
 /// Verifier-owned circuit configuration.
@@ -99,13 +128,8 @@ impl ProofConfig {
             }
             memories.push((memory.id, memory.kind, widths));
         }
-        let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(memories);
-        let ports = batch
-            .memory
-            .entries()
-            .iter()
-            .map(|m| m.ports.len())
-            .sum::<usize>();
+        let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(memories)?;
+        let slots = planned_slots(batch_size)?;
         let r = rom_cells
             .max(segment_batches as u64)
             .max(2)
@@ -117,23 +141,56 @@ impl ProofConfig {
             .max(2)
             .next_power_of_two()
             .ilog2() as usize;
-        let segments = 4096usize
-            .checked_div(segment_batches)
-            .filter(|n| *n > 0)
-            .ok_or(ProvingError::Configuration(
-                "invalid benchmark segment length",
-            ))?;
-        let geometry = nebula::Geometry::new(r, mu, ports, segment_batches, segments).ok_or(
-            ProvingError::Configuration("invalid benchmark memory geometry"),
-        )?;
+        let geometry = secure_geometry(
+            r,
+            mu,
+            slots.len(),
+            segment_batches,
+            MAX_STEPS / segment_batches,
+        )
+        .ok_or(ProvingError::Configuration(
+            "invalid benchmark memory geometry",
+        ))?;
         Ok(Self {
             batch_size,
             geometry,
             regions,
-            slots: (0..ports).map(|rank| vec![rank]).collect(),
+            slots,
             engine: Engine::Optimized,
-            minimum_security_bits: 109,
+            minimum_security_bits: MINIMUM_SECURITY_BITS,
         })
+    }
+
+    /// Give every port its own operation slot instead of the planned
+    /// sharing, and resize the geometry to the larger slot count. This is
+    /// the reference that the planned slots are compared against; it is far
+    /// more expensive to prove.
+    #[cfg(test)]
+    fn with_one_slot_per_port(mut self) -> Result<Self, ProvingError> {
+        let batch = Batch::new(self.batch_size)?;
+        let ports = self.batch_size
+            * batch
+                .memory
+                .entries()
+                .iter()
+                .map(|memory| memory.ports.len())
+                .sum::<usize>();
+        self.slots = (0..ports).map(|rank| vec![rank]).collect();
+        let g = self.geometry;
+        self.geometry = secure_geometry(g.r, g.mu, ports, g.n, MAX_STEPS / g.n).ok_or(
+            ProvingError::Configuration("memory geometry exceeds backend limits"),
+        )?;
+        Ok(self)
+    }
+
+    /// Use segments of `segment_batches` batches, keeping the memory sizes.
+    pub fn with_segment_batches(mut self, segment_batches: usize) -> Result<Self, ProvingError> {
+        let g = self.geometry;
+        self.geometry = MAX_STEPS
+            .checked_div(segment_batches)
+            .and_then(|limit| secure_geometry(g.r, g.mu, g.b_ops, segment_batches, limit))
+            .ok_or(ProvingError::Configuration("invalid segment length"))?;
+        Ok(self)
     }
 
     /// Report circuit dimensions without assembling or preparing a prover.
@@ -143,23 +200,21 @@ impl ProofConfig {
         Ok(nebula::size_parts(&self.geometry, &app)?)
     }
 
-    /// Experimental bounded profile for small integration tests, not a ledger
-    /// capacity policy. Single-part addresses have eight bits; multipart ones
-    /// have four per part. Each segment contains eight packed batches.
-    pub fn small(batch_size: usize) -> Result<Self, ProvingError> {
+    /// Memories sized for transactions within `limits`; a transaction over
+    /// a limit has no proof. Each segment contains eight packed batches.
+    pub fn for_limits(limits: Limits, batch_size: usize) -> Result<Self, ProvingError> {
         let batch = Batch::new(batch_size)?;
-        let (regions, [rom_cells, ram_cells]) =
-            nebula::pack_regions(batch.memory.entries().iter().map(|m| {
-                let parts = m.ports[0].address_columns.len();
-                (m.id, m.kind, vec![if parts == 1 { 8 } else { 4 }; parts])
-            }));
-        // One slot per port preserves the catalog's access order, including
-        // writes followed by reads in the same execution row.
-        let ports: usize = batch.memory.entries().iter().map(|m| m.ports.len()).sum();
-        let slots = (0..ports).map(|rank| vec![rank]).collect();
+        let (regions, [rom_cells, ram_cells]) = nebula::pack_regions(
+            batch
+                .memory
+                .entries()
+                .iter()
+                .map(|memory| (memory.id, memory.kind, limits.address_widths(memory.id))),
+        )?;
+        let slots = planned_slots(batch_size)?;
         let r = rom_cells.max(2).next_power_of_two().ilog2() as usize;
         let mu = ram_cells.max(rom_cells).max(2).next_power_of_two().ilog2() as usize;
-        let geometry = nebula::Geometry::new(r, mu, ports, 8, 512).ok_or(
+        let geometry = secure_geometry(r, mu, slots.len(), 8, MAX_STEPS / 8).ok_or(
             ProvingError::Configuration("memory geometry exceeds backend limits"),
         )?;
         Ok(Self {
@@ -168,23 +223,148 @@ impl ProofConfig {
             regions,
             slots,
             engine: Engine::Optimized,
-            minimum_security_bits: 109,
+            minimum_security_bits: MINIMUM_SECURITY_BITS,
         })
     }
 }
 
-#[derive(Debug)]
-pub struct TransactionProof {
+/// Operation slots shared between ports that the relation never activates
+/// on the same step.
+fn planned_slots(batch_size: usize) -> Result<Vec<Vec<usize>>, ProvingError> {
+    crate::memory::planned_slots(
+        NonZeroUsize::new(batch_size)
+            .ok_or(ProvingError::Circuit(crate::Error::InvalidBatchSize))?,
+    )
+}
+
+/// Transaction capacity that sizes the memory regions.
+///
+/// Each limit counts addresses and is rounded up to a power of two. Where
+/// the first address is reserved, the usable count is one less; the fields
+/// say which.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Limits {
+    /// UTXOs the transaction consumes or creates.
+    pub utxos: usize,
+    /// Coordinator instances, counting the transaction context.
+    pub coordinators: usize,
+    /// Call-stack frames: nested calls plus raised effects being handled.
+    pub call_depth: usize,
+    /// Resource handles one coroutine may hold.
+    pub handles_per_holder: usize,
+    /// `try` scopes entered over the whole transaction, plus one: scopes are
+    /// never reused and the first address marks the empty chain.
+    pub effect_scopes: usize,
+    /// Distinct method and effect hashes the transaction names.
+    pub methods: usize,
+    /// Method registrations over the whole transaction, duplicates and
+    /// preloaded input ABIs included.
+    pub registrations: usize,
+}
+
+impl Limits {
+    pub const SMALL_DEFAULTS: Self = Self {
+        utxos: 32,
+        coordinators: 32,
+        call_depth: 64,
+        handles_per_holder: 16,
+        effect_scopes: 16,
+        methods: 32,
+        registrations: 128,
+    };
+
+    fn address_widths(&self, memory: MemoryId) -> Vec<usize> {
+        let bits = |count: usize| count.max(2).next_power_of_two().ilog2() as usize;
+        // Wide enough for either kind's local index plus the kind bit.
+        let packed_id = bits(self.utxos.max(self.coordinators)) + 1;
+        match memory {
+            MemoryId::InstanceStack
+            | MemoryId::CallStackCaller
+            | MemoryId::CallStackEffectIndex
+            | MemoryId::CallStackIsEffect
+            | MemoryId::CallStackConstructor
+            | MemoryId::CallStackSavedPhase
+            | MemoryId::CallStackSavedEffectHead
+            | MemoryId::CallStackSavedEffectDepth => vec![bits(self.call_depth)],
+            MemoryId::CallStackEffectArgument => vec![bits(self.call_depth) + 3],
+            MemoryId::EffectScopeParent
+            | MemoryId::EffectScopeOwner
+            | MemoryId::EffectScopeFrameId => vec![bits(self.effect_scopes)],
+            MemoryId::EffectRegistered => vec![bits(self.effect_scopes), bits(self.methods)],
+            MemoryId::AbiMethodCount | MemoryId::AbiGeneration => vec![bits(self.utxos)],
+            MemoryId::EnabledMethodLogUtxo
+            | MemoryId::EnabledMethodLogMethod
+            | MemoryId::EnabledMethodLogGeneration
+            | MemoryId::EnabledMethodLogOrdinal => vec![bits(self.registrations)],
+            MemoryId::MethodTable => vec![bits(self.methods) + 3],
+            MemoryId::ResourceResolver => vec![packed_id, bits(self.handles_per_holder)],
+            MemoryId::UtxoTraceCommitments => vec![bits(self.utxos) + 3],
+            MemoryId::CoordTraceCommitments => vec![bits(self.coordinators) + 3],
+        }
+    }
+}
+
+pub struct InterleavingProof {
     pub proof: nebula::Proof,
     // Authenticated by the memory verifier; terminal projection is checked below.
     pub final_state: Vec<F>,
 }
 
-pub struct TransactionProofContext {
+/// An [`InterleavingProof`] after compression: much smaller and cheaper to
+/// verify, at the cost of a compression pass by the prover.
+pub struct CompressedInterleavingProof {
+    pub proof: nebula::FinalProof,
+    // Authenticated by the memory verifier, as in `InterleavingProof`.
+    pub final_state: Vec<F>,
+}
+
+impl CompressedInterleavingProof {
+    /// Encode a little-endian u32 word count, u64 state words, then the backend proof.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ProvingError> {
+        let words = u32::try_from(self.final_state.len())
+            .map_err(|_| ProvingError::Configuration("final state is too long to encode"))?;
+        let mut bytes = words.to_le_bytes().to_vec();
+        for word in &self.final_state {
+            bytes.extend(word.as_canonical_u64().to_le_bytes());
+        }
+        bytes.extend(self.proof.to_bytes()?);
+        Ok(bytes)
+    }
+
+    /// Decode canonical field elements; call
+    /// [`InterleavingProofContext::verify_compressed`] to verify the proof.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ProvingError> {
+        let malformed = ProvingError::Configuration("malformed compressed interleaving proof");
+        let Some((words, rest)) = bytes.split_first_chunk::<4>() else {
+            return Err(malformed);
+        };
+        let words = u32::from_le_bytes(*words) as usize;
+        let Some((state, proof)) = words
+            .checked_mul(8)
+            .and_then(|length| rest.split_at_checked(length))
+        else {
+            return Err(malformed);
+        };
+        let final_state = state
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|chunk| u64::from_le_bytes(*chunk))
+            .map(|word| (word < F::ORDER_U64).then(|| F::new(word)))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(malformed)?;
+        Ok(Self {
+            proof: nebula::FinalProof::from_bytes(proof)?,
+            final_state,
+        })
+    }
+}
+
+/// A reusable circuit; each proof binds its own method dictionary as memory preload.
+pub struct InterleavingProofContext {
     batch: Batch,
     config: ProofConfig,
-    methods: Vec<MethodHash>,
-    program: nebula::Program,
+    app: R1csApplication<MemoryId>,
     prover: nebula::Prover<R1csApplication<MemoryId>>,
     verifier: nebula::Verifier<R1csApplication<MemoryId>>,
 }
@@ -199,12 +379,22 @@ fn application(
         &batch.memory,
         Size {
             geometry: config.geometry,
-            // Batch already packs the execution rows into each assignment.
-            rows: NonZeroUsize::MIN,
+            rows: NonZeroUsize::new(batch.size)
+                .ok_or(ProvingError::Circuit(crate::Error::InvalidBatchSize))?,
             regions: config.regions.clone(),
             slots: config.slots.clone(),
         },
     )?)
+}
+
+fn program(
+    app: &R1csApplication<MemoryId>,
+    methods: &[MethodHash],
+) -> Result<nebula::Program, ProvingError> {
+    if methods.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
+        return Err(ProvingError::MethodDictionary);
+    }
+    Ok(app.program(&crate::memory::preload_tables(methods))?)
 }
 
 /// Dictionary used by normalization. A verifier must agree on this table
@@ -213,85 +403,141 @@ pub fn method_dictionary(trace: &Trace) -> Vec<MethodHash> {
     crate::step::method_table(trace)
 }
 
-impl TransactionProofContext {
-    /// Compile a verifier-owned relation and bind its method/effect ROM.
-    /// Currently normalization requires the exact trace-local dictionary.
-    pub fn new(config: ProofConfig, methods: Vec<MethodHash>) -> Result<Self, ProvingError> {
-        if methods.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
-            return Err(ProvingError::MethodDictionary);
-        }
+impl InterleavingProofContext {
+    pub fn new(config: ProofConfig) -> Result<Self, ProvingError> {
         let batch = Batch::new(config.batch_size)?;
         let app = application(&batch, &config)?;
-        let program = app.program(&crate::memory::preload_tables(&methods))?;
-        let circuit = nebula::Circuit::compile(config.geometry, app)?;
+        let circuit = nebula::Circuit::compile(config.geometry, app.clone())?;
         let prover = circuit.prover(config.engine, config.minimum_security_bits)?;
         let verifier = circuit.verifier(config.engine, config.minimum_security_bits)?;
         Ok(Self {
             batch,
             config,
-            methods,
-            program,
+            app,
             prover,
             verifier,
         })
     }
 
+    /// Prove using the trace's [`method_dictionary`].
     pub fn prove(
         &self,
         trace: &Trace,
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
-    ) -> Result<TransactionProof, ProvingError> {
+    ) -> Result<InterleavingProof, ProvingError> {
         let normalized = normalize(trace);
         let padding = normalized
             .steps
             .last()
             .ok_or(ProvingError::EmptyTrace)?
             .padding_after();
-        if normalized.method_table != self.methods {
-            return Err(ProvingError::MethodDictionary);
-        }
+        let program = program(&self.app, &normalized.method_table)?;
         let mut packed =
             super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
         let final_state = final_state(&self.batch, &packed);
-        let n = self.config.geometry.n;
         pad_to_segments(&self.batch, &mut packed, padding, &self.config.geometry)?;
-        let mut run = self
-            .prover
-            .start(&self.program, state_words(&initial_state()))?;
-        for segment in packed.rows.chunks(n) {
-            run.segment(segment)?;
+        let mut run = self.prover.start(&program, state_words(&initial_state()))?;
+        let segment_rows = self.config.geometry.n * self.batch.size;
+        for segment in packed.rows.chunks(segment_rows) {
+            run.segment(&step_inputs(&self.batch, segment)?)?;
         }
-        Ok(TransactionProof {
+        Ok(InterleavingProof {
             proof: run.finish()?,
             final_state,
         })
     }
 
+    /// `methods` must be the verifier's expected dictionary.
     pub fn verify(
         &self,
-        proof: &TransactionProof,
+        methods: &[MethodHash],
+        proof: &InterleavingProof,
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
     ) -> Result<(), ProvingError> {
-        let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
-        check_final_state(
-            &proof.final_state,
-            TerminalClaim::Transaction {
-                commitment: expected,
-            },
-        )?;
+        check_transaction_claim(&proof.final_state, statement, roots)?;
         self.verifier.verify(
-            &self.program,
+            &program(&self.app, methods)?,
             &state_words(&initial_state()),
             &state_words(&proof.final_state),
             &proof.proof,
         )?;
         Ok(())
     }
+
+    /// The prover's compression key. It depends only on the configuration,
+    /// so one key serves every proof of this context.
+    pub fn compression_setup(&self) -> Result<nightstream::CompressionSetup, ProvingError> {
+        Ok(self.prover.compression_setup()?)
+    }
+
+    /// The verifier's compression key, with the same scope as the setup.
+    pub fn compression_key(&self) -> Result<nightstream::CompressionKey, ProvingError> {
+        Ok(self.verifier.compression_key()?)
+    }
+
+    pub fn compress(
+        &self,
+        proof: &InterleavingProof,
+        setup: &nightstream::CompressionSetup,
+    ) -> Result<CompressedInterleavingProof, ProvingError> {
+        Ok(CompressedInterleavingProof {
+            proof: self.prover.compress(&proof.proof, setup)?,
+            final_state: proof.final_state.clone(),
+        })
+    }
+
+    /// Verify a compressed proof against the same claim as [`Self::verify`].
+    pub fn verify_compressed(
+        &self,
+        methods: &[MethodHash],
+        proof: &CompressedInterleavingProof,
+        key: &nightstream::CompressionKey,
+        statement: &TransactionStatement,
+        roots: &crate::TraceCommitments,
+    ) -> Result<(), ProvingError> {
+        check_transaction_claim(&proof.final_state, statement, roots)?;
+        self.verifier.verify_final(
+            &program(&self.app, methods)?,
+            &state_words(&initial_state()),
+            &state_words(&proof.final_state),
+            key,
+            &proof.proof,
+        )?;
+        Ok(())
+    }
 }
 
-/// Fill the final segment with inactive batches, preserving the terminal state.
+/// The final state must be the finished transaction that commits to
+/// `statement` and `roots`.
+fn check_transaction_claim(
+    final_state: &[F],
+    statement: &TransactionStatement,
+    roots: &crate::TraceCommitments,
+) -> Result<(), ProvingError> {
+    let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
+    check_final_state(
+        final_state,
+        TerminalClaim::Transaction {
+            commitment: expected,
+        },
+    )?;
+    Ok(())
+}
+
+/// The backend's input of each step: its rows in the step layout.
+fn step_inputs(batch: &Batch, rows: &[Vec<F>]) -> Result<Vec<Vec<F>>, ProvingError> {
+    let width = batch.relation.columns().column_count();
+    rows.chunks(batch.size)
+        .map(|step| {
+            let step: Vec<&[F]> = step.iter().map(Vec::as_slice).collect();
+            Ok(nebula::SharedColumns::NONE.step_witness(width, COL_ONE, &step, |_| 0)?)
+        })
+        .collect()
+}
+
+/// Fill the final segment with padding rows, preserving the terminal state.
 fn pad_to_segments(
     batch: &Batch,
     packed: &mut PackedWitness,
@@ -301,23 +547,18 @@ fn pad_to_segments(
     if packed.rows.is_empty() {
         return Err(ProvingError::EmptyTrace);
     }
-    let segments = packed.rows.len().div_ceil(geometry.n);
+    let segment_rows = geometry.n * batch.size;
+    let segments = packed.rows.len().div_ceil(segment_rows);
     if segments > geometry.s_max {
         return Err(ProvingError::TraceTooLong {
             segments,
             max: geometry.s_max,
         });
     }
-    if !packed.rows.len().is_multiple_of(geometry.n) {
-        let pad = batch
-            .pack(&[padding])
-            .rows
-            .pop()
-            .expect("one padding batch");
-        while !packed.rows.len().is_multiple_of(geometry.n) {
-            packed.rows.push(pad.clone());
-        }
-        packed.origins.resize(packed.rows.len() * batch.size, None);
+    if !packed.rows.len().is_multiple_of(segment_rows) {
+        let pad = crate::witness::build_witness_vector(&padding);
+        packed.rows.resize(segments * segment_rows, pad);
+        packed.origins.resize(packed.rows.len(), None);
     }
     Ok(())
 }
@@ -351,6 +592,12 @@ fn initial_state() -> Vec<F> {
             | COL_OUTPUT_CURSOR_BEFORE
             | COL_ENABLED_METHOD_LOG_LEN_BEFORE => F::ZERO,
             column if COL_IO_BEFORE.contains(&column) => F::ZERO,
+            column
+                if COL_PENDING_ROOT_BEFORE.contains(&column)
+                    || COL_PENDING_METHOD_BEFORE.contains(&column) =>
+            {
+                F::ZERO
+            }
             column => panic!("missing canonical initial value for carried column {column}"),
         })
         .collect()
