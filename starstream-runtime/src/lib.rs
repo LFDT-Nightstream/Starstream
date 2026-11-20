@@ -465,9 +465,14 @@ fn link_effect_instance<T: Host>(
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
         debug!(name, "linking effect instance item");
         match ty {
+            // Effects look like functions.
             types::ComponentItem::ComponentFunc(ty) => {
                 link_effect_function(linker, ty, abi_name, name)?;
             }
+            // Types and resources may show up here if they're imported to use as function parameters or returns.
+            types::ComponentItem::Type(..) => {}
+            types::ComponentItem::Resource(..) => {}
+            // Everything else is unsupported.
             types::ComponentItem::CoreFunc(..) => {
                 bail!("effect instance core function imports unsupported")
             }
@@ -477,10 +482,6 @@ fn link_effect_instance<T: Host>(
             }
             types::ComponentItem::ComponentInstance(..) => {
                 bail!("effect instance component instance imports unsupported")
-            }
-            types::ComponentItem::Type(..) => {}
-            types::ComponentItem::Resource(..) => {
-                bail!("effect instance resource imports unsupported")
             }
         }
     }
