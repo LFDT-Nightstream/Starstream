@@ -2855,7 +2855,7 @@ TypedProgram {
   (type (;8;) (func (result i32)))
   (type (;9;) (func (param i64 i64) (result i64)))
   (type (;10;) (func (param i32) (result i64)))
-  (type (;11;) (func (param i32 i64) (result i32)))
+  (type (;11;) (func (param i64) (result i32)))
   (type (;12;) (func (param i32) (result i32 i32 i32)))
   (type (;13;) (func (param i32 i32 i32 i32) (result i32)))
   (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0) (param i32)))
@@ -2966,11 +2966,9 @@ TypedProgram {
   (func (;31;) (type 10) (param i32) (result i64)
     (global.get 2)
   )
-  (func (;32;) (type 11) (param i32 i64) (result i32)
-    (global.set 1
-      (local.get 0))
+  (func (;32;) (type 11) (param i64) (result i32)
     (global.set 2
-      (local.get 1))
+      (local.get 0))
     (return
       (call 13
         (i32.const 0)))
@@ -3058,7 +3056,7 @@ TypedProgram {
     (call 39
       (local.get 0)
       (local.get 1))
-    (call 0
+    (call 2
       (local.get 0))
     (call 0
       (local.get 1))
@@ -3223,12 +3221,8 @@ TypedProgram {
                   (export (;11;) "storage" (type (eq 10)))
                   (type (;12;) (func (param "self" 1) (result 11)))
                   (export (;3;) "get-storage" (func (type 12)))
-                  (alias outer 1 10 (type (;13;)))
-                  (export (;14;) "s-utxo-context" (type (eq 13)))
-                  (type (;15;) (borrow 14))
-                  (type (;16;) (own 14))
-                  (type (;17;) (func (param "ctx" 16) (param "storage" 11) (result 2)))
-                  (export (;4;) "set-storage" (func (type 17)))
+                  (type (;13;) (func (param "storage" 11) (result 2)))
+                  (export (;4;) "set-storage" (func (type 13)))
                 )
               )
               (export (;5;) "my-token" (instance (type 25)))
@@ -3252,7 +3246,7 @@ TypedProgram {
                 )
               )
               (export (;6;) "holder" (instance (type 26)))
-              (type (;27;) (func (param "t" 3) (param "to" 3)))
+              (type (;27;) (func (param "t" 7) (param "to" 3)))
               (export (;0;) "attach-any" (func (type 27)))
               (type (;28;) (func (param "source" 3) (param "dest" 3)))
               (export (;1;) "move-token" (func (type 28)))
@@ -3282,13 +3276,12 @@ world root {
   use starstream:self/my-token.{token as t-my-token};
   use starstream:self/holder.{utxo as u-holder};
 
-  export attach-any: func(t: borrow<s-utxo>, to: borrow<s-utxo>);
+  export attach-any: func(t: borrow<s-token>, to: borrow<s-utxo>);
   export move-token: func(source: borrow<s-utxo>, dest: borrow<s-utxo>);
   @external-id("starstream:test:Attach a token to concrete utxos")
   export test19: func();
   export my-token: interface {
     use starstream:std/builtin.{utxo as s-utxo};
-    use starstream:std/utxo-context.{utxo-context as s-utxo-context};
 
     resource token {
       my-mint: static func() -> token;
@@ -3302,7 +3295,7 @@ world root {
 
     get-storage: func(self: borrow<token>) -> storage;
 
-    set-storage: func(ctx: s-utxo-context, storage: storage) -> token;
+    set-storage: func(storage: storage) -> token;
   }
   export holder: interface {
     use starstream:std/utxo-context.{utxo-context as s-utxo-context};
