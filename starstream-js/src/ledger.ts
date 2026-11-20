@@ -1,4 +1,10 @@
 import { digest as computeDigest } from "./digest.ts";
+import {
+  buildFundEnvelope,
+  buildPublishEnvelope,
+  buildTransactionEnvelope,
+  type Signer,
+} from "./envelope.ts";
 import * as accountRpc from "./bindings/starstream/ledger/account.js";
 import * as adminRpc from "./bindings/starstream/ledger/admin.js";
 import * as blockRpc from "./bindings/starstream/ledger/block.js";
@@ -13,14 +19,18 @@ import type {
   TransactionOutput,
 } from "./bindings/starstream/ledger/types.js";
 import {
+  encodeValue,
   fromFetch,
   invoke,
+  Mux,
   t,
+  Writer,
   type InputValue,
   type Transport,
   type Type,
 } from "@bytecodealliance/wrpc";
 
+const APPLICATION_COSE = "application/cose";
 const APPLICATION_WASM = "application/wasm";
 const APPLICATION_WRPC = "application/x.wrpc";
 const TEXT_PLAIN = "text/plain";
@@ -149,6 +159,86 @@ export class Ledger {
     return unwrapGet(res, "digest");
   }
 
+  private async submit(
+    envelope: Uint8Array<ArrayBuffer>,
+    what: string,
+  ): Promise<string> {
+    const post = this.fetch ?? fetch;
+    const res = await post(this.url, {
+      method: "POST",
+      headers: { "content-type": APPLICATION_COSE },
+      body: envelope,
+    });
+    const body = await res.text();
+    if (!res.ok) {
+      throw new Error(`failed to ${what}: ${body}`);
+    }
+    return body;
+  }
+
+  /**
+   * Credit the account with the Ed25519 public key `account` with `amount`,
+   * signed by the admin `signer` for `network`, defaulting to the ledger's,
+   * with `nonce`, defaulting to the one following the last admin nonce.
+   */
+  async fund(
+    signer: Signer,
+    account: Uint8Array,
+    amount: bigint,
+    options?: { network?: string; nonce?: bigint },
+  ): Promise<void> {
+    const [network, nonce] = await Promise.all([
+      options?.network ?? this.getNetworkName(),
+      options?.nonce ?? this.getAdminNonce().then((nonce) => nonce + 1n),
+    ]);
+    const envelope = await buildFundEnvelope(
+      signer,
+      network,
+      nonce,
+      account,
+      amount,
+    );
+    await this.submit(envelope, "fund account");
+  }
+
+  /**
+   * Publish the contract `wasm`, signed by `signer` for `network`, defaulting
+   * to the ledger's, with `nonce`, defaulting to the one following the last
+   * nonce of `signer`, and return its digest.
+   */
+  async publishContract(
+    signer: Signer,
+    wasm: Uint8Array,
+    options?: { network?: string; nonce?: bigint },
+  ): Promise<string> {
+    const [network, nonce] = await Promise.all([
+      options?.network ?? this.getNetworkName(),
+      options?.nonce ??
+        this.getAccountNonce(signer.publicKey).then((nonce) => {
+          if (nonce === undefined) {
+            throw new Error("account not found");
+          }
+          return nonce + 1n;
+        }),
+    ]);
+    const envelope = await buildPublishEnvelope(signer, network, nonce, wasm);
+    return this.submit(envelope, "publish contract");
+  }
+
+  /**
+   * Sign `tx` by `signer` for `network`, defaulting to the ledger's, submit it
+   * and return its digest.
+   */
+  async submitTransaction(
+    signer: Signer,
+    tx: Transaction,
+    options?: { network?: string },
+  ): Promise<string> {
+    const network = options?.network ?? (await this.getNetworkName());
+    const envelope = await buildTransactionEnvelope(signer, network, tx);
+    return this.submit(envelope, "submit transaction");
+  }
+
   /** Get the outputs of the genesis block. */
   async getGenesisOutputs(): Promise<TransactionOutput[]> {
     return genesisRpc.getOutputs(this.transport());
@@ -255,5 +345,43 @@ export class Ledger {
     );
     await finished;
     return results[0] as unknown;
+  }
+
+  /**
+   * Call the method `name` of the UTXO created by `output` with the
+   * wRPC-encoded `params`, discarding the resulting state, and return its
+   * wRPC-encoded results. The method must not take or return streams or
+   * futures.
+   */
+  async callUtxoMethodEncoded(
+    output: TransactionInput,
+    name: string,
+    params: Uint8Array,
+  ): Promise<Uint8Array> {
+    const w = new Writer();
+    encodeValue(w, t.option(t.string), output.transaction || undefined);
+    encodeValue(w, t.u32, output.index);
+    w.bytes(params);
+    const mux = new Mux(this.transport());
+    try {
+      await mux.writeHeader(LEDGER_UTXO_INSTANCE, name);
+      mux.restrict([], 0);
+      mux.start();
+      await mux.outgoing([]).write(w.finish());
+      await mux.closeWrite();
+      const root = mux.incoming([]);
+      const results = new Writer();
+      while (await root.fill(1)) {
+        const chunk = root.remaining();
+        results.bytes(chunk);
+        root.consume(chunk.length);
+      }
+      mux.finish([], root);
+      await mux.ended;
+      return results.finish();
+    } catch (err) {
+      mux.abort(err);
+      throw err;
+    }
   }
 }

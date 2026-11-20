@@ -375,3 +375,25 @@
 .sandbox-tabs__hint {
   color: var(--ifm-color-emphasis-600);
 }
+
+/* Ledger terminal */
+
+.ledger-terminal {
+  height: calc(100vh - 60px);
+  padding: 12px;
+  background: #1a1b26;
+  overflow: hidden;
+}
+
+.ledger-chooser__url {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  max-width: 480px;
+}
+
+.ledger-chooser__url input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+}

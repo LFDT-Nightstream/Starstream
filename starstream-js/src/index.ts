@@ -10,6 +10,11 @@ export {
   type GenesisScript,
   type WasmLedgerOptions,
 } from "./wasm-ledger.ts";
+export {
+  WasmClient,
+  type CoordinationScriptCall,
+  type CoordinationScriptOptions,
+} from "./wasm-client.ts";
 export { t, type Type } from "@bytecodealliance/wrpc";
 
 // ----------------------------------------------------------------------------
@@ -21,9 +26,11 @@ export type {
   ModuleState,
   Transaction,
   TransactionEvent,
-  TransactionInput,
   TransactionOutput,
 } from "./bindings/starstream/ledger/types.js";
+export { TransactionInput } from "./bindings/starstream/ledger/types.js";
+
+export { type Signer } from "./envelope.ts";
 
 export { digest } from "./digest.ts";
 

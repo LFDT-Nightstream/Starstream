@@ -40,7 +40,9 @@ export function useBlobUrl(
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     if (array) {
-      const url = URL.createObjectURL(new File([array], filename, { type }));
+      const url = URL.createObjectURL(
+        new File([array.slice()], filename, { type }),
+      );
       setUrl(url);
       return () => URL.revokeObjectURL(url);
     } else {

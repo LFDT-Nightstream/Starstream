@@ -8,6 +8,7 @@ members = [
   "starstream-language-server-web",
   "starstream-ledger",
   "starstream-ledger-cli",
+  "starstream-ledger-client-web",
   "starstream-ledger-node",
   "starstream-ledger-web",
   "starstream-runtime",
