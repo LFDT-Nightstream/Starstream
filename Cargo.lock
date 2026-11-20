@@ -3638,6 +3638,7 @@ dependencies = [
  "tokio",
  "tokio-io-timeout",
  "tokio-util",
+ "toml",
  "tracing",
  "wasm-encoder 0.263.0",
  "wasm-tokio",

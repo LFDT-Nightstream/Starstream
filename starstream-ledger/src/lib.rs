@@ -127,7 +127,7 @@ pub struct Transaction {
     #[n(2)]
     pub events: Vec<TransactionEvent>,
     #[cbor(n(3), with = "minicbor::bytes")]
-    #[serde(serialize_with = "serialize_bytes")]
+    #[serde(serialize_with = "serialize_proof")]
     pub proof: Box<[u8]>,
 }
 
@@ -137,6 +137,19 @@ fn serialize_bytes<S: serde::Serializer>(bytes: &[u8], serializer: S) -> Result<
     } else {
         serializer.serialize_bytes(bytes)
     }
+}
+
+/// Human-readable output shows the size and SHA-256 of a proof, not its bytes.
+fn serialize_proof<S: serde::Serializer>(proof: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeStruct as _;
+
+    if !serializer.is_human_readable() || proof.is_empty() {
+        return serialize_bytes(proof, serializer);
+    }
+    let mut summary = serializer.serialize_struct("Proof", 2)?;
+    summary.serialize_field("bytes", &proof.len())?;
+    summary.serialize_field("sha256", &hex::encode(Sha256::digest(proof)))?;
+    summary.end()
 }
 
 fn serialize_methods<S: serde::Serializer>(
@@ -314,4 +327,43 @@ pub fn encode_digest(digest: &[u8; 32]) -> String {
         unreachable!();
     };
     multibase::encode(multibase::Base::Base32Lower, digest.to_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn transaction(proof: &[u8]) -> Transaction {
+        Transaction {
+            inputs: vec![TransactionInput::genesis(0)],
+            outputs: Vec::new(),
+            events: Vec::new(),
+            proof: proof.into(),
+        }
+    }
+
+    #[test]
+    fn human_readable_output_summarizes_the_proof() {
+        let proof = [7; 1000];
+        let toml = toml::to_string_pretty(&transaction(&proof)).unwrap();
+        assert!(toml.contains("bytes = 1000"), "{toml}");
+        assert!(
+            toml.contains(&format!(
+                "sha256 = \"{}\"",
+                hex::encode(Sha256::digest(proof))
+            )),
+            "{toml}"
+        );
+        assert!(!toml.contains(&hex::encode(proof)), "{toml}");
+
+        let empty = toml::to_string_pretty(&transaction(&[])).unwrap();
+        assert!(empty.contains("proof = \"\""), "{empty}");
+    }
+
+    #[test]
+    fn the_encoded_transaction_keeps_the_proof_bytes() {
+        let tx = transaction(&[7; 1000]);
+        let decoded: Transaction = minicbor::decode(&minicbor::to_vec(&tx).unwrap()).unwrap();
+        assert_eq!(decoded, tx);
+    }
 }

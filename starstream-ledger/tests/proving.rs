@@ -7,9 +7,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_ledger::Transaction;
 use starstream_ledger::client::CoordinationScriptArg;
 use starstream_ledger::client::runtime::{Client, Ctx, call_coordination_script, compile_contract};
-use starstream_ledger::client::runtime::{
-    TracedCall, TransactionProver, attach_proof, verify_transaction_proof,
-};
+use starstream_ledger::client::runtime::{TracedCall, TransactionProver, verify_transaction_proof};
 use starstream_ledger::{TransactionInput, TransactionOutput, encode_digest};
 use wasmtime::{Engine, Store};
 use wasmtime_wizer::Wizer;
@@ -60,6 +58,7 @@ async fn coordination_script_execution_is_checked() -> anyhow::Result<()> {
         Vec::default(),
         &mut [],
         &mut Vec::default(),
+        None,
     )
     .await?;
     let execution = execution?.execution;
@@ -102,6 +101,7 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         Vec::default(),
         &mut [],
         &mut Vec::default(),
+        None,
     )
     .await?;
     let execution = execution?.execution;
@@ -126,6 +126,7 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         vec![CoordinationScriptArg::Utxo(input.clone())],
         &mut [],
         &mut Vec::default(),
+        None,
     )
     .await?;
     let execution = execution?.execution;
@@ -150,6 +151,7 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
         vec![CoordinationScriptArg::Utxo(input)],
         &mut [],
         &mut Vec::default(),
+        None,
     )
     .await?;
     execution?;
@@ -207,6 +209,7 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
         Vec::default(),
         &mut [],
         &mut Vec::default(),
+        None,
     )
     .await?;
     let execution = execution?.execution;
@@ -252,12 +255,12 @@ impl ProofFixture<'_> {
         prover: &mut TransactionProver,
         store: Store<Ctx>,
         call: TracedCall,
-        mut transaction: Transaction,
-        script: &str,
+        transaction: Transaction,
     ) -> anyhow::Result<Transaction> {
-        let execution = &call.execution;
-        let (proof, timings) =
-            starstream_ledger::client::runtime::prove(&store, execution, prover)?;
+        let (timings, sizes) = call
+            .proof_stats
+            .as_ref()
+            .context("missing attached proof statistics")?;
         for instance in &timings.wasm {
             eprintln!(
                 "{:?} ({:?}, circuit reused: {}): {:?}",
@@ -269,15 +272,7 @@ impl ProofFixture<'_> {
             timings.interleaving_circuit_reused, timings.interleaving
         );
         eprintln!("total: {:?}", timings.total);
-        let sizes = attach_proof(
-            &mut transaction,
-            Sha256::digest(self.wasm).into(),
-            script,
-            &execution.transaction.statement,
-            &proof,
-        )?;
         eprintln!("{} proof bytes: {sizes:?}", sizes.total());
-        drop(proof);
         drop(call);
         let engine = store.engine().clone();
         drop(store);
@@ -382,6 +377,9 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
     let mut prover = prove.then(|| TransactionProver::new(ProofEngine::Optimized));
     let mut store = Store::new(&engine, Ctx::default());
     let create = contract.get_coordination_script("create")?;
+    if prove {
+        eprintln!("create stored amount");
+    }
     let (created, execution) = call_coordination_script(
         &mut store,
         &TestClient(None),
@@ -393,6 +391,7 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
         vec![],
         &mut [],
         &mut vec![],
+        prover.as_mut(),
     )
     .await?;
     let call = execution?;
@@ -400,14 +399,15 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
     assert!(created.inputs.is_empty());
     assert_eq!(created.outputs.len(), 1);
     let created = if let Some(prover) = &mut prover {
-        eprintln!("create stored amount");
         ProofFixture {
             wasm: &wasm,
             previous: None,
         }
-        .round_trip(prover, store, call, created, "create")
+        .round_trip(prover, store, call, created)
         .await?
     } else {
+        assert!(created.proof.is_empty());
+        assert!(call.proof_stats.is_none());
         created
     };
 
@@ -420,6 +420,9 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
             transaction: encode_digest(&created.digest()?).into(),
             index: 0,
         };
+        if prove && authorized {
+            eprintln!("spend stored amount");
+        }
         let result = call_coordination_script(
             &mut store,
             &client,
@@ -431,6 +434,7 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
             vec![input.clone().into()],
             &mut [],
             &mut vec![],
+            prover.as_mut(),
         )
         .await;
         if !authorized {
@@ -464,12 +468,11 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
         assert!(transaction.outputs.is_empty());
         assert!(execution.transaction.statement.outputs.is_empty());
         if let Some(prover) = &mut prover {
-            eprintln!("spend stored amount");
             ProofFixture {
                 wasm: &wasm,
                 previous: Some(&created),
             }
-            .round_trip(prover, store, call, transaction, script)
+            .round_trip(prover, store, call, transaction)
             .await?;
         }
     }
@@ -536,6 +539,7 @@ async fn coordination_script_transactions_prove_and_verify() -> anyhow::Result<(
         Vec::default(),
         &mut [],
         &mut Vec::default(),
+        Some(&mut prover),
     )
     .await?;
     assert_eq!(transaction.outputs.len(), 1);
@@ -543,7 +547,7 @@ async fn coordination_script_transactions_prove_and_verify() -> anyhow::Result<(
         wasm: &wasm,
         previous: None,
     }
-    .round_trip(&mut prover, store, execution?, transaction, "example")
+    .round_trip(&mut prover, store, execution?, transaction)
     .await?;
 
     let client = TestClient(Some(created.outputs[0].clone()));
@@ -563,6 +567,7 @@ async fn coordination_script_transactions_prove_and_verify() -> anyhow::Result<(
         })],
         &mut [],
         &mut Vec::default(),
+        Some(&mut prover),
     )
     .await?;
     assert_eq!(transaction.inputs.len(), 1);
@@ -570,7 +575,7 @@ async fn coordination_script_transactions_prove_and_verify() -> anyhow::Result<(
         wasm: &wasm,
         previous: Some(&created),
     }
-    .round_trip(&mut prover, store, execution?, transaction, "again")
+    .round_trip(&mut prover, store, execution?, transaction)
     .await?;
     Ok(())
 }

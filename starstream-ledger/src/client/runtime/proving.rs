@@ -28,6 +28,7 @@ pub struct VerificationSource {
 pub struct TracedCall {
     pub execution: CapturedExecution,
     pub programs: Vec<VerificationSource>,
+    pub proof_stats: Option<(ProofTimings, starstream_proving_runtime::ProofSizes)>,
 }
 
 pub(super) fn get_or_insert_program<'a>(
@@ -246,6 +247,7 @@ impl Tracing {
         Ok(TracedCall {
             execution,
             programs: self.programs,
+            proof_stats: None,
         })
     }
 }
