@@ -21,6 +21,7 @@ pub mod bindings {
 
             world host {
                 import starstream:std/cardano;
+                import starstream:std/ledger;
             }
         ",
         imports: {
@@ -161,7 +162,13 @@ pub struct EffectStackFrame {
     pub effects_handled: HashSet<[u64; 4]>,
 }
 
-pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
+pub trait Host:
+    bindings::starstream::std::cardano::Host
+    + bindings::starstream::std::ledger::Host
+    + Send
+    + Sized
+    + 'static
+{
     type UtxoContext: Clone + Send;
 
     fn table(&mut self) -> &mut ResourceTable;
@@ -465,9 +472,14 @@ fn link_effect_instance<T: Host>(
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(engine) {
         debug!(name, "linking effect instance item");
         match ty {
+            // Effects look like functions.
             types::ComponentItem::ComponentFunc(ty) => {
                 link_effect_function(linker, ty, abi_name, name)?;
             }
+            // Types and resources may show up here if they're imported to use as function parameters or returns.
+            types::ComponentItem::Type(..) => {}
+            types::ComponentItem::Resource(..) => {}
+            // Everything else is unsupported.
             types::ComponentItem::CoreFunc(..) => {
                 bail!("effect instance core function imports unsupported")
             }
@@ -477,10 +489,6 @@ fn link_effect_instance<T: Host>(
             }
             types::ComponentItem::ComponentInstance(..) => {
                 bail!("effect instance component instance imports unsupported")
-            }
-            types::ComponentItem::Type(..) => {}
-            types::ComponentItem::Resource(..) => {
-                bail!("effect instance resource imports unsupported")
             }
         }
     }
@@ -809,6 +817,7 @@ fn link_typed_token_mint<T: Host>(
     target: &ContractImportTarget<'_, T>,
     linker: &mut LinkerInstance<T>,
     ty: types::ComponentFunc,
+    instance_idx: ComponentExportIndex,
     idx: ComponentExportIndex,
     name: &str,
 ) -> wasmtime::Result<()> {
@@ -824,7 +833,9 @@ fn link_typed_token_mint<T: Host>(
                 .as_contract()
                 .context("contract was not initialized")?;
             let instance = contract.instantiate(&mut store).await?;
-            let token = instance.construct_token(&mut store, idx, params).await?;
+            let token = instance
+                .construct_token(&mut store, instance_idx, idx, params)
+                .await?;
             let token = store.data_mut().table().push(token)?;
             let token = token.try_into_resource_any(store.as_context_mut())?;
             results[0] = Val::Resource(token);
@@ -851,7 +862,9 @@ fn link_typed_token_burn<T: Host>(
                 bail!("first parameter is not a resource")
             };
             let token = token.try_into_resource::<Token>(&mut store)?;
-            let Token { instance, resource } = store.data_mut().table().delete(token)?;
+            let Token {
+                instance, resource, ..
+            } = store.data_mut().table().delete(token)?;
             let params = {
                 let mut ps = Vec::with_capacity(params.len());
                 ps.push(Val::Resource(resource));
@@ -877,7 +890,9 @@ fn link_typed_token_attach_detach<T: Host>(
         name,
         move |mut store, (token, utxo): (Resource<Token>, Resource<Utxo<T::UtxoContext>>)| {
             Box::new(async move {
-                let &Token { instance, resource } = store.data_mut().table().get(&token)?;
+                let &Token {
+                    instance, resource, ..
+                } = store.data_mut().table().get(&token)?;
                 let utxo = utxo.try_into_resource_any(&mut store)?;
                 call_func(
                     &mut store,
@@ -890,6 +905,37 @@ fn link_typed_token_attach_detach<T: Host>(
             })
         },
     )
+}
+
+/// Link token downcast.
+#[instrument(level = "trace", skip_all)]
+fn link_token_downcast<T: Host>(
+    component: Component,
+    linker: &mut LinkerInstance<T>,
+    instance_idx: ComponentExportIndex,
+) -> wasmtime::Result<()> {
+    linker.func_wrap("downcast", move |mut store, (token,)| {
+        let token = store.data_mut().table().get::<Token>(&token)?;
+        if !Component::same(&token.component, &component) {
+            return Ok((None,));
+        }
+        if token.instance_idx != instance_idx {
+            return Ok((None,));
+        }
+        let token = token.clone();
+        let token = store.data_mut().table().push(token)?;
+        Ok((Some(token),))
+    })
+}
+
+/// Link token upcast.
+#[instrument(level = "trace", skip_all)]
+fn link_token_upcast<T: Host>(linker: &mut LinkerInstance<T>) -> wasmtime::Result<()> {
+    linker.func_wrap("upcast", move |mut store, (token,)| {
+        let token = store.data_mut().table().get::<Token>(&token).cloned()?;
+        let token = store.data_mut().table().push(token)?;
+        Ok((token,))
+    })
 }
 
 /// Link typed token [`types::ComponentFunc`] in a [`LinkerInstance`]
@@ -920,13 +966,13 @@ fn link_typed_token_function<T: Host>(
                     bail!("typed token function must not both take and return an owned resource")
                 }
                 ((..), (Some(Type::Own(..)), None)) => {
-                    link_typed_token_mint(target, linker, ty, idx, name)
+                    link_typed_token_mint(target, linker, ty, *instance_idx, idx, name)
                 }
                 ((Some(Type::Own(..)), None), (..)) => link_typed_token_burn(linker, ty, idx, name),
                 _ => bail!("failed to classify typed token function"),
             }
         }
-        _ if matches!(name, "[method]token.attach" | "[method]token.detach") => {
+        Some(("[method", "token.attach" | "token.detach")) => {
             link_typed_token_attach_detach(linker, idx, name)
         }
         _ => bail!("unexpected typed token instance function import `{name}`"),
@@ -948,6 +994,12 @@ fn link_typed_token_instance<T: Host>(
     for (name, types::ComponentExtern { ty, .. }) in ty.exports(component.engine()) {
         debug!(name, "linking typed token instance item");
         match ty {
+            types::ComponentItem::ComponentFunc(..) if name == "downcast" => {
+                link_token_downcast(component.clone(), linker, instance_idx)?;
+            }
+            types::ComponentItem::ComponentFunc(..) if name == "upcast" => {
+                link_token_upcast(linker)?;
+            }
             types::ComponentItem::ComponentFunc(ty) => {
                 link_typed_token_function(&target, linker, ty, &instance_idx, name)?;
             }
@@ -1279,6 +1331,32 @@ fn link_builtin<T: Host>(linker: &mut Linker<T>) -> wasmtime::Result<()> {
         };
         Ok(())
     })?;
+
+    linker.func_wrap_async(
+        "attach",
+        |mut store, (token, utxo): (Resource<Token>, Resource<Utxo<T::UtxoContext>>)| {
+            Box::new(async move {
+                let &Token {
+                    ref component,
+                    instance,
+                    instance_idx,
+                    resource,
+                } = store.data_mut().table().get(&token)?;
+                let idx = component
+                    .get_export_index(Some(&instance_idx), "[method]token.attach")
+                    .context("`[method]token.attach` export was not found")?;
+                let utxo = utxo.try_into_resource_any(&mut store)?;
+                call_func(
+                    &mut store,
+                    &instance,
+                    idx,
+                    &[Val::Resource(resource), Val::Resource(utxo)],
+                    &mut [],
+                )
+                .await
+            })
+        },
+    )?;
 
     Ok(())
 }
@@ -2093,12 +2171,15 @@ impl ContractInstance {
     async fn construct_token(
         &self,
         store: impl AsContextMut<Data: Host>,
+        instance_idx: ComponentExportIndex,
         name: impl ExportLookup,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Token> {
         let resource = self.call_constructor(store, name, params).await?;
         Ok(Token {
+            component: self.component.clone(),
             instance: self.instance,
+            instance_idx,
             resource,
         })
     }
@@ -2107,20 +2188,23 @@ impl ContractInstance {
     pub async fn call_token_mint(
         &self,
         store: impl AsContextMut<Data: Host>,
+        TokenExport { instance_idx, .. }: &TokenExport,
         TokenMintExport { idx, .. }: &TokenMintExport,
         params: impl AsRef<[Val]>,
     ) -> wasmtime::Result<Token> {
-        self.construct_token(store, idx, params).await
+        self.construct_token(store, *instance_idx, idx, params)
+            .await
     }
 
     #[instrument(level = "trace", skip_all)]
     pub async fn load_token(
         &self,
         store: impl AsContextMut<Data: Host>,
+        TokenExport { instance_idx, .. }: &TokenExport,
         StorageExport { set, .. }: &StorageExport,
         fields: impl Into<Vec<(String, Val)>>,
     ) -> wasmtime::Result<Token> {
-        self.construct_token(store, set, [Val::Record(fields.into())])
+        self.construct_token(store, *instance_idx, set, [Val::Record(fields.into())])
             .await
     }
 
@@ -2313,9 +2397,11 @@ impl<T> Utxo<T> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Token {
+    component: Component,
     instance: Instance,
+    instance_idx: ComponentExportIndex,
     resource: ResourceAny,
 }
 

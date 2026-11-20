@@ -23,6 +23,9 @@ pub struct TypeBuilder<T> {
     component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
     resources: Vec<(Rc<Resource>, u32)>,
     on_demand_resources: HashMap<Rc<Resource>, u32>,
+    pub(crate) exported_types: Vec<(Rc<ComponentAbiType>, String)>,
+    on_demand_types: HashMap<Rc<ComponentAbiType>, (String, u32)>,
+    used_names: HashSet<String>,
 }
 
 impl<T: TypeRegistry> TypeBuilder<T> {
@@ -58,8 +61,25 @@ impl<T: TypeRegistry> TypeBuilder<T> {
         idx
     }
 
+    fn fresh_name(&mut self, name: &str) -> String {
+        let mut name = name.to_owned();
+        let mut i = 0;
+        while !self.used_names.insert(name.clone()) {
+            i += 1;
+            name = format!("{name}-v{i}");
+        }
+        name
+    }
+
     pub fn encode_value(&mut self, ty: &Rc<ComponentAbiType>) -> ComponentValType {
         if let Some(&cvt) = self.component_to_encoded.get(ty) {
+            return cvt;
+        }
+
+        if let Some((name, idx)) = self.on_demand_types.get(ty) {
+            let idx = self.inherit_non_resource(&name.clone(), *idx);
+            let cvt = ComponentValType::Type(idx);
+            self.component_to_encoded.insert(ty.clone(), cvt);
             return cvt;
         }
 
@@ -81,14 +101,20 @@ impl<T: TypeRegistry> TypeBuilder<T> {
                 ComponentValType::Primitive(PrimitiveValType::ErrorContext)
             }
             ComponentAbiType::List { .. } => todo!(),
-            ComponentAbiType::Record { fields } => {
+            ComponentAbiType::Record { name, fields } => {
                 let fields: Vec<_> = fields
                     .iter()
                     .map(|f| (f.0.as_str(), self.encode_value(&f.1)))
                     .collect();
                 let (idx, ty) = self.ty();
                 ty.defined_type().record(fields);
-                ComponentValType::Type(idx)
+
+                let name = self.fresh_name(name);
+                let equality_idx = self.inner.type_count();
+                self.inner
+                    .import_or_export(&name, ComponentTypeRef::Type(TypeBounds::Eq(idx)));
+
+                ComponentValType::Type(equality_idx)
             }
             ComponentAbiType::Tuple { fields } => {
                 let fields: Vec<_> = fields.iter().map(|f| self.encode_value(f)).collect();
@@ -96,14 +122,20 @@ impl<T: TypeRegistry> TypeBuilder<T> {
                 ty.defined_type().tuple(fields);
                 ComponentValType::Type(idx)
             }
-            ComponentAbiType::Variant { cases } => {
+            ComponentAbiType::Variant { name, cases } => {
                 let cases: Vec<_> = cases
                     .iter()
                     .map(|(name, ty)| (name.as_str(), ty.as_ref().map(|ty| self.encode_value(ty))))
                     .collect();
                 let (idx, ty) = self.ty();
                 ty.defined_type().variant(cases);
-                ComponentValType::Type(idx)
+
+                let name = self.fresh_name(name);
+                let equality_idx = self.inner.type_count();
+                self.inner
+                    .import_or_export(&name, ComponentTypeRef::Type(TypeBounds::Eq(idx)));
+
+                ComponentValType::Type(equality_idx)
             }
             ComponentAbiType::Option { inner } => {
                 let inner_val = self.encode_value(inner);
@@ -146,16 +178,8 @@ impl<T: TypeRegistry> TypeBuilder<T> {
     }
 
     pub fn export_ty(&mut self, name: &str, ty: &Rc<ComponentAbiType>) {
-        let ComponentValType::Type(idx) = self.encode_value(ty) else {
-            unreachable!()
-        };
-        // "Exporting" a type consists of importing it with an equality constraint.
-        let new_idx = self.inner.type_count();
-        self.inner
-            .import_or_export(name, ComponentTypeRef::Type(TypeBounds::Eq(idx)));
-        // Future uses must also refer to the imported version.
-        self.component_to_encoded
-            .insert(ty.clone(), ComponentValType::Type(new_idx));
+        _ = self.encode_value(ty);
+        self.exported_types.push((ty.clone(), name.to_owned()));
     }
 
     pub fn export_fn<'a>(
@@ -188,6 +212,26 @@ impl<T: TypeRegistry> TypeBuilder<T> {
         self.register_resource(&rc, idx);
         self.resources.push((rc.clone(), idx));
         rc
+    }
+
+    fn inherit_non_resource(&mut self, name: &str, index: u32) -> u32 {
+        // "alias" makes the type available on a binary level.
+        let alias_idx = self.inner.type_count();
+        self.inner.alias(Alias::Outer {
+            kind: ComponentOuterAliasKind::Type,
+            count: 1,
+            index,
+        });
+
+        // "equality" amounts to a `use` statement (mandatory).
+        let equality_idx = self.inner.type_count();
+        self.inner.export(
+            // The name to `use` as.
+            name,
+            ComponentTypeRef::Type(TypeBounds::Eq(alias_idx)),
+        );
+
+        equality_idx
     }
 
     fn inherit_resource(&mut self, resource: &Rc<Resource>, index: u32) -> (u32, u32) {
@@ -288,6 +332,26 @@ impl TypeBuilder<ComponentType> {
             // Following must use alias_idx or else wit-parser hits an unreachable!(), nice.
             self.resources.push((resource.clone(), alias_idx));
         }
+        for (abi_ty, name) in &child.exported_types {
+            let alias_idx = self.inner.type_count();
+            self.inner.alias(Alias::InstanceExport {
+                instance,
+                kind: ComponentExportKind::Type,
+                name,
+            });
+
+            // "equality" amounts to a `use` statement (mandatory).
+            let equality_idx = self.inner.type_count();
+            let name = self.fresh_name(name.as_str());
+            self.inner.import(
+                // The name to `use` as.
+                &name,
+                ComponentTypeRef::Type(TypeBounds::Eq(alias_idx)),
+            );
+
+            self.component_to_encoded
+                .insert(abi_ty.clone(), ComponentValType::Type(equality_idx));
+        }
     }
 }
 
@@ -297,6 +361,15 @@ impl TypeBuilder<InstanceType> {
         // Lower resources declared in the parent interface.
         this.on_demand_resources
             .extend(parent.resources.iter().cloned());
+        this.on_demand_types
+            .extend(parent.exported_types.iter().map(|(ty, name)| {
+                let Some(&ComponentValType::Type(equality_idx)) =
+                    parent.component_to_encoded.get(ty)
+                else {
+                    panic!()
+                };
+                (ty.clone(), (name.clone(), equality_idx))
+            }));
         this
     }
 }

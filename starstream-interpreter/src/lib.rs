@@ -215,7 +215,7 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
         }
         // Nesting
         TypedExprKind::Grouping(expr) => eval(&expr.node, locals)?,
-        TypedExprKind::Disclose { expr } | TypedExprKind::UtxoUpcast { expr } => {
+        TypedExprKind::Disclose { expr } | TypedExprKind::Upcast { expr } => {
             eval(&expr.node, locals)?
         }
         TypedExprKind::Block(block) => eval_block(block, locals)?,

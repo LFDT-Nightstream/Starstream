@@ -40,6 +40,8 @@ package starstream:std {
 
     resource token;
 
+    attach: func(t: borrow<token>, u: borrow<utxo>);
+
     push-effect-handler-frame: func(frame-id: u32);
 
     add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
@@ -68,6 +70,8 @@ package starstream:std {
 
     resource token;
 
+    attach: func(t: borrow<token>, u: borrow<utxo>);
+
     push-effect-handler-frame: func(frame-id: u32);
 
     add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
@@ -79,7 +83,7 @@ package starstream:std {
 
 package starstream:contract {
   interface scripts {
-    @external-id("6e27d2c756795b80ca9472f63bd7fe04a071a68ad99a20e3722d4e8d95f45cab")
+    @external-id("6e02267fa65712a11b9c40dcf87fe4f7d0a41e46fed23b177ea5d75217cd7dc1")
     helper: func() -> s64;
   }
 }

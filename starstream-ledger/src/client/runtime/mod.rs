@@ -394,6 +394,16 @@ impl starstream::std::cardano::Host for Ctx {
     }
 }
 
+impl starstream::std::ledger::Host for Ctx {
+    fn assert_transaction_signed_by(
+        &mut self,
+        _key: starstream::std::ledger::PublicKey,
+    ) -> wasmtime::Result<()> {
+        // TODO: real implementation.
+        Ok(())
+    }
+}
+
 impl starstream_runtime::Host for Ctx {
     type UtxoContext = Arc<std::sync::Mutex<UtxoCtx>>;
 
