@@ -21,6 +21,7 @@ pub mod bindings {
 
             world host {
                 import starstream:std/cardano;
+                import starstream:std/ledger;
             }
         ",
         imports: {
@@ -161,7 +162,13 @@ pub struct EffectStackFrame {
     pub effects_handled: HashSet<[u64; 4]>,
 }
 
-pub trait Host: bindings::starstream::std::cardano::Host + Send + Sized + 'static {
+pub trait Host:
+    bindings::starstream::std::cardano::Host
+    + bindings::starstream::std::ledger::Host
+    + Send
+    + Sized
+    + 'static
+{
     type UtxoContext: Clone + Send;
 
     fn table(&mut self) -> &mut ResourceTable;
