@@ -505,9 +505,10 @@ impl TransactionProver {
                                     None => job(),
                                 }));
                             } else {
-                                let (instance, timing) = job()?;
-                                proof_wall += timing.phases.proving + timing.phases.compression;
-                                record((instance, timing));
+                                let started = Instant::now();
+                                let result = job()?;
+                                proof_wall += started.elapsed();
+                                record(result);
                             }
                             Ok(())
                         });
@@ -556,7 +557,7 @@ impl TransactionProver {
                     .prove(&transaction.trace, &transaction.statement, &roots)
                     .context("failed to prove the interleaving")?;
                 let result = interleaving.compress(&proof, started.elapsed());
-                proof_wall += result.proving + result.compression;
+                proof_wall += started.elapsed();
                 result
             }
         };

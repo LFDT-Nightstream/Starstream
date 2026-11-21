@@ -340,6 +340,7 @@ pub fn prepare_contract_verification(
         &[VerificationProgram {
             wasm,
             coordination_exports: &[script],
+            input_utxos: &[],
             contract_digest: &digest,
         }],
         proof.instances.iter().map(|instance| instance.size),
