@@ -210,44 +210,53 @@ fn verify_normalized(
     statement: Option<&starstream_interleaving_spec::TransactionStatement>,
 ) -> Result<(), Error> {
     let batch = Batch::new(batch_size)?;
-    check_normalized(&batch, normalized, expected, statement)?;
+    check_normalized(&batch, normalized, Roots::Expected(expected), statement)?;
     Ok(())
+}
+
+enum Roots<'a> {
+    Expected(Option<&'a crate::TraceCommitments>),
+    FromFinalization(&'a mut crate::TraceCommitments),
 }
 
 fn check_normalized(
     batch: &Batch,
     normalized: crate::step::NormalizedTrace,
-    expected: Option<&crate::TraceCommitments>,
+    roots: Roots<'_>,
     statement: Option<&starstream_interleaving_spec::TransactionStatement>,
 ) -> Result<PackedWitness, Error> {
     let preload = crate::memory::preload_tables(&normalized.method_table);
     let packed = batch.pack(&normalized.steps);
     batch.check(&packed, &preload)?;
-    check_packed_statement(&packed, expected, statement)?;
+    check_packed_statement(&packed, roots, statement)?;
     Ok(packed)
 }
 
 fn check_packed_statement(
     packed: &PackedWitness,
-    expected: Option<&crate::TraceCommitments>,
+    mut roots: Roots<'_>,
     statement: Option<&starstream_interleaving_spec::TransactionStatement>,
 ) -> Result<(), Error> {
     let mut terminal_claim = crate::terminal::TerminalClaim::Execution;
     if let Some(statement) = statement {
-        let rows = packed
+        let mut rows = packed
             .rows
             .iter()
             .zip(&packed.origins)
             .filter(|(_, origin)| origin.is_some())
-            .map(|(row, _)| row.clone())
-            .collect::<Vec<Vec<F>>>();
-        crate::transaction::check_statement(&rows, statement)?;
-        let digest = crate::transaction_commitment(
-            statement,
-            expected.ok_or(Unsatisfied::TransactionStatement)?,
-        )?;
+            .map(|(row, _)| row.as_slice());
+        let destination = match &mut roots {
+            Roots::Expected(_) => None,
+            Roots::FromFinalization(observed) => Some(&mut **observed),
+        };
+        crate::transaction::check_statement(rows.clone(), statement, destination)?;
+        let roots = match roots {
+            Roots::Expected(expected) => expected.ok_or(Unsatisfied::TransactionStatement)?,
+            Roots::FromFinalization(observed) => observed,
+        };
+        let digest = crate::transaction_commitment(statement, roots)?;
         if rows
-            .first()
+            .next()
             .is_none_or(|row| COL_IO_BEFORE.map(|c| row[c]) != [F::ZERO; 4])
         {
             return Err(Unsatisfied::TransactionStatement.into());
@@ -255,7 +264,7 @@ fn check_packed_statement(
         terminal_claim = crate::terminal::TerminalClaim::Transaction {
             commitment: digest.map(F::new),
         };
-    } else if let Some(expected) = expected {
+    } else if let Roots::Expected(Some(expected)) = roots {
         // Execution-only diagnostics compare roots directly; transactions
         // authenticate them through the aggregate digest above.
         check_commitment_statement(packed, expected)?;

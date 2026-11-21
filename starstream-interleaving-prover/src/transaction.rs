@@ -376,12 +376,14 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 /// Direct semantic diagnostics alongside the transaction digest endpoint check.
 /// Reads checked row buses, not the source trace or normalization metadata.
 /// The proving API separately binds these endpoints and memory accesses with Nebula.
-pub(crate) fn check_statement(
-    rows: &[Vec<F>],
+pub(crate) fn check_statement<R: AsRef<[F]>>(
+    rows: impl IntoIterator<Item = R>,
     statement: &TransactionStatement,
+    mut finalized: Option<&mut crate::TraceCommitments>,
 ) -> Result<(), Error> {
     let reject = || Error::from(Unsatisfied::TransactionStatement);
-    let first = rows.first().ok_or_else(reject)?;
+    let mut rows = rows.into_iter().peekable();
+    let first = rows.peek().ok_or_else(reject)?.as_ref();
     for (column, value) in [
         (COL_TX_PHASE_BEFORE, 0),
         (COL_LAST_INPUT_HAS_ABI_BEFORE, 1),
@@ -410,6 +412,7 @@ pub(crate) fn check_statement(
     let mut methods = Vec::<Vec<[u32; 8]>>::new();
     let mut output_methods = Vec::<Vec<[u32; 8]>>::new();
     for row in rows {
+        let row = row.as_ref();
         let at = |c: usize| row[c].as_canonical_u64();
         if row[COL_SEL_SET_STORAGE] == F::ONE {
             let input = statement.inputs.get(inputs).ok_or_else(reject)?;
@@ -448,6 +451,22 @@ pub(crate) fn check_statement(
                 COL_METHOD_HASH_VALUE
                     .map(|c| u32::try_from(at(c)).expect("range checked method limb")),
             );
+        }
+        let Some(finalized) = finalized.as_deref_mut() else {
+            continue;
+        };
+        let (owner, chain) = if row[COL_SEL_GET_STORAGE] == F::ONE {
+            (COL_BOUNDARY_UTXO, COL_OUT)
+        } else if row[COL_SEL_SKIP_CONSUMED] == F::ONE {
+            (COL_BOUNDARY_UTXO, COL_IN)
+        } else if row[COL_SEL_FINALIZE_COORDINATOR] == F::ONE {
+            (COL_EVENT_OWNER, COL_IN)
+        } else {
+            continue;
+        };
+        let owner = u32::try_from(at(owner)).map_err(|_| Unsatisfied::TransactionCommitment)?;
+        if finalized.insert(owner, chain.map(at)).is_some() {
+            return Err(Unsatisfied::TransactionCommitment.into());
         }
     }
     if entries != 1

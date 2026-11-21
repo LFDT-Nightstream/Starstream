@@ -272,6 +272,7 @@ impl ProofFixture<'_> {
             timings.interleaving_circuit_reused, timings.interleaving
         );
         eprintln!("total: {:?}", timings.total);
+        eprintln!("prove and compress wall: {:?}", timings.prove_compress_wall);
         eprintln!("{} proof bytes: {sizes:?}", sizes.total());
         drop(call);
         let engine = store.engine().clone();
