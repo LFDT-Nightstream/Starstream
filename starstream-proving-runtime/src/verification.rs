@@ -14,6 +14,8 @@ pub struct VerificationProgram<'a> {
     pub wasm: &'a [u8],
     pub coordination_exports: &'a [&'a str],
     pub contract_digest: &'a [u8; 32],
+    /// These bytes were prepared from the original contract without applying an input snapshot.
+    pub is_original_image: bool,
     /// Ledger input positions and their UTXO export names in this component.
     pub input_utxos: &'a [(usize, String)],
     /// Transaction-local IDs of outputs created by this component, and their
@@ -23,6 +25,7 @@ pub struct VerificationProgram<'a> {
 
 pub(crate) struct ProgramVerificationInputs {
     source_index: usize,
+    is_original_image: bool,
     pub program: Program,
     pub allowed_initial_states: Vec<WasmStepState>,
 }
@@ -55,7 +58,7 @@ impl PreparedVerification {
             .into_iter()
             .flatten()
             .find(|p| {
-                bound.is_none_or(|&(source, _)| source == p.source_index)
+                bound.map_or(p.is_original_image, |&(source, _)| source == p.source_index)
                     && p.program.d_init().map(|x| x.as_canonical_u64()) == digest
             })
             .context("unexpected program for proof coroutine")?;
@@ -144,6 +147,10 @@ pub fn prepare_verification(
             bind(u32::try_from(*index)?, source_index, vec![setter])?;
             input_count += 1;
         }
+        ensure!(
+            source.new_utxos.is_empty() || source.is_original_image,
+            "new output requires the original contract program"
+        );
         for (utxo, export) in source.new_utxos {
             // The constructor's entry event commits to this contract and
             // export, and the interleaving proof matches it to the caller's
@@ -196,6 +203,7 @@ pub fn prepare_verification(
                     .or_default()
                     .push(ProgramVerificationInputs {
                         source_index,
+                        is_original_image: source.is_original_image,
                         program: app.program(&preload)?,
                         allowed_initial_states: allowed_initial_states.clone(),
                     });
@@ -244,6 +252,7 @@ mod tests {
                 wasm: &first,
                 coordination_exports: &[],
                 contract_digest: &[0; 32],
+                is_original_image: false,
                 input_utxos: &[(0, "first".into()), (2, "second".into())],
                 new_utxos: &[],
             },
@@ -251,6 +260,7 @@ mod tests {
                 wasm: &second,
                 coordination_exports: &[],
                 contract_digest: &[0; 32],
+                is_original_image: false,
                 input_utxos: &[(1, "first".into())],
                 new_utxos: &[],
             },
@@ -280,7 +290,9 @@ mod tests {
         let module = |value| {
             wat::parse_str(format!(
                 r#"(module
-            (func (export "first#[static]utxo.new") (param i32) i32.const {value} drop)
+            (memory 1)
+            (data (i32.const 0) "{value}")
+            (func (export "first#[static]utxo.new") (param i32))
             (func (export "first#[static]utxo.other") (param i32))
             (func (export "second#[static]utxo.new") (param i32))
             (func (export "first#set-storage") (param i32 i32) (result i32) i32.const 0))"#
@@ -288,10 +300,11 @@ mod tests {
         };
         let first = module(1)?;
         let second = module(2)?;
-        let program = |wasm, input_utxos, new_utxos| VerificationProgram {
+        let program = |wasm, is_original_image, input_utxos, new_utxos| VerificationProgram {
             wasm,
             coordination_exports: &[],
             contract_digest: &[0; 32],
+            is_original_image,
             input_utxos,
             new_utxos,
         };
@@ -300,8 +313,8 @@ mod tests {
         let size = WasmSize::Small;
         let expected = prepare_verification(
             &[
-                program(&first, &inputs, &outputs),
-                program(&second, &[], &[]),
+                program(&first, true, &inputs, &outputs),
+                program(&second, false, &[], &[]),
             ],
             [size],
         )?;
@@ -319,19 +332,31 @@ mod tests {
         };
         utxo(1, 0, 0)?;
         utxo(1, 0, 1)?;
-        // Another export's constructor, the storage loader, and another contract.
+        // Another export's constructor, the storage loader, and a different initial memory image.
         assert!(utxo(1, 0, 2).is_err());
         assert!(utxo(1, 0, 3).is_err());
         assert!(utxo(1, 1, 0).is_err());
-        // A UTXO that is not an output is bound by the interleaving proof alone.
-        utxo(2, 1, 2)?;
+        // Fresh coroutines may use the original even when it also serves an input.
+        utxo(2, 0, 2)?;
+        assert!(utxo(2, 1, 2).is_err());
+        let snapshot = &prepared[1];
+        assert!(
+            expected
+                .resolve(
+                    CoroutineId::Coord(1).encoded(),
+                    size,
+                    snapshot.program.d_init().map(|x| x.as_canonical_u64()),
+                    snapshot.allowed_initial_states[0].host_callee_fref,
+                )
+                .is_err()
+        );
         assert_eq!(expected.input_count(), 1);
 
         // An output cannot take an input's ID, and needs a constructor.
         let clash = [(0, "first".into())];
-        assert!(prepare_verification(&[program(&first, &inputs, &clash)], [size]).is_err());
+        assert!(prepare_verification(&[program(&first, true, &inputs, &clash)], [size]).is_err());
         let missing = [(1, "third".into())];
-        assert!(prepare_verification(&[program(&first, &inputs, &missing)], [size]).is_err());
+        assert!(prepare_verification(&[program(&first, true, &inputs, &missing)], [size]).is_err());
         Ok(())
     }
 
@@ -353,6 +378,7 @@ mod tests {
                     wasm: bytes,
                     coordination_exports: &[],
                     contract_digest: &[0; 32],
+                    is_original_image: true,
                     input_utxos: &[],
                     new_utxos: &[],
                 }],

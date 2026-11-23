@@ -20,6 +20,7 @@ pub struct VerificationSource {
     wasm: bytes::Bytes,
     scripts: Vec<String>,
     digest: [u8; 32],
+    pub(super) is_original_image: bool,
     pub(super) input_utxos: Vec<(usize, String)>,
     /// Outputs created by this component: transaction-local ID and UTXO export.
     pub(super) new_utxos: Vec<(u32, String)>,
@@ -49,6 +50,7 @@ pub(super) fn get_or_insert_program<'a>(
                     .map(str::to_owned)
                     .collect(),
                 digest: *digest,
+                is_original_image: false,
                 input_utxos: Vec::new(),
                 new_utxos: Vec::new(),
             });
@@ -103,7 +105,7 @@ fn register_imports(
             continue;
         };
         if registered.insert(*digest) {
-            register_tracing(cx, contract, digest, programs)?;
+            register_tracing(cx, contract, digest, programs)?.is_original_image = true;
         }
     }
     Ok(())
@@ -166,7 +168,7 @@ impl Tracing {
             enable_tracing(store)?;
             let cx = store.data_mut();
             register_tracing_component(cx, &contract.instrumented, &templates.bindings)?;
-            get_or_insert_program(&mut programs, contract, &digest);
+            get_or_insert_program(&mut programs, contract, &digest).is_original_image = true;
             register_imports(cx, imports, &mut registered, &mut programs)?;
             Ok(templates)
         })();
@@ -290,6 +292,7 @@ pub fn prepare_verification(
                 wasm: &source.wasm,
                 coordination_exports: scripts,
                 contract_digest: &source.digest,
+                is_original_image: source.is_original_image,
                 input_utxos: &source.input_utxos,
                 new_utxos: &source.new_utxos,
             },

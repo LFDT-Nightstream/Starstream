@@ -115,7 +115,7 @@ pub async fn verify_transaction_proof(
         arguments: StarstreamValue(submitted.arguments),
     };
     let mut sources = Vec::new();
-    get_or_insert_program(&mut sources, &root, &submitted.contract);
+    get_or_insert_program(&mut sources, &root, &submitted.contract).is_original_image = true;
     // Contracts as stored, without an input snapshot: what constructors run on.
     let mut originals = HashMap::from([(submitted.contract, root.clone())]);
     let mut storage_contracts = HashMap::from([(submitted.contract, root)]);
@@ -157,7 +157,7 @@ pub async fn verify_transaction_proof(
             "import contract digest mismatch"
         );
         if let Some(contract) = import.contract {
-            get_or_insert_program(&mut sources, &contract, &digest);
+            get_or_insert_program(&mut sources, &contract, &digest).is_original_image = true;
             originals.insert(digest, contract.clone());
             storage_contracts.entry(digest).or_insert(contract);
         }
