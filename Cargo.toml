@@ -90,8 +90,8 @@ wasm-wave = { version = "0.263.0", default-features = false }
 wasmprinter = "0.263.0"
 wat = "1.263.0"
 wasmparser = "0.263.0"
-wasmtime = { version = "51.0.0-rc.1", default-features = false }
-wasmtime-wizer = { version = "51.0.0-rc.1", default-features = false }
+wasmtime = { version = "51.0.0", default-features = false }
+wasmtime-wizer = { version = "51.0.0", default-features = false }
 wit-bindgen = "0.51.0"
 wit-bindgen-wrpc = { version = "0.12", default-features = false }
 wit-component = "0.263.0"
