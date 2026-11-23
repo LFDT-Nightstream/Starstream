@@ -116,7 +116,9 @@ pub async fn verify_transaction_proof(
     };
     let mut sources = Vec::new();
     get_or_insert_program(&mut sources, &root, &submitted.contract);
-    let mut contracts = HashMap::from([(submitted.contract, root)]);
+    // Contracts as stored, without an input snapshot: what constructors run on.
+    let mut originals = HashMap::from([(submitted.contract, root.clone())]);
+    let mut storage_contracts = HashMap::from([(submitted.contract, root)]);
     let mut inputs = Vec::with_capacity(transaction.inputs.len());
     let mut input_exports = Vec::with_capacity(transaction.inputs.len());
     for input in &transaction.inputs {
@@ -147,7 +149,7 @@ pub async fn verify_transaction_proof(
                 .collect(),
         });
         input_exports.push((digest, utxo.instance));
-        contracts.entry(digest).or_insert(contract);
+        storage_contracts.entry(digest).or_insert(contract);
     }
     for (digest, import) in imports {
         anyhow::ensure!(
@@ -156,7 +158,8 @@ pub async fn verify_transaction_proof(
         );
         if let Some(contract) = import.contract {
             get_or_insert_program(&mut sources, &contract, &digest);
-            contracts.entry(digest).or_insert(contract);
+            originals.insert(digest, contract.clone());
+            storage_contracts.entry(digest).or_insert(contract);
         }
     }
 
@@ -169,8 +172,19 @@ pub async fn verify_transaction_proof(
                 *original == digest && export == &output.instance,
                 "surviving input changed its contract or UTXO export"
             );
+        } else {
+            // A new output's proof must run a constructor of the contract and
+            // UTXO export the ledger will record for it.
+            let original = originals
+                .get(&digest)
+                .context("unknown contract of new output")?;
+            get_or_insert_program(&mut sources, original, &digest)
+                .new_utxos
+                .push((utxo, output.instance.to_string()));
         }
-        let contract = contracts.get(&digest).context("unknown output contract")?;
+        let contract = storage_contracts
+            .get(&digest)
+            .context("unknown output contract")?;
         let stored_methods: BTreeSet<_> = output
             .methods
             .iter()

@@ -23,6 +23,7 @@ starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 starstream-runtime = { workspace = true }
 starstream-interleaving-prover = { path = "../starstream-interleaving-prover" }
 thiserror = { workspace = true }
+wasm-encoder = { workspace = true }
 wasmparser = { workspace = true }
 wit-component = { workspace = true }
 wit-parser = { workspace = true, features = ["decoding"] }

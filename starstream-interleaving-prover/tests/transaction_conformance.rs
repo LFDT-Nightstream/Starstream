@@ -29,6 +29,7 @@ fn entry_steps() -> [Step; 2] {
 }
 
 const METHOD: MethodHash = MethodHash([1, 0, 2, 0, 3, 0, 4, 0]);
+const CONSTRUCTOR: MethodHash = MethodHash([0xc; 8]);
 const OTHER: MethodHash = MethodHash([5, 0, 6, 0, 7, 0, 8, 0]);
 const UNIT: StarstreamValue = StarstreamValue::UNIT_VALUE;
 
@@ -193,8 +194,14 @@ fn new_utxo_transaction(
     ]);
     trace.0.extend(entry_steps());
     trace.0.extend([
-        Step::NewUtxo { arguments: UNIT },
-        Step::EnterConstructor { arguments: UNIT },
+        Step::NewUtxo {
+            constructor: CONSTRUCTOR,
+            arguments: UNIT,
+        },
+        Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
+            arguments: UNIT,
+        },
     ]);
     let mut owners = vec![Some(1), None, None, None, Some(2), Some(2), Some(3)];
     for &method in new_methods {

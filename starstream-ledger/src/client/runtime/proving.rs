@@ -21,6 +21,8 @@ pub struct VerificationSource {
     scripts: Vec<String>,
     digest: [u8; 32],
     pub(super) input_utxos: Vec<(usize, String)>,
+    /// Outputs created by this component: transaction-local ID and UTXO export.
+    pub(super) new_utxos: Vec<(u32, String)>,
 }
 
 /// Checked execution and the component sources loaded for this call.
@@ -48,6 +50,7 @@ pub(super) fn get_or_insert_program<'a>(
                     .collect(),
                 digest: *digest,
                 input_utxos: Vec::new(),
+                new_utxos: Vec::new(),
             });
             programs.len() - 1
         });
@@ -288,6 +291,7 @@ pub fn prepare_verification(
                 coordination_exports: scripts,
                 contract_digest: &source.digest,
                 input_utxos: &source.input_utxos,
+                new_utxos: &source.new_utxos,
             },
         )
         .collect::<Vec<_>>();

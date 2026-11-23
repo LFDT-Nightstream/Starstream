@@ -32,9 +32,11 @@ fn nested_invocations() -> Trace {
         Step::PushEffectHandlerFrame { frame_id: 1 },
         Step::AddEffectHandler { effect: FIRST },
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         // 6: A's scope 2 handles only SECOND, so FIRST skips it.
@@ -54,9 +56,11 @@ fn nested_invocations() -> Trace {
         Step::PushEffectHandlerFrame { frame_id: 3 },
         Step::AddEffectHandler { effect: SECOND },
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         Step::RaiseEffect {

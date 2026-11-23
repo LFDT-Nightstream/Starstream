@@ -9,6 +9,9 @@ const ENTRY: EntryCall = EntryCall {
     arguments: StarstreamValue::UNIT_VALUE,
 };
 
+/// The constructor identity that every case uses unless it tests a mismatch.
+const CONSTRUCTOR: MethodHash = MethodHash([0xc; 8]);
+
 /// An execution whose entry coordinator runs `body`, after the entry call
 /// and its entry event (steps 0 and 1).
 fn entered(body: impl IntoIterator<Item = Step>) -> Trace {
@@ -31,9 +34,11 @@ struct Case {
 fn constructor_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::RegisterMethod {
@@ -54,9 +59,11 @@ fn constructor_trace(arguments: [u32; 4]) -> Trace {
 fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::Return {
@@ -103,9 +110,11 @@ fn effect_after_registration_trace() -> Trace {
     let effect = MethodHash([9, 0, 1, 0, 1, 0, 1, 0]);
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::RegisterMethod { method: effect },
@@ -132,9 +141,11 @@ fn effect_after_resume_signal_trace() -> Trace {
 fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::Return {
@@ -146,12 +157,15 @@ fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
 fn repeated_constructor_entry_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
     ])
@@ -161,9 +175,11 @@ fn opcode_after_terminal_return_trace() -> Trace {
     let mut trace = minimal_constructor_trace([0, 1, 2, 3]);
     trace.0.extend([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![7].into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: vec![7].into(),
         },
         Step::Return {
@@ -190,9 +206,11 @@ fn method_call_result_trace(
     let method_arguments = StarstreamValue::from(vec![1, 2, 3, 4]);
     let mut steps = vec![
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::RegisterMethod { method },
@@ -293,9 +311,11 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
 
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::RegisterMethod {
@@ -353,9 +373,11 @@ fn two_utxo_trace(first_method: MethodHash, second_method: MethodHash) -> Trace 
     for (handle, method) in [(0, first_method), (1, second_method)] {
         steps.extend([
             Step::NewUtxo {
+                constructor: CONSTRUCTOR,
                 arguments: StarstreamValue::UNIT_VALUE,
             },
             Step::EnterConstructor {
+                constructor: CONSTRUCTOR,
                 arguments: StarstreamValue::UNIT_VALUE,
             },
             Step::RegisterMethod { method },
@@ -442,7 +464,7 @@ fn yield_preserves_other_utxos_abi_trace() -> Trace {
     trace
 }
 
-fn cases() -> [Case; 31] {
+fn cases() -> [Case; 32] {
     let accepted = constructor_trace([0, 1, 2, 3]);
     let repeated_arguments = constructor_trace([7, 7, 7, 7]);
     let full_root = StarstreamValue([0xffff_ffff_0000_0000, 1 << 50, (1 << 32) + 1, 0]);
@@ -452,15 +474,23 @@ fn cases() -> [Case; 31] {
     let wrong_high = method_call_result_trace(true, full_root, changed_high);
     let mut noncanonical = constructor_trace([0; 4]);
     noncanonical.0[2] = Step::NewUtxo {
+        constructor: CONSTRUCTOR,
         arguments: StarstreamValue([0xffff_ffff_0000_0001, 0, 0, 0]),
     };
     let minimal_constructor = minimal_constructor_trace([0, 1, 2, 3]);
     let mut mismatched_arguments = constructor_trace([1, 2, 3, 4]);
     mismatched_arguments.0[3] = Step::EnterConstructor {
+        constructor: CONSTRUCTOR,
         arguments: vec![0, 1, 2, 3].into(),
+    };
+    let mut mismatched_constructor = constructor_trace([1, 2, 3, 4]);
+    mismatched_constructor.0[3] = Step::EnterConstructor {
+        constructor: MethodHash([0xd; 8]),
+        arguments: vec![1, 2, 3, 4].into(),
     };
     let return_before_constructor_entry = entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::Return {
@@ -585,6 +615,12 @@ fn cases() -> [Case; 31] {
         Case {
             name: "constructor arguments disagree",
             trace: mismatched_arguments,
+            expected: Outcome::Reject,
+            rejected_step: Some(3),
+        },
+        Case {
+            name: "constructor identities disagree",
+            trace: mismatched_constructor,
             expected: Outcome::Reject,
             rejected_step: Some(3),
         },
@@ -784,8 +820,14 @@ fn effect_scope_cases() -> Vec<Case> {
     let ret = || Step::Return {
         result: unit().into(),
     };
-    let new_utxo = || Step::NewUtxo { arguments: unit() };
-    let enter_constructor = || Step::EnterConstructor { arguments: unit() };
+    let new_utxo = || Step::NewUtxo {
+        constructor: CONSTRUCTOR,
+        arguments: unit(),
+    };
+    let enter_constructor = || Step::EnterConstructor {
+        constructor: CONSTRUCTOR,
+        arguments: unit(),
+    };
     let accept = |name, steps: Vec<Step>| Case {
         name,
         trace: entered(steps),
@@ -1046,8 +1088,14 @@ fn script_call_cases() -> Vec<Case> {
         reject(
             "a UTXO cannot call a script",
             vec![
-                Step::NewUtxo { arguments: unit() },
-                Step::EnterConstructor { arguments: unit() },
+                Step::NewUtxo {
+                    constructor: CONSTRUCTOR,
+                    arguments: unit(),
+                },
+                Step::EnterConstructor {
+                    constructor: CONSTRUCTOR,
+                    arguments: unit(),
+                },
                 call(a),
             ],
             Some(4),

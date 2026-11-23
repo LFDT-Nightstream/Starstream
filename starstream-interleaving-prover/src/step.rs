@@ -2,15 +2,15 @@ use std::collections::{HashMap, HashSet};
 
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
-use starstream_interleaving_spec::{MethodHash, ResourceHandle, Step, Trace};
+use starstream_interleaving_spec::{EventIdentity, MethodHash, ResourceHandle, Step, Trace};
 
 use crate::{
     ivc_state::{CoroutineId, CurrPhase, TxPhase},
     opcode::Opcode,
 };
 
-fn encode_method_hash(method: MethodHash) -> [F; 8] {
-    method.0.map(|word| F::new(u64::from(word)))
+fn identity_limbs(identity: EventIdentity) -> [F; 8] {
+    identity.0.map(|word| F::new(u64::from(word)))
 }
 
 pub(crate) fn method_table(trace: &Trace) -> Vec<MethodHash> {
@@ -128,7 +128,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         call_sp = call_sp_after;
 
         let mut expected_arguments = None;
-        let mut method_hash = None;
+        let mut event_identity = None;
         let mut expected_result = None;
         let mut method_index = 0;
         let mut curr_after = curr_before;
@@ -160,7 +160,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             | Step::CallCoordinator { script, arguments } => {
                 expected_arguments =
                     Some(arguments.words32().map(|x| F::new(u64::from(x))).to_vec());
-                method_hash = Some(encode_method_hash(*script));
+                event_identity = Some(identity_limbs(*script));
                 let target = CoroutineId::Coord(next_coordinator_id_before);
                 next_coordinator_id = next_coordinator_id_before
                     .checked_add(1)
@@ -184,7 +184,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 }
             }
             Step::ReadAbi { method } => {
-                method_hash = Some(encode_method_hash(*method));
+                event_identity = Some(identity_limbs(*method));
                 method_index = method_indices[method];
                 abi_generation_address = boundary_utxo;
                 abi_generation_before = abi_generations.get(&boundary_utxo).copied().unwrap_or(0);
@@ -235,7 +235,11 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             Step::FinalizeCoordinator => {
                 tx.coordinator_cursor = tx.coordinator_cursor.wrapping_add(1);
             }
-            Step::NewUtxo { arguments } => {
+            Step::NewUtxo {
+                constructor,
+                arguments,
+            } => {
+                event_identity = Some(identity_limbs(*constructor));
                 expected_arguments.replace(
                     arguments
                         .words32()
@@ -264,7 +268,11 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 call_frame_constructor = true;
                 call_frame_saved_phase = curr_phase_before;
             }
-            Step::EnterConstructor { arguments } => {
+            Step::EnterConstructor {
+                constructor,
+                arguments,
+            } => {
+                event_identity = Some(identity_limbs(*constructor));
                 call_frame_constructor = callers
                     .last()
                     .map(|frame| frame.kind == CallFrameKind::Constructor)
@@ -292,7 +300,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 } else {
                     curr_before
                 };
-                method_hash.replace(encode_method_hash(*method));
+                event_identity.replace(identity_limbs(*method));
                 method_index = method_indices[method];
                 abi_generation_address = owner;
                 abi_generation_before = abi_generations.get(&owner).copied().unwrap_or(0);
@@ -362,7 +370,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                         .map(|&x| F::new(x as u64))
                         .collect(),
                 );
-                method_hash.replace(encode_method_hash(*method));
+                event_identity.replace(identity_limbs(*method));
                 method_index = method_indices[method];
 
                 let key = (curr_before, *resource);
@@ -405,7 +413,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                         .map(|&x| F::new(x as u64))
                         .collect(),
                 );
-                method_hash.replace(encode_method_hash(*method));
+                event_identity.replace(identity_limbs(*method));
             }
             Step::ReceiveNewUtxoHandle { resource } => {
                 let frame = callers
@@ -433,7 +441,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 expected_arguments =
                     Some(arguments.words32().map(|x| F::new(u64::from(x))).to_vec());
                 expected_result = Some(vec![F::ZERO; 8]);
-                method_hash = Some(encode_method_hash(*effect));
+                event_identity = Some(identity_limbs(*effect));
                 method_index = method_indices[effect];
                 call_target = curr_before;
                 call_frame_is_effect = true;
@@ -459,7 +467,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 effect_depth = effect_depth_before.wrapping_add(1);
             }
             Step::AddEffectHandler { effect } => {
-                method_hash = Some(encode_method_hash(*effect));
+                event_identity = Some(identity_limbs(*effect));
                 method_index = method_indices[effect];
                 effect_registered = true;
                 if let Some(scope) = scope_mut(&mut arena, effect_head_before) {
@@ -478,7 +486,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                 let frame = callers.last();
                 let effect = frame.and_then(|frame| frame.effect);
                 if let Some(effect) = effect {
-                    method_hash = Some(encode_method_hash(effect));
+                    event_identity = Some(identity_limbs(effect));
                     method_index = method_indices[&effect];
                 }
                 call_frame_is_effect = true;
@@ -502,7 +510,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             } => {
                 expected_arguments =
                     Some(arguments.words32().map(|x| F::new(u64::from(x))).to_vec());
-                method_hash = Some(encode_method_hash(*effect));
+                event_identity = Some(identity_limbs(*effect));
                 method_index = method_indices[effect];
                 call_frame_is_effect = true;
                 // The claimed frame id is committed and checked against the
@@ -606,11 +614,13 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
         let pending_root_before = pending_root;
         let pending_method_before = pending_method;
         match opcode {
-            Opcode::CallMethod | Opcode::CallCoordinator | Opcode::BeginExecution => {
+            Opcode::CallMethod
+            | Opcode::CallCoordinator
+            | Opcode::BeginExecution
+            | Opcode::NewUtxo => {
                 pending_root = root_of(&expected_arguments);
-                pending_method = method_hash.unwrap_or([F::ZERO; 8]);
+                pending_method = event_identity.unwrap_or([F::ZERO; 8]);
             }
-            Opcode::NewUtxo => pending_root = root_of(&expected_arguments),
             Opcode::Return | Opcode::ExitEffectHandler => {
                 pending_root = root_of(&expected_result);
             }
@@ -634,7 +644,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
             commitment_before,
             opcode,
             expected_arguments,
-            method_hash,
+            event_identity,
             expected_result,
             method_index,
             curr_before,
@@ -770,7 +780,7 @@ pub(crate) struct Wit {
     pub(crate) commitment_before: [F; 4],
     pub(crate) opcode: Opcode,
     pub(crate) expected_arguments: Option<Vec<F>>,
-    pub(crate) method_hash: Option<[F; 8]>,
+    pub(crate) event_identity: Option<[F; 8]>,
     pub(crate) expected_result: Option<Vec<F>>,
     pub(crate) method_index: u32,
     pub(crate) curr_before: CoroutineId,
@@ -848,7 +858,7 @@ impl Wit {
             commitment_before: [F::ZERO; 4],
             opcode: Opcode::Padding,
             expected_arguments: None,
-            method_hash: None,
+            event_identity: None,
             expected_result: None,
             method_index: 0,
             curr_before: self.curr_after,

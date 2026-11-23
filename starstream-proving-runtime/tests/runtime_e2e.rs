@@ -13,8 +13,9 @@ use starstream_interleaving_spec::{
     MethodHash, Out, OutputUtxo, QuintVerifier, ResourceHandle, StarstreamValue, Step, Trace,
     TransactionStatement,
 };
-use starstream_proving_runtime::effect_hash_from_names;
-use starstream_proving_runtime::{flat_value_root, method_hash_from_name};
+use starstream_proving_runtime::{
+    constructor_identity, effect_hash_from_names, flat_value_root, method_hash_from_name,
+};
 use wasmparser::ValType;
 use wasmtime::bail;
 
@@ -59,7 +60,35 @@ const UNHANDLED_EFFECT: &str = r#"
     }
 "#;
 
-/// The root a single `u64` argument commits to.
+/// Identity of the `new` constructor of `utxo`, as the contract that ran exports it.
+fn constructor(execution: &TracedExecution, utxo: &str) -> MethodHash {
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&execution.wasm).into();
+    constructor_identity(&execution.wasm, &digest, utxo, "new").unwrap()
+}
+
+#[test]
+fn constructor_identity_distinguishes_signatures_with_equal_inline_roots() {
+    let identity = |params: &str, args: &str| {
+        let source = MINIMAL_METHOD_CALL
+            .replace("initial: u64", params)
+            .replace("::new(55)", &format!("::new({args})"));
+        let wasm = common::compile_contract(&source);
+        // Fix the digest to isolate the parameter signature.
+        constructor_identity(&wasm, &[0; 32], "method-call-utxo", "new").unwrap()
+    };
+    assert_eq!(
+        flat_value_root(&[ValType::I64], &[7]),
+        flat_value_root(&[ValType::I32; 2], &[7, 0])
+    );
+    assert_ne!(identity("x: u64", "7"), identity("x: u32, y: u32", "7, 0"));
+    assert_ne!(identity("x: u32", "7"), identity("x: u8", "7"));
+    assert_ne!(
+        identity("x: (u32, u32)", "(7, 0)"),
+        identity("x: u32, y: u32", "7, 0")
+    );
+    assert_eq!(identity("x: u64", "7"), identity("renamed: u64", "7"));
+}
+
 fn u64_root(value: u64) -> StarstreamValue {
     flat_value_root(&[ValType::I64], &[value])
 }
@@ -137,9 +166,14 @@ fn constructed_resource(coordinator: &Trace) -> ResourceHandle {
 /// never at a `yield`, so a constructor's first yield registers its methods
 /// without a `YieldBegin`. The specification matches: constructor entry opens
 /// the initial ABI window.
-fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
+fn expected_minimal_method_call_traces(
+    execution: &TracedExecution,
+    resource: ResourceHandle,
+) -> [Trace; 2] {
+    let constructor = constructor(execution, "method-call-utxo");
     let coordinator = Trace::new([
         Step::NewUtxo {
+            constructor,
             arguments: u64_root(55),
         },
         Step::ReceiveNewUtxoHandle {
@@ -151,6 +185,7 @@ fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
     ]);
     let utxo = Trace::new([
         Step::EnterConstructor {
+            constructor,
             arguments: u64_root(55),
         },
         register("accept"),
@@ -162,10 +197,14 @@ fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
 }
 
 /// What the runtime emits for `examples/score.star`'s `example` script.
-fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
+fn expected_score_traces(execution: &TracedExecution, resource: ResourceHandle) -> [Trace; 2] {
+    let constructor = constructor(execution, "score-progress");
     let calls = [("plus_chips", 42), ("plus_mult", 2), ("mult_mult", 200)];
     let mut coordinator = vec![
-        Step::NewUtxo { arguments: UNIT },
+        Step::NewUtxo {
+            constructor,
+            arguments: UNIT,
+        },
         Step::ReceiveNewUtxoHandle {
             resource: Out(resource),
         },
@@ -175,7 +214,10 @@ fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
     }
     coordinator.push(ret());
 
-    let mut utxo = vec![Step::EnterConstructor { arguments: UNIT }];
+    let mut utxo = vec![Step::EnterConstructor {
+        constructor,
+        arguments: UNIT,
+    }];
     utxo.extend(
         [
             "get_chips",
@@ -198,14 +240,15 @@ fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
 /// the UTXO published in finalization.
 fn check_execution(
     execution: &TracedExecution,
-    expected: impl FnOnce(ResourceHandle) -> [Trace; 2],
+    expected: impl FnOnce(&TracedExecution, ResourceHandle) -> [Trace; 2],
 ) -> wasmtime::Result<StarstreamValue> {
     common::check_wasm_constraints(execution)?;
     let traces = execution.semantic_traces();
     let [coordinator, utxo] = traces.as_slice() else {
         bail!("expected one coordinator and one UTXO trace, got {traces:?}");
     };
-    let [expected_coordinator, expected_utxo] = expected(constructed_resource(coordinator));
+    let [expected_coordinator, expected_utxo] =
+        expected(execution, constructed_resource(coordinator));
     // The coordinator's body follows its entry event.
     assert_eq!(
         *coordinator,
@@ -408,13 +451,16 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
         })
         .collect();
     assert_eq!(handles.len(), 3);
+    let constructor = constructor(&execution, "counter-utxo");
     let mut expected = Vec::new();
     for (handle, initial) in handles.iter().zip([10, 20, 30]) {
         expected.extend([
             Step::NewUtxo {
+                constructor,
                 arguments: u64_root(initial),
             },
             Step::EnterConstructor {
+                constructor,
                 arguments: u64_root(initial),
             },
             register("increment"),

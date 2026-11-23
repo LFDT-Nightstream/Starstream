@@ -76,7 +76,7 @@ define_column_region! {
         // using 8 limbs for exact sha256 repr for now (in 32-bit limbs), we
         // could improve this, but the memory argument as currently implemented
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
-        COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: event identity, pending-method hand-off and method-table ROM lookup value",
+        COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: event identity (method, script, constructor or effect), pending-identity hand-off and method-table ROM lookup value",
         COL_METHOD_INDEX: (Bits(29)) => "trace-local compact index for the method hash",
         COL_METHOD_LOOKUP: Boolean => "a method, ABI or effect step resolves a method hash through the method table",
         COL_METHOD_TABLE_ADDR: [U32; 8] => "method_index * 8 + hash limb offset",
@@ -150,8 +150,8 @@ define_column_region! {
         COL_EFFECT_ARENA_LEN_AFTER: U32 => "scopes allocated after this step",
         COL_PENDING_ROOT_BEFORE: [Field; 4] => "hand-off register: the argument root of the pending program call, or the result root of the pending return or handler exit",
         COL_PENDING_ROOT_AFTER: [Field; 4] => "hand-off root after this row",
-        COL_PENDING_METHOD_BEFORE: [Field; 8] => "hand-off register: method or script hash limbs of the pending program call",
-        COL_PENDING_METHOD_AFTER: [Field; 8] => "hand-off method after this row",
+        COL_PENDING_METHOD_BEFORE: [Field; 8] => "hand-off register: method, script or constructor identity limbs of the pending program call",
+        COL_PENDING_METHOD_AFTER: [Field; 8] => "hand-off identity after this row",
     ]
 }
 

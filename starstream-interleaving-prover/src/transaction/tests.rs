@@ -4,6 +4,8 @@ use starstream_interleaving_spec::{
     InputUtxo, MethodHash, OutputUtxo, ResourceHandle, StarstreamValue, Step,
 };
 
+const CONSTRUCTOR: MethodHash = MethodHash([0xc; 8]);
+
 pub(crate) fn fixture() -> (Trace, TransactionStatement) {
     let method = MethodHash([1; 8]);
     let storage = StarstreamValue([11, 12, 13, 14]);
@@ -48,9 +50,11 @@ fn final_instance_roots_are_authenticated_by_memory() {
     let unit = StarstreamValue::UNIT_VALUE;
     let consumed = crate::tests::entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         Step::Return {

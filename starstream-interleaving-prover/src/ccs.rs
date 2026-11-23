@@ -1019,10 +1019,10 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         COL_ARGUMENT_ROOT, COL_METHOD_HASH_VALUE, COL_PENDING_METHOD_AFTER,
         COL_PENDING_METHOD_BEFORE, COL_PENDING_ROOT_AFTER, COL_PENDING_ROOT_BEFORE,
     };
-    // A constructor has no method; `EnterConstructor` reads only the root.
+    // Entry must match the caller's method selector or contract-specific script or constructor hash.
     let argument_writers = [CallMethod, CallCoordinator, BeginExecution, NewUtxo];
     let result_writers = [Return, ExitEffectHandler];
-    let method_writers = [CallMethod, CallCoordinator, BeginExecution];
+    let callee_identity_writers = argument_writers;
     // Padding keeps every carried column through its own rule.
     let keepers = |writers: &[Opcode]| {
         selector_sum(
@@ -1050,24 +1050,25 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             equal(b, selector_sum(result_writers), after, COL_RESULT_ROOT[i]);
             equal(b, root_keepers.clone(), after, COL_PENDING_ROOT_BEFORE[i]);
         }
-        let method_keepers = keepers(&method_writers);
+        let identity_keepers = keepers(&callee_identity_writers);
         for i in 0..8 {
             let after = COL_PENDING_METHOD_AFTER[i];
             equal(
                 b,
-                selector_sum(method_writers),
+                selector_sum(callee_identity_writers),
                 after,
                 COL_METHOD_HASH_VALUE[i],
             );
             equal(
                 b,
-                method_keepers.clone(),
+                identity_keepers.clone(),
                 after,
                 COL_PENDING_METHOD_BEFORE[i],
             );
         }
     });
     let argument_readers = [EnterCall, EnterConstructor];
+    let callee_identity_readers = argument_readers;
     let result_readers = [ReceiveCallResult, ResumeEffect];
     b.with_tag(
         opcode_tags("entry takes the caller's argument", &argument_readers),
@@ -1093,13 +1094,13 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         },
     );
     b.with_tag(
-        opcode_tag("entry takes the called method", EnterCall),
+        opcode_tags("entry takes the called identity", &callee_identity_readers),
         |b| {
             for i in 0..8 {
                 let before = COL_PENDING_METHOD_BEFORE[i];
                 equal(
                     b,
-                    selector_sum([EnterCall]),
+                    selector_sum(callee_identity_readers),
                     COL_METHOD_HASH_VALUE[i],
                     before,
                 );

@@ -2,6 +2,7 @@ module replay_trace {
   import starstream.* from "./starstream"
 
   pure val ENTRY = "entry"
+  pure val CTOR = "constructor"
   pure val TX_ENTRY = { script: ENTRY, arguments: UNIT_VALUE }
   action fresh = { state' = new_tx }
   // The transaction context calls the entry script, which then enters its body.
@@ -35,12 +36,12 @@ module replay_trace {
   action init_empty_transaction = { state' = new_transaction(TX_ENTRY, List(), List()) }
 
   run test_constructor_cannot_rebind_even_consumed_resource = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }).fail())
 
@@ -48,8 +49,8 @@ module replay_trace {
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))
     .then(enter_root)
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }).fail())
 
@@ -84,7 +85,7 @@ module replay_trace {
     .then(finalize_coordinator.fail())
 
   run test_return_requires_entry = fresh.then(return({ value: UNIT_VALUE }).fail())
-  run test_call_requires_entry = fresh.then(new_utxo(UNIT_VALUE).fail())
+  run test_call_requires_entry = fresh.then(new_utxo(CTOR, UNIT_VALUE).fail())
   run test_enter_requires_entry = fresh.then(enter_call(ENTRY, UNIT_VALUE).fail())
 
   run test_entry_runs_once = init
@@ -112,7 +113,7 @@ module replay_trace {
 
   run test_entry_body_requires_enter = fresh
     .then(begin_execution(ENTRY, UNIT_VALUE))
-    .then(new_utxo(UNIT_VALUE).fail())
+    .then(new_utxo(CTOR, UNIT_VALUE).fail())
 
   run test_entry_return_requires_enter = fresh
     .then(begin_execution(ENTRY, UNIT_VALUE))
@@ -151,7 +152,7 @@ module replay_trace {
     .then(register_method(other_method))
     .then(check_abi_count)
 
-  action init_abi_sequence(methods: List[MethodHash]): bool = {
+  action init_abi_sequence(methods: List[MethodSelector]): bool = {
     init_abi_sequences(methods, methods)
   }
 
@@ -184,7 +185,7 @@ module replay_trace {
     .then(read_abi(other_method))
     .fail()
 
-  action init_abi_sequences(inputs: List[MethodHash], outputs: List[MethodHash]): bool = {
+  action init_abi_sequences(inputs: List[MethodSelector], outputs: List[MethodSelector]): bool = {
     state' = new_transaction(TX_ENTRY, 
       List({ storage: UNIT_VALUE, methods: inputs }),
       List({ utxo: 0, storage: UNIT_VALUE, methods: outputs }))
@@ -357,50 +358,54 @@ module replay_trace {
     .fail()
 
   run test_centered_field_boundaries = init
-    .then(new_utxo(List(-FIELD_HALF, FIELD_HALF, -1, 0)))
-    .then(enter_constructor(List(-FIELD_HALF, FIELD_HALF, -1, 0)))
+    .then(new_utxo(CTOR, List(-FIELD_HALF, FIELD_HALF, -1, 0)))
+    .then(enter_constructor(CTOR, List(-FIELD_HALF, FIELD_HALF, -1, 0)))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
   run test_above_centered_field_bound_fails = init
-    .then(new_utxo(List(FIELD_HALF + 1, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(FIELD_HALF + 1, 0, 0, 0)))
     .fail()
 
   run test_below_centered_field_bound_fails = init
-    .then(new_utxo(List(-FIELD_HALF - 1, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(-FIELD_HALF - 1, 0, 0, 0)))
     .fail()
 
   run test_execution_satisfies_spec = init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
 
+  run test_enter_constructor_requires_called_identity = init
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor("other constructor", List(42, 0, 0, 0)).fail())
+
   run test_enter_constructor_twice_fails = init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .fail()
 
   run test_incomplete_execution_fails = init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
     .then(execution_complete)
     .fail()
 
   run test_opcode_after_terminal_return_fails = init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
     .then(return({ value: UNIT_VALUE }))
-    .then(new_utxo(List(7, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(7, 0, 0, 0)))
     .fail()
 
   run test_yield_from_coordinator_fails = init
@@ -409,8 +414,8 @@ module replay_trace {
 
   run test_call_method_success =
     init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
@@ -425,8 +430,8 @@ module replay_trace {
   run test_effect_during_constructor_execution_before_registration = init
     .then(push_effect_handler_frame(1))
     .then(add_effect_handler(method))
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(raise_effect(method, UNIT_VALUE))
     .then(enter_effect_handler(1, method, UNIT_VALUE))
     .then(exit_effect_handler(true, { value: UNIT_VALUE }))
@@ -439,15 +444,15 @@ module replay_trace {
     .then(execution_complete)
 
   run test_effect_after_registration_fails = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(raise_effect(method, UNIT_VALUE))
     .fail()
 
   run test_effect_after_resume_signal_fails = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
@@ -460,8 +465,8 @@ module replay_trace {
   // Returning from a method without `resume` preserves the current ABI.
   run test_method_call_without_resume_preserves_abi =
     init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
@@ -477,8 +482,8 @@ module replay_trace {
     .then(execution_complete)
 
   run test_return_cannot_skip_method_result = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
@@ -489,8 +494,8 @@ module replay_trace {
     .fail()
 
   run test_effect_cannot_skip_method_result = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
@@ -501,22 +506,22 @@ module replay_trace {
     .fail()
 
   run test_return_cannot_skip_new_utxo_handle = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
     .then(return({ value: UNIT_VALUE }))
     .fail()
 
   run test_effect_cannot_skip_new_utxo_handle = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(return({ value: UNIT_VALUE }))
     .then(raise_effect(other_method, UNIT_VALUE))
     .fail()
 
   run test_constructor_and_entrypoint_results_are_unit = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(return({ value: List(1, 0, 0, 0) }))
     .fail()
 
@@ -526,8 +531,8 @@ module replay_trace {
 
   run test_enter_call_twice_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
@@ -538,8 +543,8 @@ module replay_trace {
 
   run test_enter_call_with_wrong_method_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
@@ -549,8 +554,8 @@ module replay_trace {
 
   run test_call_unregistered_method_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
@@ -559,13 +564,13 @@ module replay_trace {
 
   // A shared method dictionary does not make registrations global.
   run test_method_registered_only_by_another_utxo_fails = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(other_method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 1 }))
@@ -574,13 +579,13 @@ module replay_trace {
 
   // Both UTXOs expose the same hash; resuming A must not reset B's ABI.
   run test_yield_preserves_another_utxos_abi = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 1 }))
@@ -599,8 +604,8 @@ module replay_trace {
 
   run test_duplicate_method_registration_is_idempotent =
     init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
@@ -610,8 +615,8 @@ module replay_trace {
 
   run test_stale_method_after_yield_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
@@ -626,8 +631,8 @@ module replay_trace {
 
   run test_return_with_wrong_result_fails =
     init
-    .then(new_utxo(List(42, 0, 0, 0)))
-    .then(enter_constructor(List(42, 0, 0, 0)))
+    .then(new_utxo(CTOR, List(42, 0, 0, 0)))
+    .then(enter_constructor(CTOR, List(42, 0, 0, 0)))
     .then(register_method(method))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))
