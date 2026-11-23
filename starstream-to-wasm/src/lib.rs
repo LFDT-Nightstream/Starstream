@@ -270,7 +270,7 @@ struct Compiler {
     method_callables: HashMap<(Type, NameId), u32>,
     /// Imported `upcast` function of each concrete `utxo` type, converting a
     /// handle of that type into a handle to the root `Utxo`.
-    utxo_upcast_fns: HashMap<Type, u32>,
+    upcast_fns: HashMap<Type, u32>,
     intrinsics: intrinsics::Intrinsics,
     builtins: world_spec::Builtins,
     effect_handlers: BTreeMap<NameId, Effect>,
@@ -516,6 +516,7 @@ impl Compiler {
         }
 
         let storage_record = Rc::new(ComponentAbiType::Record {
+            name: "storage".to_owned(),
             fields: fields
                 .clone()
                 .map(|g| {
@@ -555,7 +556,14 @@ impl Compiler {
             }
         }
 
-        if let Some(context_global) = self.context_global {
+        // Only a UTXO's set-storage takes a context, to restore the global its
+        // `yield` and `resume` use. The global exists whenever the module has
+        // any UTXO, so tokens have to be excluded explicitly.
+        let context_global = match ty {
+            Type::Utxo(_) => self.context_global,
+            _ => None,
+        };
+        if let Some(context_global) = context_global {
             // set-storage(ctx: own<utxo-context>, storage: storage) -> utxo
             let utxo_context_own = Rc::new(ComponentAbiType::Own {
                 resource: self.builtins.utxo_context_resource.clone().unwrap(),
@@ -913,18 +921,20 @@ impl Compiler {
                             .map(|ty| (to_kebab_case(f.name.as_str()), ty))
                     })
                     .collect();
-                ComponentAbiType::Record { fields }
+                ComponentAbiType::Record {
+                    name: to_kebab_case(record.name.as_str()),
+                    fields,
+                }
             }
             Type::Enum(enum_variant_types) => {
                 // Detect builtin Option type
                 if enum_variant_types.name == "Option"
                     && enum_variant_types.variants.len() == 2
-                    && enum_variant_types.variants.iter().any(|v| v.name == "Some")
-                    && enum_variant_types.variants.iter().any(|v| v.name == "None")
                     && let Some(some_variant) = enum_variant_types
                         .variants
                         .iter()
                         .find(|v| v.name == "Some")
+                    && enum_variant_types.variants.iter().any(|v| v.name == "None")
                     && let EnumVariantKind::Tuple(fields) = &some_variant.kind
                     && let Some(inner) = self.star_to_component_type(&fields[0])
                 {
@@ -934,28 +944,25 @@ impl Compiler {
                 // Detect builtin Result type
                 if enum_variant_types.name == "Result"
                     && enum_variant_types.variants.len() == 2
-                    && enum_variant_types.variants.iter().any(|v| v.name == "Ok")
-                    && enum_variant_types.variants.iter().any(|v| v.name == "Err")
+                    && let Some(ok_v) = enum_variant_types.variants.iter().find(|v| v.name == "Ok")
+                    && let Some(err_v) =
+                        enum_variant_types.variants.iter().find(|v| v.name == "Err")
                 {
-                    let ok_variant = enum_variant_types.variants.iter().find(|v| v.name == "Ok");
-                    let err_variant = enum_variant_types.variants.iter().find(|v| v.name == "Err");
-                    if let (Some(ok_v), Some(err_v)) = (ok_variant, err_variant) {
-                        let ok = match &ok_v.kind {
-                            EnumVariantKind::Tuple(fields) => {
-                                Some(self.star_to_component_type(&fields[0])?)
-                            }
-                            EnumVariantKind::Unit => None,
-                            _ => None,
-                        };
-                        let err = match &err_v.kind {
-                            EnumVariantKind::Tuple(fields) => {
-                                Some(self.star_to_component_type(&fields[0])?)
-                            }
-                            EnumVariantKind::Unit => None,
-                            _ => None,
-                        };
-                        return Some(Rc::new(ComponentAbiType::Result { ok, err }));
-                    }
+                    let ok = match &ok_v.kind {
+                        EnumVariantKind::Tuple(fields) => {
+                            Some(self.star_to_component_type(&fields[0])?)
+                        }
+                        EnumVariantKind::Unit => None,
+                        _ => None,
+                    };
+                    let err = match &err_v.kind {
+                        EnumVariantKind::Tuple(fields) => {
+                            Some(self.star_to_component_type(&fields[0])?)
+                        }
+                        EnumVariantKind::Unit => None,
+                        _ => None,
+                    };
+                    return Some(Rc::new(ComponentAbiType::Result { ok, err }));
                 }
 
                 // Generic variant conversion
@@ -993,7 +1000,10 @@ impl Compiler {
                         )
                     })
                     .collect();
-                ComponentAbiType::Variant { cases }
+                ComponentAbiType::Variant {
+                    name: to_kebab_case(enum_variant_types.name.as_str()),
+                    cases,
+                }
             }
             // Utxo and tuple handles are manually inserted on creation,
             // not handled here.
@@ -1001,7 +1011,12 @@ impl Compiler {
             Type::Utxo(utxo) => panic!("referencing unregistered utxo {utxo:?}"),
             Type::TokenAny => unreachable!(), // Always preregistered.
             Type::Token(token) => panic!("referencing unregistered token {token:?}"),
-            // ABI handle types currently decompose to `utxo`.
+            // The prelude's `Token` is an ABI, but its values are builtin
+            // `token` handles: upcasts produce them and `attach` takes them.
+            Type::Abi(abi) if **abi == *Type::token() => {
+                return Some(self.star_to_component.get(&Type::TokenAny).unwrap().clone());
+            }
+            // Other ABI handle types currently decompose to `utxo`.
             Type::Abi(_) => {
                 return Some(self.star_to_component.get(&Type::UtxoAny).unwrap().clone());
             }
@@ -1073,7 +1088,7 @@ impl Compiler {
                     .and(ok);
                 dest.extend(flat);
             }
-            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) => {
+            Type::UtxoAny | Type::Utxo(_) | Type::TokenAny | Type::Token(_) | Type::Abi(_) => {
                 dest.push(ValType::I32)
             }
             _ => ok = Err(self.push_error(span, format!("unknown core lowering for {ty:?}"))),
@@ -1101,7 +1116,7 @@ impl Compiler {
             ComponentAbiType::F32 => dest.push(ValType::F32),
             ComponentAbiType::F64 => dest.push(ValType::F64),
             ComponentAbiType::Char => dest.push(ValType::I32),
-            ComponentAbiType::Record { fields } => {
+            ComponentAbiType::Record { name: _, fields } => {
                 // flatten_record
                 for (_, f) in fields {
                     ok = self.component_to_core_types(span, dest, f).and(ok);
@@ -1113,7 +1128,7 @@ impl Compiler {
                     ok = self.component_to_core_types(span, dest, f).and(ok);
                 }
             }
-            ComponentAbiType::Variant { cases } => {
+            ComponentAbiType::Variant { name: _, cases } => {
                 // flatten_variant
                 let mut flat = Vec::new();
                 for (_, t) in cases {
@@ -1398,6 +1413,14 @@ impl Compiler {
                             .or_insert_with(|| TypeBuilder::new_interface(&self.world_type))
                             .export_fn(name, &sig);
                     }
+                }
+                Type::Record(_) | Type::Enum(_) => {
+                    let abi_ty = self.star_to_component_type(&item.ty).unwrap();
+                    let name = to_kebab_case(item.imported.as_str());
+                    let iface = imported_interfaces
+                        .entry(module.to_owned())
+                        .or_insert_with(|| TypeBuilder::new_interface(&self.world_type));
+                    iface.export_ty(&name, &abi_ty);
                 }
                 _ => todo!(),
             }
@@ -1791,7 +1814,7 @@ impl Compiler {
             "upcast",
             &FuncType::new([ValType::I32], [ValType::I32]),
         );
-        self.utxo_upcast_fns.insert(this_ty.clone(), upcast_fn);
+        self.upcast_fns.insert(this_ty.clone(), upcast_fn);
         iface.export_fn(
             "upcast",
             &self.star_to_component_signature(Some(&this_ty), &[], &Type::UtxoAny),
@@ -2140,6 +2163,18 @@ impl Compiler {
         );
         self.resource_abi_fns
             .insert(this_ty.clone(), (new_fn, drop_fn));
+
+        // `upcast`: convert from this token handle to builtin `Token`.
+        let upcast_fn = self.import_function(
+            &import_interface_name,
+            "upcast",
+            &FuncType::new([ValType::I32], [ValType::I32]),
+        );
+        self.upcast_fns.insert(this_ty.clone(), upcast_fn);
+        iface.export_fn(
+            "upcast",
+            &self.star_to_component_signature(Some(&this_ty), &[], &Type::TokenAny),
+        );
 
         // Allocate imports for `mint fn`s, `burn fn`s, and ABI impl fns.
         for part in &token.parts {
@@ -2923,7 +2958,7 @@ impl Compiler {
                 *bb = bb_end;
             }
             // An unused upcast has no effect of its own, so skip the call.
-            TypedExprKind::Disclose { expr: inner } | TypedExprKind::UtxoUpcast { expr: inner } => {
+            TypedExprKind::Disclose { expr: inner } | TypedExprKind::Upcast { expr: inner } => {
                 self.visit_expr_drop(func, bb, locals, inner.span, &inner.node)?;
             }
             // Function calls
@@ -3647,8 +3682,8 @@ impl Compiler {
             TypedExprKind::Disclose { expr: inner } => {
                 self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)
             }
-            TypedExprKind::UtxoUpcast { expr: inner } => {
-                let Some(&upcast_fn) = self.utxo_upcast_fns.get(&inner.node.ty) else {
+            TypedExprKind::Upcast { expr: inner } => {
+                let Some(&upcast_fn) = self.upcast_fns.get(&inner.node.ty) else {
                     return Err(self.push_error(
                         inner.span,
                         format!("no upcast function found for type {}", inner.node.ty),

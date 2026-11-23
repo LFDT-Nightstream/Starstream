@@ -109,7 +109,8 @@ fn output_selection_handles_every_block_count() {
     };
     for (count, step) in [
         (0, &padding),
-        (1, &normalized.steps[2]),
+        // The constructor's return, and its two-block method registration.
+        (1, &normalized.steps[5]),
         (2, &normalized.steps[4]),
     ] {
         let mut row = crate::witness::build_witness_vector(step);
@@ -318,7 +319,7 @@ fn tampered_compression_and_canonical_aliases_are_rejected() {
     if let Step::NewUtxo { arguments, .. } = &mut alias.0[2] {
         *arguments = StarstreamValue([0xffff_ffff_0000_0001, 0, 0, 0]);
     }
-    if let Step::EnterConstructor { arguments } = &mut alias.0[3] {
+    if let Step::EnterConstructor { arguments, .. } = &mut alias.0[3] {
         *arguments = StarstreamValue([0xffff_ffff_0000_0001, 0, 0, 0]);
     }
     assert!(matches!(

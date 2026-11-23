@@ -456,7 +456,8 @@ async fn authorized_amount_workflow(prove: bool) -> anyhow::Result<()> {
         if !prove {
             starstream_ledger::client::runtime::prepare_verification(
                 &call.programs,
-                [starstream_proving_runtime::WasmSize::Small],
+                // Its host-event table has more than the 64 rows of `Small`.
+                [starstream_proving_runtime::WasmSize::Medium],
             )?;
         }
         let execution = &call.execution;

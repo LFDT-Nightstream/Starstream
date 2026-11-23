@@ -3,7 +3,7 @@ pub mod common;
 use std::sync::LazyLock;
 
 use starstream_runtime::{
-    Contract, CoordinationScriptExport, Host, StorageExport, Token, TokenBurnExport,
+    Contract, CoordinationScriptExport, Host, StorageExport, Token, TokenBurnExport, TokenExport,
     TokenMintExport, get_coordination_script_instance_import, utxo_imports,
 };
 use tracing::{Instrument as _, info_span};
@@ -14,6 +14,7 @@ use wasmtime::{Store, bail};
 use crate::common::{Ctx, ENGINE, Event, NoopContractLookup, compile_contract};
 
 struct MyToken {
+    token: TokenExport,
     storage: StorageExport,
     my_burn: TokenBurnExport,
     my_mint: TokenMintExport,
@@ -62,6 +63,7 @@ fn assert_my_token<T: Host>(contract: &Contract<T>) -> wasmtime::Result<MyToken>
         .context("failed to get token `burn fn` export by name")?;
 
     Ok(MyToken {
+        token: token.clone(),
         storage: token.storage().clone(),
         my_burn,
         my_mint,
@@ -128,7 +130,7 @@ async fn my_mint() -> wasmtime::Result<()> {
         .context("failed to instantiate contract")?;
 
     let token = instance
-        .call_token_mint(&mut store, &MY_TOKEN.my_mint, [])
+        .call_token_mint(&mut store, &MY_TOKEN.token, &MY_TOKEN.my_mint, [])
         .instrument(info_span!("my_mint"))
         .await
         .context("failed to call `my_mint`")?;
@@ -169,6 +171,7 @@ async fn load() -> wasmtime::Result<()> {
     let token = instance
         .load_token(
             &mut store,
+            &MY_TOKEN.token,
             &MY_TOKEN.storage,
             [(String::from("total"), Val::S64(42))],
         )

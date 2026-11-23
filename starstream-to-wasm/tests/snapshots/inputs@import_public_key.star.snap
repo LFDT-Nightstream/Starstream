@@ -1,0 +1,311 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/import_public_key.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Import(
+                ImportDef {
+                    items: Named(
+                        [
+                            ImportNamedItem {
+                                imported: Identifier {
+                                    name: "PublicKey",
+                                    span: 9..18,
+                                },
+                                local: Identifier {
+                                    name: "PublicKey",
+                                    span: 9..18,
+                                },
+                            },
+                        ],
+                    ),
+                    from: Wit {
+                        namespace: Identifier {
+                            name: "starstream",
+                            span: 26..36,
+                        },
+                        package: Identifier {
+                            name: "std",
+                            span: 37..40,
+                        },
+                        interface: Some(
+                            Identifier {
+                                name: "ledger",
+                                span: 41..47,
+                            },
+                        ),
+                    },
+                },
+            ),
+            span: 0..50,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "foo",
+                        span: 60..63,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "p",
+                                span: 64..65,
+                            },
+                            ty: Named {
+                                name: [
+                                    Identifier {
+                                        name: "PublicKey",
+                                        span: 67..76,
+                                    },
+                                ],
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: None,
+                    body: Block {
+                        statements: [],
+                        tail_expression: None,
+                        span: 78..82,
+                    },
+                },
+            ),
+            span: 50..82,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Fn: foo => ()
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Import(
+            TypedImportDef {
+                span: 0..50,
+                items: [
+                    TypedImportItem {
+                        imported: Identifier {
+                            name: "PublicKey",
+                            span: 9..18,
+                        },
+                        local: Identifier {
+                            name: "PublicKey",
+                            span: 9..18,
+                        },
+                        ty: Record(
+                            RecordType {
+                                name: Identifier {
+                                    name: "PublicKey",
+                                    span: 0..0,
+                                },
+                                fields: [
+                                    RecordFieldType {
+                                        name: Identifier {
+                                            name: "dummy",
+                                            span: 0..0,
+                                        },
+                                        ty: Int(
+                                            U64,
+                                        ),
+                                    },
+                                ],
+                            },
+                        ),
+                    },
+                ],
+                from: Wit {
+                    namespace: Identifier {
+                        name: "starstream",
+                        span: 26..36,
+                    },
+                    package: Identifier {
+                        name: "std",
+                        span: 37..40,
+                    },
+                    interface: Some(
+                        Identifier {
+                            name: "ledger",
+                            span: 41..47,
+                        },
+                    ),
+                },
+                module: None,
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "foo",
+                    span: 60..63,
+                },
+                id: NameId(4),
+                ty: FunctionType {
+                    kind: Normal,
+                    name_span: 60..63,
+                    params: [
+                        TypedFunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "p",
+                                span: 64..65,
+                            },
+                            ty: Record(
+                                RecordType {
+                                    name: Identifier {
+                                        name: "PublicKey",
+                                        span: 0..0,
+                                    },
+                                    fields: [
+                                        RecordFieldType {
+                                            name: Identifier {
+                                                name: "dummy",
+                                                span: 0..0,
+                                            },
+                                            ty: Int(
+                                                U64,
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                            ty_span: 67..76,
+                        },
+                    ],
+                    result: Unit,
+                    callee: Some(
+                        Named(
+                            NameId(4),
+                        ),
+                    ),
+                },
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i32)))
+  (type (;1;) (func (param i32 i64 i64 i64 i64) (result i32)))
+  (type (;2;) (func (param i32 i32)))
+  (type (;3;) (func (param i64 i64 i64 i64)))
+  (type (;4;) (func))
+  (type (;5;) (func (param i64)))
+  (import "starstream:std/builtin" "[resource-drop]utxo" (func (;0;) (type 0) (param i32)))
+  (import "starstream:std/builtin" "[method]utxo.has-method" (func (;1;) (type 1) (param i32 i64 i64 i64 i64) (result i32)))
+  (import "starstream:std/builtin" "[resource-drop]token" (func (;2;) (type 0) (param i32)))
+  (import "starstream:std/builtin" "attach" (func (;3;) (type 2) (param i32 i32)))
+  (import "starstream:std/builtin" "push-effect-handler-frame" (func (;4;) (type 0) (param i32)))
+  (import "starstream:std/builtin" "add-effect-handler" (func (;5;) (type 3) (param i64 i64 i64 i64)))
+  (import "starstream:std/builtin" "pop-effect-handler-frame" (func (;6;) (type 4)))
+  (export "foo" (func 7))
+  (func (;7;) (type 5) (param i64))
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (own 0))
+                  (type (;3;) (tuple u64 u64 u64 u64))
+                  (type (;4;) (func (param "self" 1) (param "hash" 3) (result bool)))
+                  (export (;0;) "[method]utxo.has-method" (func (type 4)))
+                  (export (;5;) "token" (type (sub resource)))
+                  (type (;6;) (borrow 5))
+                  (type (;7;) (own 5))
+                  (type (;8;) (func (param "t" 6) (param "u" 1)))
+                  (export (;1;) "attach" (func (type 8)))
+                  (type (;9;) (func (param "frame-id" u32)))
+                  (export (;2;) "push-effect-handler-frame" (func (type 9)))
+                  (type (;10;) (func (param "hash" 3)))
+                  (export (;3;) "add-effect-handler" (func (type 10)))
+                  (type (;11;) (func))
+                  (export (;4;) "pop-effect-handler-frame" (func (type 11)))
+                )
+              )
+              (import "starstream:std/builtin" (instance (;0;) (type 0)))
+              (alias export 0 "utxo" (type (;1;)))
+              (import "s-utxo" (type (;2;) (eq 1)))
+              (type (;3;) (borrow 2))
+              (type (;4;) (own 2))
+              (alias export 0 "token" (type (;5;)))
+              (import "s-token" (type (;6;) (eq 5)))
+              (type (;7;) (borrow 6))
+              (type (;8;) (own 6))
+              (type (;9;)
+                (instance
+                  (type (;0;) (record (field "dummy" u64)))
+                  (export (;1;) "public-key" (type (eq 0)))
+                )
+              )
+              (import "starstream:std/ledger" (instance (;1;) (type 9)))
+              (alias export 1 "public-key" (type (;10;)))
+              (import "public-key" (type (;11;) (eq 10)))
+              (type (;12;) (func (param "p" 11)))
+              (export (;0;) "foo" (func (type 12)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+  import starstream:std/ledger;
+  use starstream:std/builtin.{utxo as s-utxo, token as s-token};
+  use starstream:std/ledger.{public-key};
+
+  export foo: func(p: public-key);
+}
+package starstream:std {
+  interface builtin {
+    resource utxo {
+      has-method: func(hash: tuple<u64, u64, u64, u64>) -> bool;
+    }
+
+    resource token;
+
+    attach: func(t: borrow<token>, u: borrow<utxo>);
+
+    push-effect-handler-frame: func(frame-id: u32);
+
+    add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
+
+    pop-effect-handler-frame: func();
+  }
+  interface ledger {
+    record public-key {
+      dummy: u64,
+    }
+  }
+}

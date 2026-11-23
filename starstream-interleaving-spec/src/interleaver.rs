@@ -547,6 +547,7 @@ mod tests {
     }
 
     const ENTRY: MethodHash = MethodHash([0xe, 0, 0, 0, 0, 0, 0, 0xe]);
+    const CONSTRUCTOR: MethodHash = MethodHash([0xc, 0, 0, 0, 0, 0, 0, 0xc]);
 
     /// The entry coordinator's own entry event.
     fn entry() -> Step {
@@ -576,12 +577,14 @@ mod tests {
 
     fn enter_constructor(arguments: impl Into<Vec<u32>>) -> Step {
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: value(arguments),
         }
     }
 
     fn new_utxo(arguments: impl Into<Vec<u32>>) -> Step {
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: value(arguments),
         }
     }

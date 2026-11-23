@@ -198,6 +198,16 @@ impl bindings::starstream::std::cardano::Host for Ctx {
     }
 }
 
+impl bindings::starstream::std::ledger::Host for Ctx {
+    fn assert_transaction_signed_by(
+        &mut self,
+        _key: bindings::starstream::std::ledger::PublicKey,
+    ) -> wasmtime::Result<()> {
+        // TODO: real implementation.
+        Ok(())
+    }
+}
+
 impl Host for Ctx {
     type UtxoContext = Arc<Mutex<UtxoCtx>>;
 
@@ -340,7 +350,9 @@ pub fn prepare_contract_verification(
         &[VerificationProgram {
             wasm,
             coordination_exports: &[script],
+            is_original_image: true,
             input_utxos: &[],
+            new_utxos: &[],
             contract_digest: &digest,
         }],
         proof.instances.iter().map(|instance| instance.size),

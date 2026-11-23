@@ -88,3 +88,40 @@ async fn move_token() -> wasmtime::Result<()> {
     assert!(starstream.effect_stack.is_empty());
     Ok(())
 }
+
+/// A script's `Token` parameter accepts a token minted outside the script.
+#[test_log::test(tokio::test)]
+async fn attach_minted_token() -> wasmtime::Result<()> {
+    let mut store = Store::new(&ENGINE, Ctx::default());
+    let instance = CONTRACT
+        .instantiate(&mut store)
+        .await
+        .context("failed to instantiate contract")?;
+
+    let my_token = CONTRACT.get_token("my-token")?;
+    let my_mint = CONTRACT.get_token_mint(&my_token, "[static]token.my-mint")?;
+    let token = instance
+        .call_token_mint(&mut store, &my_token, &my_mint, [])
+        .instrument(info_span!("my-mint"))
+        .await
+        .context("failed to call `my-mint`")?;
+    let token = store.data_mut().table.push(token)?;
+    let token = token.try_into_resource_any(store.as_context_mut())?;
+
+    let dest = new_holder(&mut store, &instance).await?;
+
+    let attach_any = CONTRACT.get_coordination_script("attach-any")?;
+    instance
+        .call_coordination_script(&mut store, &attach_any, [Val::Resource(token), dest], [])
+        .instrument(info_span!("attach-any"))
+        .await
+        .context("failed to call `attach-any` coordination script")?;
+
+    let Ctx {
+        starstream, events, ..
+    } = store.into_data();
+    assert_eq!(events, [event("attached", 1)]);
+    assert!(starstream.instance_stack.is_empty());
+    assert!(starstream.effect_stack.is_empty());
+    Ok(())
+}

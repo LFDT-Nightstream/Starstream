@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::coordinator_abi::{CoordinatorAbis, SCRIPT_INTERFACE};
+use crate::coordinator_abi::{
+    CoordinatorAbis, SCRIPT_INTERFACE, TYPED_UTXO_INTERFACE_PREFIX, hash_constructor,
+};
 use crate::effect_abi::{EffectAbi, EffectAbis};
 use neo_wasm::host_event_bindings::{
     EventBlock, EventSequenceBuilder, EventSources, HostEventBindings, HostEventBindingsBuilder,
@@ -8,7 +10,10 @@ use neo_wasm::host_event_bindings::{
 };
 use sha2::{Digest as _, Sha256};
 use starstream_interleaving_spec::events::EventKind;
-use starstream_interleaving_spec::{BLOCK_SIZE, METHOD_WORDS, MethodHash, StarstreamValue};
+use starstream_interleaving_spec::{
+    BLOCK_SIZE, ConstructorIdentity, EffectIdentity, METHOD_WORDS, MethodSelector, ScriptIdentity,
+    StarstreamValue,
+};
 use wasmparser::{CompositeInnerType, Parser, Payload, TypeRef, ValType};
 
 const UTXO_CONTEXT_INTERFACE: &str = "starstream:std/utxo-context";
@@ -16,7 +21,6 @@ const RESUME_METHOD: &str = "[method]utxo-context.resume";
 const IMPLEMENTS_METHOD: &str = "[method]utxo-context.implements-method";
 const DYNAMIC_UTXO_INTERFACE: &str = "starstream:contract/dynamic-utxo";
 const SELF_INTERFACE_PREFIX: &str = "starstream:self/";
-const TYPED_UTXO_INTERFACE_PREFIX: &str = "starstream:utxo/";
 const EFFECT_INTERFACE_PREFIX: &str = "starstream:effects/";
 const EFFECT_HANDLER_INTERFACE_PREFIX: &str = "starstream:effect-handler/";
 const CONSTRUCTOR_PREFIX: &str = "[static]utxo.";
@@ -90,11 +94,12 @@ struct ExportEvents {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExportKind {
     /// `<utxo>#[static]utxo.<name>`: the exported constructor takes the
-    /// callee-local `utxo-context` handle before the user arguments.
-    Constructor,
+    /// callee-local `utxo-context` handle before the user arguments. Entered
+    /// under the constructor identity its caller commits to.
+    Constructor(ConstructorIdentity),
     /// `<utxo>#[method]utxo.<name>`: the exported method takes the
     /// callee-local resource receiver before the user arguments.
-    Method(MethodHash),
+    Method(MethodSelector),
     /// An allowlisted plain export: the transaction entrypoint.
     CoordinationScript,
     /// `<utxo>#get-storage`: publishes the storage record when it returns.
@@ -105,7 +110,7 @@ enum ExportKind {
     Internal,
     /// `starstream:effect-handler/<abi>#<effect>`: the dispatcher takes the
     /// selected scope's frame id before the effect arguments.
-    EffectHandler(MethodHash),
+    EffectHandler(EffectIdentity),
 }
 
 /// Event builder that reserves whole blocks for roots.
@@ -125,10 +130,10 @@ struct Root {
 enum ImportKind {
     YieldBegin,
     RegisterMethod,
-    NewUtxo,
-    CallMethod(MethodHash),
+    NewUtxo(ConstructorIdentity),
+    CallMethod(MethodSelector),
     Advice,
-    Effect(MethodHash),
+    Effect(EffectIdentity),
     PushEffectHandlerFrame,
     AddEffectHandler,
     PopEffectHandlerFrame,
@@ -144,7 +149,8 @@ struct ImportEvents {
 ///
 /// Every allowlisted script opens with `EnterCall` under its script identity,
 /// whether it runs as the transaction's entry or through a script import, so a
-/// contract has one binding set regardless of its role.
+/// contract has one binding set regardless of its role. Likewise every
+/// constructor opens with `EnterConstructor` under its constructor identity.
 /// `contract_digest` is the raw SHA-256 digest supplied by the loader.
 /// The caller authenticates this identity; it is included in the program bindings.
 pub fn build_component_templates(
@@ -180,10 +186,10 @@ fn build_templates(
     for export in &exports {
         let fref = export.index.saturating_add(1);
         export_frefs.insert(export.name.clone(), fref);
-        let classified = classify_export(export, &coordination_exports)?;
+        let classified = classify_export(export, &coordination_exports, coordinator_abis)?;
         if matches!(
             classified,
-            ExportKind::CoordinationScript | ExportKind::Constructor | ExportKind::SetStorage
+            ExportKind::CoordinationScript | ExportKind::Constructor(_) | ExportKind::SetStorage
         ) {
             initial_exports.push(fref);
         }
@@ -226,7 +232,7 @@ fn build_templates(
             })?;
             build_coordinator_template(&import, *script)?
         } else {
-            build_import_template(&import)?
+            build_import_template(&import, coordinator_abis)?
         };
         let binding = match events.return_ {
             Some(return_events) => bindings.split_import(import.fref, events.call, return_events),
@@ -257,13 +263,13 @@ fn build_templates(
 /// TODO: and probably we want to share this logic with the compiler somehow
 ///
 // A codegen mismatch causes registered-method lookup to fail.
-pub fn method_hash_from_name(name: &str) -> MethodHash {
+pub fn method_hash_from_name(name: &str) -> MethodSelector {
     let digest = Sha256::digest(name.replace('-', "_").as_bytes());
     let mut words = [0; METHOD_WORDS];
     for (word, bytes) in words.iter_mut().zip(digest.as_chunks::<4>().0) {
         *word = u32::from_le_bytes(*bytes);
     }
-    MethodHash(words)
+    MethodSelector(words)
 }
 
 /// Opaque schema for a flat tuple: tag, length, and `i64` bitmap.
@@ -311,7 +317,7 @@ pub fn flat_value_root(types: &[ValType], values: &[u64]) -> StarstreamValue {
 impl ExportKind {
     const fn name(self) -> &'static str {
         match self {
-            Self::Constructor => "constructor",
+            Self::Constructor(_) => "constructor",
             Self::Method(_) => "method",
             Self::CoordinationScript => "coordination script",
             Self::GetStorage => "get-storage",
@@ -322,9 +328,34 @@ impl ExportKind {
     }
 }
 
+/// Identity of an exported constructor, resolved using the same ABI as its entry event.
+pub fn constructor_identity(
+    wasm: &[u8],
+    contract_digest: &[u8; 32],
+    utxo: &str,
+    constructor: &str,
+) -> Result<ConstructorIdentity, TemplateBuildError> {
+    let module = first_core_module(wasm)?;
+    let name = format!("{utxo}#{CONSTRUCTOR_PREFIX}{constructor}");
+    let exports = parse_function_exports(module, &parse_function_types(module)?)?;
+    let export = exports
+        .iter()
+        .find(|export| export.name == name)
+        .ok_or(TemplateBuildError::UnclassifiedFunctionExport { name })?;
+    let abis = CoordinatorAbis::decode(wasm, &[], contract_digest)?;
+    let ExportKind::Constructor(identity) = classify_export(export, &BTreeSet::new(), &abis)?
+    else {
+        return Err(TemplateBuildError::UnclassifiedFunctionExport {
+            name: export.name.clone(),
+        });
+    };
+    Ok(identity)
+}
+
 fn classify_export(
     export: &FunctionExport,
     coordination_exports: &BTreeSet<&str>,
+    abis: &CoordinatorAbis,
 ) -> Result<ExportKind, TemplateBuildError> {
     if let Some((instance, item)) = export.name.split_once('#') {
         if instance.is_empty() {
@@ -335,8 +366,14 @@ fn classify_export(
         if let Some(abi) = instance.strip_prefix(EFFECT_HANDLER_INTERFACE_PREFIX) {
             return Ok(ExportKind::EffectHandler(effect_hash_from_names(abi, item)));
         }
-        if item.starts_with(CONSTRUCTOR_PREFIX) {
-            return Ok(ExportKind::Constructor);
+        if let Some(constructor) = item.strip_prefix(CONSTRUCTOR_PREFIX) {
+            return Ok(ExportKind::Constructor(hash_constructor(
+                &abis.contract_digest,
+                instance,
+                constructor,
+                export.params.get(1..).unwrap_or_default(),
+                abis.constructor_signature(&abis.constructor_exports, instance, item)?,
+            )?));
         }
         if let Some(method) = item.strip_prefix(METHOD_PREFIX) {
             return Ok(ExportKind::Method(method_hash_from_segment(method)?));
@@ -671,17 +708,19 @@ fn build_export_events(
     kind: ExportKind,
     exports: &[FunctionExport],
     effect_abi: Option<&EffectAbi>,
-    script: Option<MethodHash>,
+    script: Option<ScriptIdentity>,
 ) -> Result<ExportEvents, TemplateBuildError> {
     let mut inputs = EntryInputs { next: 0 };
     match kind {
-        ExportKind::Constructor => {
+        ExportKind::Constructor(constructor) => {
             require_receiver(export, kind, "utxo-context handle")?;
-            let entry = Sequence::op(EventKind::EnterConstructor).root(entry_arguments_root(
-                export,
-                &mut inputs,
-                1,
-            )?)?;
+            // Same shape as a method entry, under the constructor identity
+            // that the caller's `NewUtxo` commits to.
+            let mut entry = Sequence::op(EventKind::EnterConstructor);
+            for word in constructor.0 {
+                entry = entry.constant_i32(word)?;
+            }
+            entry = entry.root(entry_arguments_root(export, &mut inputs, 1)?)?;
             let mut entry = entry.finish()?;
             entry.extend(bootstrap_receiver(export, &mut inputs)?);
             // Constructor returns expose no caller-local handle.
@@ -801,7 +840,10 @@ fn build_export_events(
     }
 }
 
-fn classify_import(import: &FunctionImport) -> Result<ImportKind, TemplateBuildError> {
+fn classify_import(
+    import: &FunctionImport,
+    abis: &CoordinatorAbis,
+) -> Result<ImportKind, TemplateBuildError> {
     if import.module == SCRIPT_INTERFACE {
         return Err(TemplateBuildError::CoordinatorAbi {
             message: "script imports require component ABI metadata".into(),
@@ -814,11 +856,32 @@ fn classify_import(import: &FunctionImport) -> Result<ImportKind, TemplateBuildE
             _ => ImportKind::Advice,
         });
     }
-    if import.module.starts_with(SELF_INTERFACE_PREFIX)
-        || import.module.starts_with(TYPED_UTXO_INTERFACE_PREFIX)
-    {
-        if import.field.starts_with(CONSTRUCTOR_PREFIX) {
-            return Ok(ImportKind::NewUtxo);
+    let own = import.module.strip_prefix(SELF_INTERFACE_PREFIX);
+    let typed = import.module.strip_prefix(TYPED_UTXO_INTERFACE_PREFIX);
+    if let Some(utxo) = own.or(typed) {
+        if let Some(constructor) = import.field.strip_prefix(CONSTRUCTOR_PREFIX) {
+            // The identity names the contract that exports the UTXO: this one,
+            // or the one a typed import's `external-id` points to.
+            let contract_digest = if own.is_some() {
+                &abis.contract_digest
+            } else {
+                abis.utxo_contracts
+                    .get(utxo)
+                    .ok_or_else(|| TemplateBuildError::CoordinatorAbi {
+                        message: format!("typed UTXO import {utxo} has no external-id"),
+                    })?
+            };
+            return Ok(ImportKind::NewUtxo(hash_constructor(
+                contract_digest,
+                utxo,
+                constructor,
+                &import.params,
+                abis.constructor_signature(
+                    &abis.constructor_imports,
+                    &import.module,
+                    &import.field,
+                )?,
+            )?));
         }
         if let Some(method) = import.field.strip_prefix(METHOD_PREFIX) {
             return Ok(ImportKind::CallMethod(method_hash_from_segment(method)?));
@@ -851,12 +914,15 @@ fn classify_import(import: &FunctionImport) -> Result<ImportKind, TemplateBuildE
     Ok(ImportKind::Advice)
 }
 
-fn build_import_template(import: &FunctionImport) -> Result<ImportEvents, TemplateBuildError> {
-    let kind = classify_import(import)?;
+fn build_import_template(
+    import: &FunctionImport,
+    abis: &CoordinatorAbis,
+) -> Result<ImportEvents, TemplateBuildError> {
+    let kind = classify_import(import, abis)?;
     let call = match kind {
         ImportKind::YieldBegin => build_yield_begin_template(import),
         ImportKind::RegisterMethod => build_register_method_template(import),
-        ImportKind::NewUtxo => return build_new_utxo_template(import),
+        ImportKind::NewUtxo(constructor) => return build_new_utxo_template(import, constructor),
         ImportKind::CallMethod(method) => return build_call_method_template(import, method),
         ImportKind::Advice => result_advice_events(import),
         ImportKind::Effect(effect) => return build_effect_template(import, effect),
@@ -888,7 +954,7 @@ fn memory_read(base: MemoryBase, byte_offset: u32, width: u8) -> SlotBinding {
 
 fn build_coordinator_template(
     import: &FunctionImport,
-    script: MethodHash,
+    script: ScriptIdentity,
 ) -> Result<ImportEvents, TemplateBuildError> {
     let mut call = Sequence::op(EventKind::CallCoordinator);
     for word in script.0 {
@@ -908,7 +974,7 @@ fn build_coordinator_template(
 
 fn build_effect_template(
     import: &FunctionImport,
-    effect: MethodHash,
+    effect: EffectIdentity,
 ) -> Result<ImportEvents, TemplateBuildError> {
     let mut call = Sequence::op(EventKind::RaiseEffect);
     for word in effect.0 {
@@ -954,11 +1020,11 @@ fn build_effect_scope_template(
 }
 
 /// SHA-256 identity shared by an effect import and its generated handler export.
-pub fn effect_hash_from_names(abi: &str, effect: &str) -> MethodHash {
+pub fn effect_hash_from_names(abi: &str, effect: &str) -> EffectIdentity {
     // Effect registrations are SHA-256 of the exact WIT names in the runtime
     // and compiler. Method-name normalization does not apply here.
     let digest = Sha256::digest(format!("{abi}#{effect}"));
-    MethodHash(std::array::from_fn(|i| {
+    EffectIdentity(std::array::from_fn(|i| {
         u32::from_le_bytes(digest[i * 4..i * 4 + 4].try_into().unwrap())
     }))
 }
@@ -1024,7 +1090,10 @@ fn import_result_root(
     })
 }
 
-fn build_new_utxo_template(import: &FunctionImport) -> Result<ImportEvents, TemplateBuildError> {
+fn build_new_utxo_template(
+    import: &FunctionImport,
+    constructor: ConstructorIdentity,
+) -> Result<ImportEvents, TemplateBuildError> {
     if import.results.as_ref() != [ValType::I32] {
         return Err(TemplateBuildError::InvalidConstructorResult {
             module: import.module.clone(),
@@ -1033,9 +1102,11 @@ fn build_new_utxo_template(import: &FunctionImport) -> Result<ImportEvents, Temp
         });
     }
 
-    let call = Sequence::op(EventKind::NewUtxo)
-        .root(import_arguments_root(import, 0)?)?
-        .finish()?;
+    let mut call = Sequence::op(EventKind::NewUtxo);
+    for word in constructor.0 {
+        call = call.constant_i32(word)?;
+    }
+    let call = call.root(import_arguments_root(import, 0)?)?.finish()?;
 
     let mut return_events = Sequence::op(EventKind::ReceiveNewUtxoHandle)
         .map(1, |builder| {
@@ -1086,7 +1157,7 @@ fn build_register_method_template(
 
 fn build_call_method_template(
     import: &FunctionImport,
-    method: MethodHash,
+    method: MethodSelector,
 ) -> Result<ImportEvents, TemplateBuildError> {
     if !matches!(import.params.first(), Some(ValType::I32)) {
         return Err(TemplateBuildError::InvalidMethodReceiver {
@@ -1140,7 +1211,7 @@ fn result_advice_events(import: &FunctionImport) -> Result<Vec<EventBlock>, Temp
     }
 }
 
-fn method_hash_from_segment(method: &str) -> Result<MethodHash, TemplateBuildError> {
+fn method_hash_from_segment(method: &str) -> Result<MethodSelector, TemplateBuildError> {
     if method.is_empty() {
         return Err(TemplateBuildError::InvalidMethodName(method.to_owned()));
     }
@@ -1470,6 +1541,7 @@ mod tests {
         ExportTemplate, ImportTemplate, absorbed_blocks, expand_export_entry, expand_export_exit,
         expand_import_events,
     };
+    use starstream_interleaving_spec::MethodHash;
     use starstream_interleaving_spec::Trace;
     use starstream_interleaving_spec::{Out, ResourceHandle, Step};
 
@@ -1504,17 +1576,26 @@ mod tests {
 
     /// Identity of a script in these fixtures. Core modules carry no
     /// component metadata, so the tests supply identities directly.
-    fn script_identity(name: &str) -> MethodHash {
+    fn script_identity(name: &str) -> ScriptIdentity {
         method_hash(&format!("script:{name}"))
+    }
+
+    /// Digest the fixtures are loaded under.
+    const CONTRACT_DIGEST: [u8; 32] = [0xc0; 32];
+
+    /// Identity of the `counter` fixture's `new` constructor.
+    fn counter_constructor() -> ConstructorIdentity {
+        hash_constructor(&CONTRACT_DIGEST, "counter", "new", &[ValType::I64], None).unwrap()
     }
 
     fn try_build(wasm: &[u8], scripts: &[&str]) -> Result<ComponentTemplates, TemplateBuildError> {
         let abis = CoordinatorAbis {
-            imports: Default::default(),
             exports: scripts
                 .iter()
                 .map(|name| (name.to_string(), script_identity(name)))
                 .collect(),
+            contract_digest: CONTRACT_DIGEST,
+            ..Default::default()
         };
         build_templates(wasm, scripts, &abis)
     }
@@ -1894,6 +1975,14 @@ mod tests {
                 ),
                 Trace::new([
                     Step::NewUtxo {
+                        constructor: hash_constructor(
+                            &CONTRACT_DIGEST,
+                            "counter",
+                            "new",
+                            &types,
+                            None
+                        )
+                        .unwrap(),
                         arguments: flat_value_root(&types, &values),
                     },
                     Step::ReceiveNewUtxoHandle {
@@ -1906,7 +1995,44 @@ mod tests {
     }
 
     #[test]
-    fn constructor_boundary_commits_the_same_root_on_both_sides() {
+    fn constructor_identity_binds_contract_utxo_and_name() {
+        let identity = counter_constructor();
+        assert_ne!(
+            identity,
+            hash_constructor(&[0; 32], "counter", "new", &[ValType::I64], None).unwrap()
+        );
+        assert_ne!(
+            identity,
+            hash_constructor(&CONTRACT_DIGEST, "other", "new", &[ValType::I64], None).unwrap()
+        );
+        assert_ne!(
+            identity,
+            hash_constructor(&CONTRACT_DIGEST, "counter", "other", &[ValType::I64], None).unwrap()
+        );
+        // Lengths frame the names, so they cannot be re-split.
+        assert_ne!(
+            hash_constructor(&CONTRACT_DIGEST, "ab", "c", &[ValType::I64], None).unwrap(),
+            hash_constructor(&CONTRACT_DIGEST, "a", "bc", &[ValType::I64], None).unwrap()
+        );
+    }
+
+    #[test]
+    fn typed_constructor_import_requires_the_target_contract() {
+        // A core module carries no `external-id` for the imported UTXO.
+        let wasm = wat::parse_str(
+            r#"(module (import "starstream:utxo/counter" "[static]utxo.new"
+                (func (param i64) (result i32))))"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            try_build(&wasm, &[]),
+            Err(TemplateBuildError::CoordinatorAbi { message })
+                if message == "typed UTXO import counter has no external-id"
+        ));
+    }
+
+    #[test]
+    fn constructor_boundary_commits_the_same_identity_and_root_on_both_sides() {
         let templates = counter();
         let arguments = flat_value_root(&[ValType::I64], &[55]);
         assert_eq!(
@@ -1919,6 +2045,7 @@ mod tests {
             ),
             Trace::new([
                 Step::NewUtxo {
+                    constructor: counter_constructor(),
                     arguments: arguments.clone(),
                 },
                 Step::ReceiveNewUtxoHandle {
@@ -1932,7 +2059,10 @@ mod tests {
         assert_eq!(bootstrap_writes(template), [(2, 0, false)]);
         assert_eq!(
             enter(&templates, "counter#[static]utxo.new", &[55, 0, 3]),
-            Trace::new([Step::EnterConstructor { arguments }])
+            Trace::new([Step::EnterConstructor {
+                constructor: counter_constructor(),
+                arguments
+            }])
         );
         assert_eq!(
             exit(&templates, "counter#[static]utxo.new", Some((0, 0)), &[]),

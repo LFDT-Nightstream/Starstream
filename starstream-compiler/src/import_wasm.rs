@@ -2,8 +2,8 @@ use std::{collections::HashMap, error::Error, fmt::Display, sync::Arc};
 
 use miette::Diagnostic;
 use starstream_types::{
-    DUMMY_SPAN, FunctionKind, FunctionType, Identifier, IntWidth, NameId, StaticFunction, Type,
-    TypedFunctionParam,
+    DUMMY_SPAN, FunctionKind, FunctionType, Identifier, IntWidth, NameId, NameIdGen,
+    StaticFunction, Type, TypedFunctionParam,
 };
 use wit_parser::{Function, Resolve, TypeDef, WorldId, WorldItem, WorldKey, decoding::DecodedWasm};
 
@@ -38,7 +38,7 @@ pub enum ImportWasmError {
 struct TypeNotAvailable;
 
 pub fn import_wasm(
-    next_id: &mut NameId,
+    next_id: &mut NameIdGen,
     name: String,
     wasm: &Arc<[u8]>,
 ) -> Result<(Namespace, TypedWasmModule), ImportWasmError> {

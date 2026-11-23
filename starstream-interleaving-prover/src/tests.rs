@@ -109,6 +109,8 @@ pub(crate) const ENTRY: EntryCall = EntryCall {
 
 /// Steps before the entry coordinator's body: BeginExecution and its EnterCall.
 pub(crate) const ENTRY_STEPS: usize = 2;
+/// The constructor identity used unless a case tests a mismatch.
+pub(crate) const CONSTRUCTOR: MethodHash = MethodHash([0xc; 8]);
 
 /// An execution whose entry coordinator runs `body`.
 pub(crate) fn entered(body: impl IntoIterator<Item = Step>) -> Trace {
@@ -135,9 +137,11 @@ pub(crate) fn empty_statement() -> starstream_interleaving_spec::TransactionStat
 pub(super) fn constructor_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::RegisterMethod {
@@ -158,9 +162,11 @@ pub(super) fn constructor_trace(arguments: [u32; 4]) -> Trace {
 fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::Return {
@@ -225,9 +231,11 @@ fn rejects_receiving_a_method_as_a_constructor() {
 fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::Return {
@@ -239,12 +247,15 @@ fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
 fn repeated_constructor_entry_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
     ])
@@ -254,9 +265,11 @@ fn opcode_after_terminal_return_trace() -> Trace {
     let mut trace = minimal_constructor_trace([0, 1, 2, 3]);
     trace.0.extend([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![7].into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: vec![7].into(),
         },
         Step::Return {
@@ -284,9 +297,11 @@ pub(super) fn method_call_trace_with_values(
     let method = MethodHash([1, 0, 1, 0, 1, 0, 1, 0]);
     let mut steps = vec![
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::RegisterMethod { method },
@@ -387,9 +402,11 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
 
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::RegisterMethod {
@@ -510,9 +527,11 @@ fn constructor_effect_trace(effect_after_registration: bool) -> Trace {
     let mut steps = effect_scope(1, &[effect]);
     steps.extend([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: StarstreamValue::UNIT_VALUE,
         },
     ]);
@@ -928,7 +947,7 @@ fn rejects_enter_call_with_wrong_method() {
             step: 8,
             constraint,
             ..
-        })) if constraint == "entry takes the called method"));
+        })) if constraint == "entry takes the called identity"));
 }
 
 #[test]
@@ -1014,6 +1033,7 @@ fn rejects_return_without_entering_method() {
 fn rejects_return_before_entering_constructor() {
     let trace = entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::Return {
@@ -1052,6 +1072,7 @@ fn rejects_yield_from_coordinator() {
 fn rejects_constructor_with_mismatched_arguments() {
     let mut trace = constructor_trace([1, 2, 3, 4]);
     trace.0[3] = Step::EnterConstructor {
+        constructor: CONSTRUCTOR,
         arguments: vec![0, 1, 2, 3].into(),
     };
 
@@ -1062,6 +1083,23 @@ fn rejects_constructor_with_mismatched_arguments() {
             constraint,
             ..
         })) if constraint == "entry takes the caller's argument"));
+}
+
+#[test]
+fn rejects_constructor_with_mismatched_identity() {
+    let mut trace = constructor_trace([1, 2, 3, 4]);
+    trace.0[3] = Step::EnterConstructor {
+        constructor: MethodHash([0xd; 8]),
+        arguments: vec![1, 2, 3, 4].into(),
+    };
+
+    assert!(matches!(
+        verify_sat(&trace),
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 3,
+            constraint,
+            ..
+        })) if constraint == "entry takes the called identity"));
 }
 
 #[test]

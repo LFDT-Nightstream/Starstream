@@ -64,13 +64,11 @@ impl From<&starstream_interleaving_spec::Step> for Opcode {
             starstream_interleaving_spec::Step::GetStorage { .. } => Self::GetStorage,
             starstream_interleaving_spec::Step::SkipConsumed => Self::SkipConsumed,
             starstream_interleaving_spec::Step::FinishTransaction => Self::FinishTransaction,
-            starstream_interleaving_spec::Step::NewUtxo { arguments: _ } => Opcode::NewUtxo,
+            starstream_interleaving_spec::Step::NewUtxo { .. } => Opcode::NewUtxo,
             starstream_interleaving_spec::Step::ReceiveNewUtxoHandle { .. } => {
                 Opcode::ReceiveNewUtxoHandle
             }
-            starstream_interleaving_spec::Step::EnterConstructor { arguments: _ } => {
-                Opcode::EnterConstructor
-            }
+            starstream_interleaving_spec::Step::EnterConstructor { .. } => Opcode::EnterConstructor,
             starstream_interleaving_spec::Step::YieldBegin => Opcode::YieldBegin,
             starstream_interleaving_spec::Step::RegisterMethod { method: _ } => {
                 Opcode::RegisterMethod

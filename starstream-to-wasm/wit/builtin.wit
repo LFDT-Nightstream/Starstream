@@ -17,4 +17,8 @@ interface builtin {
     add-effect-handler: func(hash: tuple<u64, u64, u64, u64>);
     /// Announce control flow passing the end of `try` block.
     pop-effect-handler-frame: func();
+
+    /// Attempt to attach a Token to a Utxo.
+    attach: func(t: borrow<token>, u: borrow<utxo>);
+    // ^ TODO: `own<token>` might be more proper, but could need extra compiler handling.
 }

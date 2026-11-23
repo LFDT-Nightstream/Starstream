@@ -197,8 +197,8 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
         }
     }
 
-    if let Some(method_hash) = &input.method_hash {
-        for (col, value) in COL_METHOD_HASH_VALUE.iter().zip(method_hash) {
+    if let Some(event_identity) = &input.event_identity {
+        for (col, value) in COL_METHOD_HASH_VALUE.iter().zip(event_identity) {
             wit[*col] = *value;
         }
     }

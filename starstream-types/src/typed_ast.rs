@@ -264,7 +264,8 @@ pub enum TypedExprKind {
     },
     /// Implicit upcast of a concrete `utxo Foo` handle to the root `Utxo`
     /// handle, inserted by the type checker where a `Utxo` is expected.
-    UtxoUpcast {
+    /// Also for `token` upcasts.
+    Upcast {
         expr: Box<Spanned<TypedExpr>>,
     },
     /// Event emission expression: `emit some_emit_fn(args...)`
@@ -401,9 +402,22 @@ impl TypedBlock {
 pub struct NameId(pub u32);
 
 impl NameId {
+    pub const TOKEN_ATTACH: NameId = NameId(u32::MAX - 1);
+    pub const TOKEN_DETACH: NameId = NameId(u32::MAX - 2);
+}
+
+pub struct NameIdGen(NameId);
+
+impl Default for NameIdGen {
+    fn default() -> Self {
+        Self(NameId(0))
+    }
+}
+
+impl NameIdGen {
     pub fn fresh(&mut self) -> NameId {
-        let id = NameId(self.0);
-        self.0 += 1;
+        let id = self.0;
+        self.0.0 += 1;
         id
     }
 }

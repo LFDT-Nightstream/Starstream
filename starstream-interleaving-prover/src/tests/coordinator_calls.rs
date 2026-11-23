@@ -177,9 +177,11 @@ fn only_coordinators_call_scripts() {
     let unit = StarstreamValue::UNIT_VALUE;
     let trace = entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         call(A, ARGS_A),

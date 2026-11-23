@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::Args;
+use miette::Context;
 use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
 use starstream_to_wasm::CompileOptions;
 use starstream_types::FileSystem;
@@ -120,7 +121,9 @@ impl Wasm {
         }
 
         if self.output_component.is_some() || self.output_wit.is_some() {
-            let component_wasm = compile_result.to_component().expect("error linking");
+            let component_wasm = compile_result
+                .to_component()
+                .wrap_err("Error linking component")?;
 
             if let Some(output_component) = &self.output_component {
                 fs.write(output_component, &component_wasm)

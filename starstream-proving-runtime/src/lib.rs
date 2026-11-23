@@ -1,3 +1,4 @@
+mod constructor_types;
 mod coordinator_abi;
 mod decoder;
 mod effect_abi;
@@ -22,11 +23,13 @@ pub use prove::{
 };
 pub use runtime::{enable_tracing, register_tracing_component};
 pub use starstream_interleaving_spec::{
-    EntryCall, InputUtxo, MethodHash, OutputUtxo, ResourceHandle, StarstreamValue,
+    ConstructorIdentity, EffectIdentity, EntryCall, EventIdentity, InputUtxo, MethodHash,
+    MethodSelector, OutputUtxo, ResourceHandle, ScriptIdentity, StarstreamValue,
     TransactionStatement,
 };
 pub use templates::{
     ComponentTemplates, FLAT_VALUE_SCHEMA_TAG, TemplateBuildError, build_component_templates,
-    effect_hash_from_names, flat_value_root, method_hash_from_name, value_schema,
+    constructor_identity, effect_hash_from_names, flat_value_root, method_hash_from_name,
+    value_schema,
 };
 pub use verification::{PreparedVerification, VerificationProgram, prepare_verification};

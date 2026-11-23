@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use crate::{DUMMY_SPAN, Identifier, NameId, Span};
 
@@ -63,6 +63,8 @@ const _: () = assert!(std::mem::size_of::<Type>() <= 2 * std::mem::size_of::<usi
 /// still allowing us to attach formatting logic.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeVarId(pub u32);
+
+pub struct TypeVarIdGen(TypeVarId);
 
 /// Integer width and signedness.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -218,6 +220,30 @@ impl Type {
     pub fn int() -> Self {
         Type::Int(IntWidth::I64)
     }
+
+    pub fn token() -> Arc<AbiType> {
+        static TOKEN: LazyLock<Arc<AbiType>> = LazyLock::new(|| {
+            let method = |name: &str, id| TypedAbiMethodDecl {
+                name: Identifier::new(name, DUMMY_SPAN),
+                id,
+                ty: Arc::new(FunctionType {
+                    kind: FunctionKind::Normal,
+                    name_span: DUMMY_SPAN,
+                    params: vec![TypedFunctionParam::anon("utxo", Type::UtxoAny)],
+                    result: Type::Unit,
+                    callee: Some(StaticFunction::Named(id)),
+                }),
+            };
+            Arc::new(AbiType {
+                name: Identifier::new("Token", DUMMY_SPAN),
+                methods: vec![
+                    method("attach", NameId::TOKEN_ATTACH),
+                    method("detach", NameId::TOKEN_DETACH),
+                ],
+            })
+        });
+        TOKEN.clone()
+    }
 }
 
 impl From<IntWidth> for Type {
@@ -274,10 +300,16 @@ impl From<Arc<AbiType>> for Type {
     }
 }
 
-impl TypeVarId {
+impl Default for TypeVarIdGen {
+    fn default() -> Self {
+        Self(TypeVarId(0))
+    }
+}
+
+impl TypeVarIdGen {
     pub fn fresh(&mut self) -> TypeVarId {
-        let id = *self;
-        self.0 += 1;
+        let id = self.0;
+        self.0.0 += 1;
         id
     }
 }

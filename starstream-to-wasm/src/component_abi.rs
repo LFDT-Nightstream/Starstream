@@ -42,12 +42,14 @@ pub enum ComponentAbiType {
         len: Option<u32>,
     },
     Record {
+        name: String,
         fields: Vec<(String, Rc<ComponentAbiType>)>,
     },
     Tuple {
         fields: Vec<Rc<ComponentAbiType>>,
     },
     Variant {
+        name: String,
         cases: Vec<(String, Option<Rc<ComponentAbiType>>)>,
     },
     Option {
@@ -114,13 +116,13 @@ impl ComponentAbiType {
             ComponentAbiType::String => 4,
             ComponentAbiType::ErrorContext => 4,
             ComponentAbiType::List { ty, len } => todo!(),
-            ComponentAbiType::Record { fields } => {
+            ComponentAbiType::Record { name: _, fields } => {
                 Self::alignment_record(fields.iter().map(|x| &*x.1))
             }
             ComponentAbiType::Tuple { fields } => {
                 Self::alignment_record(fields.iter().map(|f| &**f))
             }
-            ComponentAbiType::Variant { cases } => Self::alignment_variant(cases),
+            ComponentAbiType::Variant { name: _, cases } => Self::alignment_variant(cases),
             ComponentAbiType::Option { inner } => Self::alignment_variant(&[
                 ("none".to_string(), None),
                 ("some".to_string(), Some(inner.clone())),
@@ -187,13 +189,13 @@ impl ComponentAbiType {
             ComponentAbiType::String => 8,
             ComponentAbiType::ErrorContext => 4,
             ComponentAbiType::List { ty, len } => todo!(),
-            ComponentAbiType::Record { fields } => {
+            ComponentAbiType::Record { name: _, fields } => {
                 Self::elem_size_record(fields.iter().map(|x| &*x.1))
             }
             ComponentAbiType::Tuple { fields } => {
                 Self::elem_size_record(fields.iter().map(|f| &**f))
             }
-            ComponentAbiType::Variant { cases } => Self::elem_size_variant(cases),
+            ComponentAbiType::Variant { name: _, cases } => Self::elem_size_variant(cases),
             ComponentAbiType::Option { inner } => Self::elem_size_variant(&[
                 ("none".to_string(), None),
                 ("some".to_string(), Some(inner.clone())),
@@ -279,7 +281,7 @@ impl ComponentAbiType {
             ComponentAbiType::String => todo!(),
             ComponentAbiType::ErrorContext => todo!(),
             ComponentAbiType::List { .. } => todo!(),
-            ComponentAbiType::Record { fields } => {
+            ComponentAbiType::Record { name: _, fields } => {
                 let mut o = 0u64;
                 for (_, f) in fields {
                     o = o.next_multiple_of(u64::from(f.alignment()));
