@@ -32,15 +32,23 @@ impl StarstreamValue {
 #[serde(transparent)]
 pub struct ResourceHandle(pub u32);
 
-/// SHA-256 method identity as eight little-endian `u32` limbs, in event/RAM
+/// SHA-256 event identity as eight little-endian `u32` limbs, in event/RAM
 /// order. Each pair is the low then high half of a `starstream-to-wasm`/WIT
 /// `u64` limb.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct MethodHash(pub [u32; METHOD_WORDS]);
+pub struct EventIdentity(pub [u32; METHOD_WORDS]);
 
-/// Effect identities use the same exact SHA-256 representation as methods.
-pub type EffectHash = MethodHash;
+/// Selector registered by a UTXO for method dispatch.
+pub use EventIdentity as MethodSelector;
+/// Contract-bound identity of a UTXO constructor.
+pub use EventIdentity as ConstructorIdentity;
+/// Contract-bound identity of a coordination script.
+pub use EventIdentity as ScriptIdentity;
+pub use EventIdentity as EffectIdentity;
+
+pub use EventIdentity as MethodHash;
+pub use EventIdentity as EffectHash;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -52,7 +60,7 @@ impl<T> From<T> for Out<T> {
     }
 }
 
-impl MethodHash {
+impl EventIdentity {
     /// Split the four WIT words into low/high `u32` limb pairs.
     pub fn from_u64_words(words: [u64; 4]) -> Self {
         Self(std::array::from_fn(|i| {
@@ -65,7 +73,9 @@ impl MethodHash {
     #[must_use]
     pub fn to_hex(self) -> String {
         self.0
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| format!("{:08x}{:08x}", pair[1], pair[0]))
             .collect()
     }
@@ -124,14 +134,14 @@ pub enum Step {
     },
     /// Ledger-supplied ABI entry for the most recently loaded UTXO; no program event.
     PreloadMethod {
-        method: MethodHash,
+        method: MethodSelector,
     },
     GetStorage {
         storage: Out<StarstreamValue>,
     },
     /// Host-synthesized enumeration of the last exported UTXO's ABI; no program event.
     ReadAbi {
-        method: MethodHash,
+        method: MethodSelector,
     },
     /// Advance the finalization scan without exporting a consumed UTXO.
     SkipConsumed,
@@ -142,34 +152,38 @@ pub enum Step {
     /// script, after loading; no program event. Bound by the statement's
     /// [`EntryCall`] and matched by the entry coordinator's `EnterCall`.
     BeginExecution {
-        script: MethodHash,
+        script: ScriptIdentity,
         arguments: StarstreamValue,
     },
     /// Imported script call. Identity binds contract, export name, and scalar ABI.
     /// The fresh callee opens with a matching `EnterCall`.
     CallCoordinator {
-        script: MethodHash,
+        script: ScriptIdentity,
         arguments: StarstreamValue,
     },
+    /// Constructor call. Identity binds the contract and its UTXO export.
+    /// The new UTXO opens with a matching `EnterConstructor`.
     NewUtxo {
+        constructor: ConstructorIdentity,
         arguments: StarstreamValue,
     },
     ReceiveNewUtxoHandle {
         resource: Out<ResourceHandle>,
     },
     EnterConstructor {
+        constructor: ConstructorIdentity,
         arguments: StarstreamValue,
     },
     YieldBegin,
     RegisterMethod {
-        method: MethodHash,
+        method: MethodSelector,
     },
     Return {
         result: Out<StarstreamValue>,
     },
     CallMethod {
         resource: ResourceHandle,
-        method: MethodHash,
+        method: MethodSelector,
         arguments: StarstreamValue,
     },
     /// Receive the completed top frame's result, from a UTXO method or an
@@ -181,13 +195,13 @@ pub enum Step {
     /// Entry into a called export: a UTXO method (method hash) or a
     /// coordination script (script identity), including the entry script.
     EnterCall {
-        method: MethodHash,
+        method: EventIdentity,
         arguments: StarstreamValue,
     },
     /// Begin a dynamically handled effect call. The result is committed when
     /// the import resumes, after one or more handler activations.
     RaiseEffect {
-        effect: EffectHash,
+        effect: EffectIdentity,
         arguments: StarstreamValue,
     },
     /// Open a `try` scope owned by the current invocation. `frame_id`
@@ -197,7 +211,7 @@ pub enum Step {
     },
     /// Register an effect on the innermost scope of the current invocation.
     AddEffectHandler {
-        effect: EffectHash,
+        effect: EffectIdentity,
     },
     /// Close the innermost scope of the current invocation.
     PopEffectHandlerFrame,
@@ -206,7 +220,7 @@ pub enum Step {
     SkipEffectHandler,
     EnterEffectHandler {
         frame_id: u32,
-        effect: EffectHash,
+        effect: EffectIdentity,
         arguments: StarstreamValue,
     },
     ExitEffectHandler {
@@ -228,7 +242,7 @@ pub struct Trace(pub Vec<Step>);
 pub struct InputUtxo {
     pub storage: StarstreamValue,
     /// Sorted, deduplicated ABI methods, preloaded in this order.
-    pub methods: Vec<MethodHash>,
+    pub methods: Vec<MethodSelector>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -236,13 +250,13 @@ pub struct OutputUtxo {
     pub utxo: u32,
     pub storage: StarstreamValue,
     /// Final-generation registration sequence, including duplicates.
-    pub methods: Vec<MethodHash>,
+    pub methods: Vec<MethodSelector>,
 }
 
 /// The script the transaction runs, and its (opaque) argument root.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntryCall {
-    pub script: MethodHash,
+    pub script: ScriptIdentity,
     pub arguments: StarstreamValue,
 }
 

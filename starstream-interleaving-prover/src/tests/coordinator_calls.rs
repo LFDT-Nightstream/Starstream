@@ -143,7 +143,7 @@ fn nested_and_repeated_script_calls_run_fresh_instances() {
 }
 
 #[test]
-fn callee_boundaries_are_bound_to_the_call_frame() {
+fn callee_boundaries_are_bound_to_the_caller() {
     let other = StarstreamValue([9; 4]);
     for (index, forged) in [
         // The callee enters under another identity, or with other arguments.
@@ -158,7 +158,7 @@ fn callee_boundaries_are_bound_to_the_call_frame() {
         assert!(
             matches!(
                 verify_sat(&trace),
-                Err(Error::Unsatisfied(Unsatisfied::Memory(_)))
+                Err(Error::Unsatisfied(Unsatisfied::Constraint { step, .. })) if step == index
             ),
             "step {index}"
         );
@@ -177,9 +177,11 @@ fn only_coordinators_call_scripts() {
     let unit = StarstreamValue::UNIT_VALUE;
     let trace = entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         call(A, ARGS_A),
@@ -195,10 +197,9 @@ fn only_coordinators_call_scripts() {
     assert!(matches!(
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
-            constraint: "call coordinator constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "call coordinator constraints"));
 }
 
 #[test]
@@ -219,10 +220,9 @@ fn a_script_call_cannot_reenter_an_existing_instance() {
                 verify_witness_rows(&forged, &preload),
                 Err(Error::Unsatisfied(Unsatisfied::Constraint {
                     step: B_CALL,
-                    constraint: "script calls target a fresh coordinator",
+                    constraint,
                     ..
-                }))
-            ),
+                })) if constraint == "script calls target a fresh coordinator"),
             "{target:?}"
         );
     }
@@ -236,10 +236,9 @@ fn a_script_call_cannot_reenter_an_existing_instance() {
         verify_witness_rows(&stalled, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: B_CALL,
-            constraint: "next coordinator allocator transition",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "next coordinator allocator transition"));
 }
 
 #[test]
@@ -264,10 +263,9 @@ fn effects_cross_script_boundaries() {
         assert!(matches!(
             verify_sat(&trace),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
-                constraint: "effect scope reads",
+                constraint,
                 ..
-            }))
-        ));
+            })) if constraint == "effect scope reads"));
     }
     // Nor return with a scope of its own still open.
     let mut trace = effect_across_calls();
@@ -278,10 +276,9 @@ fn effects_cross_script_boundaries() {
     assert!(matches!(
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
-            constraint: "local effect depth",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "local effect depth"));
 }
 
 #[test]

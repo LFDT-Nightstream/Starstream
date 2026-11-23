@@ -1,4 +1,4 @@
-//! Coordination-script identities from component metadata.
+//! Coordination-script and UTXO-constructor identities from component metadata.
 //!
 //! Imports are scalar-only: a contract cannot call a script whose signature
 //! carries resources or aggregates. Exports get an identity whenever their
@@ -12,22 +12,37 @@
 //! The callee's contract digest is supplied by the contract loader (a contract cannot
 //! embed its own content hash). Future proof composition must authenticate that
 //! digest against the callee program; matching event identities alone is not enough.
+//!
+//! A constructor identity binds the contract digest, the UTXO export and the
+//! constructor name and its ordered user-parameter types.
 use std::collections::BTreeMap;
 
 use sha2::{Digest, Sha256};
+use wasm_encoder::Encode;
 use wit_parser::abi::AbiVariant;
 use wit_parser::{Function, Resolve, Type, TypeDefKind, WorldItem};
 
-use crate::{MethodHash, TemplateBuildError};
+use crate::{ConstructorIdentity, ScriptIdentity, TemplateBuildError};
 
 // TODO: there probably should be a shared crate with all these constants, but
 // currently the compiler hardcodes this
 pub(crate) const SCRIPT_INTERFACE: &str = "starstream:contract/scripts";
+pub(crate) const TYPED_UTXO_INTERFACE_PREFIX: &str = "starstream:utxo/";
+
+type ConstructorSignatures = BTreeMap<String, BTreeMap<String, [u8; 32]>>;
 
 #[derive(Default)]
 pub(crate) struct CoordinatorAbis {
-    pub imports: BTreeMap<String, MethodHash>,
-    pub exports: BTreeMap<String, MethodHash>,
+    pub imports: BTreeMap<String, ScriptIdentity>,
+    pub exports: BTreeMap<String, ScriptIdentity>,
+    /// Constructor parameter signatures keyed by the core interface and field names.
+    pub constructor_imports: ConstructorSignatures,
+    pub constructor_exports: ConstructorSignatures,
+    pub is_component: bool,
+    /// Digest of this contract, which owns its `starstream:self` UTXOs.
+    pub contract_digest: [u8; 32],
+    /// Contract digests of typed UTXO imports, keyed by UTXO interface name.
+    pub utxo_contracts: BTreeMap<String, [u8; 32]>,
 }
 
 fn error(message: impl Into<String>) -> TemplateBuildError {
@@ -38,7 +53,7 @@ fn error(message: impl Into<String>) -> TemplateBuildError {
 
 /// Decode the compiler/CLI's hex digest or the ledger's multibase multihash.
 /// Encoding choices never become part of the script identity.
-fn decode_contract_digest(id: &str) -> Result<[u8; 32], TemplateBuildError> {
+pub(super) fn decode_contract_digest(id: &str) -> Result<[u8; 32], TemplateBuildError> {
     if id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         let mut digest = [0; 32];
         for (i, byte) in digest.iter_mut().enumerate() {
@@ -57,6 +72,21 @@ fn decode_contract_digest(id: &str) -> Result<[u8; 32], TemplateBuildError> {
 }
 
 impl CoordinatorAbis {
+    pub fn constructor_signature(
+        &self,
+        signatures: &ConstructorSignatures,
+        interface: &str,
+        field: &str,
+    ) -> Result<Option<[u8; 32]>, TemplateBuildError> {
+        let signature = signatures.get(interface).and_then(|s| s.get(field));
+        if self.is_component && signature.is_none() {
+            return Err(error(format!(
+                "missing constructor ABI for {interface}#{field}"
+            )));
+        }
+        Ok(signature.copied())
+    }
+
     pub fn decode(
         wasm: &[u8],
         exports: &[&str],
@@ -74,9 +104,35 @@ impl CoordinatorAbis {
                 _ => return Err(error("expected a component")),
             }
         };
-        let mut abis = Self::default();
+        let mut abis = Self {
+            contract_digest: *contract_digest,
+            is_component: !wasmparser::Parser::is_core_wasm(wasm),
+            ..Self::default()
+        };
+        let mut types =
+            crate::constructor_types::ConstructorTypes::new(&resolve, world, contract_digest);
         for (key, item) in &resolve.worlds[world].imports {
-            if resolve.name_world_key(key) != SCRIPT_INTERFACE {
+            let name = resolve.name_world_key(key);
+            if (name.starts_with("starstream:self/")
+                || name.starts_with(TYPED_UTXO_INTERFACE_PREFIX))
+                && let WorldItem::Interface { id, .. } = item
+            {
+                abis.constructor_imports
+                    .insert(name.clone(), types.signatures(*id, false)?);
+            }
+            if let Some(utxo) = name.strip_prefix(TYPED_UTXO_INTERFACE_PREFIX) {
+                // A missing id is reported if a constructor of it is imported.
+                if let WorldItem::Interface {
+                    external_id: Some(id),
+                    ..
+                } = item
+                {
+                    abis.utxo_contracts
+                        .insert(utxo.to_owned(), decode_contract_digest(id)?);
+                }
+                continue;
+            }
+            if name != SCRIPT_INTERFACE {
                 continue;
             }
             let WorldItem::Interface { id, .. } = item else {
@@ -100,6 +156,10 @@ impl CoordinatorAbis {
         }
         for (key, item) in &resolve.worlds[world].exports {
             let name = resolve.name_world_key(key);
+            if let WorldItem::Interface { id, .. } = item {
+                abis.constructor_exports
+                    .insert(name.clone(), types.signatures(*id, true)?);
+            }
             if !exports.contains(&name.as_str()) {
                 continue;
             }
@@ -198,7 +258,7 @@ fn identity(
     contract_digest: &[u8; 32],
     function: &Function,
     mode: Signature,
-) -> Result<MethodHash, TemplateBuildError> {
+) -> Result<ScriptIdentity, TemplateBuildError> {
     if mode == Signature::Scalar && function.params.len() > 16 {
         return Err(error(
             "coordinator calls with indirect canonical ABI arguments are deferred (maximum 16 scalar parameters)",
@@ -231,16 +291,63 @@ fn identity(
         None => 0,
     }]);
     let digest = hash.finalize();
-    Ok(MethodHash(std::array::from_fn(|i| {
+    Ok(ScriptIdentity(std::array::from_fn(|i| {
         u32::from_le_bytes(digest[i * 4..i * 4 + 4].try_into().unwrap())
     })))
+}
+
+/// Identity committed by `NewUtxo` and by the constructor's `EnterConstructor`.
+///
+/// `utxo` is the UTXO's interface name and `constructor` its name without the
+/// `[static]utxo.` prefix, both as exported by the contract with `contract_digest`.
+pub(crate) fn hash_constructor(
+    contract_digest: &[u8; 32],
+    utxo: &str,
+    constructor: &str,
+    params: &[wasmparser::ValType],
+    signature: Option<[u8; 32]>,
+) -> Result<ConstructorIdentity, TemplateBuildError> {
+    let mut hash = Sha256::new();
+    hash.update(b"starstream:constructor\0");
+    hash.update(contract_digest);
+    for name in [utxo, constructor] {
+        hash.update((name.len() as u64).to_le_bytes());
+        hash.update(name.as_bytes());
+    }
+    hash.update((params.len() as u64).to_le_bytes());
+    let mut encoded_params = Vec::with_capacity(params.len());
+    for ty in params {
+        let ty = match ty {
+            wasmparser::ValType::I32 => wasm_encoder::ValType::I32,
+            wasmparser::ValType::I64 => wasm_encoder::ValType::I64,
+            _ => return Err(error(format!("unsupported constructor parameter {ty}"))),
+        };
+        ty.encode(&mut encoded_params);
+    }
+    hash.update(encoded_params);
+    if let Some(signature) = signature {
+        hash.update(signature);
+    }
+    let digest = hash.finalize();
+    Ok(ConstructorIdentity(std::array::from_fn(|i| {
+        u32::from_le_bytes(digest[i * 4..i * 4 + 4].try_into().unwrap())
+    })))
+}
+
+/// Identity committed by the entry event of a coordination script.
+pub fn coordination_script_identity(
+    wasm: &[u8],
+    digest: &[u8; 32],
+    name: &str,
+) -> Result<ScriptIdentity, TemplateBuildError> {
+    Ok(CoordinatorAbis::decode(wasm, &[name], digest)?.exports[name])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn script(id: &str, declaration: &str) -> MethodHash {
+    fn script(id: &str, declaration: &str) -> ScriptIdentity {
         try_script(id, declaration, Signature::Scalar).unwrap()
     }
 
@@ -248,7 +355,7 @@ mod tests {
         id: &str,
         declaration: &str,
         mode: Signature,
-    ) -> Result<MethodHash, TemplateBuildError> {
+    ) -> Result<ScriptIdentity, TemplateBuildError> {
         script_for_digest(&Sha256::digest(id.as_bytes()).into(), declaration, mode)
     }
 
@@ -256,7 +363,7 @@ mod tests {
         digest: &[u8; 32],
         declaration: &str,
         mode: Signature,
-    ) -> Result<MethodHash, TemplateBuildError> {
+    ) -> Result<ScriptIdentity, TemplateBuildError> {
         let mut resolve = Resolve::default();
         let package = resolve
             .push_str(

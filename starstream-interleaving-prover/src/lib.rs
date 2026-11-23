@@ -47,24 +47,12 @@ pub enum Error {
     ContinuityCatalogError(#[from] neo_application::ContinuityCatalogError),
     #[error(transparent)]
     ContinuityCheckError(ContinuityCheckError),
-    #[error("failed to check the CCS assignment for step {step}: {source}")]
+    /// `slot` counts witness rows, padding included.
+    #[error("failed to check the CCS assignment of slot {slot}: {source}")]
     CcsCheck {
-        step: usize,
+        slot: usize,
         #[source]
         source: neo_ccs::CcsError,
-    },
-    #[error("failed to check CCS batch {batch} (size {batch_size}): {source}")]
-    BatchedCcsCheck {
-        batch: usize,
-        batch_size: usize,
-        #[source]
-        source: neo_ccs::CcsError,
-    },
-    #[error("continuity checker failed in batch coordinates (size {batch_size}): {source}")]
-    BatchedContinuityCheck {
-        batch_size: usize,
-        #[source]
-        source: ContinuityCheckError,
     },
 }
 
@@ -82,7 +70,7 @@ pub enum Unsatisfied {
         step: usize,
         /// Constraint row in the relation used by this invocation.
         row: usize,
-        constraint: &'static str,
+        constraint: String,
     },
     #[error(
         "constraint {constraint:?} failed in padding at batch {batch}, slot {slot} (size {batch_size}), relation row {row}"
@@ -92,29 +80,15 @@ pub enum Unsatisfied {
         slot: usize,
         batch_size: usize,
         row: usize,
-        constraint: &'static str,
+        constraint: String,
     },
-    /// Single-step coordinates: source boundary and columns refer to the
-    /// unbatched witness.
+    /// The source boundary counts witness rows, padding included.
     #[error(transparent)]
     Continuity(ContinuityCheckError),
-    /// Single-step coordinates: source row is a trace step.
+    /// The source row counts witness rows, padding included. It is the trace
+    /// step unless padding precedes it.
     #[error(transparent)]
     Memory(#[from] MemoryCheckError<MemoryId>),
-    /// Source row is a batch index; source columns use the batched layout.
-    #[error("memory failure in batch coordinates (size {batch_size}): {source}")]
-    BatchedMemory {
-        batch_size: usize,
-        #[source]
-        source: MemoryCheckError<MemoryId>,
-    },
-    /// Source boundary is between batches, not between individual steps.
-    #[error("continuity failure in batch coordinates (size {batch_size}): {source}")]
-    BatchedContinuity {
-        batch_size: usize,
-        #[source]
-        source: ContinuityCheckError,
-    },
     #[error("terminal call-stack pointer must be zero, got {actual:?}")]
     TerminalCallStackNotEmpty { actual: F },
     #[error("terminal invocation depth must be zero, got {actual:?}")]

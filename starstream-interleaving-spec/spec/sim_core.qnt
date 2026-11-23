@@ -6,13 +6,13 @@ module starstream_sim_core {
   export starstream.*
   import utils.* from "./utils"
 
-  const SIM_METHODS: Set[MethodHash]
+  const SIM_IDENTITIES: Set[EventIdentity]
   const SIM_VALUES: Set[StarstreamValue]
   const SIM_RESOURCE_HANDLES: Set[ResourceHandle]
   const SIM_MAX_UTXOS: int
   const SIM_MAX_METHODS: int
   const SIM_MAX_INPUTS: int
-  const SIM_ABIS: Set[List[MethodHash]]
+  const SIM_ABIS: Set[List[MethodSelector]]
   pure val SIM_INPUTS = SIM_VALUES.map(storage =>
     SIM_ABIS.map(methods => { storage: storage, methods: methods })).flatten()
 
@@ -65,7 +65,7 @@ module starstream_sim_core {
 
   action simulate_call_coordinator: bool = all {
     state.next_coordinator_id < 5,
-    nondet script = SIM_METHODS.oneOf()
+    nondet script = SIM_IDENTITIES.oneOf()
     nondet arguments = SIM_VALUES.oneOf()
     call_coordinator(script, arguments),
   }
@@ -78,8 +78,10 @@ module starstream_sim_core {
 
   action simulate_new_utxo: bool = all {
     state.next_utxo_id < SIM_MAX_UTXOS,
+    // Not named `constructor`: Quint's trace output cannot hold that key.
+    nondet identity = SIM_IDENTITIES.oneOf()
     nondet arguments = SIM_VALUES.oneOf()
-    new_utxo(arguments),
+    new_utxo(identity, arguments),
   }
 
   action simulate_receive_new_utxo_handle: bool = {
@@ -90,7 +92,7 @@ module starstream_sim_core {
   action simulate_register_method: bool = all {
     state.curr.is_utxo(),
     state.abi_method_count.get(state.curr) < SIM_MAX_METHODS,
-    nondet method = SIM_METHODS.oneOf()
+    nondet method = SIM_IDENTITIES.oneOf()
     register_method(method),
   }
 
@@ -102,7 +104,11 @@ module starstream_sim_core {
         state.call_stack.last().expected_arguments
 
     nondet arguments = Set(expected_arguments).oneOf()
-    enter_constructor(arguments)
+    // The pending frame fixes the identity too; a mismatch is never enabled.
+    match (if (state.call_stack.length() == 0) None else state.call_stack.last().expected_identity) {
+      | Some(identity) => enter_constructor(identity, arguments)
+      | None => all { false, state' = state }
+    }
   }
 
   action simulate_call_method: bool = {
@@ -141,8 +147,8 @@ module starstream_sim_core {
         state.call_stack.last().expected_arguments
 
     nondet arguments = Set(expected_arguments).oneOf()
-    nondet method = SIM_METHODS.oneOf()
-    enter_call(method, arguments)
+    nondet identity = SIM_IDENTITIES.oneOf()
+    enter_call(identity, arguments)
   }
 
   // Bounded exploration of the explicit effect scopes. The scope limit bounds
@@ -154,13 +160,13 @@ module starstream_sim_core {
   }
 
   action simulate_add_effect_handler: bool = {
-    nondet effect = SIM_METHODS.oneOf()
+    nondet effect = SIM_IDENTITIES.oneOf()
     add_effect_handler(effect)
   }
 
   action simulate_raise_effect: bool = all {
     state.call_stack.length() < 10,
-    nondet effect = SIM_METHODS.oneOf()
+    nondet effect = SIM_IDENTITIES.oneOf()
     nondet arguments = SIM_VALUES.oneOf()
     raise_effect(effect, arguments),
   }
@@ -172,7 +178,7 @@ module starstream_sim_core {
     val frame = state.call_stack.last()
     match state.effect_head {
       | Some(id) =>
-          match frame.expected_method {
+          match frame.expected_identity {
             | Some(effect) => enter_effect_handler(
                 state.effect_arena[id].frame_id, effect, frame.expected_arguments)
             | None => all { false, state' = state }
@@ -251,7 +257,7 @@ module starstream_sim_core {
     nondet candidates = 0.to(SIM_MAX_INPUTS - 1).setOfMaps(SIM_INPUTS).oneOf()
     val inputs = range(0, SIM_MAX_INPUTS).foldl(List(), (inputs, i) =>
       if (i < input_count) inputs.append(candidates.get(i)) else inputs)
-    nondet script = SIM_METHODS.oneOf()
+    nondet script = SIM_IDENTITIES.oneOf()
     nondet arguments = SIM_VALUES.oneOf()
     val fresh_state = new_transaction({ script: script, arguments: arguments }, inputs, List())
     all {

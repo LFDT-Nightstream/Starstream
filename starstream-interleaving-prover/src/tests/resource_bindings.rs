@@ -1,4 +1,5 @@
 use crate::ccs::layout::*;
+use crate::tests::CONSTRUCTOR;
 use crate::{Error, Unsatisfied, build_witness_rows, verify_witness_rows};
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
@@ -20,9 +21,11 @@ fn bindings(first_input: bool, second_input: bool, duplicate: bool) -> Trace {
         } else {
             steps.extend([
                 Step::NewUtxo {
+                    constructor: CONSTRUCTOR,
                     arguments: StarstreamValue::UNIT_VALUE,
                 },
                 Step::EnterConstructor {
+                    constructor: CONSTRUCTOR,
                     arguments: StarstreamValue::UNIT_VALUE,
                 },
                 Step::Return {
@@ -61,10 +64,9 @@ fn bindings_require_empty_keys_at_both_write_sites() {
         assert!(matches!(
             verify_witness_rows(&rows, &preload),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
-                constraint: "resource bindings are fresh",
+                constraint,
                 ..
-            }))
-        ));
+            })) if constraint == "resource bindings are fresh"));
     }
 }
 

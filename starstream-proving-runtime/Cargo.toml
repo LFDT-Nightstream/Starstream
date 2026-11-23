@@ -13,14 +13,17 @@ proof-tests = []
 metal = ["nightstream/metal", "starstream-interleaving-prover/metal"]
 
 [dependencies]
+minicbor = { workspace = true, features = ["derive", "std"] }
 multibase = { workspace = true }
 multihash = { workspace = true }
 neo-wasm = { workspace = true }
+nightstream = { workspace = true }
 sha2 = { workspace = true }
 starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 starstream-runtime = { workspace = true }
 starstream-interleaving-prover = { path = "../starstream-interleaving-prover" }
 thiserror = { workspace = true }
+wasm-encoder = { workspace = true }
 wasmparser = { workspace = true }
 wit-component = { workspace = true }
 wit-parser = { workspace = true, features = ["decoding"] }
@@ -37,7 +40,6 @@ wasmtime = { workspace = true, features = [
 multihash = { workspace = true, features = ["alloc"] }
 starstream-types = { workspace = true }
 neo-ccs = { workspace = true }
-nightstream = { workspace = true }
 neo-math = { workspace = true }
 starstream-compiler = { workspace = true }
 starstream-to-wasm = { workspace = true }

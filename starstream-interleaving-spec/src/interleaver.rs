@@ -51,6 +51,12 @@ pub struct InterleavedTransaction {
     pub trace: Trace,
     /// Loaded inputs and synthesized outputs.
     pub statement: TransactionStatement,
+    /// For each UTXO id, the position in the supplied trace list of the
+    /// process that became that UTXO.
+    pub utxos: Vec<ProcessIndex>,
+    /// The same for coordinators, in allocation order: the entry script
+    /// first, then each called coordinator.
+    pub coordinators: Vec<ProcessIndex>,
 }
 
 /// Merge process-local semantic traces in cooperative control-flow order.
@@ -152,6 +158,8 @@ pub fn interleave_transaction_with_inputs(
             inputs,
             outputs,
         },
+        utxos: allocation_order.into_iter().map(ProcessIndex).collect(),
+        coordinators: coordinators.into_iter().map(ProcessIndex).collect(),
     })
 }
 
@@ -539,6 +547,7 @@ mod tests {
     }
 
     const ENTRY: MethodHash = MethodHash([0xe, 0, 0, 0, 0, 0, 0, 0xe]);
+    const CONSTRUCTOR: MethodHash = MethodHash([0xc, 0, 0, 0, 0, 0, 0, 0xc]);
 
     /// The entry coordinator's own entry event.
     fn entry() -> Step {
@@ -568,12 +577,14 @@ mod tests {
 
     fn enter_constructor(arguments: impl Into<Vec<u32>>) -> Step {
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: value(arguments),
         }
     }
 
     fn new_utxo(arguments: impl Into<Vec<u32>>) -> Step {
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: value(arguments),
         }
     }

@@ -3,6 +3,7 @@ module effect_scopes_test {
   import utils.* from "./utils"
 
   pure val ENTRY = "entry"
+  pure val CTOR = "constructor"
   action fresh = { state' = new_tx }
   run init = fresh
     .then(begin_execution(ENTRY, UNIT_VALUE))
@@ -18,8 +19,8 @@ module effect_scopes_test {
     .then(add_effect_handler("E"))
 
   run child_with_f = root_e
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(push_effect_handler_frame(2))
     .then(add_effect_handler("F"))
 
@@ -146,8 +147,8 @@ module effect_scopes_test {
   run test_program_call_from_handler_sees_active_scope_not_suspended_child = handling_child_e
     .then(push_effect_handler_frame(3))
     .then(add_effect_handler("F"))
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(raise_effect("F", UNIT_VALUE))
     .then(enter_effect_handler(3, "F", UNIT_VALUE))
     .then(check(state.curr == Coord(1)))
@@ -170,8 +171,8 @@ module effect_scopes_test {
     .then(pop_effect_handler_frame.fail())
 
   run test_return_rejects_unpopped_scope = init
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(push_effect_handler_frame(2))
     .then(return({ value: UNIT_VALUE }).fail())
 
@@ -233,8 +234,8 @@ module effect_scopes_test {
     .then(check(state.effect_local_depth == 2 and state.effect_head == Some(1)))
 
   run test_constructor_restores_callers_depth = root_e
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(check(state.effect_local_depth == 0))
     .then(push_effect_handler_frame(2))
     .then(pop_effect_handler_frame)
@@ -245,8 +246,8 @@ module effect_scopes_test {
     .then(pop_effect_handler_frame)
 
   run method_invocation = root_e
-    .then(new_utxo(UNIT_VALUE))
-    .then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
     .then(register_method("M"))
     .then(return({ value: UNIT_VALUE }))
     .then(receive_new_utxo_handle({ value: 0 }))

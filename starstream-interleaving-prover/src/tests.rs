@@ -20,12 +20,14 @@ mod padding {
             COL_CALL_STACK_POP,
             COL_CALL_STACK_TOP,
             COL_METHOD_LOOKUP,
+            COL_ABI_GENERATION_READ,
             COL_METHOD_APPEND,
             COL_EVENT_ACTIVE,
             COL_RESOURCE_RESOLVER_READ,
             COL_RESOURCE_RESOLVER_WRITE,
             COL_ABI_METHOD_COUNT_READ,
-            COL_TRACE_ROOT_READ,
+            COL_UTXO_EVENT,
+            COL_COORD_EVENT,
             COL_ABI_METHOD_COUNT_WRITE,
         ];
         for memory in build_memory_layout().entries() {
@@ -107,6 +109,8 @@ pub(crate) const ENTRY: EntryCall = EntryCall {
 
 /// Steps before the entry coordinator's body: BeginExecution and its EnterCall.
 pub(crate) const ENTRY_STEPS: usize = 2;
+/// The constructor identity used unless a case tests a mismatch.
+pub(crate) const CONSTRUCTOR: MethodHash = MethodHash([0xc; 8]);
 
 /// An execution whose entry coordinator runs `body`.
 pub(crate) fn entered(body: impl IntoIterator<Item = Step>) -> Trace {
@@ -133,9 +137,11 @@ pub(crate) fn empty_statement() -> starstream_interleaving_spec::TransactionStat
 pub(super) fn constructor_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::RegisterMethod {
@@ -156,9 +162,11 @@ pub(super) fn constructor_trace(arguments: [u32; 4]) -> Trace {
 fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::Return {
@@ -200,10 +208,9 @@ fn rejects_receiving_a_constructor_as_a_method() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 5,
-            constraint: "receive call result constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "receive call result constraints"));
 }
 
 #[test]
@@ -216,18 +223,19 @@ fn rejects_receiving_a_method_as_a_constructor() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
-            constraint: "receive new utxo handle constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "receive new utxo handle constraints"));
 }
 
 fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::Return {
@@ -239,12 +247,15 @@ fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
 fn repeated_constructor_entry_trace(arguments: [u32; 4]) -> Trace {
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: arguments.to_vec().into(),
         },
     ])
@@ -254,9 +265,11 @@ fn opcode_after_terminal_return_trace() -> Trace {
     let mut trace = minimal_constructor_trace([0, 1, 2, 3]);
     trace.0.extend([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![7].into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: vec![7].into(),
         },
         Step::Return {
@@ -284,9 +297,11 @@ pub(super) fn method_call_trace_with_values(
     let method = MethodHash([1, 0, 1, 0, 1, 0, 1, 0]);
     let mut steps = vec![
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::RegisterMethod { method },
@@ -387,9 +402,11 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
 
     entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::RegisterMethod {
@@ -510,9 +527,11 @@ fn constructor_effect_trace(effect_after_registration: bool) -> Trace {
     let mut steps = effect_scope(1, &[effect]);
     steps.extend([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: StarstreamValue::UNIT_VALUE,
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: StarstreamValue::UNIT_VALUE,
         },
     ]);
@@ -586,10 +605,9 @@ fn rejects_opcode_after_terminal_return() {
         verify_sat(&opcode_after_terminal_return_trace()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
-            constraint: "execution requires nonempty call stack",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "execution requires nonempty call stack"));
 }
 
 #[test]
@@ -598,10 +616,9 @@ fn rejects_repeated_constructor_entry() {
         verify_sat(&repeated_constructor_entry_trace([0, 1, 2, 3])),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 4,
-            constraint: "enter constructor constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "enter constructor constraints"));
 }
 
 #[test]
@@ -639,10 +656,9 @@ fn rejects_return_while_method_result_is_pending() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
-            constraint: "return constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "return constraints"));
 }
 
 #[test]
@@ -664,10 +680,9 @@ fn rejects_return_while_new_utxo_handle_is_pending() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 5,
-            constraint: "return constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "return constraints"));
 }
 
 #[test]
@@ -703,10 +718,9 @@ fn rejects_effect_while_method_result_is_pending() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 10,
-            constraint: "raise effect constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "raise effect constraints"));
 }
 
 #[test]
@@ -742,10 +756,9 @@ fn rejects_effect_while_new_utxo_handle_is_pending() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 5,
-            constraint: "raise effect constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "raise effect constraints"));
 }
 
 #[test]
@@ -808,7 +821,8 @@ fn nested_same_effect_resumes_match_results_by_stack_position() {
     trace.0.swap(base + 5, base + 7);
     assert!(matches!(
         verify_sat(&trace),
-        Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
+        Err(Error::Unsatisfied(Unsatisfied::Constraint { constraint, .. }))
+            if constraint == "caller takes the callee's result"
     ));
 }
 
@@ -855,10 +869,9 @@ fn rejects_repeating_effect_handler_after_search_is_exhausted() {
         verify_sat(&entered(steps)),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
-            constraint: "effect scope reads",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "effect scope reads"));
 }
 
 #[test]
@@ -930,14 +943,11 @@ fn rejects_enter_call_with_wrong_method() {
 
     assert!(matches!(
         verify_sat(&trace),
-        Err(Error::Unsatisfied(Unsatisfied::Memory(
-            MemoryCheckError::ReadMismatch {
-                memory: MemoryId::CallStackExpectedMethod,
-                row: 8,
-                ..
-            }
-        )))
-    ));
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 8,
+            constraint,
+            ..
+        })) if constraint == "entry takes the called identity"));
 }
 
 #[test]
@@ -987,10 +997,9 @@ fn rejects_call_through_unbound_resource_handle() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
-            constraint: "call method constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "call method constraints"));
 }
 
 #[test]
@@ -1002,14 +1011,11 @@ fn rejects_return_with_wrong_result() {
             vec![7, 8].into(),
             vec![7, 9].into(),
         )),
-        Err(Error::Unsatisfied(Unsatisfied::Memory(
-            MemoryCheckError::ReadMismatch {
-                memory: MemoryId::CallStackExpectedResult,
-                row: 10,
-                ..
-            }
-        )))
-    ));
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 10,
+            constraint,
+            ..
+        })) if constraint == "caller takes the callee's result"));
 }
 
 #[test]
@@ -1018,16 +1024,16 @@ fn rejects_return_without_entering_method() {
         verify_sat(&method_call_trace(false)),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 8,
-            constraint: "return constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "return constraints"));
 }
 
 #[test]
 fn rejects_return_before_entering_constructor() {
     let trace = entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: vec![0, 1, 2, 3].into(),
         },
         Step::Return {
@@ -1039,10 +1045,9 @@ fn rejects_return_before_entering_constructor() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 3,
-            constraint: "return constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "return constraints"));
 }
 
 #[test]
@@ -1058,29 +1063,43 @@ fn rejects_yield_from_coordinator() {
         verify_sat(&trace),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 2,
-            constraint: "yield begin constraints",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "yield begin constraints"));
 }
 
 #[test]
 fn rejects_constructor_with_mismatched_arguments() {
     let mut trace = constructor_trace([1, 2, 3, 4]);
     trace.0[3] = Step::EnterConstructor {
+        constructor: CONSTRUCTOR,
         arguments: vec![0, 1, 2, 3].into(),
     };
 
     assert!(matches!(
         verify_sat(&trace),
-        Err(Error::Unsatisfied(Unsatisfied::Memory(
-            MemoryCheckError::ReadMismatch {
-                memory: MemoryId::CallStackExpectedArgument,
-                row: 3,
-                ..
-            }
-        )))
-    ));
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 3,
+            constraint,
+            ..
+        })) if constraint == "entry takes the caller's argument"));
+}
+
+#[test]
+fn rejects_constructor_with_mismatched_identity() {
+    let mut trace = constructor_trace([1, 2, 3, 4]);
+    trace.0[3] = Step::EnterConstructor {
+        constructor: MethodHash([0xd; 8]),
+        arguments: vec![1, 2, 3, 4].into(),
+    };
+
+    assert!(matches!(
+        verify_sat(&trace),
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            step: 3,
+            constraint,
+            ..
+        })) if constraint == "entry takes the called identity"));
 }
 
 #[test]
@@ -1095,10 +1114,9 @@ fn rejects_tampered_opcode_selector() {
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 2,
-            constraint: "opcode selectors are one-hot",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "opcode selectors are one-hot"));
 }
 
 #[test]
@@ -1117,10 +1135,31 @@ fn rejects_a_nonzero_return_caller_claimed_as_root() {
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 9,
-            constraint: "call target zero test",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "call target zero test"));
+}
+
+#[test]
+fn event_owner_kind_selects_the_trace_commitment_memory() {
+    use crate::ccs::layout::{COL_COORD_EVENT, COL_UTXO_EVENT};
+    let trace = constructor_trace([0, 1, 2, 3]);
+    let (mut rows, preload) = build_witness_rows(&trace);
+    let row = rows
+        .iter()
+        .position(|row| row[COL_UTXO_EVENT] == F::ONE)
+        .expect("a UTXO emits an event");
+
+    // Route a UTXO's event to the coordinator memory.
+    rows[row][COL_UTXO_EVENT] = F::ZERO;
+    rows[row][COL_COORD_EVENT] = F::ONE;
+
+    assert!(matches!(
+        verify_witness_rows(&rows, &preload),
+        Err(Error::Unsatisfied(Unsatisfied::Constraint {
+            constraint,
+            ..
+        })) if constraint == "trace commitment memory selection"));
 }
 
 #[test]
@@ -1135,10 +1174,9 @@ fn rejects_out_of_range_witness_column() {
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 2,
-            constraint: "COL_ABI_METHOD_COUNT_ADDR",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "COL_ABI_METHOD_COUNT_ADDR"));
 }
 
 #[test]
@@ -1147,17 +1185,17 @@ fn rejects_tampered_memory_value() {
     let (mut rows, preload) = build_witness_rows(&trace);
     verify_witness_rows(&rows, &preload).unwrap();
 
-    rows[3][COL_CALL_STACK_EXPECTED_ARG_VALUE[0]] += F::ONE;
-    crate::commitment::assign_from_bus(&mut rows[3], crate::opcode::Opcode::EnterConstructor);
-    range_check_layout().assign_bits(&mut rows[3]).unwrap();
+    // The receive pops the invocation stack into the resource binding.
+    rows[6][crate::ccs::layout::COL_RESOURCE_RESOLVER_VALUE] += F::new(2);
+    range_check_layout().assign_bits(&mut rows[6]).unwrap();
 
     let error = verify_witness_rows(&rows, &preload).unwrap_err();
     assert!(
         matches!(
             &error,
             Error::Unsatisfied(Unsatisfied::Memory(MemoryCheckError::ReadMismatch {
-                memory: MemoryId::CallStackExpectedArgument,
-                row: 3,
+                memory: MemoryId::InstanceStack,
+                row: 6,
                 ..
             }))
         ),
@@ -1256,10 +1294,9 @@ fn effect_skip_searches_for_the_pending_effect() {
         verify_witness_rows(&rows, &preload),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 7,
-            constraint: "effect scope reads",
+            constraint,
             ..
-        }))
-    ));
+        })) if constraint == "effect scope reads"));
     use crate::ccs::layout::*;
     let add_other = rows[3].clone();
     let skip = &mut rows[7];

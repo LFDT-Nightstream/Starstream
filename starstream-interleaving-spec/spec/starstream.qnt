@@ -22,7 +22,13 @@ module starstream {
   // (p-1)/2, written directly to avoid evaluating 2^64 or p in Quint.
   pure val FIELD_HALF = 9223372034707292160
   type ResourceHandle = int
-  type MethodHash = str
+  type EventIdentity = str
+  // The receiver's registered ABI determines which method selectors it accepts.
+  type MethodSelector = EventIdentity
+  // Both identities include the target contract digest and identify a specific export.
+  type ConstructorIdentity = EventIdentity
+  type ScriptIdentity = EventIdentity
+  type EffectIdentity = EventIdentity
   type CoroutineId = Coord(int) | Utxo(int)
   pure val ENTRY_COORDINATOR = Coord(1)
 
@@ -49,7 +55,7 @@ module starstream {
     parent: Option[int],
     owner: CoroutineId,
     frame_id: int,
-    effects: Set[MethodHash],
+    effects: Set[EffectIdentity],
   }
 
   type CallFrame = {
@@ -57,7 +63,7 @@ module starstream {
     caller: CoroutineId,
     expected_arguments: StarstreamValue,
     expected_result: StarstreamValue,
-    expected_method: Option[MethodHash],
+    expected_identity: Option[EventIdentity],
     saved_phase: CurrPhase,
     // Caller restoration context; the current head doubles as the search cursor.
     saved_effect_head: Option[int],
@@ -69,10 +75,10 @@ module starstream {
   type TxPhase = Loading | Running | Finished
   type InputUtxo = {
     storage: StarstreamValue,
-    methods: List[MethodHash]
+    methods: List[MethodSelector]
   }
-  type OutputUtxo = { utxo: int, storage: StarstreamValue, methods: List[MethodHash] }
-  type EntryCall = { script: MethodHash, arguments: StarstreamValue }
+  type OutputUtxo = { utxo: int, storage: StarstreamValue, methods: List[MethodSelector] }
+  type EntryCall = { script: ScriptIdentity, arguments: StarstreamValue }
 
   // just a tagged type so that the action signature reflects what's input and
   // output (in the corresponding wasm function)
@@ -84,7 +90,7 @@ module starstream {
     tx_entry: Option[EntryCall],
     tx_inputs: List[InputUtxo],
     // Initial preload sequences, framed per input and unchanged by execution.
-    loaded_input_methods: List[List[MethodHash]],
+    loaded_input_methods: List[List[MethodSelector]],
     tx_outputs: List[OutputUtxo],
     output_cursor: int,
     outputs_seen: int,
@@ -106,11 +112,11 @@ module starstream {
     curr_cid_phase: CurrPhase,
     utxo_lifecycle: CoroutineId -> UtxoLifecycle,
     next_utxo_id: int,
-    enabled_methods: CoroutineId -> Set[MethodHash],
+    enabled_methods: CoroutineId -> Set[MethodSelector],
     // Current-generation registrations, including duplicates (maximum 255).
     // The pre-increment count is the append-log ordinal in the circuit.
     abi_method_count: CoroutineId -> int,
-    abi_registrations: CoroutineId -> List[MethodHash],
+    abi_registrations: CoroutineId -> List[MethodSelector],
     abi_read_remaining: int,
     abi_read_ordinal: int,
     // ResourceKey is an instance(coroutine)-dependent id
@@ -274,7 +280,7 @@ module starstream {
   }
 
   // Host-synthesized from the input's stored ABI, not emitted by wasm.
-  action preload_method(method: MethodHash): bool = all {
+  action preload_method(method: MethodSelector): bool = all {
     state.tx_phase == Loading,
     state.next_utxo_id > 0,
     state.abi_method_count.get(Utxo(state.next_utxo_id - 1)) < 255,
@@ -318,7 +324,7 @@ module starstream {
   }
 
   // Host-synthesized final ABI enumeration, not a wasm event.
-  action read_abi(method: MethodHash): bool = all {
+  action read_abi(method: MethodSelector): bool = all {
     state.tx_phase == Running,
     state.abi_read_remaining > 0,
     state.abi_registrations.get(Utxo(state.output_cursor - 1))[state.abi_read_ordinal] == method,
@@ -367,7 +373,7 @@ module starstream {
 
   // Transfer control to a freshly allocated coordinator. The callee inherits
   // the visible effect chain and must open with a matching enter_call.
-  pure def enter_fresh_coordinator(s: State, script: MethodHash, arguments: StarstreamValue): State = {
+  pure def enter_fresh_coordinator(s: State, script: ScriptIdentity, arguments: StarstreamValue): State = {
     val target = Coord(s.next_coordinator_id)
     {
       curr: target,
@@ -380,7 +386,7 @@ module starstream {
         caller: s.curr,
         expected_arguments: arguments,
         expected_result: UNIT_VALUE,
-        expected_method: Some(script),
+        expected_identity: Some(script),
         saved_phase: s.curr_cid_phase,
         saved_effect_head: s.effect_head,
         saved_effect_depth: s.effect_local_depth,
@@ -393,7 +399,7 @@ module starstream {
   // once the inputs are loaded. The script identity and arguments are part of
   // the transaction statement; the entry coordinator's own enter_call event
   // must match them, exactly as for an imported script call.
-  action begin_execution(script: MethodHash, arguments: StarstreamValue): bool = all {
+  action begin_execution(script: ScriptIdentity, arguments: StarstreamValue): bool = all {
     state.tx_phase == Loading,
     inputs_loaded,
     arguments.is_valid(),
@@ -409,7 +415,7 @@ module starstream {
   // A script identity binds the target contract and exported scalar signature.
   // Fresh instances are allocated on every imported call, even for the same script.
   // Resource arguments/results and their cross-instance translation are deferred.
-  action call_coordinator(script: MethodHash, arguments: StarstreamValue): bool = all {
+  action call_coordinator(script: ScriptIdentity, arguments: StarstreamValue): bool = all {
     action_allowed(CallCoordinator),
     state.curr.is_coord(),
     arguments.is_valid(),
@@ -417,7 +423,11 @@ module starstream {
   }
 
   // triggers on a call to a utxo main function, in a coord script context
-  action new_utxo(arguments: StarstreamValue): bool = {
+  //
+  // A constructor identity binds the target contract and UTXO export, as a
+  // script identity does for call_coordinator. The new instance must open with
+  // a matching enter_constructor.
+  action new_utxo(constructor: ConstructorIdentity, arguments: StarstreamValue): bool = {
     val caller = state.curr
     val target = Utxo(state.next_utxo_id)
 
@@ -435,7 +445,7 @@ module starstream {
             caller: caller,
             expected_arguments: arguments,
             expected_result: UNIT_VALUE,
-            expected_method: None,
+            expected_identity: Some(constructor),
             saved_phase: state.curr_cid_phase,
             saved_effect_head: state.effect_head,
             saved_effect_depth: state.effect_local_depth,
@@ -452,13 +462,14 @@ module starstream {
     }
   }
 
-  action enter_constructor(arguments: StarstreamValue): bool = all {
+  action enter_constructor(constructor: ConstructorIdentity, arguments: StarstreamValue): bool = all {
     all {
       action_allowed(EnterConstructor),
       state.curr.is_utxo(),
       arguments.is_valid(),
       state.call_stack.last().kind == ConstructorCall,
       state.call_stack.last().expected_arguments == arguments,
+      state.call_stack.last().expected_identity == Some(constructor),
 
       state' = {
         // Constructors establish generation zero without a preceding runtime
@@ -487,7 +498,7 @@ module starstream {
   }
 
   // triggers with utxo-context.implements-method(hash)
-  action register_method(method: MethodHash): bool = all {
+  action register_method(method: MethodSelector): bool = all {
     action_allowed(RegisterMethod),
     state.curr.is_utxo(),
     state.abi_method_count.get(state.curr) < 255,
@@ -575,7 +586,7 @@ module starstream {
   // a utxo
   action call_method(
     resource: ResourceHandle,
-    method: MethodHash,
+    method: MethodSelector,
     arguments: StarstreamValue
   ): bool = {
     val target = state.resource_resolver.get({
@@ -597,7 +608,7 @@ module starstream {
         caller: state.curr,
         expected_arguments: arguments,
         expected_result: UNIT_VALUE,
-        expected_method: Some(method),
+        expected_identity: Some(method),
         saved_phase: state.curr_cid_phase,
         saved_effect_head: state.effect_head,
         saved_effect_depth: state.effect_local_depth,
@@ -635,10 +646,9 @@ module starstream {
   // triggers immediately before entering the body of a called export: a utxo
   // method, an imported coordination script, or the transaction's entry script
   //
-  // this is attributed to the receiver. The identity is a method hash for a
-  // utxo and a (domain-separated) script identity for a coordinator.
+  // A UTXO enters with its method selector; a coordinator enters with its script identity.
   action enter_call(
-    method: MethodHash,
+    identity: EventIdentity,
     arguments: StarstreamValue
   ): bool = all {
     action_allowed(EnterCall),
@@ -646,7 +656,7 @@ module starstream {
 
     state.call_stack.last().kind == ProgramCall,
     state.call_stack.last().expected_arguments == arguments,
-    state.call_stack.last().expected_method == Some(method),
+    state.call_stack.last().expected_identity == Some(identity),
 
     state' = {
       curr_cid_phase: Executing,
@@ -674,7 +684,7 @@ module starstream {
 
   // Only scopes pushed by this invocation may be mutated, so a nonzero local
   // depth is required even when an inherited head has the same owner.
-  action add_effect_handler(effect: MethodHash): bool = all {
+  action add_effect_handler(effect: EffectIdentity): bool = all {
     action_allowed(AddEffectHandler),
     state.effect_local_depth > 0,
     match state.effect_head {
@@ -709,7 +719,7 @@ module starstream {
   }
 
   // A raise saves the visible head and local depth; search follows parent links.
-  action raise_effect(effect: MethodHash, arguments: StarstreamValue): bool = all {
+  action raise_effect(effect: EffectIdentity, arguments: StarstreamValue): bool = all {
     action_allowed(RaiseEffect),
     arguments.is_valid(),
     state' = {
@@ -718,7 +728,7 @@ module starstream {
         caller: state.curr,
         expected_arguments: arguments,
         expected_result: UNIT_VALUE,
-        expected_method: Some(effect),
+        expected_identity: Some(effect),
         saved_phase: state.curr_cid_phase,
         saved_effect_head: state.effect_head,
         saved_effect_depth: state.effect_local_depth,
@@ -736,7 +746,7 @@ module starstream {
     all {
       action_allowed(SkipEffectHandler),
       frame.kind == EffectCall,
-      match frame.expected_method {
+      match frame.expected_identity {
         | Some(effect) => match state.effect_head {
             | Some(id) => all {
                 not(state.effect_arena[id].effects.contains(effect)),
@@ -750,13 +760,13 @@ module starstream {
   }
 
 
-  action enter_effect_handler(frame_id: int, effect: MethodHash, arguments: StarstreamValue): bool = {
+  action enter_effect_handler(frame_id: int, effect: EffectIdentity, arguments: StarstreamValue): bool = {
     val frame = state.call_stack.last()
     all {
       action_allowed(EnterEffectHandler),
       arguments.is_valid(),
       frame.kind == EffectCall,
-      frame.expected_method == Some(effect),
+      frame.expected_identity == Some(effect),
       frame.expected_arguments == arguments,
       match state.effect_head {
         | Some(id) => {

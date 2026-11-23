@@ -4,6 +4,8 @@ use starstream_interleaving_spec::{
     InputUtxo, MethodHash, OutputUtxo, ResourceHandle, StarstreamValue, Step,
 };
 
+const CONSTRUCTOR: MethodHash = MethodHash([0xc; 8]);
+
 pub(crate) fn fixture() -> (Trace, TransactionStatement) {
     let method = MethodHash([1; 8]);
     let storage = StarstreamValue([11, 12, 13, 14]);
@@ -48,9 +50,11 @@ fn final_instance_roots_are_authenticated_by_memory() {
     let unit = StarstreamValue::UNIT_VALUE;
     let consumed = crate::tests::entered([
         Step::NewUtxo {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         Step::EnterConstructor {
+            constructor: CONSTRUCTOR,
             arguments: unit.clone(),
         },
         Step::Return {
@@ -417,7 +421,7 @@ fn entry_call_is_bound_to_the_statement_and_the_entry_event() {
         ));
     }
     // The entry coordinator's own event must name the called script and
-    // arguments: the frame pushed by the entry call is read back on entry.
+    // arguments: the entry call hands both to the entry step.
     let begin = normalized
         .steps
         .iter()
@@ -433,7 +437,7 @@ fn entry_call_is_bound_to_the_statement_and_the_entry_event() {
         range_check_layout()
             .assign_bits(&mut changed[begin])
             .unwrap();
-        // Refresh the transaction chain so only the frame read can reject.
+        // Refresh the transaction chain so only the hand-off can reject.
         let mut chain = [F::ZERO; 4];
         for (row, step) in changed.iter_mut().zip(&normalized.steps) {
             for (c, value) in COL_IO_BEFORE.into_iter().zip(chain) {
@@ -445,7 +449,8 @@ fn entry_call_is_bound_to_the_statement_and_the_entry_event() {
         assert!(
             matches!(
                 crate::verify_witness_rows(&changed, &preload),
-                Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
+                Err(Error::Unsatisfied(Unsatisfied::Constraint { step, constraint, .. }))
+                    if step == begin && constraint == "call hand-off registers"
             ),
             "column {column}"
         );
@@ -508,7 +513,6 @@ fn transaction_witness_tampering_is_rejected() {
             COL_COORD_CURSOR_BEFORE,
             F::new(2),
         ),
-        (Opcode::FinalizeCoordinator, COL_TRACE_ROOT_READ, F::ZERO),
     ] {
         let mut changed = rows.clone();
         let index = normalized
@@ -546,7 +550,7 @@ fn output_binding_reads_checked_witness_not_source_trace() {
         .iter()
         .position(|step| step.opcode == Opcode::GetStorage)
         .unwrap();
-    rows[index][COL_CALL_STACK_EXPECTED_RESULT_VALUE[0]] += F::ONE;
+    rows[index][COL_RESULT_ROOT[0]] += F::ONE;
     crate::commitment::assign_from_bus(&mut rows[index], Opcode::GetStorage);
     range_check_layout().assign_bits(&mut rows[index]).unwrap();
     let mut chain = [F::ZERO; 4];

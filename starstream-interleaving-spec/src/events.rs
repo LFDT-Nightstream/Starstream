@@ -9,7 +9,8 @@
 //! object-internal hashing is excluded, and unit is four literal zero words.
 
 use crate::{
-    BLOCK_SIZE, FIELD_MODULUS, METHOD_WORDS, MethodHash, Out, ResourceHandle, StarstreamValue, Step,
+    BLOCK_SIZE, EventIdentity, FIELD_MODULUS, METHOD_WORDS, Out, ResourceHandle, StarstreamValue,
+    Step,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,7 +144,7 @@ impl EventKind {
             words.extend((0..4).map(|i| if argument { Argument(i) } else { Result(i) }));
         };
         match self {
-            Self::SetStorage | Self::NewUtxo | Self::EnterConstructor => {
+            Self::SetStorage => {
                 root(&mut words, &mut last_root_block, true);
             }
             Self::GetStorage | Self::Return | Self::ResumeEffect | Self::ReceiveCallResult => {
@@ -160,7 +161,11 @@ impl EventKind {
                 words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, true);
             }
-            Self::EnterCall | Self::RaiseEffect | Self::CallCoordinator => {
+            Self::EnterCall
+            | Self::RaiseEffect
+            | Self::CallCoordinator
+            | Self::NewUtxo
+            | Self::EnterConstructor => {
                 words.extend((0..METHOD_WORDS).map(Method));
                 root(&mut words, &mut last_root_block, true);
             }
@@ -175,20 +180,17 @@ impl EventKind {
             }
         }
         words.resize(words.len().div_ceil(BLOCK_SIZE) * BLOCK_SIZE, Constant(0));
-        words
-            .chunks_exact(BLOCK_SIZE)
-            .map(|b| b.try_into().unwrap())
-            .collect()
+        words.as_chunks::<BLOCK_SIZE>().0.to_vec()
     }
 
-    /// Decode an event using this kind's layout. `expected_method`, when supplied,
-    /// is checked for method, effect, and coordinator identity events.
+    /// Decode an event using this kind's layout. `expected_identity`, when supplied,
+    /// is checked for method, effect, coordinator and constructor identity events.
     /// `entry_utxo_handle` is required for `SetStorage` and ignored otherwise:
     /// it is host metadata, absent from the committed blocks.
     pub fn decode(
         &self,
         blocks: &[[u64; BLOCK_SIZE]],
-        expected_method: Option<MethodHash>,
+        expected_identity: Option<EventIdentity>,
         entry_utxo_handle: Option<ResourceHandle>,
     ) -> Result<Step, EventCodecError> {
         let layout = self.blocks();
@@ -261,8 +263,8 @@ impl EventKind {
                 }
             }
         }
-        let method = MethodHash(method);
-        if let Some(expected) = expected_method
+        let method = EventIdentity(method);
+        if let Some(expected) = expected_identity
             && matches!(
                 self,
                 EventKind::CallMethod
@@ -270,6 +272,8 @@ impl EventKind {
                     | EventKind::RaiseEffect
                     | EventKind::EnterEffectHandler
                     | EventKind::CallCoordinator
+                    | EventKind::NewUtxo
+                    | EventKind::EnterConstructor
             )
             && method != expected
         {
@@ -299,12 +303,14 @@ impl EventKind {
                 storage: Out(result),
             },
             EventKind::NewUtxo => Step::NewUtxo {
+                constructor: method,
                 arguments: argument,
             },
             EventKind::ReceiveNewUtxoHandle => Step::ReceiveNewUtxoHandle {
                 resource: Out(ResourceHandle(resource)),
             },
             EventKind::EnterConstructor => Step::EnterConstructor {
+                constructor: method,
                 arguments: argument,
             },
             EventKind::YieldBegin => Step::YieldBegin,
@@ -369,9 +375,15 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         | Step::SkipEffectHandler
         | Step::FinalizeCoordinator
         | Step::FinishTransaction => unreachable!(),
-        Step::NewUtxo { arguments } => (0, None, Some(arguments), None),
+        Step::NewUtxo {
+            constructor,
+            arguments,
+        }
+        | Step::EnterConstructor {
+            constructor,
+            arguments,
+        } => (0, Some(constructor), Some(arguments), None),
         Step::ReceiveNewUtxoHandle { resource } => (resource.0.0, None, None, None),
-        Step::EnterConstructor { arguments } => (0, None, Some(arguments), None),
         Step::YieldBegin => (0, None, None, None),
         Step::RegisterMethod { method } => (0, Some(method), None, None),
         Step::PushEffectHandlerFrame { .. } | Step::PopEffectHandlerFrame => (0, None, None, None),
@@ -446,15 +458,15 @@ pub enum EventCodecError {
 
     #[error("committed method {actual:?} differs from the template's {expected:?}")]
     MethodMismatch {
-        expected: MethodHash,
-        actual: MethodHash,
+        expected: EventIdentity,
+        actual: EventIdentity,
     },
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
-        FIELD_MODULUS, MethodHash, Out, ResourceHandle, StarstreamValue, Step,
+        EventIdentity, FIELD_MODULUS, MethodHash, Out, ResourceHandle, StarstreamValue, Step,
         events::{EventCodecError, EventKind, encode},
     };
 
@@ -469,11 +481,17 @@ mod test {
                 entry_utxo_handle: ResourceHandle(7),
             },
             Step::GetStorage { storage: Out(ROOT) },
-            Step::NewUtxo { arguments: ROOT },
+            Step::NewUtxo {
+                constructor: METHOD,
+                arguments: ROOT,
+            },
             Step::ReceiveNewUtxoHandle {
                 resource: Out(ResourceHandle(7)),
             },
-            Step::EnterConstructor { arguments: ROOT },
+            Step::EnterConstructor {
+                constructor: METHOD,
+                arguments: ROOT,
+            },
             Step::YieldBegin,
             Step::RegisterMethod { method: METHOD },
             Step::Return { result: Out(ROOT) },
@@ -507,10 +525,18 @@ mod test {
         ]
     }
 
-    fn expected_method(step: &Step) -> Option<MethodHash> {
+    fn expected_identity(step: &Step) -> Option<EventIdentity> {
         match step {
             Step::CallMethod { method, .. }
             | Step::EnterCall { method, .. }
+            | Step::NewUtxo {
+                constructor: method,
+                ..
+            }
+            | Step::EnterConstructor {
+                constructor: method,
+                ..
+            }
             | Step::RaiseEffect { effect: method, .. }
             | Step::EnterEffectHandler { effect: method, .. } => Some(*method),
             _ => None,
@@ -521,7 +547,7 @@ mod test {
     fn every_program_event_round_trips_through_its_template() {
         for step in program_steps() {
             let kind = EventKind::for_step(&step).unwrap();
-            let expected_method = expected_method(&step);
+            let expected_identity = expected_identity(&step);
             let encoded = encode(&step);
             assert_eq!(encoded.len(), kind.blocks().len(), "{step:?}");
             assert_eq!(encoded[0][0], kind.tag() as u64, "{step:?}");
@@ -532,7 +558,7 @@ mod test {
                 _ => None,
             };
             assert_eq!(
-                kind.decode(&encoded, expected_method, entry_utxo_handle)
+                kind.decode(&encoded, expected_identity, entry_utxo_handle)
                     .unwrap(),
                 step
             );
@@ -660,11 +686,11 @@ mod test {
                 value: 1 << 40
             })
         );
-        let root_step = Step::NewUtxo { arguments: ROOT };
+        let root_step = Step::Return { result: Out(ROOT) };
         let mut encoded = encode(&root_step);
         encoded[0][1] = FIELD_MODULUS;
         assert_eq!(
-            EventKind::NewUtxo.decode(&encoded, None, None),
+            EventKind::Return.decode(&encoded, None, None),
             Err(EventCodecError::NonCanonicalField {
                 block: 0,
                 word: 1,

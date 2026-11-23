@@ -3,6 +3,7 @@ module coordinator_calls_test {
   import utils.* from "./utils"
 
   pure val ENTRY = "entry"
+  pure val CTOR = "constructor"
   action fresh = { state' = new_tx }
   run init = fresh
     .then(begin_execution(ENTRY, UNIT_VALUE))
@@ -67,7 +68,7 @@ module coordinator_calls_test {
     .then(receive_call_result({ value: RESULT }))
     .then(receive_call_result({ value: RESULT }).fail())
   run test_no_call_from_utxo = init
-    .then(new_utxo(UNIT_VALUE)).then(enter_constructor(UNIT_VALUE))
+    .then(new_utxo(CTOR, UNIT_VALUE)).then(enter_constructor(CTOR, UNIT_VALUE))
     .then(call_coordinator("A", ARG).fail())
   run test_unbalanced_scope_cannot_return = entered
     .then(push_effect_handler_frame(9))

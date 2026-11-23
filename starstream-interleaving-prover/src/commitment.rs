@@ -172,12 +172,13 @@ fn constrain_grouped_equalities(
     }
 }
 
-fn roots() -> [([usize; 4], [usize; 8]); 4] {
+/// Roots that go through 32-bit memory cells, with their limbs. Result roots
+/// only move through the carried hand-off register, so they have none.
+fn roots() -> [([usize; 4], [usize; 8]); 3] {
     [
         (COL_IN, COL_IN_WORDS),
         (COL_OUT, COL_OUT_WORDS),
         (COL_ARGUMENT_ROOT, COL_CALL_STACK_EXPECTED_ARG_VALUE),
-        (COL_RESULT_ROOT, COL_CALL_STACK_EXPECTED_RESULT_VALUE),
     ]
 }
 

@@ -110,5 +110,6 @@ tokio = { workspace = true, features = [
     "net",
     "rt-multi-thread",
 ] }
+toml = { workspace = true, features = ["display", "serde"] }
 wat = { workspace = true }
 wit-component = { workspace = true }

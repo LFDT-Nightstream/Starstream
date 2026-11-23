@@ -399,6 +399,7 @@ where
         args: Vec<CoordinationScriptArg>,
         results: &mut [Val],
         utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
+        prover: Option<&mut crate::client::runtime::TransactionProver>,
     ) -> anyhow::Result<Transaction> {
         let (tx, execution) = call_coordination_script(
             store,
@@ -411,6 +412,7 @@ where
             args,
             results,
             utxos,
+            prover,
         )
         .await?;
         if let Err(err) = execution {

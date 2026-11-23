@@ -548,13 +548,22 @@ impl fmt::Display for Qnt<&Step> {
             Step::ReadAbi { method } => write!(f, "read_abi({})", Qnt(method)),
             Step::FinishTransaction => f.write_str("finish_transaction"),
             Step::FinalizeCoordinator => f.write_str("finalize_coordinator"),
-            Step::NewUtxo { arguments } => write!(f, "new_utxo({})", Qnt(arguments)),
+            Step::NewUtxo {
+                constructor,
+                arguments,
+            } => write!(f, "new_utxo({}, {})", Qnt(constructor), Qnt(arguments)),
             Step::ReceiveNewUtxoHandle { resource } => {
                 write!(f, "receive_new_utxo_handle({})", Qnt(resource))
             }
-            Step::EnterConstructor { arguments } => {
-                write!(f, "enter_constructor({})", Qnt(arguments))
-            }
+            Step::EnterConstructor {
+                constructor,
+                arguments,
+            } => write!(
+                f,
+                "enter_constructor({}, {})",
+                Qnt(constructor),
+                Qnt(arguments)
+            ),
             Step::YieldBegin => f.write_str("yield_begin"),
             Step::RegisterMethod { method } => write!(f, "register_method({})", Qnt(method)),
             Step::Return { result } => write!(f, "return({})", Qnt(result)),
@@ -648,9 +657,11 @@ mod tests {
             &ENTRY,
             [
                 NewUtxo {
+                    constructor: MethodHash([2; 8]),
                     arguments: vec![0, 1, 2, 3].into(),
                 },
                 EnterConstructor {
+                    constructor: MethodHash([2; 8]),
                     arguments: vec![0, 1, 2, 3].into(),
                 },
                 RegisterMethod {
@@ -681,6 +692,7 @@ mod tests {
             &ENTRY,
             [
                 NewUtxo {
+                    constructor: MethodHash([2; 8]),
                     arguments: vec![0, 1, 2, 3].into(),
                 },
                 Return {

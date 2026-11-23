@@ -13,8 +13,9 @@ use starstream_interleaving_spec::{
     MethodHash, Out, OutputUtxo, QuintVerifier, ResourceHandle, StarstreamValue, Step, Trace,
     TransactionStatement,
 };
-use starstream_proving_runtime::effect_hash_from_names;
-use starstream_proving_runtime::{flat_value_root, method_hash_from_name};
+use starstream_proving_runtime::{
+    constructor_identity, effect_hash_from_names, flat_value_root, method_hash_from_name,
+};
 use wasmparser::ValType;
 use wasmtime::bail;
 
@@ -23,7 +24,7 @@ use crate::common::{
 };
 
 /// Batch size of the interleaving relation used by the checks below.
-const BATCH_SIZE: usize = 3;
+const BATCH_SIZE: usize = 16;
 
 const UNIT: StarstreamValue = StarstreamValue::UNIT_VALUE;
 
@@ -59,7 +60,35 @@ const UNHANDLED_EFFECT: &str = r#"
     }
 "#;
 
-/// The root a single `u64` argument commits to.
+/// Identity of the `new` constructor of `utxo`, as the contract that ran exports it.
+fn constructor(execution: &TracedExecution, utxo: &str) -> MethodHash {
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&execution.wasm).into();
+    constructor_identity(&execution.wasm, &digest, utxo, "new").unwrap()
+}
+
+#[test]
+fn constructor_identity_distinguishes_signatures_with_equal_inline_roots() {
+    let identity = |params: &str, args: &str| {
+        let source = MINIMAL_METHOD_CALL
+            .replace("initial: u64", params)
+            .replace("::new(55)", &format!("::new({args})"));
+        let wasm = common::compile_contract(&source);
+        // Fix the digest to isolate the parameter signature.
+        constructor_identity(&wasm, &[0; 32], "method-call-utxo", "new").unwrap()
+    };
+    assert_eq!(
+        flat_value_root(&[ValType::I64], &[7]),
+        flat_value_root(&[ValType::I32; 2], &[7, 0])
+    );
+    assert_ne!(identity("x: u64", "7"), identity("x: u32, y: u32", "7, 0"));
+    assert_ne!(identity("x: u32", "7"), identity("x: u8", "7"));
+    assert_ne!(
+        identity("x: (u32, u32)", "(7, 0)"),
+        identity("x: u32, y: u32", "7, 0")
+    );
+    assert_eq!(identity("x: u64", "7"), identity("renamed: u64", "7"));
+}
+
 fn u64_root(value: u64) -> StarstreamValue {
     flat_value_root(&[ValType::I64], &[value])
 }
@@ -137,9 +166,14 @@ fn constructed_resource(coordinator: &Trace) -> ResourceHandle {
 /// never at a `yield`, so a constructor's first yield registers its methods
 /// without a `YieldBegin`. The specification matches: constructor entry opens
 /// the initial ABI window.
-fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
+fn expected_minimal_method_call_traces(
+    execution: &TracedExecution,
+    resource: ResourceHandle,
+) -> [Trace; 2] {
+    let constructor = constructor(execution, "method-call-utxo");
     let coordinator = Trace::new([
         Step::NewUtxo {
+            constructor,
             arguments: u64_root(55),
         },
         Step::ReceiveNewUtxoHandle {
@@ -151,6 +185,7 @@ fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
     ]);
     let utxo = Trace::new([
         Step::EnterConstructor {
+            constructor,
             arguments: u64_root(55),
         },
         register("accept"),
@@ -162,10 +197,14 @@ fn expected_minimal_method_call_traces(resource: ResourceHandle) -> [Trace; 2] {
 }
 
 /// What the runtime emits for `examples/score.star`'s `example` script.
-fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
+fn expected_score_traces(execution: &TracedExecution, resource: ResourceHandle) -> [Trace; 2] {
+    let constructor = constructor(execution, "score-progress");
     let calls = [("plus_chips", 42), ("plus_mult", 2), ("mult_mult", 200)];
     let mut coordinator = vec![
-        Step::NewUtxo { arguments: UNIT },
+        Step::NewUtxo {
+            constructor,
+            arguments: UNIT,
+        },
         Step::ReceiveNewUtxoHandle {
             resource: Out(resource),
         },
@@ -175,7 +214,10 @@ fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
     }
     coordinator.push(ret());
 
-    let mut utxo = vec![Step::EnterConstructor { arguments: UNIT }];
+    let mut utxo = vec![Step::EnterConstructor {
+        constructor,
+        arguments: UNIT,
+    }];
     utxo.extend(
         [
             "get_chips",
@@ -198,14 +240,15 @@ fn expected_score_traces(resource: ResourceHandle) -> [Trace; 2] {
 /// the UTXO published in finalization.
 fn check_execution(
     execution: &TracedExecution,
-    expected: impl FnOnce(ResourceHandle) -> [Trace; 2],
+    expected: impl FnOnce(&TracedExecution, ResourceHandle) -> [Trace; 2],
 ) -> wasmtime::Result<StarstreamValue> {
     common::check_wasm_constraints(execution)?;
     let traces = execution.semantic_traces();
     let [coordinator, utxo] = traces.as_slice() else {
         bail!("expected one coordinator and one UTXO trace, got {traces:?}");
     };
-    let [expected_coordinator, expected_utxo] = expected(constructed_resource(coordinator));
+    let [expected_coordinator, expected_utxo] =
+        expected(execution, constructed_resource(coordinator));
     // The coordinator's body follows its entry event.
     assert_eq!(
         *coordinator,
@@ -408,13 +451,16 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
         })
         .collect();
     assert_eq!(handles.len(), 3);
+    let constructor = constructor(&execution, "counter-utxo");
     let mut expected = Vec::new();
     for (handle, initial) in handles.iter().zip([10, 20, 30]) {
         expected.extend([
             Step::NewUtxo {
+                constructor,
                 arguments: u64_root(initial),
             },
             Step::EnterConstructor {
+                constructor,
                 arguments: u64_root(initial),
             },
             register("increment"),
@@ -630,7 +676,7 @@ mod proving {
 
     fn prove_interleaving(execution: &TracedExecution) -> wasmtime::Result<()> {
         use starstream_interleaving_prover::proving::{
-            ProofConfig, TransactionProofContext, method_dictionary,
+            InterleavingProofContext, Limits, ProofConfig, method_dictionary,
         };
 
         let transaction = &execution.transaction;
@@ -648,17 +694,8 @@ mod proving {
         let mut config = if std::env::var_os("STARSTREAM_PROOF_TIGHT_MEMORY").is_some() {
             ProofConfig::for_trace_benchmark(&transaction.trace, batch_size, segment_batches)?
         } else {
-            let mut config = ProofConfig::small(batch_size)?;
-            let g = config.geometry;
-            config.geometry = nightstream::nebula::Geometry::new(
-                g.r,
-                g.mu,
-                g.b_ops,
-                segment_batches,
-                4096usize.checked_div(segment_batches).unwrap_or(0),
-            )
-            .ok_or_else(|| wasmtime::format_err!("invalid segment size"))?;
-            config
+            ProofConfig::for_limits(Limits::SMALL_DEFAULTS, batch_size)?
+                .with_segment_batches(segment_batches)?
         };
         config.engine = common::proof_engine();
         eprintln!(
@@ -667,8 +704,9 @@ mod proving {
             config.geometry,
             config.engine
         );
-        let context = TransactionProofContext::new(config, method_dictionary(&transaction.trace))
+        let context = InterleavingProofContext::new(config)
             .map_err(|error| wasmtime::format_err!("preprocessing failed: {error}"))?;
+        let methods = method_dictionary(&transaction.trace);
         eprintln!("interleaving preprocessing: {:?}", start.elapsed());
         let start = std::time::Instant::now();
         let proof = context
@@ -681,7 +719,12 @@ mod proving {
         eprintln!("interleaving proving: {:?}", start.elapsed());
         let start = std::time::Instant::now();
         context
-            .verify(&proof, &transaction.statement, &execution.commitments)
+            .verify(
+                &methods,
+                &proof,
+                &transaction.statement,
+                &execution.commitments,
+            )
             .map_err(|error| wasmtime::format_err!("verification failed: {error}"))?;
         eprintln!("interleaving verification: {:?}", start.elapsed());
 
@@ -690,7 +733,7 @@ mod proving {
             other_statement.outputs[0].storage.0[0].wrapping_add(1);
         assert!(
             context
-                .verify(&proof, &other_statement, &execution.commitments)
+                .verify(&methods, &proof, &other_statement, &execution.commitments)
                 .is_err(),
             "a proof must not verify against another statement"
         );
@@ -698,9 +741,60 @@ mod proving {
         other_commitments.get_mut(&2).expect("Coord(1)")[1] ^= 1;
         assert!(
             context
-                .verify(&proof, &transaction.statement, &other_commitments)
+                .verify(&methods, &proof, &transaction.statement, &other_commitments)
                 .is_err(),
             "a proof must not verify against other coroutine roots"
+        );
+        let start = std::time::Instant::now();
+        let setup = context
+            .compression_setup()
+            .map_err(|error| wasmtime::format_err!("compression setup failed: {error}"))?;
+        let key = context
+            .compression_key()
+            .map_err(|error| wasmtime::format_err!("compression key failed: {error}"))?;
+        eprintln!("interleaving compression setup: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        let compressed = context
+            .compress(&proof, &setup)
+            .map_err(|error| wasmtime::format_err!("compression failed: {error}"))?;
+        eprintln!("interleaving compression: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        context
+            .verify_compressed(
+                &methods,
+                &compressed,
+                &key,
+                &transaction.statement,
+                &execution.commitments,
+            )
+            .map_err(|error| wasmtime::format_err!("compressed verification failed: {error}"))?;
+        eprintln!(
+            "interleaving compressed verification: {:?}",
+            start.elapsed()
+        );
+        assert!(
+            context
+                .verify_compressed(
+                    &methods,
+                    &compressed,
+                    &key,
+                    &other_statement,
+                    &execution.commitments
+                )
+                .is_err(),
+            "a compressed proof must not verify against another statement"
+        );
+        assert!(
+            context
+                .verify_compressed(
+                    &methods,
+                    &compressed,
+                    &key,
+                    &transaction.statement,
+                    &other_commitments
+                )
+                .is_err(),
+            "a compressed proof must not verify against other coroutine roots"
         );
         Ok(())
     }
@@ -733,6 +827,7 @@ async fn minimal_method_call_runs_through_nebula() -> wasmtime::Result<()> {
     neo_wasm::memory_semantics::preload_host_event_tables(
         &mut preload,
         &execution.templates.bindings,
+        &execution.artifacts,
     );
     for instance in &execution.instances {
         let size = neo_wasm::nebula::WasmSize::for_run(&preload, &instance.trace)?;
@@ -740,7 +835,7 @@ async fn minimal_method_call_runs_through_nebula() -> wasmtime::Result<()> {
         let program = app.program(&preload)?;
         let mut run = nightstream::nebula::Run::new(app, &program, instance.trace[0].state_before);
         for segment in size.segments(&instance.trace)? {
-            run.segment(&segment)?;
+            run.segment(&segment?)?;
         }
         assert_eq!(*run.state(), instance.trace.last().unwrap().state_after);
     }

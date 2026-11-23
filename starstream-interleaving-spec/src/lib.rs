@@ -5,7 +5,8 @@ pub mod trace;
 
 pub use quint::{QuintError, QuintVerifier, VerificationFailure};
 pub use trace::{
-    EffectHash, EntryCall, InputUtxo, MethodHash, Out, OutputUtxo, ResourceHandle, StarstreamValue,
+    ConstructorIdentity, EffectHash, EffectIdentity, EntryCall, EventIdentity, InputUtxo,
+    MethodHash, MethodSelector, Out, OutputUtxo, ResourceHandle, ScriptIdentity, StarstreamValue,
     Step, Trace, TransactionStatement,
 };
 
