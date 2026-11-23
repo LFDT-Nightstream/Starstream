@@ -660,6 +660,61 @@ mod proving {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "Nebula proofs; run with --release --features proof-tests -- --ignored"]
+    async fn two_utxo_proofs_keep_order_and_bind_each_finalized_root() -> wasmtime::Result<()> {
+        use starstream_proving_runtime::{Engine, TransactionProver, decode_captured_execution};
+
+        let (contracts, _) = common::DISTINCT_UTXO_TYPES
+            .split_once("script fn example()")
+            .expect("two UTXO definitions followed by the example script");
+        let source = format!(
+            "{contracts}script fn spend() {{
+                let a = FinishableCounter::new(10);
+                let b = ResettableCounter::new(20);
+                b.advance();
+                a.finish();
+            }}"
+        );
+        let (traced, registry) =
+            common::trace_coordination_script_with_registry(&source, "spend").await?;
+        let mut execution = decode_captured_execution(&registry, [])?;
+        let [output] = execution.transaction.statement.outputs.as_slice() else {
+            panic!("expected one surviving UTXO");
+        };
+        assert_eq!(output.utxo, 1);
+        let ids = [0, 1, 2].map(common::coroutine_id);
+        assert_ne!(traced.commitments[&ids[1]], traced.commitments[&ids[2]]);
+        let wasm = traced.wasm;
+        let mut prover = TransactionProver::new(Engine::Optimized);
+        let (cold, _) = prover.prove(&registry, &execution)?;
+        let expected = cold.interleaving.to_bytes()?;
+        drop(cold);
+        let (warm, timings) = prover.prove(&registry, &execution)?;
+        assert!(timings.interleaving_circuit_reused);
+        assert!(timings.wasm.iter().all(|timing| timing.circuit_reused));
+        assert!(
+            warm.instances
+                .iter()
+                .map(|instance| instance.coroutine)
+                .eq(ids)
+        );
+        assert!(warm.interleaving.to_bytes()? == expected);
+        let verification = common::prepare_contract_verification(&wasm, "spend", &warm)?;
+        prover.verify(&warm, &verification, &execution.transaction.statement)?;
+        drop(warm);
+
+        execution.transaction.utxos.swap(0, 1);
+        let error = prover
+            .prove(&registry, &execution)
+            .err()
+            .expect("swapped Wasm owners");
+        assert!(
+            format!("{error:#}").contains("transaction commitment does not match the statement")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     #[ignore = "Nebula proof; run with --release --features proof-tests -- --ignored"]
     async fn minimal_method_call_transaction_proves_and_verifies() -> wasmtime::Result<()> {
         let execution = trace_coordination_script(MINIMAL_METHOD_CALL, "example").await?;

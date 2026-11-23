@@ -426,6 +426,28 @@ impl InterleavingProofContext {
         statement: &TransactionStatement,
         roots: &crate::TraceCommitments,
     ) -> Result<InterleavingProof, ProvingError> {
+        self.prove_transaction(trace, statement, super::Roots::Expected(Some(roots)))
+    }
+
+    /// Return the final communication roots from the checked transaction rows.
+    /// The caller must match these against the terminal states of its Wasm instances.
+    pub fn prove_with_finalized_roots(
+        &self,
+        trace: &Trace,
+        statement: &TransactionStatement,
+    ) -> Result<(InterleavingProof, crate::TraceCommitments), ProvingError> {
+        let mut roots = crate::TraceCommitments::new();
+        let proof =
+            self.prove_transaction(trace, statement, super::Roots::FromFinalization(&mut roots))?;
+        Ok((proof, roots))
+    }
+
+    fn prove_transaction(
+        &self,
+        trace: &Trace,
+        statement: &TransactionStatement,
+        roots: super::Roots<'_>,
+    ) -> Result<InterleavingProof, ProvingError> {
         let normalized = normalize(trace);
         let padding = normalized
             .steps
@@ -433,8 +455,7 @@ impl InterleavingProofContext {
             .ok_or(ProvingError::EmptyTrace)?
             .padding_after();
         let program = program(&self.app, &normalized.method_table)?;
-        let mut packed =
-            super::check_normalized(&self.batch, normalized, Some(roots), Some(statement))?;
+        let mut packed = super::check_normalized(&self.batch, normalized, roots, Some(statement))?;
         let final_state = final_state(&self.batch, &packed);
         pad_to_segments(&self.batch, &mut packed, padding, &self.config.geometry)?;
         let mut run = self.prover.start(&program, state_words(&initial_state()))?;

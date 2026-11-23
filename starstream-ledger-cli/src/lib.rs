@@ -664,6 +664,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                     setup = ?timings.total.setup,
                     proving = ?timings.total.proving,
                     compression = ?timings.total.compression,
+                    prove_compress_wall = ?timings.prove_compress_wall,
                     "proved and verified the transaction"
                 );
             } else if let Err(err) = execution {

@@ -13,6 +13,7 @@ proof-tests = []
 metal = ["nightstream/metal", "starstream-interleaving-prover/metal"]
 
 [dependencies]
+rayon = "1.12"
 minicbor = { workspace = true, features = ["derive", "std"] }
 multibase = { workspace = true }
 multihash = { workspace = true }

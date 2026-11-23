@@ -337,6 +337,28 @@ impl TracedExecution {
     }
 }
 
+#[cfg(feature = "proof-tests")]
+pub fn prepare_contract_verification(
+    wasm: &[u8],
+    script: &str,
+    proof: &starstream_proving_runtime::TransactionProof,
+) -> wasmtime::Result<starstream_proving_runtime::PreparedVerification> {
+    use starstream_proving_runtime::{VerificationProgram, prepare_verification};
+
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(wasm).into();
+    prepare_verification(
+        &[VerificationProgram {
+            wasm,
+            coordination_exports: &[script],
+            is_original_image: true,
+            input_utxos: &[],
+            new_utxos: &[],
+            contract_digest: &digest,
+        }],
+        proof.instances.iter().map(|instance| instance.size),
+    )
+}
+
 /// The interleaving prover's packed coroutine id of core instance `index`:
 /// instance 0 is the coordination script `Coord(1)`, later instances are
 /// `Utxo(0)`, `Utxo(1)`, ... in allocation order.
@@ -392,6 +414,15 @@ pub async fn trace_coordination_script(
     source: &str,
     script: &str,
 ) -> wasmtime::Result<TracedExecution> {
+    Ok(trace_coordination_script_with_registry(source, script)
+        .await?
+        .0)
+}
+
+pub async fn trace_coordination_script_with_registry(
+    source: &str,
+    script: &str,
+) -> wasmtime::Result<(TracedExecution, neo_wasm::WasmtimeTraceRegistry)> {
     let wasm = wit_component::ComponentEncoder::default()
         .validate(true)
         .module(&compile_contract(source))
@@ -492,15 +523,18 @@ pub async fn trace_coordination_script(
         commitments.insert(coroutine_id(index), chain);
     }
 
-    Ok(TracedExecution {
-        wasm,
-        templates,
-        artifacts,
-        instances,
-        transaction,
-        commitments,
-        storage: storage_records,
-    })
+    Ok((
+        TracedExecution {
+            wasm,
+            templates,
+            artifacts,
+            instances,
+            transaction,
+            commitments,
+            storage: storage_records,
+        },
+        ctx.traces,
+    ))
 }
 
 /// Expected count and suspended constructor state for STORAGE_COUNTER, run
