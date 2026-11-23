@@ -322,8 +322,7 @@ spec (e.g., `i64`, `bool`, `CustomType`). Structured annotations nest
 additional `type_annotation` instances: generic parameters between `<…>` and
 anonymous tuples between `(…)`, as described in the [Types](#types) section.
 Record and enum shapes must first be declared via `struct`/`enum` definitions
-before they can be referenced. The name `_` means "unspecified", a free type
-variable subject to inference.
+before they can be referenced.
 
 The following reserved words may not be used as identifiers:
 
@@ -342,7 +341,6 @@ The following reserved words may not be used as identifiers:
 - `enum`
 - `match`
 - `abi`
-- `event`
 - `emit`
 - `error`
 - `import`
@@ -353,9 +351,14 @@ The following reserved words may not be used as identifiers:
 - `disclose`
 - `is`
 - `yield`
-- `contract`
 - `try`
 - `with`
+
+The other words in the grammar are contextual keywords: `burn`, `contract`,
+`effect`, `event`, `impl`, `indexed`, `main`, `mint`, `script`, `storage`,
+`test`, `token` and `utxo`. They appear only in places where an identifier
+can't, such as the start of a definition or inside a `utxo`, `token` or `abi`
+body, so they are still valid identifiers elsewhere.
 
 <!--
   NOTE: When updating this grammar, also update:
