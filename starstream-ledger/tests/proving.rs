@@ -166,6 +166,16 @@ async fn coordination_script_loads_existing_utxo() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Result<()> {
+    for external_id in [
+        encode_digest(&SCORE_WASM_DIGEST).to_uppercase(),
+        hex::encode(*SCORE_WASM_DIGEST),
+    ] {
+        check_imported_utxo(&external_id).await?;
+    }
+    Ok(())
+}
+
+async fn check_imported_utxo(external_id: &str) -> anyhow::Result<()> {
     let digest = encode_digest(&SCORE_WASM_DIGEST);
     let wat = wasmprinter::print_bytes(&*SCORE_WASM)?
         .replace(
@@ -175,8 +185,7 @@ async fn coordination_script_calls_utxo_from_another_contract() -> anyhow::Resul
         .replacen(
             "(import \"starstream:utxo/score-progress\" (instance",
             &format!(
-                "(import \"starstream:utxo/score-progress\" (external-id \"{}\") (instance",
-                digest.to_uppercase()
+                "(import \"starstream:utxo/score-progress\" (external-id \"{external_id}\") (instance"
             ),
             1,
         );

@@ -25,7 +25,7 @@ use crate::runtime::{apply_state, parse_state};
 use crate::wrpc::codec::{ValEncoder, read_value};
 use crate::{
     CardanoCtx, Transaction, TransactionEvent, TransactionInput, TransactionOutput, encode_digest,
-    parse_digest,
+    parse_contract_external_id, parse_digest,
 };
 
 #[cfg(feature = "proving")]
@@ -98,7 +98,7 @@ pub async fn compile_contract(
             &self,
             external_id: &str,
         ) -> wasmtime::Result<starstream_runtime::Contract<Ctx>> {
-            let digest = parse_digest(external_id)?;
+            let digest = parse_contract_external_id(external_id)?;
             let contract = self.0.get(&digest).with_context(|| {
                 error!(external_id, "unresolved contract import");
                 format!("contract identified by `external-id` `{external_id}` not found")
@@ -127,9 +127,7 @@ pub async fn compile_contract(
         .map(|import| import.map(|UtxoImport { external_id, .. }| external_id));
     for external_id in utxo_external_ids.chain(script_external_ids.into_iter().flatten()) {
         let external_id = external_id?;
-        let digest = parse_digest(external_id).with_context(|| {
-            format!("failed to parse `external-id` `{external_id}` as multibase multihash")
-        })?;
+        let digest = parse_contract_external_id(external_id)?;
         let wasm = match imports.get(&digest) {
             Some(Contract {
                 contract: Some(..), ..
@@ -332,7 +330,7 @@ pub async fn call_coordination_script(
             instance: utxo.instance(),
         };
         let (contract, wasm) = if let Some(external_id) = cx.external_id.as_deref() {
-            let digest = parse_digest(external_id)?;
+            let digest = parse_contract_external_id(external_id)?;
             let Contract { wasm, .. } = imports
                 .get(&digest)
                 .with_context(|| format!("`{external_id}` import not found"))?;
