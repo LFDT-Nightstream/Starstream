@@ -1,17 +1,21 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Expr, Spanned};
 
-use crate::parser::{ParserExt, context::Extra, primitives};
+use crate::parser::{
+    ParserExt,
+    context::{Extra, ParserInput},
+    primitives,
+};
 
-pub fn integer<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+pub fn integer<'a>() -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     primitives::integer_literal().map(Expr::Literal).spanned()
 }
 
-pub fn boolean<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+pub fn boolean<'a>() -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     primitives::boolean_literal().map(Expr::Literal).spanned()
 }
 
-pub fn unit<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+pub fn unit<'a>() -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     primitives::unit_literal().map(Expr::Literal).spanned()
 }
 

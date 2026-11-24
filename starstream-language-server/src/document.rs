@@ -2910,6 +2910,35 @@ script fn example() -> i64 {
     }
 
     #[test]
+    fn argument_mismatch_points_into_the_imported_file() {
+        let main =
+            "import { add } from \"./lib.star\";\n\nfn main() -> i64 {\n    add(true, 2)\n}\n";
+        let state = analyse_main(&[("/ws/lib.star", LIB), ("/ws/main.star", main)]);
+        assert_eq!(state.diagnostics.len(), 1, "{:?}", state.diagnostics);
+        let related = state.diagnostics[0]
+            .related_information
+            .as_deref()
+            .unwrap_or_default();
+        assert_eq!(related.len(), 1, "{related:?}");
+        assert_eq!(related[0].message, "parameter expects `i64`");
+        // The `i64` of `a: i64` in lib.star, not that offset in main.star.
+        assert_eq!(related[0].location.uri.as_str(), "file:///ws/lib.star");
+        assert_eq!(
+            related[0].location.range,
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 10
+                },
+                end: Position {
+                    line: 0,
+                    character: 13
+                },
+            }
+        );
+    }
+
+    #[test]
     fn missing_import_is_reported_on_the_import() {
         let state = analyse_main(&[("/ws/main.star", "import { add } from \"./nope.star\";\n")]);
         assert_eq!(state.diagnostics.len(), 1, "{:?}", state.diagnostics);

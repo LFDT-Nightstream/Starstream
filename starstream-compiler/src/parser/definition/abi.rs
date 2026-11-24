@@ -1,9 +1,13 @@
 use chumsky::prelude::*;
 use starstream_types::{AbiDef, AbiMethodDecl, AbiPart, EffectDef, EventDef, ast::FunctionParam};
 
-use crate::parser::{comment, context::Extra, primitives, type_annotation};
+use crate::parser::{
+    comment,
+    context::{Extra, ParserInput},
+    primitives, type_annotation,
+};
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, AbiDef, Extra<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, ParserInput<'a>, AbiDef, Extra<'a>> {
     // WARNING: Must use .then() not .ignore_then() — chumsky optimizes away side effects in ignored parsers.
     let comments_padding = comment::comment_collecting()
         .padded()
@@ -33,7 +37,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, AbiDef, Extra<'a>> {
         .map(|(name, parts)| AbiDef { name, parts })
 }
 
-fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
+fn event_definition<'a>() -> impl Parser<'a, ParserInput<'a>, EventDef, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
 
     let parameter = text::keyword("pub")
@@ -66,7 +70,7 @@ fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
         })
 }
 
-fn effect_definition<'a>() -> impl Parser<'a, &'a str, EffectDef, Extra<'a>> {
+fn effect_definition<'a>() -> impl Parser<'a, ParserInput<'a>, EffectDef, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
 
     let parameter = text::keyword("pub")
@@ -101,7 +105,7 @@ fn effect_definition<'a>() -> impl Parser<'a, &'a str, EffectDef, Extra<'a>> {
         })
 }
 
-fn fn_decl_definition<'a>() -> impl Parser<'a, &'a str, AbiMethodDecl, Extra<'a>> {
+fn fn_decl_definition<'a>() -> impl Parser<'a, ParserInput<'a>, AbiMethodDecl, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
 
     let parameter = primitives::identifier()
@@ -141,7 +145,7 @@ mod tests {
     macro_rules! assert_abi_snapshot {
         ($code:expr) => {{
             let parsed = parser()
-                .parse(indoc! { $code })
+                .parse(indoc! { $code }.with_context(starstream_types::ModuleId::ENTRY))
                 .into_result()
                 .expect("abi should parse");
 
@@ -244,7 +248,9 @@ mod tests {
     fn public_function_modifier_rejected() {
         assert!(
             parser()
-                .parse("abi Extra { pub fn value(); }")
+                .parse(
+                    "abi Extra { pub fn value(); }".with_context(starstream_types::ModuleId::ENTRY)
+                )
                 .into_result()
                 .is_err()
         );

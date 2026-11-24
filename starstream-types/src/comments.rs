@@ -201,7 +201,7 @@ mod tests {
     use chumsky::span::Span as SpanTrait;
 
     fn span(start: usize, end: usize) -> Span {
-        Span::new((), start..end)
+        Span::new(crate::ModuleId::ENTRY, start..end)
     }
 
     fn comment(start: usize, end: usize) -> Comment {

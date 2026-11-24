@@ -1,9 +1,9 @@
 use chumsky::{
     error::Rich,
     extra::{self, SimpleState},
-    input,
+    input::{self, WithContext},
 };
-use starstream_types::{Comment, CommentMap};
+use starstream_types::{Comment, CommentMap, Span};
 
 /// Starstream Parser State
 #[derive(Default)]
@@ -22,6 +22,10 @@ impl State {
     }
 }
 
-pub type Extra<'a> = extra::Full<Rich<'a, char>, SimpleState<State>, ()>;
+/// Source text tagged with the module it belongs to, so every span the parser
+/// produces records which file it points into.
+pub type ParserInput<'a> = WithContext<Span, &'a str>;
+
+pub type Extra<'a> = extra::Full<Rich<'a, char, Span>, SimpleState<State>, ()>;
 #[allow(dead_code)]
-pub type MapExtra<'a, 'b> = input::MapExtra<'a, 'b, &'a str, Extra<'a>>;
+pub type MapExtra<'a, 'b> = input::MapExtra<'a, 'b, ParserInput<'a>, Extra<'a>>;

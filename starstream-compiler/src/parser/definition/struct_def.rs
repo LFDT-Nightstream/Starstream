@@ -1,9 +1,13 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{StructDef, StructField};
 
-use crate::parser::{comment, context::Extra, primitives, type_annotation};
+use crate::parser::{
+    comment,
+    context::{Extra, ParserInput},
+    primitives, type_annotation,
+};
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, StructDef, Extra<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, ParserInput<'a>, StructDef, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
 
     // Collect comments for CommentMap.
@@ -63,7 +67,7 @@ mod tests {
     macro_rules! assert_struct_snapshot {
         ($code:expr) => {{
             let parsed = parser()
-                .parse(indoc! { $code })
+                .parse(indoc! { $code }.with_context(starstream_types::ModuleId::ENTRY))
                 .into_result()
                 .expect("struct should parse");
 

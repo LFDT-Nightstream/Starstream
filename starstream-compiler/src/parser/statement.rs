@@ -6,12 +6,16 @@ use starstream_types::{
 
 use crate::parser::pattern::{pattern, tuple_pattern};
 
-use super::{ParserExt, context::Extra, primitives, type_annotation};
+use super::{
+    ParserExt,
+    context::{Extra, ParserInput},
+    primitives, type_annotation,
+};
 
 pub fn block<'a>(
-    statement: impl Parser<'a, &'a str, Statement, Extra<'a>> + 'a,
-    expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + 'a,
-) -> impl Parser<'a, &'a str, Block, Extra<'a>> + Clone {
+    statement: impl Parser<'a, ParserInput<'a>, Statement, Extra<'a>> + 'a,
+    expr: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Block, Extra<'a>> + Clone {
     statement
         .spanned()
         .repeated()
@@ -27,9 +31,9 @@ pub fn block<'a>(
 }
 
 pub fn statement<'a>(
-    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
-    expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
+    block: impl Parser<'a, ParserInput<'a>, Block, Extra<'a>> + Clone + 'a,
+    expr: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Statement, Extra<'a>> {
     let variable_declaration = text::keyword("let")
         .padded()
         .ignore_then(text::keyword("pub").padded().or_not())
@@ -145,7 +149,7 @@ mod tests {
         ($code:expr) => {{
             let (statement, _, _) = $crate::parser::recursives();
             let stmt = statement
-                .parse(indoc! { $code })
+                .parse(indoc! { $code }.with_context(starstream_types::ModuleId::ENTRY))
                 .into_result()
                 .expect("statement should parse");
 

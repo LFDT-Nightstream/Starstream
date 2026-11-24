@@ -1,11 +1,16 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Expr, Spanned, StructFieldInitializer};
 
-use crate::parser::{ParserExt, context::Extra, expression::primary::scoped_name, primitives};
+use crate::parser::{
+    ParserExt,
+    context::{Extra, ParserInput},
+    expression::primary::scoped_name,
+    primitives,
+};
 
 pub fn struct_constructor<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     scoped_name()
         .then(
             field_initializer(expression)
@@ -19,8 +24,8 @@ pub fn struct_constructor<'a>(
 }
 
 pub fn field_initializer<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, StructFieldInitializer, Extra<'a>> {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, StructFieldInitializer, Extra<'a>> {
     primitives::identifier()
         .then_ignore(just(':').padded())
         .then(expression)

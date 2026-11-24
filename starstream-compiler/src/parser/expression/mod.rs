@@ -1,10 +1,10 @@
-use chumsky::{prelude::*, span::SimpleSpan};
+use chumsky::prelude::*;
 use starstream_types::{
-    Block,
+    Block, Span,
     ast::{BinaryOp, Expr, Spanned},
 };
 
-use super::context::Extra;
+use super::context::{Extra, ParserInput};
 
 /// Test helper macro for expression snapshot tests.
 /// Defined here so all expression submodules can use it.
@@ -16,7 +16,7 @@ macro_rules! assert_expression_snapshot {
 
         let (_, _, expr) = $crate::parser::recursives();
         let parsed = expr
-            .parse(indoc! { $code })
+            .parse(indoc! { $code }.with_context(starstream_types::ModuleId::ENTRY))
             .into_result()
             .expect("expression should parse");
 
@@ -43,9 +43,9 @@ mod unary;
 pub use primary::primary;
 
 pub fn expr<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+    block: impl Parser<'a, ParserInput<'a>, Block, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone {
     let primary_parser = primary(expression.clone(), block).boxed();
     let postfix = postfix::parser(primary_parser, expression.clone()).boxed();
     let unary = unary::parser(postfix).boxed();
@@ -59,9 +59,9 @@ pub fn expr<'a>(
 }
 
 pub(super) fn chain<'a>(
-    lower: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-    operator: impl Parser<'a, &'a str, BinaryOp, Extra<'a>>,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    lower: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+    operator: impl Parser<'a, ParserInput<'a>, BinaryOp, Extra<'a>>,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     let tail = operator.then(lower.clone());
 
     lower.foldl(tail.repeated(), |lhs, (op, rhs)| combine(lhs, op, rhs))
@@ -80,11 +80,11 @@ fn combine(lhs: Spanned<Expr>, op: BinaryOp, rhs: Spanned<Expr>) -> Spanned<Expr
     )
 }
 
-fn span_union(a: SimpleSpan, b: SimpleSpan) -> SimpleSpan {
+fn span_union(a: Span, b: Span) -> Span {
     let start = a.start.min(b.start);
     let end = a.end.max(b.end);
 
-    SimpleSpan::from(start..end)
+    Span::new(a.context, start..end)
 }
 
 #[cfg(test)]

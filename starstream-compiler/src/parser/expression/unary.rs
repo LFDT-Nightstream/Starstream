@@ -1,11 +1,14 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Expr, Spanned, UnaryOp};
 
-use crate::parser::{ParserExt, context::Extra};
+use crate::parser::{
+    ParserExt,
+    context::{Extra, ParserInput},
+};
 
 pub fn parser<'a>(
-    base: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    base: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     recursive(|unary_parser| {
         let negate = just('-')
             .padded()

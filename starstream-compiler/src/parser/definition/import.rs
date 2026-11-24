@@ -1,9 +1,12 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{ImportDef, ImportItems, ImportNamedItem, ImportSource};
 
-use crate::parser::{context::Extra, primitives};
+use crate::parser::{
+    context::{Extra, ParserInput},
+    primitives,
+};
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, ImportDef, Extra<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, ParserInput<'a>, ImportDef, Extra<'a>> {
     let named_item = primitives::identifier()
         .then(
             text::keyword("as")
@@ -56,7 +59,7 @@ mod tests {
     macro_rules! assert_import_snapshot {
         ($code:expr) => {{
             let parsed = parser()
-                .parse(indoc! { $code })
+                .parse(indoc! { $code }.with_context(starstream_types::ModuleId::ENTRY))
                 .into_result()
                 .expect("import should parse");
 

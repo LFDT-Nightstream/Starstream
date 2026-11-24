@@ -1,9 +1,13 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Expr, Spanned};
 
-use crate::parser::{ParserExt, context::Extra, primitives::identifier};
+use crate::parser::{
+    ParserExt,
+    context::{Extra, ParserInput},
+    primitives::identifier,
+};
 
-pub fn yield_<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+pub fn yield_<'a>() -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     text::keyword("yield")
         .padded()
         .ignore_then(

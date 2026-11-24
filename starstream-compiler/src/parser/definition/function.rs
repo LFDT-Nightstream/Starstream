@@ -4,9 +4,12 @@ use starstream_types::{
     ast::{FunctionDef, FunctionParam},
 };
 
-use crate::parser::{context::Extra, primitives, type_annotation};
+use crate::parser::{
+    context::{Extra, ParserInput},
+    primitives, type_annotation,
+};
 
-fn parameter<'a>() -> impl Parser<'a, &'a str, FunctionParam, Extra<'a>> {
+fn parameter<'a>() -> impl Parser<'a, ParserInput<'a>, FunctionParam, Extra<'a>> {
     text::keyword("pub")
         .padded()
         .or_not()
@@ -20,7 +23,7 @@ fn parameter<'a>() -> impl Parser<'a, &'a str, FunctionParam, Extra<'a>> {
         })
 }
 
-fn parameter_list<'a>() -> impl Parser<'a, &'a str, Vec<FunctionParam>, Extra<'a>> {
+fn parameter_list<'a>() -> impl Parser<'a, ParserInput<'a>, Vec<FunctionParam>, Extra<'a>> {
     parameter()
         .separated_by(just(',').padded())
         .allow_trailing()
@@ -28,7 +31,7 @@ fn parameter_list<'a>() -> impl Parser<'a, &'a str, Vec<FunctionParam>, Extra<'a
         .delimited_by(just('(').padded(), just(')').padded())
 }
 
-fn return_type<'a>() -> impl Parser<'a, &'a str, Option<TypeAnnotation>, Extra<'a>> {
+fn return_type<'a>() -> impl Parser<'a, ParserInput<'a>, Option<TypeAnnotation>, Extra<'a>> {
     just("->")
         .padded()
         .ignore_then(type_annotation::parser().boxed())
@@ -38,8 +41,8 @@ fn return_type<'a>() -> impl Parser<'a, &'a str, Option<TypeAnnotation>, Extra<'
 // Note: FunctionDef's export is not parsed, always None.
 // Maybe splitting another struct out is cleaner long-term?
 pub fn function<'a>(
-    block: impl Parser<'a, &'a str, Block, Extra<'a>>,
-) -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
+    block: impl Parser<'a, ParserInput<'a>, Block, Extra<'a>>,
+) -> impl Parser<'a, ParserInput<'a>, FunctionDef, Extra<'a>> {
     text::keyword("fn")
         .padded()
         .ignore_then(primitives::identifier())
@@ -59,8 +62,8 @@ pub fn function<'a>(
 ///
 /// Like `script fn foo(bar: i32) -> i32 { bar }`.
 pub fn function_with_export<'a>(
-    block: impl Parser<'a, &'a str, Block, Extra<'a>>,
-) -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
+    block: impl Parser<'a, ParserInput<'a>, Block, Extra<'a>>,
+) -> impl Parser<'a, ParserInput<'a>, FunctionDef, Extra<'a>> {
     function_export()
         .padded()
         .or_not()
@@ -68,7 +71,7 @@ pub fn function_with_export<'a>(
         .map(|(export, func)| FunctionDef { export, ..func })
 }
 
-fn function_export<'a>() -> impl Parser<'a, &'a str, FunctionExport, Extra<'a>> {
+fn function_export<'a>() -> impl Parser<'a, ParserInput<'a>, FunctionExport, Extra<'a>> {
     choice((text::keyword("script").map(|_| FunctionExport::Script),))
 }
 
@@ -81,7 +84,7 @@ mod tests {
         ($code:expr) => {{
             let (_, block, _) = $crate::parser::recursives();
             let parsed = function_with_export(block)
-                .parse(indoc! { $code })
+                .parse(indoc! { $code }.with_context(starstream_types::ModuleId::ENTRY))
                 .into_result()
                 .expect("function should parse");
 
@@ -125,7 +128,7 @@ mod tests {
         let (_, block, _) = crate::parser::recursives();
         assert!(
             function_with_export(block)
-                .parse("pub fn value() {}")
+                .parse("pub fn value() {}".with_context(starstream_types::ModuleId::ENTRY))
                 .into_result()
                 .is_err()
         );

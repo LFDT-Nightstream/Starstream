@@ -902,7 +902,7 @@ fn pattern_span(pattern: &TypedPattern) -> Option<Span> {
 /// Merges two spans into one that covers both
 fn merge_spans(a: Span, b: Span) -> Span {
     use chumsky::span::Span as _;
-    Span::new((), a.start.min(b.start)..a.end.max(b.end))
+    Span::new(a.context, a.start.min(b.start)..a.end.max(b.end))
 }
 
 #[cfg(test)]

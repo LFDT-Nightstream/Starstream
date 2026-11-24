@@ -4,7 +4,7 @@ use starstream_types::{
     ast::{Identifier, IntegerLiteral, IntegerRadix, Literal},
 };
 
-use super::context::Extra;
+use super::context::{Extra, ParserInput};
 
 /// The list of "strict keywords" / "reserved words" that cannot be used as
 /// identifiers.
@@ -25,7 +25,7 @@ const KEYWORDS: &[&str] = &[
     "match", "abi", "emit", "import", "from", "as", "raise", "runtime", "disclose", "is", "yield",
     "resume", "try", "with", "error",
 ];
-pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> + Clone {
+pub fn identifier<'a>() -> impl Parser<'a, ParserInput<'a>, Identifier, Extra<'a>> + Clone {
     text::ident()
         .try_map(|ident: &'a str, span| {
             if KEYWORDS.contains(&ident) {
@@ -40,7 +40,7 @@ pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> + Clo
         .padded()
 }
 
-pub fn string_literal<'a>() -> impl Parser<'a, &'a str, StringLiteral, Extra<'a>> + Clone {
+pub fn string_literal<'a>() -> impl Parser<'a, ParserInput<'a>, StringLiteral, Extra<'a>> + Clone {
     // Inline string literal: `"…"` with `\\`, `\"`, `\n`, `\r`, `\t` escapes.
     let escape = just('\\').ignore_then(choice((
         just('\\').to('\\'),
@@ -62,7 +62,7 @@ pub fn string_literal<'a>() -> impl Parser<'a, &'a str, StringLiteral, Extra<'a>
         )
 }
 
-pub fn integer_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
+pub fn integer_literal<'a>() -> impl Parser<'a, ParserInput<'a>, Literal, Extra<'a>> + Clone {
     let with_radix = |radix: IntegerRadix| {
         just(radix.prefix())
             .ignore_then(text::digits(radix.base()).to_slice())
@@ -81,7 +81,7 @@ pub fn integer_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + C
     .boxed()
 }
 
-pub fn boolean_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
+pub fn boolean_literal<'a>() -> impl Parser<'a, ParserInput<'a>, Literal, Extra<'a>> + Clone {
     choice((
         text::keyword("true").to(true),
         text::keyword("false").to(false),
@@ -91,11 +91,11 @@ pub fn boolean_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + C
     .boxed()
 }
 
-pub fn unit_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
+pub fn unit_literal<'a>() -> impl Parser<'a, ParserInput<'a>, Literal, Extra<'a>> + Clone {
     just("()").padded().to(Literal::Unit).boxed()
 }
 
-pub fn scoped_name<'a>() -> impl Parser<'a, &'a str, ScopedName, Extra<'a>> + Clone {
+pub fn scoped_name<'a>() -> impl Parser<'a, ParserInput<'a>, ScopedName, Extra<'a>> + Clone {
     identifier()
         .separated_by(just("::"))
         .at_least(1)

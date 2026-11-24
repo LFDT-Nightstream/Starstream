@@ -1,0 +1,43 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/multifile/cross_file_argument_label
+---
+==== Workspace ====
+ModuleGraph {
+    modules.len(): 2,
+    topo_order: [
+        ModuleId(0),
+        ModuleId(1),
+    ],
+    edges: {
+        ModuleId(1): [
+            PathImport {
+                def_index: 1,
+                target: ModuleId(0),
+                span: 38..60,
+            },
+        ],
+    },
+    contract_entries: [
+        ModuleId(1),
+    ],
+}
+==== Type error ====
+]8;;https://starstream.nightstream.dev/errors/E0031\E0031 (link)]8;;\
+
+  x argument 1 has type `i64` but `bool` was expected
+   ,-[$PWD/tests/multifile/cross_file_argument_label/main.star:6:16]
+ 5 | script fn run() -> i64 {
+ 6 |     takes_bool(5)
+   :                ^
+ 7 | }
+   `----
+
+Advice: 
+  > parameter expects `bool`
+    ,-[$PWD/tests/multifile/cross_file_argument_label/helpers/flags.star:13:21]
+ 12 | 
+ 13 | fn takes_bool(flag: bool) -> i64 {
+    :                     ^^^^
+ 14 |     if (flag) {
+    `----

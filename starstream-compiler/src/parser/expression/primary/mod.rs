@@ -1,7 +1,11 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Block, Expr, Spanned};
 
-use crate::parser::{ParserExt, context::Extra, primitives::scoped_name};
+use crate::parser::{
+    ParserExt,
+    context::{Extra, ParserInput},
+    primitives::scoped_name,
+};
 
 mod disclose;
 mod emit_raise_runtime;
@@ -20,9 +24,9 @@ pub use struct_constructor::struct_constructor;
 pub use yield_::yield_;
 
 pub fn primary<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone {
+    expression: impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+    block: impl Parser<'a, ParserInput<'a>, Block, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> + Clone {
     let grouping = expression
         .clone()
         .delimited_by(just('(').padded(), just(')').padded())
@@ -66,7 +70,7 @@ pub fn primary<'a>(
     .boxed()
 }
 
-fn scoped_name_expr<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+fn scoped_name_expr<'a>() -> impl Parser<'a, ParserInput<'a>, Spanned<Expr>, Extra<'a>> {
     scoped_name().map(Expr::ScopedName).spanned()
 }
 

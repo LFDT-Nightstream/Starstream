@@ -10,8 +10,8 @@ pub struct ParseError {
     help: Option<String>,
 }
 
-impl From<Rich<'_, char>> for ParseError {
-    fn from(error: Rich<'_, char>) -> Self {
+impl From<Rich<'_, char, Span>> for ParseError {
+    fn from(error: Rich<'_, char, Span>) -> Self {
         let message = error.to_string();
         let span = *error.span();
 

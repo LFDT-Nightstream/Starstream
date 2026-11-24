@@ -4,9 +4,12 @@ use starstream_types::{
     ast::{Identifier, TypeAnnotation},
 };
 
-use super::{context::Extra, primitives};
+use super::{
+    context::{Extra, ParserInput},
+    primitives,
+};
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, TypeAnnotation, Extra<'a>> {
+pub fn parser<'a>() -> impl Parser<'a, ParserInput<'a>, TypeAnnotation, Extra<'a>> {
     recursive(|annotation| {
         let named = type_name()
             .boxed()
@@ -45,7 +48,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, TypeAnnotation, Extra<'a>> {
     })
 }
 
-fn type_name<'a>() -> impl Parser<'a, &'a str, ScopedName, Extra<'a>> {
+fn type_name<'a>() -> impl Parser<'a, ParserInput<'a>, ScopedName, Extra<'a>> {
     let unit = just("()").map_with(|_, extra| vec![Identifier::new("()", extra.span())]);
 
     primitives::scoped_name().or(unit).padded()
