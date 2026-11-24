@@ -11,8 +11,8 @@ mod verification;
 pub use coordinator_abi::coordination_script_identity;
 pub use decoder::{AbsorbedBlock, BlockCodecError, decode_tagged_blocks};
 pub use execution::{
-    CapturedExecution, check_captured_execution, check_captured_transaction,
-    decode_captured_execution, decode_captured_transaction,
+    CapturedExecution, check_captured_transaction, decode_captured_execution,
+    decode_captured_transaction,
 };
 pub use neo_wasm::nebula::WasmSize;
 pub use neo_wasm::{WasmTraceSink, WasmtimeTraceRegistry};
@@ -23,9 +23,9 @@ pub use prove::{
 };
 pub use runtime::{enable_tracing, register_tracing_component};
 pub use starstream_interleaving_spec::{
-    ConstructorIdentity, EffectIdentity, EntryCall, EventIdentity, InputUtxo, MethodHash,
-    MethodSelector, OutputUtxo, ResourceHandle, ScriptIdentity, StarstreamValue,
-    TransactionStatement,
+    ConstructorIdentity, EffectIdentity, EntryCall, EventIdentity, InputToken, InputUtxo,
+    MethodHash, MethodSelector, OutputToken, OutputUtxo, ResourceHandle, ScriptIdentity,
+    StarstreamValue, Step, TransactionStatement,
 };
 pub use templates::{
     ComponentTemplates, FLAT_VALUE_SCHEMA_TAG, TemplateBuildError, build_component_templates,

@@ -50,6 +50,7 @@ interface types {
         outputs: list<transaction-output>,
         events: list<transaction-event>,
         proof: list<u8>,
+        required-signers: list<u64>,
     }
 }
 

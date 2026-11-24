@@ -546,6 +546,9 @@ pub fn storage_counter_statement(
     use starstream_proving_runtime::{flat_value_root, method_hash_from_name};
     use wasmparser::ValType::{I32, I64};
     TransactionStatement {
+        input_tokens: Vec::new(),
+        output_tokens: Vec::new(),
+        signers: Default::default(),
         entry,
         inputs: vec![],
         outputs: vec![OutputUtxo {

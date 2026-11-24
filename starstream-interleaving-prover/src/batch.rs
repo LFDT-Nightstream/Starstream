@@ -12,9 +12,13 @@ use crate::{
     ccs::{build_relation, layout::*, tags::ConstraintScope},
     ivc_state::build_ivc_state_continuity_links,
     memory::{MemoryId, build_memory_layout, sanity_checking_policy},
-    step::{Wit, normalize},
+    step::Wit,
     witness::build_witness_vector,
 };
+
+#[cfg(test)]
+use crate::step::normalize;
+use std::collections::BTreeSet;
 
 pub mod proving;
 
@@ -168,8 +172,12 @@ impl Batch {
 /// continuity failures use explicitly batched error variants; their nested
 /// row/boundary and column indices refer to the batched witness.
 /// This does not construct a proof.
-pub fn verify_sat_batched(trace: &Trace, batch_size: usize) -> Result<(), Error> {
-    verify_sat_inner(trace, batch_size, None)
+pub fn verify_sat_batched(
+    trace: &Trace,
+    batch_size: usize,
+    signers: &BTreeSet<u64>,
+) -> Result<(), Error> {
+    verify_sat_inner(trace, batch_size, None, signers)
 }
 
 /// Check the relation and the exact final per-instance trace commitment map.
@@ -180,17 +188,19 @@ pub fn verify_sat_with_commitments(
     trace: &Trace,
     batch_size: usize,
     expected: &crate::TraceCommitments,
+    signers: &BTreeSet<u64>,
 ) -> Result<(), Error> {
-    verify_sat_inner(trace, batch_size, Some(expected))
+    verify_sat_inner(trace, batch_size, Some(expected), signers)
 }
 
 fn verify_sat_inner(
     trace: &Trace,
     batch_size: usize,
     expected: Option<&crate::TraceCommitments>,
+    signers: &BTreeSet<u64>,
 ) -> Result<(), Error> {
-    let normalized = normalize(trace);
-    verify_normalized(normalized, batch_size, expected, None)
+    let normalized = crate::step::normalize_with_inputs(trace, signers);
+    verify_normalized(normalized, batch_size, expected, None, signers)
 }
 
 pub(crate) fn verify_transaction(
@@ -199,8 +209,14 @@ pub(crate) fn verify_transaction(
     statement: &starstream_interleaving_spec::TransactionStatement,
     commitments: &crate::TraceCommitments,
 ) -> Result<(), Error> {
-    let normalized = crate::step::normalize(trace);
-    verify_normalized(normalized, batch_size, Some(commitments), Some(statement))
+    let normalized = crate::step::normalize_with_inputs(trace, &statement.signers);
+    verify_normalized(
+        normalized,
+        batch_size,
+        Some(commitments),
+        Some(statement),
+        &statement.signers,
+    )
 }
 
 fn verify_normalized(
@@ -208,9 +224,16 @@ fn verify_normalized(
     batch_size: usize,
     expected: Option<&crate::TraceCommitments>,
     statement: Option<&starstream_interleaving_spec::TransactionStatement>,
+    signers: &BTreeSet<u64>,
 ) -> Result<(), Error> {
     let batch = Batch::new(batch_size)?;
-    check_normalized(&batch, normalized, Roots::Expected(expected), statement)?;
+    check_normalized(
+        &batch,
+        normalized,
+        Roots::Expected(expected),
+        statement,
+        signers,
+    )?;
     Ok(())
 }
 
@@ -224,8 +247,10 @@ fn check_normalized(
     normalized: crate::step::NormalizedTrace,
     roots: Roots<'_>,
     statement: Option<&starstream_interleaving_spec::TransactionStatement>,
+    signers: &BTreeSet<u64>,
 ) -> Result<PackedWitness, Error> {
-    let preload = crate::memory::preload_tables(&normalized.method_table);
+    let mut preload = crate::memory::preload_tables(&normalized.method_table);
+    crate::memory::preload_signers(&mut preload, signers);
     let packed = batch.pack(&normalized.steps);
     batch.check(&packed, &preload)?;
     check_packed_statement(&packed, roots, statement)?;
@@ -335,7 +360,13 @@ mod tests {
         ]);
         let normalized = crate::step::normalize(&trace);
         assert!(matches!(
-            verify_normalized(normalized, 1, None, Some(&crate::tests::empty_statement())),
+            verify_normalized(
+                normalized,
+                1,
+                None,
+                Some(&crate::tests::empty_statement()),
+                &Default::default()
+            ),
             Err(Error::Unsatisfied(Unsatisfied::TransactionStatement))
         ));
     }
@@ -346,7 +377,7 @@ mod tests {
         let trace = constructor_trace([1, 2, 3, 4]);
         for size in [0, usize::MAX] {
             assert!(matches!(
-                verify_sat_batched(&trace, size),
+                verify_sat_batched(&trace, size, &Default::default()),
                 Err(Error::InvalidBatchSize)
             ));
         }
@@ -363,7 +394,7 @@ mod tests {
         );
         assert!(matches!(Batch::new(size), Err(Error::InvalidBatchSize)));
         assert!(matches!(
-            verify_sat_batched(&Trace::new([]), 3),
+            verify_sat_batched(&Trace::new([]), 3, &Default::default()),
             Err(Error::Unsatisfied(
                 Unsatisfied::TerminalCallStackNotEmpty { .. }
             ))

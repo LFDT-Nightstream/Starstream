@@ -31,6 +31,9 @@ pub(crate) fn fixture() -> (Trace, TransactionStatement) {
             ],
         ),
         TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: Default::default(),
             entry: crate::tests::ENTRY,
             inputs: vec![InputUtxo {
                 storage: storage.clone(),
@@ -458,10 +461,10 @@ fn entry_call_is_bound_to_the_statement_and_the_entry_event() {
     // Execution cannot start without the entry call, nor the call repeat.
     let mut skipped = trace.clone();
     skipped.0.remove(begin);
-    assert!(crate::verify_sat(&skipped).is_err());
+    assert!(crate::verify_sat(&skipped, &Default::default()).is_err());
     let mut repeated = trace;
     repeated.0.insert(begin, repeated.0[begin].clone());
-    assert!(crate::verify_sat(&repeated).is_err());
+    assert!(crate::verify_sat(&repeated, &Default::default()).is_err());
 }
 
 #[test]
@@ -567,4 +570,107 @@ fn output_binding_reads_checked_witness_not_source_trace() {
         check_statement(&rows, &statement, None),
         Err(Error::Unsatisfied(Unsatisfied::TransactionStatement))
     ));
+}
+
+#[test]
+fn signer_membership_checks_both_limbs_and_slot_presence() {
+    let key = 0x1234_5678_9abc_def0;
+    let trace = crate::tests::entered([
+        Step::AssertSignedBy { key },
+        Step::AssertSignedBy { key: 0 },
+        Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+    ]);
+    let signers = [0, key, u64::MAX].into();
+    crate::verify_sat(&trace, &signers).unwrap();
+    for wrong in [key ^ 1, key ^ (1 << 32)] {
+        assert!(crate::verify_sat(&trace, &[0, wrong].into()).is_err());
+    }
+    let normalized = crate::step::normalize_with_inputs(&trace, &signers);
+    let mut rows: Vec<_> = normalized.steps.iter().map(build_witness_vector).collect();
+    let mut preload = crate::memory::preload_tables(&normalized.method_table);
+    crate::memory::preload_signers(&mut preload, &signers);
+    let zero_step = crate::tests::ENTRY_STEPS + 1;
+    // Both limbs of signer 0 contain zero. Reading the low limb twice would
+    // pass the ROM value checks, but violates the high limb's address constraint.
+    rows[zero_step][COL_SIGNER_KEY_ADDR[1]] = F::ZERO;
+    assert!(matches!(
+        crate::verify_witness_rows(&rows, &preload),
+        Err(Error::Unsatisfied(Unsatisfied::Constraint { constraint, .. }))
+            if constraint == "signer key lookup addresses"
+    ));
+
+    // Give the zero key a consistent but unoccupied slot.
+    rows[zero_step][COL_SIGNER_INDEX] = F::from_u32(3);
+    for (offset, address) in COL_SIGNER_KEY_ADDR.into_iter().enumerate() {
+        rows[zero_step][address] = F::new((3 * SIGNER_KEY_LIMBS + offset) as u64);
+    }
+    range_check_layout()
+        .assign_bits(&mut rows[zero_step])
+        .unwrap();
+    assert!(matches!(
+        crate::verify_witness_rows(&rows, &preload),
+        Err(Error::Unsatisfied(Unsatisfied::Memory(_)))
+    ));
+    let zero = crate::tests::entered([
+        Step::AssertSignedBy { key: 0 },
+        Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        },
+    ]);
+    assert!(crate::verify_sat(&zero, &Default::default()).is_err());
+}
+
+#[test]
+fn token_records_check_carry_forward() {
+    use crate::ivc_state::CoroutineId::{Coord, Utxo};
+    use starstream_interleaving_spec::{InputToken, OutputToken, StarstreamValue};
+    let (trace, mut statement) = fixture();
+    let roots = crate::commitment::tests::expected(
+        &Trace::new(trace.0[..6].to_vec()),
+        &[Utxo(0), Coord(1), Coord(1), Utxo(0)],
+    );
+    let empty = crate::transaction_commitment(&statement, &roots).unwrap();
+    let storage = StarstreamValue([1, 2, 3, 4]);
+    statement.input_tokens.push(InputToken {
+        owner: 0,
+        storage: storage.clone(),
+    });
+    statement.output_tokens.push(OutputToken {
+        token: 0,
+        owner: 0,
+        storage,
+    });
+    verify_transaction_sat(&trace, 2, &statement, &roots).unwrap();
+    let original = crate::transaction_commitment(&statement, &roots).unwrap();
+    assert_eq!(original, empty);
+    statement.output_tokens[0].token = 1;
+    assert!(verify_transaction_sat(&trace, 2, &statement, &roots).is_err());
+    statement.output_tokens[0].token = 0;
+    statement.output_tokens[0].owner = 1;
+    assert!(check_token_carry_forward(&statement).is_err());
+    statement.output_tokens[0].owner = 0;
+    statement.output_tokens[0].storage.0[0] += 1;
+    assert!(check_token_carry_forward(&statement).is_err());
+    statement.input_tokens[0].storage = statement.output_tokens[0].storage.clone();
+    let updated = crate::transaction_commitment(&statement, &roots).unwrap();
+    assert_eq!(updated, original);
+    let token = statement.output_tokens.pop().unwrap();
+    assert!(check_token_carry_forward(&statement).is_err());
+    statement.output_tokens.push(token);
+
+    // Two distinct tokens can share both an owner and a storage value.
+    statement
+        .input_tokens
+        .push(statement.input_tokens[0].clone());
+    statement
+        .output_tokens
+        .push(statement.output_tokens[0].clone());
+    assert!(check_token_carry_forward(&statement).is_err());
+    statement.output_tokens[1].token = 1;
+    verify_transaction_sat(&trace, 2, &statement, &roots).unwrap();
+
+    statement.outputs.clear();
+    assert!(check_token_carry_forward(&statement).is_err());
 }

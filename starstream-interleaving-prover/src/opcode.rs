@@ -33,6 +33,7 @@ pub(crate) enum Opcode {
     SkipEffectHandler,
     BeginExecution,
     CallCoordinator,
+    AssertSignedBy,
 }
 
 /// Linear terms for the sum of the supplied opcode selectors.
@@ -47,6 +48,7 @@ pub(crate) fn selector_sum(opcodes: impl IntoIterator<Item = Opcode>) -> Vec<(us
 impl From<&starstream_interleaving_spec::Step> for Opcode {
     fn from(value: &starstream_interleaving_spec::Step) -> Self {
         match value {
+            starstream_interleaving_spec::Step::AssertSignedBy { .. } => Self::AssertSignedBy,
             starstream_interleaving_spec::Step::CallCoordinator { .. } => Self::CallCoordinator,
             starstream_interleaving_spec::Step::BeginExecution { .. } => Self::BeginExecution,
             starstream_interleaving_spec::Step::PushEffectHandlerFrame { .. } => {
@@ -102,7 +104,8 @@ impl Opcode {
     pub fn is_execution(&self) -> bool {
         matches!(
             self,
-            Self::NewUtxo
+            Self::AssertSignedBy
+                | Self::NewUtxo
                 | Self::ReceiveNewUtxoHandle
                 | Self::EnterConstructor
                 | Self::YieldBegin
@@ -163,9 +166,10 @@ impl Opcode {
             Self::RaiseEffect => CurrPhase::EffectHandlerPending,
             Self::EnterEffectHandler => CurrPhase::EffectHandlerExecuting,
             Self::SkipEffectHandler => CurrPhase::EffectHandlerPending,
-            Self::PushEffectHandlerFrame | Self::AddEffectHandler | Self::PopEffectHandlerFrame => {
-                before
-            }
+            Self::AssertSignedBy
+            | Self::PushEffectHandlerFrame
+            | Self::AddEffectHandler
+            | Self::PopEffectHandlerFrame => before,
             Self::ReceiveNewUtxoHandle
             | Self::ReceiveCallResult
             | Self::Return
@@ -210,6 +214,7 @@ impl Opcode {
             Self::SkipEffectHandler,
             Self::BeginExecution,
             Self::CallCoordinator,
+            Self::AssertSignedBy,
         ]
     }
 
@@ -301,6 +306,7 @@ impl Opcode {
 
     pub fn selector(&self) -> usize {
         match self {
+            Self::AssertSignedBy => COL_SEL_ASSERT_SIGNED_BY,
             Self::PushEffectHandlerFrame => COL_SEL_PUSH_EFFECT_HANDLER_FRAME,
             Self::AddEffectHandler => COL_SEL_ADD_EFFECT_HANDLER,
             Self::PopEffectHandlerFrame => COL_SEL_POP_EFFECT_HANDLER_FRAME,

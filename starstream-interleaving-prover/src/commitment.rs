@@ -30,6 +30,7 @@ fn kind(op: Opcode) -> Option<EventKind> {
         Opcode::RaiseEffect => EventKind::RaiseEffect,
         Opcode::PushEffectHandlerFrame => EventKind::PushEffectHandlerFrame,
         Opcode::AddEffectHandler => EventKind::AddEffectHandler,
+        Opcode::AssertSignedBy => EventKind::AssertSignedBy,
         Opcode::PopEffectHandlerFrame => EventKind::PopEffectHandlerFrame,
         Opcode::EnterEffectHandler => EventKind::EnterEffectHandler,
         Opcode::ExitEffectHandler => EventKind::ExitEffectHandler,

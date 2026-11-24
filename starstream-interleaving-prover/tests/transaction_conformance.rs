@@ -143,6 +143,9 @@ fn fixture_with_handle(
     }
     let commitments = expected(&trace, &owners);
     let statement = TransactionStatement {
+        input_tokens: Vec::new(),
+        output_tokens: Vec::new(),
+        signers: Default::default(),
         entry: ENTRY,
         inputs: vec![InputUtxo {
             storage: input,
@@ -226,6 +229,9 @@ fn new_utxo_transaction(
     ]);
     owners.extend([Some(3), Some(2), Some(2), Some(1), None, None]);
     let mut statement = TransactionStatement {
+        input_tokens: Vec::new(),
+        output_tokens: Vec::new(),
+        signers: Default::default(),
         entry: ENTRY,
         inputs: vec![InputUtxo {
             storage: UNIT,
@@ -275,6 +281,9 @@ fn no_input_transaction() -> (Trace, TransactionStatement, TraceCommitments) {
     ]);
     let commitments = expected(&trace, &[None, Some(2), Some(2), None, None]);
     let statement = TransactionStatement {
+        input_tokens: Vec::new(),
+        output_tokens: Vec::new(),
+        signers: Default::default(),
         entry: ENTRY,
         inputs: vec![],
         outputs: vec![],
@@ -848,4 +857,36 @@ fn transaction_circuit_and_quint_agree() {
         }
         rejects(name, &trace, &statement, &commitments);
     }
+}
+
+#[test]
+#[ignore = "requires Quint; run through npm test"]
+fn signer_and_token_statement_matches_quint() {
+    use starstream_interleaving_spec::{InputToken, OutputToken, StarstreamValue};
+    let verifier = QuintVerifier::new().unwrap();
+    let (mut trace, mut statement, _) = fixture(false);
+    trace.0.insert(4, Step::AssertSignedBy { key: 17 });
+    statement.signers.insert(17);
+    let storage = StarstreamValue([1, 2, 3, 4]);
+    statement.input_tokens.push(InputToken {
+        owner: 0,
+        storage: storage.clone(),
+    });
+    statement.output_tokens.push(OutputToken {
+        token: 0,
+        owner: 0,
+        storage,
+    });
+    verifier.verify_transaction(&trace, &statement).unwrap();
+    statement.signers.clear();
+    assert!(matches!(
+        verifier.verify_transaction(&trace, &statement),
+        Err(QuintError::RejectedStep { .. })
+    ));
+    statement.signers.insert(17);
+    statement.output_tokens[0].token = 1;
+    assert!(matches!(
+        verifier.verify_transaction(&trace, &statement),
+        Err(QuintError::IncompleteExecution(_))
+    ));
 }

@@ -176,6 +176,13 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
         }
     }
 
+    if input.opcode == Opcode::AssertSignedBy {
+        let base = wit[COL_SIGNER_INDEX] * F::new(SIGNER_KEY_LIMBS as u64);
+        for (offset, address) in COL_SIGNER_KEY_ADDR.into_iter().enumerate() {
+            wit[address] = base + F::new(offset as u64);
+        }
+    }
+
     if input.opcode.pushes_to_call_stack() {
         wit[COL_CALL_STACK_PUSH] = F::ONE;
     }

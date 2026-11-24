@@ -81,6 +81,7 @@ impl ProofConfig {
     /// resulting configuration, never take arbitrary prover-supplied sizes.
     pub fn for_trace_benchmark(
         trace: &Trace,
+        signers: &std::collections::BTreeSet<u64>,
         batch_size: usize,
         segment_batches: usize,
     ) -> Result<Self, ProvingError> {
@@ -90,9 +91,11 @@ impl ProofConfig {
             ));
         }
         let batch = Batch::new(batch_size)?;
-        let normalized = normalize(trace);
+        let normalized = crate::step::normalize_with_inputs(trace, signers);
         let packed = batch.pack(&normalized.steps);
-        let preload = crate::memory::preload_tables(&normalized.method_table).entries();
+        let mut preload = crate::memory::preload_tables(&normalized.method_table);
+        crate::memory::preload_signers(&mut preload, signers);
+        let preload = preload.entries();
         let mut memories = Vec::new();
         for memory in batch.memory.entries() {
             let mut widths = vec![1usize; memory.ports[0].address_columns.len()];
@@ -257,6 +260,8 @@ pub struct Limits {
     pub effect_scopes: usize,
     /// Distinct method and effect hashes the transaction names.
     pub methods: usize,
+    /// Distinct signer IDs in the verifier-owned ROM.
+    pub signers: usize,
     /// Method registrations over the whole transaction, duplicates and
     /// preloaded input ABIs included.
     pub registrations: usize,
@@ -270,6 +275,7 @@ impl Limits {
         handles_per_holder: 16,
         effect_scopes: 16,
         methods: 32,
+        signers: 32,
         registrations: 128,
     };
 
@@ -296,6 +302,8 @@ impl Limits {
             | MemoryId::EnabledMethodLogMethod
             | MemoryId::EnabledMethodLogGeneration
             | MemoryId::EnabledMethodLogOrdinal => vec![bits(self.registrations)],
+            MemoryId::SignerKey => vec![bits(self.signers * crate::ccs::layout::SIGNER_KEY_LIMBS)],
+            MemoryId::SignerPresent => vec![bits(self.signers)],
             MemoryId::MethodTable => vec![bits(self.methods) + 3],
             MemoryId::ResourceResolver => vec![packed_id, bits(self.handles_per_holder)],
             MemoryId::UtxoTraceCommitments => vec![bits(self.utxos) + 3],
@@ -390,11 +398,14 @@ fn application(
 fn program(
     app: &R1csApplication<MemoryId>,
     methods: &[MethodHash],
+    signers: &std::collections::BTreeSet<u64>,
 ) -> Result<nebula::Program, ProvingError> {
     if methods.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
         return Err(ProvingError::MethodDictionary);
     }
-    Ok(app.program(&crate::memory::preload_tables(methods))?)
+    let mut preload = crate::memory::preload_tables(methods);
+    crate::memory::preload_signers(&mut preload, signers);
+    Ok(app.program(&preload)?)
 }
 
 /// Dictionary used by normalization. A verifier must agree on this table
@@ -448,14 +459,20 @@ impl InterleavingProofContext {
         statement: &TransactionStatement,
         roots: super::Roots<'_>,
     ) -> Result<InterleavingProof, ProvingError> {
-        let normalized = normalize(trace);
+        let normalized = crate::step::normalize_with_inputs(trace, &statement.signers);
         let padding = normalized
             .steps
             .last()
             .ok_or(ProvingError::EmptyTrace)?
             .padding_after();
-        let program = program(&self.app, &normalized.method_table)?;
-        let mut packed = super::check_normalized(&self.batch, normalized, roots, Some(statement))?;
+        let program = program(&self.app, &normalized.method_table, &statement.signers)?;
+        let mut packed = super::check_normalized(
+            &self.batch,
+            normalized,
+            roots,
+            Some(statement),
+            &statement.signers,
+        )?;
         let final_state = final_state(&self.batch, &packed);
         pad_to_segments(&self.batch, &mut packed, padding, &self.config.geometry)?;
         let mut run = self.prover.start(&program, state_words(&initial_state()))?;
@@ -479,7 +496,7 @@ impl InterleavingProofContext {
     ) -> Result<(), ProvingError> {
         check_transaction_claim(&proof.final_state, statement, roots)?;
         self.verifier.verify(
-            &program(&self.app, methods)?,
+            &program(&self.app, methods, &statement.signers)?,
             &state_words(&initial_state()),
             &state_words(&proof.final_state),
             &proof.proof,
@@ -520,7 +537,7 @@ impl InterleavingProofContext {
     ) -> Result<(), ProvingError> {
         check_transaction_claim(&proof.final_state, statement, roots)?;
         self.verifier.verify_final(
-            &program(&self.app, methods)?,
+            &program(&self.app, methods, &statement.signers)?,
             &state_words(&initial_state()),
             &state_words(&proof.final_state),
             key,
@@ -537,6 +554,7 @@ fn check_transaction_claim(
     statement: &TransactionStatement,
     roots: &crate::TraceCommitments,
 ) -> Result<(), ProvingError> {
+    crate::transaction::check_token_carry_forward(statement)?;
     let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
     check_final_state(
         final_state,
@@ -612,9 +630,9 @@ fn initial_state() -> Vec<F> {
             | COL_ABI_READ_ORDINAL_BEFORE
             | COL_OUTPUT_CURSOR_BEFORE
             | COL_ENABLED_METHOD_LOG_LEN_BEFORE => F::ZERO,
-            column if COL_IO_BEFORE.contains(&column) => F::ZERO,
             column
-                if COL_PENDING_ROOT_BEFORE.contains(&column)
+                if COL_IO_BEFORE.contains(&column)
+                    || COL_PENDING_ROOT_BEFORE.contains(&column)
                     || COL_PENDING_METHOD_BEFORE.contains(&column) =>
             {
                 F::ZERO

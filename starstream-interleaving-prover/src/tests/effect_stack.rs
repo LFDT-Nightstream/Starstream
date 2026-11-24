@@ -96,7 +96,7 @@ fn nested_invocations() -> Trace {
 fn search_follows_scopes_and_returns_to_each_raiser() {
     let trace = nested_invocations();
     for size in [1, 3, 8] {
-        verify_sat_batched(&trace, size).unwrap();
+        verify_sat_batched(&trace, size, &Default::default()).unwrap();
     }
     let normalized = crate::step::normalize(&trace);
     let owners: Vec<_> = normalized
@@ -135,13 +135,13 @@ fn suspended_scope_cannot_handle_a_nested_effect() {
         effect: SECOND,
         arguments: ARGS,
     };
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&trace, &Default::default()).is_err());
     // Skipping the active scope would require it not to register SECOND.
     let mut skipped = nested_invocations();
     skipped.0.insert(B_ENTER, Step::SkipEffectHandler);
     // The honest registration read is 1, which a skip forbids...
     assert!(matches!(
-        verify_sat(&skipped),
+        verify_sat(&skipped, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: B_ENTER,
             constraint,
@@ -205,7 +205,7 @@ fn scope_mutation_is_limited_to_the_current_invocation() {
         let mut trace = nested_invocations();
         trace.0.insert(6, mutation);
         assert!(matches!(
-            verify_sat(&trace),
+            verify_sat(&trace, &Default::default()),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
                 step: 6,
                 constraint,
@@ -217,7 +217,7 @@ fn scope_mutation_is_limited_to_the_current_invocation() {
         let mut trace = nested_invocations();
         trace.0.remove(unpopped);
         assert!(matches!(
-            verify_sat(&trace),
+            verify_sat(&trace, &Default::default()),
             Err(Error::Unsatisfied(Unsatisfied::Constraint {
                 constraint,
                 ..
@@ -230,12 +230,12 @@ fn scopes_cannot_change_during_a_pending_search() {
     let mut trace = nested_invocations();
     trace.0.insert(9, Step::PopEffectHandlerFrame);
     assert!(matches!(
-        verify_sat(&trace),
+        verify_sat(&trace, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             step: 9,
             constraint,
             ..
-        })) if constraint == "scope mutation runs in a live guest body"));
+        })) if constraint == "scope changes and signer assertions require a live guest body"));
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn scope_mutation_cannot_skip_the_handler_exit() {
             step: 7,
             constraint,
             ..
-        })) if constraint == "scope mutation runs in a live guest body"));
+        })) if constraint == "scope changes and signer assertions require a live guest body"));
 }
 
 #[test]
@@ -283,7 +283,7 @@ fn scope_mutation_cannot_skip_the_handler_exit() {
 fn scope_walk_matches_quint() {
     let trace = nested_invocations();
     QuintVerifier::new().unwrap().verify(&trace).unwrap();
-    verify_sat_batched(&trace, 3).unwrap();
+    verify_sat_batched(&trace, 3, &Default::default()).unwrap();
 }
 
 #[test]
@@ -322,5 +322,5 @@ fn cannot_raise_effect_between_constructor_return_and_receive() {
             arguments: StarstreamValue::UNIT_VALUE,
         },
     );
-    assert!(verify_sat(&trace).is_err());
+    assert!(verify_sat(&trace, &Default::default()).is_err());
 }

@@ -1,7 +1,7 @@
 //! Transaction-only chain: inputs/preloads, entry call, UTXO outputs/ABIs, coordinators, finish.
 //! Records have distinct tags and fixed lengths, padded to eight-field blocks.
 //! Roots are transaction data, not persistent ledger storage. ABI duplicates stay.
-//! The proving API binds initial zero and the expected final digest.
+//! The proving API binds the expected final digest.
 //! Nebula binds memory consistency and the verifier-owned initial memory image.
 use neo_math::F;
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
@@ -211,6 +211,9 @@ mod tests {
         // The entry record spans two blocks: tag and seven script limbs, then
         // the last limb and the argument root.
         let statement = TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: Default::default(),
             entry: starstream_interleaving_spec::EntryCall {
                 script: MethodHash([1, 2, 3, 4, 5, 6, 7, 8]),
                 arguments: StarstreamValue([21, 22, 23, 24]),
@@ -249,6 +252,9 @@ mod tests {
             methods,
         };
         let statement = TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: Default::default(),
             entry: starstream_interleaving_spec::EntryCall {
                 script: a,
                 arguments: StarstreamValue::UNIT_VALUE,

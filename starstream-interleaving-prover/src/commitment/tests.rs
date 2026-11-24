@@ -215,26 +215,26 @@ fn multi_block_encoding_and_statement_are_bound() {
         ],
     );
     for size in [1, 3, 5, 8] {
-        verify_sat_with_commitments(&trace, size, &statement).unwrap();
+        verify_sat_with_commitments(&trace, size, &statement, &Default::default()).unwrap();
     }
     for lane in 0..4 {
         let mut wrong = statement.clone();
         wrong.get_mut(&UTXO.encoded()).unwrap()[lane] ^= 1;
         assert!(matches!(
-            verify_sat_with_commitments(&trace, 3, &wrong),
+            verify_sat_with_commitments(&trace, 3, &wrong, &Default::default()),
             Err(Error::Unsatisfied(Unsatisfied::TraceCommitments))
         ));
     }
     let mut missing = statement.clone();
     missing.remove(&UTXO.encoded());
-    assert!(verify_sat_with_commitments(&trace, 3, &missing).is_err());
+    assert!(verify_sat_with_commitments(&trace, 3, &missing, &Default::default()).is_err());
     let mut extra = statement.clone();
     extra.insert(CoroutineId::Coord(0).encoded(), [0; 4]);
-    assert!(verify_sat_with_commitments(&trace, 3, &extra).is_err());
+    assert!(verify_sat_with_commitments(&trace, 3, &extra, &Default::default()).is_err());
     let mut swapped = statement.clone();
     swapped.insert(UTXO.encoded(), statement[&COORDINATOR.encoded()]);
     swapped.insert(COORDINATOR.encoded(), statement[&UTXO.encoded()]);
-    assert!(verify_sat_with_commitments(&trace, 3, &swapped).is_err());
+    assert!(verify_sat_with_commitments(&trace, 3, &swapped, &Default::default()).is_err());
 }
 
 #[test]
@@ -263,8 +263,8 @@ fn changed_values_and_order_cannot_reuse_a_statement() {
     if let Step::EnterCall { arguments, .. } = &mut changed.0[8] {
         arguments.0[3] += 1;
     }
-    crate::verify_sat(&changed).unwrap(); // matching sender/receiver, valid semantics
-    assert!(verify_sat_with_commitments(&changed, 3, &statement).is_err());
+    crate::verify_sat(&changed, &Default::default()).unwrap(); // matching sender/receiver, valid semantics
+    assert!(verify_sat_with_commitments(&changed, 3, &statement, &Default::default()).is_err());
     // Both registration orders are legal, but their order is observable.
     let mut first = trace.clone();
     first.0.insert(
@@ -290,10 +290,10 @@ fn changed_values_and_order_cannot_reuse_a_statement() {
             COORDINATOR,
         ],
     );
-    verify_sat_with_commitments(&first, 3, &first_statement).unwrap();
+    verify_sat_with_commitments(&first, 3, &first_statement, &Default::default()).unwrap();
     first.0.swap(4, 5);
-    crate::verify_sat(&first).unwrap();
-    assert!(verify_sat_with_commitments(&first, 3, &first_statement).is_err());
+    crate::verify_sat(&first, &Default::default()).unwrap();
+    assert!(verify_sat_with_commitments(&first, 3, &first_statement, &Default::default()).is_err());
 }
 
 #[test]
@@ -323,7 +323,7 @@ fn tampered_compression_and_canonical_aliases_are_rejected() {
         *arguments = StarstreamValue([0xffff_ffff_0000_0001, 0, 0, 0]);
     }
     assert!(matches!(
-        crate::verify_sat(&alias),
+        crate::verify_sat(&alias, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Constraint {
             constraint,
             ..
@@ -351,6 +351,6 @@ fn full_field_roots_survive_ram_and_batching() {
         ],
     );
     for size in [1, 3, 8] {
-        verify_sat_with_commitments(&trace, size, &statement).unwrap();
+        verify_sat_with_commitments(&trace, size, &statement, &Default::default()).unwrap();
     }
 }

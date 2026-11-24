@@ -270,6 +270,9 @@ fn check_transaction(
     assert_eq!(
         transaction.statement,
         TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: Default::default(),
             entry: entry_call(execution),
             inputs: vec![],
             outputs: vec![OutputUtxo {
@@ -279,7 +282,7 @@ fn check_transaction(
             }],
         }
     );
-    verify_sat(&transaction.execution)
+    verify_sat(&transaction.execution, &Default::default())
         .map_err(|error| wasmtime::format_err!("circuit rejected the execution: {error}"))?;
     verify_transaction_sat(
         &transaction.trace,
@@ -376,7 +379,7 @@ async fn effect_handler_reentry_satisfies_the_circuit() -> wasmtime::Result<()> 
         execution.transaction.execution,
         Trace::with_entry(&entry, body)
     );
-    verify_sat(&execution.transaction.execution)
+    verify_sat(&execution.transaction.execution, &Default::default())
         .map_err(|error| wasmtime::format_err!("circuit rejected effect re-entry: {error}"))?;
     Ok(())
 }
@@ -428,7 +431,7 @@ async fn traced_transactions_satisfy_the_quint_specification() -> wasmtime::Resu
             );
             // The circuit checks membership at the call, before entering the callee.
             assert!(matches!(
-                verify_sat(&invalid),
+                verify_sat(&invalid, &Default::default()),
                 Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
             ));
             assert!(matches!(invalid.0[call_index], Step::CallMethod { .. }));
@@ -517,6 +520,9 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
     assert_eq!(
         transaction.statement,
         TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: Default::default(),
             entry: entry_call(&execution),
             inputs: vec![],
             outputs: vec![
@@ -649,7 +655,7 @@ async fn distinct_utxo_types_route_shared_methods_and_reject_foreign_methods()
     let (invalid, _) = call_other_types_method(&transaction.execution);
     // No stale statement/root check: this must fail the actual memory checks.
     assert!(matches!(
-        verify_sat(&invalid),
+        verify_sat(&invalid, &Default::default()),
         Err(Error::Unsatisfied(Unsatisfied::Memory { .. }))
     ));
     Ok(())
@@ -747,7 +753,12 @@ mod proving {
             .transpose()?
             .unwrap_or(8);
         let mut config = if std::env::var_os("STARSTREAM_PROOF_TIGHT_MEMORY").is_some() {
-            ProofConfig::for_trace_benchmark(&transaction.trace, batch_size, segment_batches)?
+            ProofConfig::for_trace_benchmark(
+                &transaction.trace,
+                &transaction.statement.signers,
+                batch_size,
+                segment_batches,
+            )?
         } else {
             ProofConfig::for_limits(Limits::SMALL_DEFAULTS, batch_size)?
                 .with_segment_batches(segment_batches)?

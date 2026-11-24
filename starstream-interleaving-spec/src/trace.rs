@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::METHOD_WORDS;
@@ -126,6 +128,9 @@ impl From<Vec<u32>> for StarstreamValue {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Step {
+    AssertSignedBy {
+        key: u64,
+    },
     SetStorage {
         storage: StarstreamValue,
         /// Host-supplied Coord(1)-local binding, not a wasm return value.
@@ -253,6 +258,22 @@ pub struct OutputUtxo {
     pub methods: Vec<MethodSelector>,
 }
 
+/// A transaction-relevant token, numbered by position in the input token list.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputToken {
+    /// Transaction-local ID of the UTXO holding this token.
+    pub owner: u32,
+    pub storage: StarstreamValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputToken {
+    /// Transaction-local token ID, preserved across its input and output records.
+    pub token: u32,
+    pub owner: u32,
+    pub storage: StarstreamValue,
+}
+
 /// The script the transaction runs, and its (opaque) argument root.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntryCall {
@@ -263,6 +284,12 @@ pub struct EntryCall {
 /// Inputs receive consecutive UTXO IDs; outputs are ordered by surviving ID.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransactionStatement {
+    /// Only tokens relevant to this transaction appear here.
+    pub input_tokens: Vec<InputToken>,
+    /// Ordered by transaction-local token ID.
+    pub output_tokens: Vec<OutputToken>,
+    /// Public signer IDs whose signatures the verifier requires on this transaction.
+    pub signers: BTreeSet<u64>,
     pub entry: EntryCall,
     pub inputs: Vec<InputUtxo>,
     pub outputs: Vec<OutputUtxo>,

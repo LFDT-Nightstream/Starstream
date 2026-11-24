@@ -274,6 +274,22 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         }
     });
 
+    b.with_tag(always("signer key lookup addresses"), |b| {
+        for (offset, address) in layout::COL_SIGNER_KEY_ADDR.into_iter().enumerate() {
+            b.push_row(
+                [(Opcode::AssertSignedBy.selector(), F::ONE)],
+                [
+                    (
+                        layout::COL_SIGNER_INDEX,
+                        F::new(layout::SIGNER_KEY_LIMBS as u64),
+                    ),
+                    (COL_ONE, F::new(offset as u64)),
+                ],
+                [(address, F::ONE)],
+            );
+        }
+    });
+
     // TODO(perf): Consider gating these call-stack address derivations and
     // assigning zero on rows without a call-stack memory access. Nightstream's
     // Ajtai commitment path has sparse/zero fast paths, so at large batch sizes
@@ -1153,8 +1169,8 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 
     b.with_tag(
         opcode_tags(
-            "scope mutation runs in a live guest body",
-            &[push, add, pop],
+            "scope changes and signer assertions require a live guest body",
+            &[push, add, pop, Opcode::AssertSignedBy],
         ),
         |b| {
             // Allowed: Executing, ConstructorExecuting, Registering and
@@ -1167,14 +1183,14 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 [(COL_PHASE_BEFORE_BITS_1_AND_2, F::ONE)],
             );
             b.push_row(
-                selector_sum([push, add, pop]),
+                selector_sum([push, add, pop, Opcode::AssertSignedBy]),
                 [(bits[3], F::ONE), (COL_PHASE_BEFORE_BITS_1_AND_2, F::ONE)],
                 [],
             );
             // The body keeps running: a mutation cannot fake a handler
             // exit or any other phase change.
             b.push_row(
-                selector_sum([push, add, pop]),
+                selector_sum([push, add, pop, Opcode::AssertSignedBy]),
                 [
                     (COL_CURR_PHASE_AFTER, F::ONE),
                     (COL_CURR_PHASE_BEFORE, -F::ONE),

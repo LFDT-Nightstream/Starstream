@@ -24,6 +24,7 @@ define_column_region! {
         COL_SEL_RAISE_EFFECT: Boolean => "selector for the RaiseEffect action",
         COL_SEL_PUSH_EFFECT_HANDLER_FRAME: Boolean => "selector for the PushEffectHandlerFrame action",
         COL_SEL_ADD_EFFECT_HANDLER: Boolean => "selector for the AddEffectHandler action",
+        COL_SEL_ASSERT_SIGNED_BY: Boolean => "signer membership check",
         COL_SEL_POP_EFFECT_HANDLER_FRAME: Boolean => "selector for the PopEffectHandlerFrame action",
         COL_SEL_SKIP_EFFECT_HANDLER: Boolean => "selector for the SkipEffectHandler host search step",
         COL_SEL_ENTER_EFFECT_HANDLER: Boolean => "selector for the EnterEffectHandler action",
@@ -77,9 +78,12 @@ define_column_region! {
         // could improve this, but the memory argument as currently implemented
         // is 32-bit based, plus we'd have to drop 2 bits to use 4 limbs
         COL_METHOD_HASH_VALUE: [U32; 8] => "method hash limb bus: event identity (method, script, constructor or effect), pending-identity hand-off and method-table ROM lookup value",
-        COL_METHOD_INDEX: (Bits(29)) => "trace-local compact index for the method hash",
+        COL_METHOD_INDEX: (Bits(29)) => "method dictionary index or signer ROM index, selected by opcode",
         COL_METHOD_LOOKUP: Boolean => "a method, ABI or effect step resolves a method hash through the method table",
         COL_METHOD_TABLE_ADDR: [U32; 8] => "method_index * 8 + hash limb offset",
+        // The signer lookup constraint gives zero on inactive rows. On active rows
+        // a 29-bit index addresses up to eight limbs within a 32-bit ROM address.
+        COL_SIGNER_KEY_ADDR: [(Implied(32)); SIGNER_KEY_LIMBS] => "signer index * signer key stride + limb offset",
         COL_ABI_GENERATION_READ: Boolean => "RegisterMethod, PreloadMethod, CallMethod or ReadAbi reads a UTXO's current ABI generation",
         COL_CALL_TARGET: U32 => "packed coroutine id that gets control in the next step",
         COL_CALL_TARGET_IS_ZERO: Boolean => "whether the call target is Coord(0), the transaction context",
@@ -179,7 +183,12 @@ define_column_region! {
     ]
 }
 
-pub const SELECTORS: [usize; 27] = [
+pub(crate) const SIGNER_KEY_LIMBS: usize = u64::BITS as usize / u32::BITS as usize;
+/// Signer and method lookups occur on disjoint opcodes and share an advice column.
+pub(crate) const COL_SIGNER_INDEX: usize = COL_METHOD_INDEX;
+
+pub const SELECTORS: [usize; 28] = [
+    COL_SEL_ASSERT_SIGNED_BY,
     COL_SEL_CALL_COORDINATOR,
     COL_SEL_FINALIZE_COORDINATOR,
     COL_SEL_BEGIN_EXECUTION,

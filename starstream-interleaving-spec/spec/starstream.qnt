@@ -78,6 +78,8 @@ module starstream {
     methods: List[MethodSelector]
   }
   type OutputUtxo = { utxo: int, storage: StarstreamValue, methods: List[MethodSelector] }
+  type InputToken = { owner: int, storage: StarstreamValue }
+  type OutputToken = { token: int, owner: int, storage: StarstreamValue }
   type EntryCall = { script: ScriptIdentity, arguments: StarstreamValue }
 
   // just a tagged type so that the action signature reflects what's input and
@@ -88,6 +90,9 @@ module starstream {
     tx_phase: TxPhase,
     // The entry script call of the statement; execution-only replay has none.
     tx_entry: Option[EntryCall],
+    tx_signers: Set[int],
+    input_tokens: List[InputToken],
+    output_tokens: List[OutputToken],
     tx_inputs: List[InputUtxo],
     // Initial preload sequences, framed per input and unchanged by execution.
     loaded_input_methods: List[List[MethodSelector]],
@@ -139,6 +144,7 @@ module starstream {
     | EnterCall
     | RaiseEffect
     | PushEffectHandlerFrame
+    | AssertSignedBy
     | AddEffectHandler
     | PopEffectHandlerFrame
     | SkipEffectHandler
@@ -179,6 +185,7 @@ module starstream {
           state.curr_cid_phase == ConstructorExecuting or
           state.curr_cid_phase == EffectHandlerExecuting
       | PushEffectHandlerFrame => guest_executing
+      | AssertSignedBy => guest_executing
       | AddEffectHandler => guest_executing
       | PopEffectHandlerFrame => guest_executing
       | SkipEffectHandler => state.curr_cid_phase == EffectHandlerPending
@@ -218,6 +225,9 @@ module starstream {
   pure def new_tx(): State = {
     tx_phase: Loading,
     tx_entry: None,
+    tx_signers: Set(),
+    input_tokens: List(),
+    output_tokens: List(),
     tx_inputs: List(),
     loaded_input_methods: List(),
     tx_outputs: List(),
@@ -367,6 +377,19 @@ module starstream {
   }
 
   action transaction_complete: bool = all {
+    state.input_tokens.length() == state.output_tokens.length(),
+    state.input_tokens.indices().forall(i => {
+      val input = state.input_tokens[i]
+      val output = state.output_tokens[i]
+      all {
+        output.token == i,
+        is_valid(output.storage),
+        output.storage == input.storage,
+        output.owner == input.owner,
+        state.tx_inputs.indices().contains(input.owner),
+        state.tx_outputs.indices().exists(j => state.tx_outputs[j].utxo == output.owner),
+      }
+    }),
     state.tx_phase == Finished,
     state' = state,
   }
@@ -703,6 +726,12 @@ module starstream {
         }
       | None => all { false, state' = state }
     },
+  }
+
+  action assert_signed_by(key: int): bool = all {
+    action_allowed(AssertSignedBy),
+    state.tx_signers.contains(key),
+    state' = state,
   }
 
   action pop_effect_handler_frame: bool = all {

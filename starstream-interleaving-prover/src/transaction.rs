@@ -373,6 +373,33 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     });
 }
 
+/// Check the ledger's carry-forward rule for the declared token records.
+pub(crate) fn check_token_carry_forward(statement: &TransactionStatement) -> Result<(), Error> {
+    if statement.input_tokens.len() != statement.output_tokens.len() {
+        return Err(Unsatisfied::TransactionStatement.into());
+    }
+    for (index, (input, output)) in statement
+        .input_tokens
+        .iter()
+        .zip(&statement.output_tokens)
+        .enumerate()
+    {
+        if output.token as usize != index
+            || input.owner as usize >= statement.inputs.len()
+            || output.owner != input.owner
+            || output.storage != input.storage
+            || statement
+                .outputs
+                .binary_search_by_key(&output.owner, |utxo| utxo.utxo)
+                .is_err()
+            || output.storage.0.iter().any(|&word| word >= F::ORDER_U64)
+        {
+            return Err(Unsatisfied::TransactionStatement.into());
+        }
+    }
+    Ok(())
+}
+
 /// Direct semantic diagnostics alongside the transaction digest endpoint check.
 /// Reads checked row buses, not the source trace or normalization metadata.
 /// The proving API separately binds these endpoints and memory accesses with Nebula.
@@ -382,6 +409,7 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
     mut finalized: Option<&mut crate::TraceCommitments>,
 ) -> Result<(), Error> {
     let reject = || Error::from(Unsatisfied::TransactionStatement);
+    check_token_carry_forward(statement)?;
     let mut rows = rows.into_iter().peekable();
     let first = rows.peek().ok_or_else(reject)?.as_ref();
     for (column, value) in [

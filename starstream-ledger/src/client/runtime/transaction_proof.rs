@@ -81,6 +81,7 @@ async fn storage_root(
 }
 
 /// Verify the transaction's execution proof using the contract store and referenced outputs.
+/// The proof binds the transaction's required signers. The ledger authenticates signatures separately.
 pub async fn verify_transaction_proof(
     prover: &mut TransactionProver,
     transaction: &Transaction,
@@ -206,6 +207,9 @@ pub async fn verify_transaction_proof(
         &proof,
         &expected,
         &TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers: transaction.required_signers.clone(),
             entry,
             inputs,
             outputs,

@@ -115,7 +115,6 @@ pub fn interleave_transaction_with_inputs(
         }
     }
     let execution = Trace(merged.clone());
-
     let mut outputs = Vec::new();
     for (utxo, &process) in allocation_order.iter().enumerate() {
         let remaining = &traces[process].0[cursors[process]..];
@@ -150,10 +149,21 @@ pub fn interleave_transaction_with_inputs(
     merged.extend(coordinators.iter().map(|_| Step::FinalizeCoordinator));
     merged.push(Step::FinishTransaction);
 
+    let signers = execution
+        .0
+        .iter()
+        .filter_map(|step| match step {
+            Step::AssertSignedBy { key } => Some(*key),
+            _ => None,
+        })
+        .collect();
     Ok(InterleavedTransaction {
         execution,
         trace: Trace(merged),
         statement: TransactionStatement {
+            input_tokens: Vec::new(),
+            output_tokens: Vec::new(),
+            signers,
             entry,
             inputs,
             outputs,
@@ -413,7 +423,9 @@ fn schedule_execution(
                 registrations[current].push(method);
                 merged.push(step);
             }
-            Step::EnterConstructor { .. } | Step::EnterCall { .. } => merged.push(step),
+            Step::AssertSignedBy { .. }
+            | Step::EnterConstructor { .. }
+            | Step::EnterCall { .. } => merged.push(step),
             Step::GetStorage { .. }
             | Step::BeginExecution { .. }
             | Step::SetStorage { .. }
@@ -736,6 +748,9 @@ mod tests {
         assert_eq!(
             transaction.statement,
             TransactionStatement {
+                input_tokens: Vec::new(),
+                output_tokens: Vec::new(),
+                signers: Default::default(),
                 entry: EntryCall {
                     script: ENTRY,
                     arguments: value([]),

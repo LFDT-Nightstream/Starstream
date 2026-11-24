@@ -383,8 +383,18 @@ fn render_with_statement(
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
+            let input_tokens = statement.input_tokens.iter()
+                .map(|t| format!("{{ owner: {}, storage: {} }}", t.owner, Qnt(&t.storage)))
+                .collect::<Vec<_>>().join(", ");
+            let output_tokens = statement.output_tokens.iter()
+                .map(|t| format!("{{ token: {}, owner: {}, storage: {} }}", t.token, t.owner, Qnt(&t.storage)))
+                .collect::<Vec<_>>().join(", ");
+            let signers = statement.signers.iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
             format!(
-                "new_transaction({{ script: {}, arguments: {} }}, List({inputs}), List({outputs}))",
+                "{{ tx_signers: Set({signers}), input_tokens: List({input_tokens}), output_tokens: List({output_tokens}), ...new_transaction({{ script: {}, arguments: {} }}, List({inputs}), List({outputs})) }}",
                 Qnt(&statement.entry.script),
                 Qnt(&statement.entry.arguments)
             )
@@ -590,6 +600,7 @@ impl fmt::Display for Qnt<&Step> {
             Step::AddEffectHandler { effect } => {
                 write!(f, "add_effect_handler({})", Qnt(effect))
             }
+            Step::AssertSignedBy { key } => write!(f, "assert_signed_by({key})"),
             Step::PopEffectHandlerFrame => f.write_str("pop_effect_handler_frame"),
             Step::SkipEffectHandler => f.write_str("skip_effect_handler"),
             Step::RaiseEffect { effect, arguments } => {

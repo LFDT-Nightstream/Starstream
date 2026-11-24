@@ -249,6 +249,10 @@ impl Tracing {
         }
         let execution =
             check_captured_transaction(&store.data().traces, handles, &self.input_methods)?;
+        ensure!(
+            execution.transaction.statement.signers == store.data().required_signers,
+            "signers requested by the host differ from the captured signer assertions"
+        );
         Ok(TracedCall {
             execution,
             programs: self.programs,

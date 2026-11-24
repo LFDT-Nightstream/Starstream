@@ -15,6 +15,7 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {
+    AssertSignedBy,
     CallCoordinator,
     SetStorage,
     GetStorage,
@@ -70,12 +71,14 @@ impl EventKind {
             17 => Self::AddEffectHandler,
             18 => Self::PopEffectHandlerFrame,
             19 => Self::CallCoordinator,
+            20 => Self::AssertSignedBy,
             _ => return None,
         })
     }
 
     pub fn for_step(step: &Step) -> Option<Self> {
         Some(match step {
+            Step::AssertSignedBy { .. } => Self::AssertSignedBy,
             Step::CallCoordinator { .. } => Self::CallCoordinator,
             Step::SetStorage { .. } => Self::SetStorage,
             Step::GetStorage { .. } => Self::GetStorage,
@@ -127,6 +130,7 @@ impl EventKind {
             Self::AddEffectHandler => 17,
             Self::PopEffectHandlerFrame => 18,
             Self::CallCoordinator => 19,
+            Self::AssertSignedBy => 20,
         }
     }
 
@@ -150,6 +154,7 @@ impl EventKind {
             Self::GetStorage | Self::Return | Self::ResumeEffect | Self::ReceiveCallResult => {
                 root(&mut words, &mut last_root_block, false)
             }
+            Self::AssertSignedBy => words.extend([Method(0), Method(1)]),
             Self::ReceiveNewUtxoHandle => words.push(Resource),
             Self::YieldBegin | Self::PopEffectHandlerFrame => {}
             Self::PushEffectHandlerFrame => words.push(FrameId),
@@ -290,6 +295,9 @@ impl EventKind {
             // The coordinator-local handle of a loaded input is host state
             // outside the transcript; the host binds it when it loads the
             // UTXO.
+            EventKind::AssertSignedBy => Step::AssertSignedBy {
+                key: u64::from(method.0[0]) | (u64::from(method.0[1]) << 32),
+            },
             EventKind::CallCoordinator => Step::CallCoordinator {
                 script: method,
                 arguments: argument,
@@ -364,7 +372,12 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         }
         _ => 0,
     };
+    let signer;
     let (resource, method, argument, result) = match step {
+        Step::AssertSignedBy { key } => {
+            signer = EventIdentity::from_u64_words([*key, 0, 0, 0]);
+            (0, Some(&signer), None, None)
+        }
         Step::CallCoordinator { script, arguments } => (0, Some(script), Some(arguments), None),
         Step::SetStorage { storage, .. } => (0, None, Some(storage), None),
         Step::GetStorage { storage } => (0, None, None, Some(&storage.0)),

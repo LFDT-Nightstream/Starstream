@@ -59,26 +59,17 @@ pub fn decode_captured_transaction(
     })
 }
 
-/// Decode a traced coordination-script call and check its execution relation.
-///
-/// TODO: This is host-side validation only. Transaction I/O and recursive proof
-/// binding are intentionally outside this initial integration.
-pub fn check_captured_execution(
-    registry: &neo_wasm::WasmtimeTraceRegistry,
-    entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
-) -> wasmtime::Result<CapturedExecution> {
-    check_captured_transaction(registry, entry_utxo_handles, &[])
-}
-
-/// Check loading and execution; transaction I/O binding remains deferred.
+/// Check the interleaved execution reconstructed from the captured calls.
 pub fn check_captured_transaction(
     registry: &neo_wasm::WasmtimeTraceRegistry,
     entry_utxo_handles: impl IntoIterator<Item = ResourceHandle>,
     input_methods: &[Vec<MethodHash>],
 ) -> wasmtime::Result<CapturedExecution> {
     let execution = decode_captured_transaction(registry, entry_utxo_handles, input_methods)?;
-    starstream_interleaving_prover::verify_sat(&execution.transaction.execution).map_err(
-        |error| wasmtime::format_err!("interleaving relation rejected execution: {error}"),
-    )?;
+    starstream_interleaving_prover::verify_sat(
+        &execution.transaction.execution,
+        &execution.transaction.statement.signers,
+    )
+    .map_err(|error| wasmtime::format_err!("interleaving relation rejected execution: {error}"))?;
     Ok(execution)
 }

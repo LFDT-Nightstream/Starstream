@@ -189,6 +189,7 @@ pub async fn call_coordination_script(
     utxos: &mut Vec<Utxo<Arc<std::sync::Mutex<UtxoCtx>>>>,
     prover: Option<&mut TransactionProver>,
 ) -> wasmtime::Result<(Transaction, wasmtime::Result<TracedCall>)> {
+    store.data_mut().required_signers.clear();
     let args_len = args.len();
     let param_len = export.ty().params().len();
     ensure!(
@@ -371,6 +372,7 @@ pub async fn call_coordination_script(
         outputs: tx_outputs,
         events,
         proof: Box::default(),
+        required_signers: mem::take(&mut store.data_mut().required_signers),
     };
     #[cfg(feature = "proving")]
     if let Some(prover) = prover {
@@ -395,6 +397,9 @@ pub async fn call_coordination_script(
 
 #[derive(Debug, Default)]
 pub struct Ctx {
+    // TODO: replace u64 with a proper public key type eventually
+    // that requires changing the compiler and the std wit import
+    pub required_signers: BTreeSet<u64>,
     pub table: ResourceTable,
     pub starstream: StarstreamCtx,
     pub events: Vec<TransactionEvent>,
@@ -430,9 +435,9 @@ impl starstream::std::cardano::Host for Ctx {
 impl starstream::std::ledger::Host for Ctx {
     fn assert_transaction_signed_by(
         &mut self,
-        _key: starstream::std::ledger::PublicKey,
+        key: starstream::std::ledger::PublicKey,
     ) -> wasmtime::Result<()> {
-        // TODO: real implementation.
+        self.required_signers.insert(key.dummy);
         Ok(())
     }
 }

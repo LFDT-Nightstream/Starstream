@@ -73,7 +73,11 @@ fn bindings_require_empty_keys_at_both_write_sites() {
 #[test]
 fn duplicate_constructor_bindings_fail_across_batch_sizes() {
     for size in [1, 2, 8] {
-        crate::verify_sat_batched(&bindings(false, false, false), size).unwrap();
-        assert!(crate::verify_sat_batched(&bindings(false, false, true), size).is_err());
+        crate::verify_sat_batched(&bindings(false, false, false), size, &Default::default())
+            .unwrap();
+        assert!(
+            crate::verify_sat_batched(&bindings(false, false, true), size, &Default::default())
+                .is_err()
+        );
     }
 }

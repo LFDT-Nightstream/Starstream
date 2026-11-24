@@ -35,7 +35,17 @@ pub(crate) fn method_table(trace: &Trace) -> Vec<MethodHash> {
     method_table
 }
 
+#[cfg(test)]
 pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
+    normalize_with_inputs(trace, &Default::default())
+}
+
+pub(crate) fn normalize_with_inputs(
+    trace: &Trace,
+    signers: &std::collections::BTreeSet<u64>,
+) -> NormalizedTrace {
+    let mut io_chain = [F::ZERO; 4];
+    let signer_indices: HashMap<_, _> = signers.iter().copied().zip(0u32..).collect();
     let method_table = method_table(trace);
     let method_indices = method_table
         .iter()
@@ -82,7 +92,7 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
     let mut log_address_by_entry = HashMap::new();
     let mut last_log_membership = HashMap::new();
     let mut commitments = HashMap::new();
-    let mut io_chain = [F::ZERO; 4];
+
     // Hand-off registers: what a call, return or handler exit leaves for the
     // step that must follow it.
     let mut pending_root = [F::ZERO; 4];
@@ -455,6 +465,12 @@ pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
                     arguments: arguments.clone(),
                     effect: Some(*effect),
                 });
+            }
+            Step::AssertSignedBy { key } => {
+                event_identity = Some(identity_limbs(EventIdentity::from_u64_words([
+                    *key, 0, 0, 0,
+                ])));
+                method_index = signer_indices.get(key).copied().unwrap_or(0);
             }
             Step::PushEffectHandlerFrame { frame_id } => {
                 arena.push(EffectScope {

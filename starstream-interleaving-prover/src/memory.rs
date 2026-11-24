@@ -26,12 +26,13 @@ use crate::ccs::layout::{
     COL_CALL_TARGET, COL_CURR_BEFORE, COL_ENABLED_METHOD_LOG_ADDR,
     COL_ENABLED_METHOD_LOG_GENERATION, COL_ENABLED_METHOD_LOG_ORDINAL, COL_ENABLED_METHOD_LOG_UTXO,
     COL_EVENT_OWNER_STRIDE_8, COL_IN_WORDS, COL_METHOD_APPEND, COL_METHOD_HASH_VALUE,
-    COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_OUT_WORDS,
+    COL_METHOD_INDEX, COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_ONE, COL_OUT_WORDS,
     COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
     COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD,
     COL_SEL_ENTER_EFFECT_HANDLER, COL_SEL_EXIT_EFFECT_HANDLER, COL_SEL_READ_ABI,
     COL_SEL_RECEIVE_CALL_RESULT, COL_SEL_RECEIVE_NEW_UTXO_HANDLE, COL_SEL_RESUME_EFFECT,
-    COL_SEL_RETURN, COL_SEL_YIELD_BEGIN, range_check_layout,
+    COL_SEL_RETURN, COL_SEL_YIELD_BEGIN, COL_SIGNER_INDEX, COL_SIGNER_KEY_ADDR, SIGNER_KEY_LIMBS,
+    range_check_layout,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -56,6 +57,8 @@ pub enum MemoryId {
     EnabledMethodLogGeneration,
     EnabledMethodLogOrdinal,
     MethodTable,
+    SignerKey,
+    SignerPresent,
     ResourceResolver,
     UtxoTraceCommitments,
     CoordTraceCommitments,
@@ -225,6 +228,26 @@ pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
     memories.extend_from_slice(&enabled_method_log_layout());
 
     memories.extend_from_slice(&method_table_layout());
+    let signer_read = |address, value| MemoryPortSpec {
+        address_columns: vec![address],
+        value_column: value,
+        kind: MemoryPortKind::Read,
+        activation: MemoryPortActivation::When(Opcode::AssertSignedBy.selector()),
+    };
+    memories.push(MemorySpec {
+        id: MemoryId::SignerKey,
+        kind: MemoryKind::Rom,
+        ports: COL_SIGNER_KEY_ADDR
+            .into_iter()
+            .zip(COL_METHOD_HASH_VALUE)
+            .map(|(address, value)| signer_read(address, value))
+            .collect(),
+    });
+    memories.push(MemorySpec {
+        id: MemoryId::SignerPresent,
+        kind: MemoryKind::Rom,
+        ports: vec![signer_read(COL_SIGNER_INDEX, COL_ONE)],
+    });
 
     memories.extend_from_slice(&resource_resolver_layout());
 
@@ -777,6 +800,17 @@ pub(crate) fn preload_tables(
     preload
 }
 
+pub(crate) fn preload_signers(preload: &mut MemoryPreload<MemoryId>, signers: &BTreeSet<u64>) {
+    for (index, &key) in (0u32..).zip(signers) {
+        for offset in 0..SIGNER_KEY_LIMBS {
+            let address = index * SIGNER_KEY_LIMBS as u32 + offset as u32;
+            let limb = (key >> (offset as u32 * u32::BITS)) as u32;
+            preload.insert(MemoryId::SignerKey, vec![address], limb);
+        }
+        preload.insert(MemoryId::SignerPresent, vec![index], 1);
+    }
+}
+
 impl MemoryId {
     pub const fn name(self) -> &'static str {
         match self {
@@ -800,6 +834,8 @@ impl MemoryId {
             MemoryId::EnabledMethodLogGeneration => "enabled_method_log_generation",
             MemoryId::EnabledMethodLogOrdinal => "enabled_method_log_ordinal",
             MemoryId::MethodTable => "method_table",
+            MemoryId::SignerKey => "signer_key",
+            MemoryId::SignerPresent => "signer_present",
             MemoryId::ResourceResolver => "resource_resolver",
             MemoryId::UtxoTraceCommitments => "utxo_trace_commitments",
             MemoryId::CoordTraceCommitments => "coord_trace_commitments",

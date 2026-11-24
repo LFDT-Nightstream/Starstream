@@ -128,6 +128,7 @@ struct Root {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ImportKind {
+    AssertSignedBy,
     YieldBegin,
     RegisterMethod,
     NewUtxo(ConstructorIdentity),
@@ -854,6 +855,9 @@ fn classify_import(
             message: "script imports require component ABI metadata".into(),
         });
     }
+    if import.module == "starstream:std/ledger" && import.field == "assert-transaction-signed-by" {
+        return Ok(ImportKind::AssertSignedBy);
+    }
     if import.module == UTXO_CONTEXT_INTERFACE {
         return Ok(match import.field.as_str() {
             RESUME_METHOD => ImportKind::YieldBegin,
@@ -925,6 +929,12 @@ fn build_import_template(
 ) -> Result<ImportEvents, TemplateBuildError> {
     let kind = classify_import(import, abis)?;
     let call = match kind {
+        ImportKind::AssertSignedBy => {
+            require_signature(import, &[ValType::I64], &[])?;
+            Ok(Sequence::op(EventKind::AssertSignedBy)
+                .arg_i64(0)?
+                .finish()?)
+        }
         ImportKind::YieldBegin => build_yield_begin_template(import),
         ImportKind::RegisterMethod => build_register_method_template(import),
         ImportKind::NewUtxo(constructor) => return build_new_utxo_template(import, constructor),
@@ -1870,6 +1880,26 @@ mod tests {
                 None
             ),
             Trace::new([Step::PopEffectHandlerFrame])
+        );
+    }
+
+    #[test]
+    fn signer_import_records_the_full_key() {
+        let templates = build(
+            r#"(module (import "starstream:std/ledger" "assert-transaction-signed-by" (func (param i64))))"#,
+            &[],
+        );
+        assert_eq!(
+            call(
+                &templates,
+                "starstream:std/ledger",
+                "assert-transaction-signed-by",
+                &[(17, 42)],
+                None
+            ),
+            Trace::new([Step::AssertSignedBy {
+                key: (42 << 32) | 17
+            }])
         );
     }
 

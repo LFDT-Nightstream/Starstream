@@ -160,6 +160,7 @@ impl From<types::Transaction> for Transaction {
             outputs: v.outputs.into_iter().map(Into::into).collect(),
             events: v.events.into_iter().map(Into::into).collect(),
             proof: Box::from(&*v.proof),
+            required_signers: v.required_signers.into_iter().collect(),
         }
     }
 }
@@ -171,6 +172,7 @@ impl From<Transaction> for types::Transaction {
             outputs: v.outputs.into_iter().map(Into::into).collect(),
             events: v.events.into_iter().map(Into::into).collect(),
             proof: Bytes::from(v.proof),
+            required_signers: v.required_signers.into_iter().collect(),
         }
     }
 }
