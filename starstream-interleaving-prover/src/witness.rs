@@ -256,13 +256,13 @@ pub(crate) fn assign_stride_columns(wit: &mut [F]) {
     for (i, col) in COL_CALL_STACK_MUL_STRIDE_8.iter().enumerate() {
         wit[*col] = call_stack_access * F::new(8) + F::new(i as u64);
     }
-    // The owner's kind bit selects the trace commitment memory, and the
+    // The owner's kind tag selects the trace commitment memory, and the
     // rest of its packed id is the address there.
     let event_owner = wit[COL_EVENT_OWNER].as_canonical_u64();
-    let event_owner_index = event_owner / 2;
-    let utxo_owner = event_owner % 2 == u64::from(crate::ivc_state::CoroutineKind::Utxo.tag());
+    let event_owner_index = event_owner / 4;
+    let utxo_owner = event_owner % 4 == u64::from(crate::ivc_state::CoroutineKind::Utxo.tag());
     wit[COL_UTXO_EVENT] = wit[COL_EVENT_ACTIVE] * F::from_bool(utxo_owner);
-    wit[COL_COORD_EVENT] = wit[COL_EVENT_ACTIVE] * F::from_bool(!utxo_owner);
+    wit[COL_COORD_EVENT] = wit[COL_EVENT_ACTIVE] * F::from_bool(event_owner.is_multiple_of(4));
     for (i, col) in COL_EVENT_OWNER_STRIDE_8.iter().enumerate() {
         wit[*col] = F::new(event_owner_index * 8 + i as u64);
     }

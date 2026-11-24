@@ -166,6 +166,15 @@ pub fn compile_contract(source: &str) -> Vec<u8> {
     result.wasm.expect("compiling produced no Wasm")
 }
 
+pub fn compile_component(source: &str) -> wasmtime::Result<Vec<u8>> {
+    wit_component::ComponentEncoder::default()
+        .validate(true)
+        .module(&compile_contract(source))
+        .map_err(|error| wasmtime::format_err!("failed to set core module: {error:#}"))?
+        .encode()
+        .map_err(|error| wasmtime::format_err!("failed to componentize contract: {error:#}"))
+}
+
 pub struct NoopContractLookup;
 
 impl<T> ContractLookup<T> for NoopContractLookup {
@@ -185,7 +194,7 @@ pub struct Ctx {
     starstream: StarstreamCtx,
     traces: neo_wasm::WasmtimeTraceRegistry,
     /// Every UTXO constructed during the script, in allocation order.
-    created: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
+    pub(crate) created: Vec<Utxo<Arc<Mutex<UtxoCtx>>>>,
 }
 
 impl bindings::starstream::std::cardano::Host for Ctx {
@@ -423,12 +432,7 @@ pub async fn trace_coordination_script_with_registry(
     source: &str,
     script: &str,
 ) -> wasmtime::Result<(TracedExecution, neo_wasm::WasmtimeTraceRegistry)> {
-    let wasm = wit_component::ComponentEncoder::default()
-        .validate(true)
-        .module(&compile_contract(source))
-        .map_err(|error| wasmtime::format_err!("failed to set core module: {error:#}"))?
-        .encode()
-        .map_err(|error| wasmtime::format_err!("failed to componentize contract: {error:#}"))?;
+    let wasm = compile_component(source)?;
     let digest = <sha2::Sha256 as sha2::Digest>::digest(&wasm).into();
     let templates = build_component_templates(&wasm, &[script], &digest)
         .map_err(|error| wasmtime::format_err!("failed to build templates: {error}"))?;

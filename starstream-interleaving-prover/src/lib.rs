@@ -28,7 +28,7 @@ pub use batch::verify_sat_batched;
 pub use batch::verify_sat_with_commitments;
 
 /// Final outer event roots, keyed by packed coroutine INSTANCE identity:
-/// coordinator i = 2*i, UTXO i = 2*i+1. Different instances of the same program
+/// see [`CoroutineId::encoded`]. Different instances of the same program
 /// have separate chains. Contains exactly the instances that emitted events.
 pub type TraceCommitments = BTreeMap<u32, [u64; 4]>;
 

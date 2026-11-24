@@ -1,4 +1,5 @@
 use super::*;
+use crate::CoroutineId::{Coord, Utxo};
 use crate::{ccs::layout::*, verify_sat_batched};
 use starstream_interleaving_spec::{Out, QuintVerifier};
 
@@ -102,19 +103,22 @@ fn search_follows_scopes_and_returns_to_each_raiser() {
     let owners: Vec<_> = normalized
         .steps
         .iter()
-        .map(|step| step.event_owner.encoded())
+        .map(|step| step.event_owner)
         .collect();
     // The skip has no observer; handler entries are attributed to the owner.
-    assert_eq!(&owners[8..11], &[1, 0, 2]);
-    assert_eq!(&owners[B_RAISE..=18], &[3, 2, 2, 3]);
+    assert_eq!(&owners[8..11], &[Utxo(0), Coord(0), Coord(1)]);
+    assert_eq!(
+        &owners[B_RAISE..=18],
+        &[Utxo(1), Coord(1), Coord(1), Utxo(1)]
+    );
     // Program events split per instance; the scheduler resynthesizes skips.
     let mut per_instance = vec![Trace::default(); 3];
     for (step, owner) in trace.0.iter().zip(&owners) {
         let process = match owner {
-            0 => continue,
-            2 => 0,
-            1 => 1,
-            3 => 2,
+            Coord(0) => continue,
+            Coord(1) => 0,
+            Utxo(0) => 1,
+            Utxo(1) => 2,
             _ => unreachable!(),
         };
         per_instance[process].0.push(step.clone());
@@ -168,9 +172,9 @@ fn handler_owner_and_frame_id_come_from_the_selected_scope() {
     let (rows, preload) = build_witness_rows(&trace);
     verify_witness_rows(&rows, &preload).unwrap();
     for (column, forged) in [
-        // B (3) and A (1) instead of the coordinator owner (2).
-        (COL_CALL_TARGET, 3),
-        (COL_CALL_TARGET, 1),
+        // B and A instead of the coordinator owner.
+        (COL_CALL_TARGET, u64::from(Utxo(1).encoded())),
+        (COL_CALL_TARGET, u64::from(Utxo(0).encoded())),
         // A's frame id instead of the selected scope's.
         (COL_EFFECT_FRAME_ID, 2),
     ] {

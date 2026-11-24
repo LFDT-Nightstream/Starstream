@@ -281,8 +281,8 @@ impl Limits {
 
     fn address_widths(&self, memory: MemoryId) -> Vec<usize> {
         let bits = |count: usize| count.max(2).next_power_of_two().ilog2() as usize;
-        // Wide enough for either kind's local index plus the kind bit.
-        let packed_id = bits(self.utxos.max(self.coordinators)) + 1;
+        // Wide enough for the local index plus the two kind bits.
+        let packed_id = bits(self.utxos.max(self.coordinators)) + 2;
         match memory {
             MemoryId::InstanceStack
             | MemoryId::CallStackCaller

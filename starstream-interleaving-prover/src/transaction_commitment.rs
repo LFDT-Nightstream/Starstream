@@ -92,12 +92,21 @@ pub fn transaction_commitment(
             })
             .collect()
     };
+    // Only coordinator and UTXO traces have finalization rows today.
+    for &packed in roots.keys() {
+        if !matches!(
+            CoroutineId::from_packed(packed),
+            Some(CoroutineId::Coord(_) | CoroutineId::Utxo(_))
+        ) {
+            return Err(reject());
+        }
+    }
     let coordinators =
         roots
             .iter()
             .filter_map(|(&packed, root)| match CoroutineId::from_packed(packed) {
-                id @ CoroutineId::Coord(_) => Some((id, root)),
-                CoroutineId::Utxo(_) => None,
+                Some(id @ CoroutineId::Coord(_)) => Some((id, root)),
+                _ => None,
             });
     // The map iterates in packed-id order, which is allocation order.
     let mut ids = coordinators.clone().map(|(id, _)| id).peekable();
@@ -149,8 +158,8 @@ pub fn transaction_commitment(
     let utxos = roots
         .iter()
         .filter_map(|(&packed, root)| match CoroutineId::from_packed(packed) {
-            CoroutineId::Utxo(id) => Some((id, root)),
-            CoroutineId::Coord(_) => None,
+            Some(CoroutineId::Utxo(id)) => Some((id, root)),
+            _ => None,
         });
     for (id, root) in utxos {
         if u64::from(id) != next_utxo {
@@ -231,7 +240,7 @@ mod tests {
         );
         let chain = neo_application::event_commitment::commit_block(
             chain,
-            [COORDINATOR, 2, 11, 12, 13, 14, 0, 0].map(F::new),
+            [COORDINATOR, 4, 11, 12, 13, 14, 0, 0].map(F::new),
         );
         let expected = neo_application::event_commitment::commit_block(
             chain,
@@ -267,11 +276,15 @@ mod tests {
             }],
         };
         // UTXO 1 is consumed but its root must still contribute.
-        let roots = TraceCommitments::from([(1, [1; 4]), (2, [2; 4]), (3, [3; 4])]);
+        let roots = TraceCommitments::from([
+            (CoroutineId::Utxo(0).encoded(), [1; 4]),
+            (CoroutineId::Coord(1).encoded(), [2; 4]),
+            (CoroutineId::Utxo(1).encoded(), [3; 4]),
+        ]);
         let digest = transaction_commitment(&statement, &roots).unwrap();
-        for id in [1, 2, 3] {
+        for id in roots.keys() {
             let mut changed = roots.clone();
-            changed.get_mut(&id).unwrap()[0] += 1;
+            changed.get_mut(id).unwrap()[0] += 1;
             assert_ne!(
                 digest,
                 transaction_commitment(&statement, &changed).unwrap()
@@ -318,6 +331,11 @@ mod tests {
         for id in [CoroutineId::Coord(0), CoroutineId::Coord(3)] {
             let mut changed = roots.clone();
             changed.insert(id.encoded(), [0; 4]);
+            assert!(transaction_commitment(&statement, &changed).is_err());
+        }
+        for packed in [CoroutineId::Token(0).encoded(), 3] {
+            let mut changed = roots.clone();
+            changed.insert(packed, [0; 4]);
             assert!(transaction_commitment(&statement, &changed).is_err());
         }
         called.remove(&CoroutineId::Coord(1).encoded());

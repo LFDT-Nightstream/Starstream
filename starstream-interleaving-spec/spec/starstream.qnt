@@ -29,7 +29,7 @@ module starstream {
   type ConstructorIdentity = EventIdentity
   type ScriptIdentity = EventIdentity
   type EffectIdentity = EventIdentity
-  type CoroutineId = Coord(int) | Utxo(int)
+  type CoroutineId = Coord(int) | Utxo(int) | Token(int)
   pure val ENTRY_COORDINATOR = Coord(1)
 
   type ResourceKey = {
@@ -207,10 +207,15 @@ module starstream {
     match cid {
       | Utxo(_) => true
       | Coord(_) => false
+      | Token(_) => false
     }
 
   pure def is_coord(cid: CoroutineId): bool =
-    not(is_utxo(cid))
+    match cid {
+      | Coord(_) => true
+      | Utxo(_) => false
+      | Token(_) => false
+    }
 
   pure def is_valid(value: StarstreamValue): bool =
     value.length() == 4 and
@@ -975,6 +980,7 @@ module starstream {
     match cid {
       | Coord(id) => 0 <= id and id < next_id
       | Utxo(_) => true
+      | Token(_) => true
     }
 
   val coordinator_ids_are_allocated = all {

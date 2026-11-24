@@ -1,7 +1,8 @@
 use neo_math::F;
 use p3_field::PrimeField64;
+use starstream_interleaving_prover::CoroutineId::{Coord, Utxo};
 use starstream_interleaving_prover::{
-    Error, TraceCommitments, Unsatisfied, verify_transaction_sat,
+    CoroutineId, Error, TraceCommitments, Unsatisfied, verify_transaction_sat,
 };
 use starstream_interleaving_spec::{
     EntryCall, InputUtxo, MethodHash, OutputUtxo, QuintError, QuintVerifier, ResourceHandle,
@@ -100,12 +101,19 @@ fn fixture_with_handle(
             arguments: UNIT,
         },
     ]);
-    // Ownership is explicit and independent of normalization: Coord(1)=2, Utxo(0)=1.
+    // Ownership is explicit and independent of normalization.
     // The entry call is a host step; the entry event belongs to Coord(1).
-    let mut owners = vec![Some(1), None, None, Some(2), Some(2), Some(1)];
+    let mut owners = vec![
+        Some(Utxo(0)),
+        None,
+        None,
+        Some(Coord(1)),
+        Some(Coord(1)),
+        Some(Utxo(0)),
+    ];
     if consumed {
         trace.0.push(Step::YieldBegin);
-        owners.push(Some(1));
+        owners.push(Some(Utxo(0)));
     }
     trace.0.extend([
         Step::Return {
@@ -128,10 +136,10 @@ fn fixture_with_handle(
         Step::FinishTransaction,
     ]);
     owners.extend([
-        Some(1),
-        Some(2),
-        Some(2),
-        if consumed { None } else { Some(1) },
+        Some(Utxo(0)),
+        Some(Coord(1)),
+        Some(Coord(1)),
+        if consumed { None } else { Some(Utxo(0)) },
         None,
         None,
     ]);
@@ -164,7 +172,7 @@ fn fixture_with_handle(
     (trace, statement, commitments)
 }
 
-fn expected(trace: &Trace, owners: &[Option<u32>]) -> TraceCommitments {
+fn expected(trace: &Trace, owners: &[Option<CoroutineId>]) -> TraceCommitments {
     assert_eq!(trace.0.len(), owners.len());
     let mut result = TraceCommitments::new();
     for (step, owner) in trace.0.iter().zip(owners) {
@@ -174,11 +182,12 @@ fn expected(trace: &Trace, owners: &[Option<u32>]) -> TraceCommitments {
             continue;
         };
         assert!(!blocks.is_empty());
-        let mut chain = result.get(owner).copied().unwrap_or([0; 4]).map(F::new);
+        let owner = owner.encoded();
+        let mut chain = result.get(&owner).copied().unwrap_or([0; 4]).map(F::new);
         for block in blocks {
             chain = neo_application::event_commitment::commit_block(chain, block.map(F::new));
         }
-        result.insert(*owner, chain.map(|x| x.as_canonical_u64()));
+        result.insert(owner, chain.map(|x| x.as_canonical_u64()));
     }
     result
 }
@@ -206,10 +215,18 @@ fn new_utxo_transaction(
             arguments: UNIT,
         },
     ]);
-    let mut owners = vec![Some(1), None, None, None, Some(2), Some(2), Some(3)];
+    let mut owners = vec![
+        Some(Utxo(0)),
+        None,
+        None,
+        None,
+        Some(Coord(1)),
+        Some(Coord(1)),
+        Some(Utxo(1)),
+    ];
     for &method in new_methods {
         trace.0.push(Step::RegisterMethod { method });
-        owners.push(Some(3));
+        owners.push(Some(Utxo(1)));
     }
     trace.0.extend([
         Step::Return {
@@ -227,7 +244,14 @@ fn new_utxo_transaction(
         Step::ReadAbi { method: METHOD },
         Step::ReadAbi { method: METHOD },
     ]);
-    owners.extend([Some(3), Some(2), Some(2), Some(1), None, None]);
+    owners.extend([
+        Some(Utxo(1)),
+        Some(Coord(1)),
+        Some(Coord(1)),
+        Some(Utxo(0)),
+        None,
+        None,
+    ]);
     let mut statement = TransactionStatement {
         input_tokens: Vec::new(),
         output_tokens: Vec::new(),
@@ -251,7 +275,7 @@ fn new_utxo_transaction(
         trace.0.push(Step::GetStorage {
             storage: storage.clone().into(),
         });
-        owners.push(Some(3));
+        owners.push(Some(Utxo(1)));
         for &method in new_methods {
             trace.0.push(Step::ReadAbi { method });
             owners.push(None);
@@ -279,7 +303,7 @@ fn no_input_transaction() -> (Trace, TransactionStatement, TraceCommitments) {
         Step::FinalizeCoordinator,
         Step::FinishTransaction,
     ]);
-    let commitments = expected(&trace, &[None, Some(2), Some(2), None, None]);
+    let commitments = expected(&trace, &[None, Some(Coord(1)), Some(Coord(1)), None, None]);
     let statement = TransactionStatement {
         input_tokens: Vec::new(),
         output_tokens: Vec::new(),
@@ -331,20 +355,20 @@ fn replaced_abi_transaction() -> (Trace, TransactionStatement, TraceCommitments)
     let commitments = expected(
         &trace,
         &[
-            Some(1),
+            Some(Utxo(0)),
             None, // load, preload
             None,
-            Some(2), // entry call and event
-            Some(2),
-            Some(1), // call, enter
-            Some(1),
-            Some(1),
-            Some(1),
-            Some(1), // yield and registrations
-            Some(1),
-            Some(2),
-            Some(2),
-            Some(1), // returns and storage
+            Some(Coord(1)), // entry call and event
+            Some(Coord(1)),
+            Some(Utxo(0)), // call, enter
+            Some(Utxo(0)),
+            Some(Utxo(0)),
+            Some(Utxo(0)),
+            Some(Utxo(0)), // yield and registrations
+            Some(Utxo(0)),
+            Some(Coord(1)),
+            Some(Coord(1)),
+            Some(Utxo(0)), // returns and storage
             None,
             None,
             None,
@@ -399,9 +423,9 @@ fn rejects(
 fn transaction_digest_rejects_wrong_instance_roots() {
     for consumed in [false, true] {
         let (trace, statement, roots) = fixture(consumed);
-        for id in [1, 2] {
+        for id in roots.keys() {
             let mut changed = roots.clone();
-            changed.get_mut(&id).unwrap()[0] ^= 1;
+            changed.get_mut(id).unwrap()[0] ^= 1;
             // Direct storage/ABI checks still agree. Transaction verification
             // must reject through the aggregate digest, without a direct root comparison.
             let result = verify_transaction_sat(&trace, 3, &statement, &changed);

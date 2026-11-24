@@ -480,11 +480,12 @@ fn transaction_witness_tampering_is_rejected() {
     crate::verify_witness_rows(&rows, &preload).unwrap();
     check_statement(&rows, &statement, None).unwrap();
 
+    use crate::CoroutineId::{Coord, Token, Utxo};
     for (opcode, column, value) in [
         (Opcode::SetStorage, COL_TX_PHASE_BEFORE, F::ONE),
         (Opcode::BeginExecution, COL_TX_PHASE_BEFORE, F::ONE),
         (Opcode::BeginExecution, COL_TX_PHASE_AFTER, F::ZERO),
-        (Opcode::BeginExecution, COL_CALL_TARGET, F::new(4)),
+        (Opcode::BeginExecution, COL_CALL_TARGET, Coord(2).field()),
         (Opcode::BeginExecution, COL_CALL_SP_AFTER, F::ZERO),
         (Opcode::EnterCall, COL_TX_PHASE_BEFORE, F::ZERO),
         (Opcode::Return, COL_TX_PHASE_AFTER, F::ZERO),
@@ -496,11 +497,16 @@ fn transaction_witness_tampering_is_rejected() {
             COL_ENABLED_METHOD_LOG_ORDINAL,
             F::ONE,
         ),
-        (Opcode::GetStorage, COL_EVENT_OWNER, F::new(2)),
+        (Opcode::GetStorage, COL_EVENT_OWNER, Coord(1).field()),
+        (Opcode::GetStorage, COL_EVENT_OWNER, Token(0).field()),
         (Opcode::ReadAbi, COL_ENABLED_METHOD_LOG_ORDINAL, F::ONE),
         (Opcode::ReadAbi, COL_ENABLED_METHOD_LOG_ADDR, F::ONE),
         (Opcode::ReadAbi, COL_ENABLED_METHOD_LOG_GENERATION, F::ONE),
-        (Opcode::ReadAbi, COL_ENABLED_METHOD_LOG_UTXO, F::new(3)),
+        (
+            Opcode::ReadAbi,
+            COL_ENABLED_METHOD_LOG_UTXO,
+            Utxo(1).field(),
+        ),
         (Opcode::ReadAbi, COL_ABI_READ_REMAINING_AFTER, F::ONE),
         (Opcode::GetStorage, COL_OUTPUT_REMAINING, F::ONE),
         (Opcode::FinishTransaction, COL_OUTPUT_CURSOR_BEFORE, F::ZERO),
@@ -533,7 +539,7 @@ fn transaction_witness_tampering_is_rejected() {
                 crate::verify_witness_rows(&changed, &preload),
                 Err(Error::Unsatisfied(_))
             ),
-            "{opcode:?}, column {column}"
+            "{opcode:?}, column {column}, tampered value {value:?}"
         );
     }
 }

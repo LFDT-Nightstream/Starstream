@@ -209,13 +209,13 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             &coordinator_allocating_opcodes,
         ),
         |b| {
-            // Coord(i) is packed as 2 * i. An instance never runs twice, so
+            // Coord(i) is packed as 4 * i. An instance never runs twice, so
             // a callee's state cannot leak between calls.
             b.push_row(
                 selector_sum(coordinator_allocating_opcodes.iter().copied()),
                 [
                     (COL_CALL_TARGET, F::ONE),
-                    (layout::COL_NEXT_COORD_ID_BEFORE, -F::new(2)),
+                    (layout::COL_NEXT_COORD_ID_BEFORE, -F::new(4)),
                 ],
                 [],
             );
@@ -322,33 +322,36 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     });
 
     // A root's address is its owner's local index times eight. The packed id
-    // is `2 * index + kind`, so `8 * index` is `4 * owner - 4 * kind`.
+    // is `4 * index + kind`, so `8 * index` is twice the untagged owner.
     b.with_tag(always("event owner mul stride (8)"), |b| {
-        let kind = low_bit(layout::COL_EVENT_OWNER);
+        let [lo, hi] = coroutine_kind_bits(layout::COL_EVENT_OWNER);
         COL_EVENT_OWNER_STRIDE_8
             .iter()
             .enumerate()
             .for_each(|(i, col)| {
                 b.push_linear_zero([
-                    (layout::COL_EVENT_OWNER, F::new(4)),
-                    (kind, -F::new(4)),
+                    (layout::COL_EVENT_OWNER, F::new(2)),
+                    (lo, -F::new(2)),
+                    (hi, -F::new(4)),
                     (COL_ONE, F::new(i as u64)),
                     (*col, -F::ONE),
                 ]);
             });
     });
     // UTXO and coordinator roots are in separate memories that share these
-    // address columns. The owner's kind bit activates the write ports of one.
+    // address columns. Their tags differ in the low bit.
     b.with_tag(always("trace commitment memory selection"), |b| {
-        let kind = low_bit(layout::COL_EVENT_OWNER);
+        let [lo, hi] = coroutine_kind_bits(layout::COL_EVENT_OWNER);
+        // Existing event ports accept coordinator and UTXO roots only.
+        b.push_gated_linear_zero(layout::COL_EVENT_ACTIVE, [(hi, F::ONE)]);
         b.push_row(
             [(layout::COL_EVENT_ACTIVE, F::ONE)],
-            [(kind, F::ONE)],
+            [(lo, F::ONE)],
             [(layout::COL_UTXO_EVENT, F::ONE)],
         );
         b.push_row(
             [(layout::COL_EVENT_ACTIVE, F::ONE)],
-            [(COL_ONE, F::ONE), (kind, -F::ONE)],
+            [(COL_ONE, F::ONE), (lo, -F::ONE)],
             [(layout::COL_COORD_EVENT, F::ONE)],
         );
         // The final-root reads name their memory by opcode.
@@ -597,11 +600,11 @@ fn phase_bits(column: usize) -> [usize; 4] {
     [bits.start, bits.start + 1, bits.start + 2, bits.start + 3]
 }
 
-fn low_bit(column: usize) -> usize {
-    range_check_layout()
+fn coroutine_kind_bits(column: usize) -> [usize; 2] {
+    let bits = range_check_layout()
         .bit_columns_for(column)
-        .expect("packed coroutine ID column has decomposition bits")
-        .start
+        .expect("packed coroutine ID column has decomposition bits");
+    [bits.start, bits.start + 1]
 }
 
 fn require_coroutine_kind(
@@ -610,10 +613,12 @@ fn require_coroutine_kind(
     column: usize,
     expected: CoroutineKind,
 ) {
+    let [lo, hi] = coroutine_kind_bits(column);
     b.push_gated_linear_zero(
         opcode.selector(),
         [
-            (low_bit(column), F::ONE),
+            (lo, F::ONE),
+            (hi, F::new(2)),
             (COL_ONE, -F::new(u64::from(expected.tag()))),
         ],
     );
@@ -638,7 +643,7 @@ pub(crate) fn require_utxo_index(
         opcode.selector(),
         [
             (utxo, F::ONE),
-            (index, -F::new(2)),
+            (index, -F::new(4)),
             (COL_ONE, -F::new(u64::from(CoroutineKind::Utxo.tag()))),
         ],
     );
@@ -895,7 +900,7 @@ fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         Opcode::NewUtxo.selector(),
         [
             (COL_CALL_TARGET, F::ONE),
-            (COL_NEXT_UTXO_ID_BEFORE, -F::new(2)),
+            (COL_NEXT_UTXO_ID_BEFORE, -F::new(4)),
             (COL_ONE, -F::ONE),
         ],
     );

@@ -119,16 +119,12 @@ pub fn prepare_verification(
     let mut utxo_entries = BTreeMap::new();
     let mut input_count = 0;
     let mut bind = |coroutine: u32, source_index, entries: Vec<u32>| {
-        ensure!(
-            coroutine <= u32::MAX / 2,
-            "UTXO index exceeds coroutine ID range"
-        );
+        let packed = CoroutineId::Utxo(coroutine)
+            .checked_encoded()
+            .context("UTXO index exceeds coroutine ID range")?;
         ensure!(
             utxo_entries
-                .insert(
-                    CoroutineId::Utxo(coroutine).encoded(),
-                    (source_index, entries)
-                )
+                .insert(packed, (source_index, entries))
                 .is_none(),
             "duplicate UTXO program binding"
         );

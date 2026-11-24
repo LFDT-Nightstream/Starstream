@@ -60,6 +60,66 @@ const UNHANDLED_EFFECT: &str = r#"
     }
 "#;
 
+/// Start at script entry with a detached token restored in its own component.
+#[tokio::test]
+async fn send_single_token_from_storage() -> wasmtime::Result<()> {
+    use starstream_runtime::{Contract, Host};
+    use wasmtime::component::{Component, Val};
+    use wasmtime::error::Context as _;
+
+    let mut config = wasmtime::Config::default();
+    starstream_runtime::configure_wasmtime(&mut config);
+    let engine = wasmtime::Engine::new(&config)?;
+    let contract = |source| -> wasmtime::Result<Contract<common::Ctx>> {
+        let wasm = common::compile_component(source)?;
+        Contract::new(
+            &Component::from_binary(&engine, &wasm)?,
+            None,
+            common::NoopContractLookup,
+        )
+    };
+    let payment = contract(include_str!("../../examples/pay_to_public_key.star"))?;
+    let token_contract = contract(include_str!(
+        "../../starstream-to-wasm/tests/inputs/token_attach.star"
+    ))?;
+    let mut store = wasmtime::Store::new(&engine, common::Ctx::default());
+    let coordinator = payment.instantiate(&mut store).await?;
+    let token_instance = token_contract.instantiate(&mut store).await?;
+    let export = token_contract.get_token("my-token")?;
+    let token = token_instance
+        .load_token(
+            &mut store,
+            &export,
+            export.storage(),
+            [(String::from("attached"), Val::S64(0))],
+        )
+        .await?;
+    let handle = store.data_mut().table().push(token.clone())?;
+    let handle = handle.try_into_resource_any(&mut store)?;
+    let recipient = Val::Record(vec![(String::from("dummy"), Val::U64(17))]);
+    coordinator
+        .call_coordination_script(
+            &mut store,
+            &payment.get_coordination_script("send-single-token")?,
+            [recipient, Val::Resource(handle)],
+            [],
+        )
+        .await?;
+    let storage = token.storage(export.storage()).call_get(&mut store).await?;
+    assert_eq!(storage, [("attached".to_owned(), Val::S64(1))]);
+    let [output] = store.data().created.as_slice() else {
+        panic!("expected one PayToPublicKey output")
+    };
+    let output = output.clone();
+    let pay_to = payment.get_utxo("pay-to-public-key")?;
+    let storage = output
+        .storage(pay_to.storage().context("missing payment storage")?)
+        .call_get(&mut store)
+        .await?;
+    assert!(storage.contains(&("recipient".to_owned(), Val::S64(17))));
+    Ok(())
+}
+
 /// Identity of the `new` constructor of `utxo`, as the contract that ran exports it.
 fn constructor(execution: &TracedExecution, utxo: &str) -> MethodHash {
     let digest = <sha2::Sha256 as sha2::Digest>::digest(&execution.wasm).into();
@@ -804,7 +864,9 @@ mod proving {
             "a proof must not verify against another statement"
         );
         let mut other_commitments = execution.commitments.clone();
-        other_commitments.get_mut(&2).expect("Coord(1)")[1] ^= 1;
+        other_commitments
+            .get_mut(&starstream_interleaving_prover::CoroutineId::Coord(1).encoded())
+            .expect("Coord(1)")[1] ^= 1;
         assert!(
             context
                 .verify(&methods, &proof, &transaction.statement, &other_commitments)

@@ -126,7 +126,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             COL_SEL_FINALIZE_COORDINATOR,
             [
                 (COL_EVENT_OWNER, F::ONE),
-                (COL_COORD_CURSOR_BEFORE, -F::new(2)),
+                (COL_COORD_CURSOR_BEFORE, -F::new(4)),
             ],
         );
         // The range-checked remainder keeps the cursor below the allocator.
@@ -237,12 +237,14 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                             (COL_ONE, -F::ONE),
                         ],
                     );
+                    // ReadAbi uses the output just scanned. Utxo(cursor - 1)
+                    // encodes as 4 * (cursor - 1) + 1 = 4 * cursor - 3.
                     b.push_gated_linear_zero(
                         gate,
                         [
                             (COL_BOUNDARY_UTXO, F::ONE),
-                            (COL_OUTPUT_CURSOR_BEFORE, -F::new(2)),
-                            (COL_ONE, F::ONE),
+                            (COL_OUTPUT_CURSOR_BEFORE, -F::new(4)),
+                            (COL_ONE, F::new(3)),
                         ],
                     );
                     crate::ccs::require_utxo_index(
@@ -284,7 +286,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                     gate,
                     [
                         (COL_BOUNDARY_UTXO, F::ONE),
-                        (COL_OUTPUT_CURSOR_BEFORE, -F::new(2)),
+                        (COL_OUTPUT_CURSOR_BEFORE, -F::new(4)),
                         (COL_ONE, -F::ONE),
                     ],
                 );
@@ -299,17 +301,19 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 );
             }
             if matches!(op, Opcode::SetStorage | Opcode::PreloadMethod) {
+                // SetStorage loads Utxo(next), encoded as 4 * next + 1.
+                // PreloadMethod uses Utxo(next - 1), encoded as 4 * next - 3.
                 b.push_gated_linear_zero(
                     gate,
                     [
                         (COL_BOUNDARY_UTXO, F::ONE),
-                        (COL_NEXT_UTXO_ID_BEFORE, -F::new(2)),
+                        (COL_NEXT_UTXO_ID_BEFORE, -F::new(4)),
                         (
                             COL_ONE,
                             if op == Opcode::SetStorage {
                                 -F::ONE
                             } else {
-                                F::ONE
+                                F::new(3)
                             },
                         ),
                     ],
