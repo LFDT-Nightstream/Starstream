@@ -6,6 +6,7 @@ import type {
 import styles from "./styles.module.css";
 
 const PROMPT = "\x1b[1;32mledger\x1b[0m$ ";
+const PROMPT_WIDTH = PROMPT.replace(/\x1b\[[\d;]*m/g, "").length;
 
 function crlf(text: string): string {
   return text.replace(/\r?\n/g, "\r\n");
@@ -109,6 +110,7 @@ export function Terminal({ worker, open }: { worker: Worker; open: boolean }) {
       let entry = 0;
       let draft = "";
       let line = "";
+      let cursor = 0;
       let busy = false;
       let cancelling = false;
       let cancelUpload: (() => boolean) | undefined;
@@ -118,12 +120,49 @@ export function Terminal({ worker, open }: { worker: Worker; open: boolean }) {
         cancelling = false;
         cancelUpload = undefined;
         line = "";
+        cursor = 0;
         entry = history.length;
         term.write(PROMPT);
       };
-      const replace = (next: string) => {
-        term.write("\b \b".repeat(line.length) + next);
+      const position = (offset: number) => {
+        const at = PROMPT_WIDTH + offset;
+        return [Math.floor(at / term.cols), at % term.cols];
+      };
+      const move = (from: number, to: number) => {
+        const [fromRow] = position(from);
+        const [row, col] = position(to);
+        const rows =
+          row < fromRow
+            ? `\x1b[${fromRow - row}A`
+            : row > fromRow
+              ? `\x1b[${row - fromRow}B`
+              : "";
+        return `${rows}\r${col ? `\x1b[${col}C` : ""}`;
+      };
+      const wrap = (end: number) => (position(end)[1] === 0 ? "\r\n" : "");
+      const replace = (next: string, at = next.length) => {
+        term.write(
+          `${move(cursor, 0)}${next}${wrap(next.length)}\x1b[J${move(next.length, at)}`,
+        );
         line = next;
+        cursor = at;
+      };
+      const pair = (at: number) =>
+        /[\uD800-\uDBFF]/.test(line[at - 1] ?? "") &&
+        /[\uDC00-\uDFFF]/.test(line[at] ?? "");
+      const before = (at: number) => at - (pair(at - 1) ? 2 : 1);
+      const after = (at: number) => at + (pair(at + 1) ? 2 : 1);
+      const insert = (text: string) => {
+        if (cursor === line.length) {
+          line += text;
+          cursor = line.length;
+          term.write(text + wrap(cursor));
+        } else {
+          replace(
+            line.slice(0, cursor) + text + line.slice(cursor),
+            cursor + text.length,
+          );
+        }
       };
 
       const onMessage = ({ data }: { data: LedgerWorkerResponse }) => {
@@ -205,6 +244,22 @@ export function Terminal({ worker, open }: { worker: Worker; open: boolean }) {
           }
           return;
         }
+        if (data === "\x1b[D") {
+          if (cursor > 0) {
+            const to = before(cursor);
+            term.write(move(cursor, to));
+            cursor = to;
+          }
+          return;
+        }
+        if (data === "\x1b[C") {
+          if (cursor < line.length) {
+            const to = after(cursor);
+            term.write(move(cursor, to));
+            cursor = to;
+          }
+          return;
+        }
         if (data.startsWith("\x1b")) {
           return;
         }
@@ -215,19 +270,20 @@ export function Terminal({ worker, open }: { worker: Worker; open: boolean }) {
           if (c === "\r" || c === "\n") {
             submit();
           } else if (c === "\x7f" || c === "\b") {
-            if (line) {
-              line = line.slice(0, -1);
-              term.write("\b \b");
+            if (cursor > 0) {
+              const to = before(cursor);
+              replace(line.slice(0, to) + line.slice(cursor), to);
             }
           } else if (c === "\x03") {
-            term.write("^C\r\n");
+            term.write(`${line.slice(cursor)}^C\r\n`);
             prompt();
           } else if (c === "\x0c") {
             term.clear();
-            term.write(PROMPT + line);
+            term.write(
+              PROMPT + line + wrap(line.length) + move(line.length, cursor),
+            );
           } else if (c >= " ") {
-            line += c;
-            term.write(c);
+            insert(c);
           }
         }
       });
