@@ -24,6 +24,15 @@ define_column_region! {
         COL_SEL_RAISE_EFFECT: Boolean => "selector for the RaiseEffect action",
         COL_SEL_PUSH_EFFECT_HANDLER_FRAME: Boolean => "selector for the PushEffectHandlerFrame action",
         COL_SEL_ADD_EFFECT_HANDLER: Boolean => "selector for the AddEffectHandler action",
+        COL_SEL_UPCAST: Boolean => "bind an upcast resource handle",
+        COL_UPCAST_HANDLE_DIFF_INVERSE: Field => "inverse difference of the fresh and source handles on upcast",
+        COL_RESOLVER_SECOND_READ: Boolean => "read the destination of attach or the source of upcast",
+        COL_SEL_ATTACH: Boolean => "attach a detached token to a UTXO",
+        COL_SEL_ENTER_ATTACH: Boolean => "enter the token attach callback",
+        COL_RESOURCE_RESOLVER_SECOND_ADDR_HANDLE: U32 => "local handle for the second resolver lookup",
+        COL_RESOLVER_SECOND_VALUE: U32 => "packed coroutine ID from the second resolver lookup",
+        COL_TOKEN_INTERFACE: U32 => "token interface within the bound component",
+        COL_TOKEN_EVENT: Boolean => "event emitted by a token",
         COL_SEL_ASSERT_SIGNED_BY: Boolean => "signer membership check",
         COL_SEL_POP_EFFECT_HANDLER_FRAME: Boolean => "selector for the PopEffectHandlerFrame action",
         COL_SEL_SKIP_EFFECT_HANDLER: Boolean => "selector for the SkipEffectHandler host search step",
@@ -112,9 +121,9 @@ define_column_region! {
         COL_RESOURCE_RESOLVER_ADDR_CID: U32 => "packed holder coroutine id in the resource key",
         COL_RESOURCE_RESOLVER_ADDR_HANDLE: U32 => "resource handle in the resource key",
         COL_RESOURCE_RESOLVER_VALUE: U32 => "the packed coroutine id assigned to the resource at (cid, handle)",
-        COL_RESOURCE_RESOLVER_BEFORE: Field => "zero old value required when binding a previously unbound resource",
-        COL_RESOURCE_RESOLVER_WRITE: Boolean => "SetStorage or ReceiveNewUtxoHandle writes a resource binding",
-        COL_RESOURCE_RESOLVER_READ: Boolean => "1 if reading from the resource resolver map (on call_method)",
+        COL_UNBOUND_VALUE: Field => "zero old value for fresh handle bindings and detached tokens",
+        COL_RESOURCE_RESOLVER_WRITE: Boolean => "this row binds a fresh holder-local handle",
+        COL_RESOURCE_RESOLVER_READ: Boolean => "this row resolves a call receiver handle",
 
         // TODO: limit curr side so that this doesn't overflow
         COL_EVENT_OWNER_STRIDE_8: [U32; 8] => "event owner local index * 8 + i, the address in its kind's trace digest RAM",
@@ -156,8 +165,8 @@ define_column_region! {
         COL_EFFECT_DEPTH_AFTER: U32 => "local scope depth after this step",
         COL_EFFECT_ARENA_LEN_BEFORE: U32 => "scopes allocated so far; ids are never reused",
         COL_EFFECT_ARENA_LEN_AFTER: U32 => "scopes allocated after this step",
-        COL_PENDING_ROOT_BEFORE: [Field; 4] => "hand-off register: the argument root of the pending program call, or the result root of the pending return or handler exit",
-        COL_PENDING_ROOT_AFTER: [Field; 4] => "hand-off root after this row",
+        COL_PENDING_VALUE_BEFORE: [Field; 4] => "call arguments, return value, or resolved attach destination carried into this row",
+        COL_PENDING_VALUE_AFTER: [Field; 4] => "call arguments, return value, or resolved attach destination carried out of this row",
         COL_PENDING_METHOD_BEFORE: [Field; 8] => "hand-off register: method, script or constructor identity limbs of the pending program call",
         COL_PENDING_METHOD_AFTER: [Field; 8] => "hand-off identity after this row",
     ]
@@ -191,7 +200,10 @@ pub(crate) const SIGNER_KEY_LIMBS: usize = u64::BITS as usize / u32::BITS as usi
 /// Signer and method lookups occur on disjoint opcodes and share an advice column.
 pub(crate) const COL_SIGNER_INDEX: usize = COL_METHOD_INDEX;
 
-pub const SELECTORS: [usize; 28] = [
+pub const SELECTORS: [usize; 31] = [
+    COL_SEL_UPCAST,
+    COL_SEL_ATTACH,
+    COL_SEL_ENTER_ATTACH,
     COL_SEL_ASSERT_SIGNED_BY,
     COL_SEL_CALL_COORDINATOR,
     COL_SEL_FINALIZE_COORDINATOR,

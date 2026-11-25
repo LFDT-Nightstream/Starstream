@@ -63,7 +63,8 @@ pub struct InterleavedTransaction {
 ///
 /// `traces[0]` is the coordinator. The caller must supply subsequent traces in
 /// instantiation order, starting with any loaded input tokens.
-/// Handles are bound on constructor return. All steps must be consumed when
+/// Input loads, constructor returns, upcasts and attach callbacks bind local handles.
+/// All steps must be consumed when
 /// the coordinator returns; use [`interleave_transaction`] for storage reads.
 pub fn interleave_execution_only(traces: &[Trace]) -> Result<Trace, InterleavingError> {
     let scheduled = schedule_execution(traces, &[])?;
@@ -234,6 +235,7 @@ fn schedule_execution(
     // A coordinator's handler can call another UTXO constructor while an earlier
     // constructor call is suspended, so each caller needs a stack of pending targets.
     let mut pending_constructors = HashMap::<usize, Vec<usize>>::new();
+    let mut pending_attach_destinations = HashMap::new();
     let mut resource_targets = HashMap::<(usize, ResourceHandle), usize>::new();
 
     let mut inputs = Vec::with_capacity(input_methods.len());
@@ -267,7 +269,7 @@ fn schedule_execution(
 
     let first_token = next_process;
     while let Some(Step::SetStorage {
-        kind: crate::StorageKind::Token,
+        kind: crate::StorageKind::Token { .. },
         entry_handle,
         ..
     }) = traces.get(next_process).and_then(|trace| trace.0.first())
@@ -348,14 +350,35 @@ fn schedule_execution(
                 merged.push(step);
                 current = target;
             }
-            Step::CallMethod { resource, .. } => {
+            Step::Attach {
+                token: resource, ..
+            }
+            | Step::CallMethod { resource, .. } => {
                 let Some(&target) = resource_targets.get(&(current, resource)) else {
                     return Err(InterleavingError::UnknownResource {
                         holder: ProcessIndex(current),
                         resource,
                     });
                 };
-                if (first_token..first_token + token_count).contains(&target) {
+                let is_token = (first_token..first_token + token_count).contains(&target);
+                if let Step::Attach { destination, .. } = step {
+                    if !is_token {
+                        return Err(InterleavingError::InvalidAttachment);
+                    }
+                    let destination_process = resource_targets.get(&(current, destination)).ok_or(
+                        InterleavingError::UnknownResource {
+                            holder: ProcessIndex(current),
+                            resource: destination,
+                        },
+                    )?;
+                    if !allocation_order.contains(destination_process)
+                        || pending_attach_destinations
+                            .insert(target, *destination_process)
+                            .is_some()
+                    {
+                        return Err(InterleavingError::InvalidAttachment);
+                    }
+                } else if is_token {
                     return Err(InterleavingError::TokenMethodTarget {
                         holder: ProcessIndex(current),
                         resource,
@@ -391,6 +414,28 @@ fn schedule_execution(
             }
             Step::ReceiveCallResult { .. } => {
                 instance_stack.pop();
+                merged.push(step);
+            }
+            Step::Upcast { source, result } => {
+                let target = *resource_targets.get(&(current, source)).ok_or(
+                    InterleavingError::UnknownResource {
+                        holder: ProcessIndex(current),
+                        resource: source,
+                    },
+                )?;
+                bind_resource(&mut resource_targets, current, result.0, target)?;
+                merged.push(step);
+            }
+            Step::EnterAttach { destination, .. } => {
+                let destination_process = pending_attach_destinations
+                    .remove(&current)
+                    .ok_or(InterleavingError::InvalidAttachment)?;
+                bind_resource(
+                    &mut resource_targets,
+                    current,
+                    destination,
+                    destination_process,
+                )?;
                 merged.push(step);
             }
             Step::YieldBegin => {
@@ -507,6 +552,8 @@ fn schedule_execution(
 pub enum InterleavingError {
     #[error("transaction finalization for loaded tokens is not implemented")]
     TokenFinalization,
+    #[error("invalid token attach handoff or destination UTXO")]
+    InvalidAttachment,
     #[error("the entry coordinator's trace does not start with its entry event")]
     MissingEntry,
     #[error("no coordinator trace for call from {caller:?} at step {step_index}")]

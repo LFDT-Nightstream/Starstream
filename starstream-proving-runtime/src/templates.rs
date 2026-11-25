@@ -102,6 +102,7 @@ enum ExportKind {
     /// `<utxo>#[method]utxo.<name>`: the exported method takes the
     /// callee-local resource receiver before the user arguments.
     Method(MethodSelector),
+    EnterAttach(u32),
     /// An allowlisted plain export: the transaction entrypoint.
     CoordinationScript,
     /// `<resource>#get-storage`: publishes the storage record when it returns.
@@ -130,6 +131,8 @@ struct Root {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ImportKind {
+    Upcast,
+    Attach,
     AssertSignedBy,
     YieldBegin,
     RegisterMethod,
@@ -331,6 +334,7 @@ impl ExportKind {
     const fn name(self) -> &'static str {
         match self {
             Self::Constructor(_) => "constructor",
+            Self::EnterAttach(_) => "token attach",
             Self::Method(_) => "method",
             Self::CoordinationScript => "coordination script",
             Self::GetStorage(_) => "get-storage",
@@ -391,11 +395,19 @@ fn classify_export(
         if let Some(method) = item.strip_prefix(METHOD_PREFIX) {
             return Ok(ExportKind::Method(method_hash_from_segment(method)?));
         }
-        let storage_kind = if abis.token_interfaces.contains(instance) {
+        let storage_kind = if let Some(index) = abis
+            .token_interfaces
+            .iter()
+            .position(|name| name == instance)
+        {
+            let interface = u32::try_from(index).expect("component interface index fits u32");
+            if item == "[method]token.attach" {
+                return Ok(ExportKind::EnterAttach(interface));
+            }
             if let Some(method) = item.strip_prefix("[method]token.") {
                 return Ok(ExportKind::Method(method_hash_from_segment(method)?));
             }
-            StorageKind::Token
+            StorageKind::Token { interface }
         } else {
             StorageKind::Utxo
         };
@@ -649,7 +661,9 @@ fn storage_record_types(
             sibling: sibling.clone(),
         })?;
     let record = match (kind, setter.params.as_ref()) {
-        (StorageKind::Token, fields) | (StorageKind::Utxo, [ValType::I32, fields @ ..]) => fields,
+        (StorageKind::Token { .. }, fields) | (StorageKind::Utxo, [ValType::I32, fields @ ..]) => {
+            fields
+        }
         (StorageKind::Utxo, _) => {
             return Err(TemplateBuildError::InvalidStorageExport {
                 name: sibling,
@@ -759,6 +773,22 @@ fn build_export_events(
                 exit: return_exit_events(Root::unit())?,
             })
         }
+        ExportKind::EnterAttach(interface) => {
+            if export.params.as_ref() != [ValType::I32, ValType::I32] || !export.results.is_empty()
+            {
+                return Err(TemplateBuildError::InvalidAttachExport(export.name.clone()));
+            }
+            let input = inputs.take(1, export)?;
+            let mut entry = Sequence::op(EventKind::EnterAttach)
+                .constant_i32(interface)?
+                .map(1, |b| b.input_local_i32(input, 1))?
+                .finish()?;
+            entry.extend(bootstrap_receiver(export, &mut inputs)?);
+            Ok(ExportEvents {
+                entry,
+                exit: return_exit_events(Root::unit())?,
+            })
+        }
         ExportKind::Method(method) => {
             require_receiver(export, kind, "resource receiver")?;
             let mut entry = Sequence::op(EventKind::EnterCall);
@@ -812,7 +842,11 @@ fn build_export_events(
                 first_field,
             )?)?;
             let mut entry = entry
-                .constant_i32(u32::from(storage_kind == StorageKind::Token))?
+                .constant_i32(u32::from(matches!(storage_kind, StorageKind::Token { .. })))?
+                .constant_i32(match storage_kind {
+                    StorageKind::Token { interface } => interface,
+                    StorageKind::Utxo => 0,
+                })?
                 .finish()?;
             if storage_kind == StorageKind::Utxo {
                 entry.extend(bootstrap_receiver(export, &mut inputs)?);
@@ -886,6 +920,24 @@ fn classify_import(
     if import.module == "starstream:std/ledger" && import.field == "assert-transaction-signed-by" {
         return Ok(ImportKind::AssertSignedBy);
     }
+    if import.field == "upcast"
+        && [
+            SELF_INTERFACE_PREFIX,
+            TYPED_UTXO_INTERFACE_PREFIX,
+            "starstream:token/",
+        ]
+        .iter()
+        .any(|prefix| import.module.starts_with(prefix))
+    {
+        return Ok(ImportKind::Upcast);
+    }
+    if (import.module == BUILTIN_INTERFACE && import.field == "attach")
+        || ((import.module.starts_with(SELF_INTERFACE_PREFIX)
+            || import.module.starts_with("starstream:token/"))
+            && import.field == "[method]token.attach")
+    {
+        return Ok(ImportKind::Attach);
+    }
     if import.module == UTXO_CONTEXT_INTERFACE {
         return Ok(match import.field.as_str() {
             RESUME_METHOD => ImportKind::YieldBegin,
@@ -957,6 +1009,33 @@ fn build_import_template(
 ) -> Result<ImportEvents, TemplateBuildError> {
     let kind = classify_import(import, abis)?;
     let call = match kind {
+        ImportKind::Upcast => {
+            require_signature(import, &[ValType::I32], &[ValType::I32])?;
+            let mut events = Sequence::op(EventKind::Upcast)
+                .arg_i32(0)?
+                .map(1, |b| b.push(SlotBinding::ResultElem { limb: Limb::Lo }))?
+                .finish()?;
+            events.extend(
+                EventSequenceBuilder::advice()
+                    .push(SlotBinding::ResultElem { limb: Limb::Hi })?
+                    .finish()?,
+            );
+            Ok(events)
+        }
+        ImportKind::Attach => {
+            require_signature(import, &[ValType::I32, ValType::I32], &[])?;
+            return Ok(ImportEvents {
+                call: Sequence::op(EventKind::Attach)
+                    .arg_i32(0)?
+                    .arg_i32(1)?
+                    .finish()?,
+                return_: Some(
+                    Sequence::op(EventKind::ReceiveCallResult)
+                        .root(Root::unit())?
+                        .finish()?,
+                ),
+            });
+        }
         ImportKind::AssertSignedBy => {
             require_signature(import, &[ValType::I64], &[])?;
             Ok(Sequence::op(EventKind::AssertSignedBy)
@@ -1549,6 +1628,9 @@ pub enum TemplateBuildError {
          record's flat layout from"
     )]
     MissingStorageSibling { name: String, sibling: String },
+
+    #[error("token attach export `{0}` must take two handles and return unit")]
+    InvalidAttachExport(String),
 
     #[error("storage export `{name}` has an unexpected signature: {message}")]
     InvalidStorageExport { name: String, message: String },

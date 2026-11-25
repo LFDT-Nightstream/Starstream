@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use neo_math::F;
 use p3_field::PrimeCharacteristicRing;
-use starstream_interleaving_spec::{EventIdentity, MethodHash, ResourceHandle, Step, Trace};
+use starstream_interleaving_spec::{
+    EventIdentity, MethodHash, ResourceHandle, StarstreamValue, Step, Trace,
+};
 
 use crate::{
     ivc_state::{CoroutineId, CurrPhase, TxPhase},
@@ -96,7 +98,7 @@ pub(crate) fn normalize_with_inputs(
 
     // Hand-off registers: what a call, return or handler exit leaves for the
     // step that must follow it.
-    let mut pending_root = [F::ZERO; 4];
+    let mut pending_value = [F::ZERO; 4];
     let mut pending_method = [F::ZERO; 8];
 
     for step in &trace.0 {
@@ -107,7 +109,7 @@ pub(crate) fn normalize_with_inputs(
                 if matches!(
                     step,
                     Step::SetStorage {
-                        kind: starstream_interleaving_spec::StorageKind::Token,
+                        kind: starstream_interleaving_spec::StorageKind::Token { .. },
                         ..
                     }
                 ) =>
@@ -156,6 +158,9 @@ pub(crate) fn normalize_with_inputs(
         let mut method_index = 0;
         let mut curr_after = curr_before;
         let mut call_target = CoroutineId::Coord(0);
+        let mut token_interface = 0;
+        let mut second_handle = ResourceHandle(0);
+        let mut second_target = CoroutineId::Coord(0);
         let mut resolver_address = (CoroutineId::Coord(0), ResourceHandle(0));
         let mut resolver_value = CoroutineId::Coord(0);
         let mut resolver_read = false;
@@ -235,7 +240,8 @@ pub(crate) fn normalize_with_inputs(
             } => {
                 expected_arguments = Some(storage.words32().map(|x| F::new(u64::from(x))).to_vec());
                 match kind {
-                    starstream_interleaving_spec::StorageKind::Token => {
+                    starstream_interleaving_spec::StorageKind::Token { interface } => {
+                        token_interface = *interface;
                         next_token_id = next_token_id
                             .checked_add(1)
                             .expect("token allocator fits u32")
@@ -382,8 +388,9 @@ pub(crate) fn normalize_with_inputs(
                 call_frame_constructor = frame.kind == CallFrameKind::Constructor;
                 saved_effect_depth = frame.saved_effect_depth;
                 effect_depth = frame.saved_effect_depth;
-                return_requires_unit =
-                    frame.kind == CallFrameKind::Constructor || !return_has_receiver;
+                return_requires_unit = frame.kind == CallFrameKind::Constructor
+                    || !return_has_receiver
+                    || matches!(curr_before, CoroutineId::Token(_));
                 curr_after = frame.caller;
                 call_target = frame.caller;
                 if return_has_receiver {
@@ -396,6 +403,60 @@ pub(crate) fn normalize_with_inputs(
                     callers.pop();
                     dynamic_phase_after = Some(CurrPhase::Executing);
                 }
+            }
+            Step::Upcast { source, result } => {
+                second_handle = *source;
+                second_target = resource_resolver
+                    .get(&(curr_before, *source))
+                    .copied()
+                    .unwrap_or(CoroutineId::Coord(0));
+                resolver_address = (curr_before, result.0);
+                resolver_value = second_target;
+                resolver_write = true;
+                resource_resolver.insert(resolver_address, resolver_value);
+            }
+            Step::Attach { token, destination } => {
+                resolver_address = (curr_before, *token);
+                resolver_read = true;
+                resolver_value = resource_resolver
+                    .get(&resolver_address)
+                    .copied()
+                    .unwrap_or(CoroutineId::Coord(0));
+                second_handle = *destination;
+                second_target = resource_resolver
+                    .get(&(curr_before, *destination))
+                    .copied()
+                    .unwrap_or(CoroutineId::Coord(0));
+                let arguments = StarstreamValue([u64::from(second_target.encoded()), 0, 0, 0]);
+                expected_arguments = Some(arguments.words32().map(F::from_u32).to_vec());
+                callers.push(CallFrame {
+                    caller: curr_before,
+                    saved_phase: curr_phase_before,
+                    kind: CallFrameKind::Program,
+                    saved_effect_head: effect_head_before,
+                    saved_effect_depth: effect_depth_before,
+                    arguments,
+                    effect: None,
+                });
+                effect_depth = 0;
+                instance_stack.push(resolver_value);
+                curr_after = resolver_value;
+                call_target = resolver_value;
+                call_frame_saved_phase = curr_phase_before;
+            }
+            Step::EnterAttach {
+                destination,
+                interface,
+            } => {
+                token_interface = *interface;
+                resolver_address = (curr_before, *destination);
+                resolver_value = callers
+                    .last()
+                    .and_then(|frame| u32::try_from(frame.arguments.0[0]).ok())
+                    .and_then(CoroutineId::from_packed)
+                    .unwrap_or(CoroutineId::Coord(0));
+                resolver_write = true;
+                resource_resolver.insert(resolver_address, resolver_value);
             }
             Step::CallMethod {
                 resource,
@@ -659,24 +720,25 @@ pub(crate) fn normalize_with_inputs(
                 limb(2 * i) + F::new(1 << 32) * limb(2 * i + 1)
             })
         };
-        let pending_root_before = pending_root;
+        let pending_value_before = pending_value;
         let pending_method_before = pending_method;
         match opcode {
+            Opcode::Attach => pending_value = root_of(&expected_arguments),
             Opcode::CallMethod
             | Opcode::CallCoordinator
             | Opcode::BeginExecution
             | Opcode::NewUtxo => {
-                pending_root = root_of(&expected_arguments);
+                pending_value = root_of(&expected_arguments);
                 pending_method = event_identity.unwrap_or([F::ZERO; 8]);
             }
             Opcode::Return | Opcode::ExitEffectHandler => {
-                pending_root = root_of(&expected_result);
+                pending_value = root_of(&expected_result);
             }
             _ => {}
         }
         let mut row = Wit {
-            pending_root_before,
-            pending_root_after: pending_root,
+            pending_value_before,
+            pending_value_after: pending_value,
             pending_method_before,
             pending_method_after: pending_method,
             instance_depth_before,
@@ -735,6 +797,9 @@ pub(crate) fn normalize_with_inputs(
             enabled_method_log_len_before,
             enabled_method_log_len_after: u32::try_from(enabled_method_log.len())
                 .expect("the enabled-method log fits in u32"),
+            token_interface,
+            second_handle,
+            second_target,
             resolver_address,
             resolver_value,
             resolver_read,
@@ -817,8 +882,8 @@ impl CallFrame {
 }
 
 pub(crate) struct Wit {
-    pub(crate) pending_root_before: [F; 4],
-    pub(crate) pending_root_after: [F; 4],
+    pub(crate) pending_value_before: [F; 4],
+    pub(crate) pending_value_after: [F; 4],
     pub(crate) pending_method_before: [F; 8],
     pub(crate) pending_method_after: [F; 8],
     pub(crate) io_before: [F; 4],
@@ -865,6 +930,9 @@ pub(crate) struct Wit {
     pub(crate) next_coordinator_id_after: u32,
     pub(crate) enabled_method_log_len_before: u32,
     pub(crate) enabled_method_log_len_after: u32,
+    pub(crate) token_interface: u32,
+    pub(crate) second_handle: ResourceHandle,
+    pub(crate) second_target: CoroutineId,
     pub(crate) resolver_address: (CoroutineId, ResourceHandle),
     pub(crate) resolver_value: CoroutineId,
     pub(crate) resolver_read: bool,
@@ -895,8 +963,8 @@ impl Wit {
     /// assigned zero. It goes through the same column assigner as execution.
     pub(crate) fn padding_after(&self) -> Self {
         Self {
-            pending_root_before: self.pending_root_after,
-            pending_root_after: self.pending_root_after,
+            pending_value_before: self.pending_value_after,
+            pending_value_after: self.pending_value_after,
             pending_method_before: self.pending_method_after,
             pending_method_after: self.pending_method_after,
             instance_depth_before: self.instance_depth_after,
@@ -943,6 +1011,9 @@ impl Wit {
             next_coordinator_id_after: self.next_coordinator_id_after,
             enabled_method_log_len_before: self.enabled_method_log_len_after,
             enabled_method_log_len_after: self.enabled_method_log_len_after,
+            token_interface: 0,
+            second_handle: ResourceHandle(0),
+            second_target: CoroutineId::Coord(0),
             resolver_address: (CoroutineId::Coord(0), ResourceHandle(0)),
             resolver_value: CoroutineId::Coord(0),
             resolver_read: false,

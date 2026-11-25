@@ -908,7 +908,7 @@ fn signer_and_token_statement_matches_quint() {
     trace.0.insert(
         2,
         Step::SetStorage {
-            kind: starstream_interleaving_spec::StorageKind::Token,
+            kind: starstream_interleaving_spec::StorageKind::Token { interface: 0 },
             storage,
             entry_handle: ResourceHandle(8),
         },

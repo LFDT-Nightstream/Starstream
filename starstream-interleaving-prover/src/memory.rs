@@ -60,6 +60,8 @@ pub enum MemoryId {
     SignerKey,
     SignerPresent,
     ResourceResolver,
+    TokenOwner,
+    TokenInterface,
     TokenTraceCommitments,
     UtxoTraceCommitments,
     CoordTraceCommitments,
@@ -251,6 +253,41 @@ pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
     });
 
     memories.extend_from_slice(&resource_resolver_layout());
+    // Both the setter and callback templates name their defining token interface.
+    use crate::ccs::layout::{COL_EVENT_OWNER, COL_TOKEN_INTERFACE, COL_TOKEN_LOAD};
+    memories.push(MemorySpec {
+        id: MemoryId::TokenInterface,
+        kind: MemoryKind::Ram,
+        ports: vec![
+            MemoryPortSpec {
+                address_columns: vec![COL_EVENT_OWNER],
+                value_column: COL_TOKEN_INTERFACE,
+                kind: MemoryPortKind::Write {
+                    value_before_column: None,
+                },
+                activation: MemoryPortActivation::When(COL_TOKEN_LOAD),
+            },
+            MemoryPortSpec {
+                address_columns: vec![COL_EVENT_OWNER],
+                value_column: COL_TOKEN_INTERFACE,
+                kind: MemoryPortKind::Read,
+                activation: MemoryPortActivation::When(Opcode::EnterAttach.selector()),
+            },
+        ],
+    });
+    // Zero is detached. Packed UTXO ids are nonzero, including Utxo(0).
+    memories.push(MemorySpec {
+        id: MemoryId::TokenOwner,
+        kind: MemoryKind::Ram,
+        ports: vec![MemoryPortSpec {
+            address_columns: vec![COL_CALL_TARGET],
+            value_column: crate::ccs::layout::COL_RESOLVER_SECOND_VALUE,
+            kind: MemoryPortKind::Write {
+                value_before_column: Some(crate::ccs::layout::COL_UNBOUND_VALUE),
+            },
+            activation: MemoryPortActivation::When(Opcode::Attach.selector()),
+        }],
+    });
 
     memories.extend_from_slice(&trace_commitments_layout());
 
@@ -357,7 +394,7 @@ fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 3] {
     [
         memory(
             MemoryId::TokenTraceCommitments,
-            crate::ccs::layout::COL_TOKEN_LOAD,
+            crate::ccs::layout::COL_TOKEN_EVENT,
             None,
         ),
         memory(
@@ -394,7 +431,7 @@ fn resource_resolver_layout() -> [MemorySpec<MemoryId>; 1] {
                     //
                     // that works because utxo ids are always greater than 0 in
                     // our encoding
-                    value_before_column: Some(crate::ccs::layout::COL_RESOURCE_RESOLVER_BEFORE),
+                    value_before_column: Some(crate::ccs::layout::COL_UNBOUND_VALUE),
                 },
                 activation: MemoryPortActivation::When(COL_RESOURCE_RESOLVER_WRITE),
             },
@@ -403,6 +440,17 @@ fn resource_resolver_layout() -> [MemorySpec<MemoryId>; 1] {
                 value_column,
                 kind: MemoryPortKind::Read,
                 activation: MemoryPortActivation::When(COL_RESOURCE_RESOLVER_READ),
+            },
+            MemoryPortSpec {
+                address_columns: vec![
+                    COL_RESOURCE_RESOLVER_ADDR_CID,
+                    crate::ccs::layout::COL_RESOURCE_RESOLVER_SECOND_ADDR_HANDLE,
+                ],
+                value_column: crate::ccs::layout::COL_RESOLVER_SECOND_VALUE,
+                kind: MemoryPortKind::Read,
+                activation: MemoryPortActivation::When(
+                    crate::ccs::layout::COL_RESOLVER_SECOND_READ,
+                ),
             },
         ],
     }]
@@ -775,6 +823,8 @@ pub(crate) fn sanity_checking_policy(
             (EnabledMethodLogGeneration, RamInitialization::Zero),
             (EnabledMethodLogOrdinal, RamInitialization::Zero),
             (ResourceResolver, RamInitialization::Zero),
+            (TokenInterface, RamInitialization::Zero),
+            (TokenOwner, RamInitialization::Zero),
             (TokenTraceCommitments, RamInitialization::Zero),
             (UtxoTraceCommitments, RamInitialization::Zero),
             (CoordTraceCommitments, RamInitialization::Zero),
@@ -820,6 +870,30 @@ pub(crate) fn preload_signers(preload: &mut MemoryPreload<MemoryId>, signers: &B
     }
 }
 
+/// Initial memory authenticated by the transaction's Nebula program.
+pub(crate) fn transaction_preload(
+    methods: &[starstream_interleaving_spec::MethodHash],
+    statement: &starstream_interleaving_spec::TransactionStatement,
+) -> Result<MemoryPreload<MemoryId>, crate::Error> {
+    use crate::{CoroutineId, Unsatisfied::TransactionStatement};
+    let mut preload = preload_tables(methods);
+    preload_signers(&mut preload, &statement.signers);
+    for (index, input) in statement.input_tokens.iter().enumerate() {
+        if input.owner as usize >= statement.inputs.len() {
+            return Err(TransactionStatement.into());
+        }
+        let index = u32::try_from(index).map_err(|_| TransactionStatement)?;
+        let token = CoroutineId::Token(index)
+            .checked_encoded()
+            .ok_or(TransactionStatement)?;
+        let owner = CoroutineId::Utxo(input.owner)
+            .checked_encoded()
+            .ok_or(TransactionStatement)?;
+        preload.insert(MemoryId::TokenOwner, vec![token], owner);
+    }
+    Ok(preload)
+}
+
 impl MemoryId {
     pub const fn name(self) -> &'static str {
         match self {
@@ -845,6 +919,8 @@ impl MemoryId {
             MemoryId::MethodTable => "method_table",
             MemoryId::SignerKey => "signer_key",
             MemoryId::SignerPresent => "signer_present",
+            MemoryId::TokenInterface => "token_interface",
+            MemoryId::TokenOwner => "token_owner",
             MemoryId::ResourceResolver => "resource_resolver",
             MemoryId::TokenTraceCommitments => "token_trace_commitments",
             MemoryId::UtxoTraceCommitments => "utxo_trace_commitments",

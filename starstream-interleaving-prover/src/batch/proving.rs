@@ -76,12 +76,12 @@ pub struct ProofConfig {
 }
 
 impl ProofConfig {
-    /// Size a local benchmark from its trace, including ROM preloads. This is
+    /// Size a local benchmark from its trace, including its statement preloads. This is
     /// not a ledger sizing policy: a verifier must independently accept the
     /// resulting configuration, never take arbitrary prover-supplied sizes.
     pub fn for_trace_benchmark(
         trace: &Trace,
-        signers: &std::collections::BTreeSet<u64>,
+        statement: &TransactionStatement,
         batch_size: usize,
         segment_batches: usize,
     ) -> Result<Self, ProvingError> {
@@ -91,10 +91,9 @@ impl ProofConfig {
             ));
         }
         let batch = Batch::new(batch_size)?;
-        let normalized = crate::step::normalize_with_inputs(trace, signers);
+        let normalized = crate::step::normalize_with_inputs(trace, &statement.signers);
         let packed = batch.pack(&normalized.steps);
-        let mut preload = crate::memory::preload_tables(&normalized.method_table);
-        crate::memory::preload_signers(&mut preload, signers);
+        let preload = crate::memory::transaction_preload(&normalized.method_table, statement)?;
         let preload = preload.entries();
         let mut memories = Vec::new();
         for memory in batch.memory.entries() {
@@ -284,7 +283,7 @@ impl Limits {
     fn address_widths(&self, memory: MemoryId) -> Vec<usize> {
         let bits = |count: usize| count.max(2).next_power_of_two().ilog2() as usize;
         // Wide enough for the local index plus the two kind bits.
-        let packed_id = bits(self.utxos.max(self.coordinators)) + 2;
+        let packed_id = bits(self.utxos.max(self.coordinators).max(self.tokens)) + 2;
         match memory {
             MemoryId::InstanceStack
             | MemoryId::CallStackCaller
@@ -308,6 +307,7 @@ impl Limits {
             MemoryId::SignerPresent => vec![bits(self.signers)],
             MemoryId::MethodTable => vec![bits(self.methods) + 3],
             MemoryId::ResourceResolver => vec![packed_id, bits(self.handles_per_holder)],
+            MemoryId::TokenOwner | MemoryId::TokenInterface => vec![bits(self.tokens) + 2],
             MemoryId::TokenTraceCommitments => vec![bits(self.tokens) + 3],
             MemoryId::UtxoTraceCommitments => vec![bits(self.utxos) + 3],
             MemoryId::CoordTraceCommitments => vec![bits(self.coordinators) + 3],
@@ -401,13 +401,12 @@ fn application(
 fn program(
     app: &R1csApplication<MemoryId>,
     methods: &[MethodHash],
-    signers: &std::collections::BTreeSet<u64>,
+    statement: &TransactionStatement,
 ) -> Result<nebula::Program, ProvingError> {
     if methods.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
         return Err(ProvingError::MethodDictionary);
     }
-    let mut preload = crate::memory::preload_tables(methods);
-    crate::memory::preload_signers(&mut preload, signers);
+    let preload = crate::memory::transaction_preload(methods, statement)?;
     Ok(app.program(&preload)?)
 }
 
@@ -468,7 +467,7 @@ impl InterleavingProofContext {
             .last()
             .ok_or(ProvingError::EmptyTrace)?
             .padding_after();
-        let program = program(&self.app, &normalized.method_table, &statement.signers)?;
+        let program = program(&self.app, &normalized.method_table, statement)?;
         let mut packed = super::check_normalized(
             &self.batch,
             normalized,
@@ -499,7 +498,7 @@ impl InterleavingProofContext {
     ) -> Result<(), ProvingError> {
         check_transaction_claim(&proof.final_state, statement, roots)?;
         self.verifier.verify(
-            &program(&self.app, methods, &statement.signers)?,
+            &program(&self.app, methods, statement)?,
             &state_words(&initial_state()),
             &state_words(&proof.final_state),
             &proof.proof,
@@ -540,7 +539,7 @@ impl InterleavingProofContext {
     ) -> Result<(), ProvingError> {
         check_transaction_claim(&proof.final_state, statement, roots)?;
         self.verifier.verify_final(
-            &program(&self.app, methods, &statement.signers)?,
+            &program(&self.app, methods, statement)?,
             &state_words(&initial_state()),
             &state_words(&proof.final_state),
             key,
@@ -636,7 +635,7 @@ fn initial_state() -> Vec<F> {
             | COL_ENABLED_METHOD_LOG_LEN_BEFORE => F::ZERO,
             column
                 if COL_IO_BEFORE.contains(&column)
-                    || COL_PENDING_ROOT_BEFORE.contains(&column)
+                    || COL_PENDING_VALUE_BEFORE.contains(&column)
                     || COL_PENDING_METHOD_BEFORE.contains(&column) =>
             {
                 F::ZERO

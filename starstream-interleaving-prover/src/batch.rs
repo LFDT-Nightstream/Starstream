@@ -249,8 +249,13 @@ fn check_normalized(
     statement: Option<&starstream_interleaving_spec::TransactionStatement>,
     signers: &BTreeSet<u64>,
 ) -> Result<PackedWitness, Error> {
-    let mut preload = crate::memory::preload_tables(&normalized.method_table);
-    crate::memory::preload_signers(&mut preload, signers);
+    let preload = if let Some(statement) = statement {
+        crate::memory::transaction_preload(&normalized.method_table, statement)?
+    } else {
+        let mut preload = crate::memory::preload_tables(&normalized.method_table);
+        crate::memory::preload_signers(&mut preload, signers);
+        preload
+    };
     let packed = batch.pack(&normalized.steps);
     batch.check(&packed, &preload)?;
     check_packed_statement(&packed, roots, statement)?;

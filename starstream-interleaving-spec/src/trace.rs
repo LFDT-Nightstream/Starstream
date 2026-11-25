@@ -124,7 +124,11 @@ impl From<Vec<u32>> for StarstreamValue {
 #[serde(rename_all = "snake_case")]
 pub enum StorageKind {
     Utxo,
-    Token,
+    /// Index of the token interface in this component's sorted token exports.
+    /// Binds callbacks to the type restored by this setter.
+    Token {
+        interface: u32,
+    },
 }
 
 /// A single observable transition of an execution, as attributed to the
@@ -194,6 +198,21 @@ pub enum Step {
     },
     Return {
         result: Out<StarstreamValue>,
+    },
+    /// A typed handle is upcast to a fresh builtin handle for the same resource.
+    Upcast {
+        source: ResourceHandle,
+        result: Out<ResourceHandle>,
+    },
+    /// Caller-local handles passed to the builtin attach import.
+    Attach {
+        token: ResourceHandle,
+        destination: ResourceHandle,
+    },
+    /// The destination handle as lowered in the token callback's instance.
+    EnterAttach {
+        interface: u32,
+        destination: ResourceHandle,
     },
     CallMethod {
         resource: ResourceHandle,

@@ -23,6 +23,9 @@ fn kind(op: Opcode) -> Option<EventKind> {
         Opcode::YieldBegin => EventKind::YieldBegin,
         Opcode::RegisterMethod => EventKind::RegisterMethod,
         Opcode::Return => EventKind::Return,
+        Opcode::Upcast => EventKind::Upcast,
+        Opcode::Attach => EventKind::Attach,
+        Opcode::EnterAttach => EventKind::EnterAttach,
         Opcode::CallMethod => EventKind::CallMethod,
         Opcode::CallCoordinator => EventKind::CallCoordinator,
         Opcode::ReceiveCallResult => EventKind::ReceiveCallResult,
@@ -68,10 +71,14 @@ fn output_columns(block_count: usize) -> [usize; 4] {
 fn source(word: Word) -> (usize, F) {
     match word {
         Word::Constant(x) => (COL_ONE, F::new(u64::from(x))),
+        Word::SourceHandle | Word::Destination => {
+            (COL_RESOURCE_RESOLVER_SECOND_ADDR_HANDLE, F::ONE)
+        }
         Word::Resource => (COL_RESOURCE_RESOLVER_ADDR_HANDLE, F::ONE),
         Word::Method(i) => (COL_METHOD_HASH_VALUE[i], F::ONE),
         Word::Argument(i) => (COL_ARGUMENT_ROOT[i], F::ONE),
         Word::Result(i) => (COL_RESULT_ROOT[i], F::ONE),
+        Word::TokenInterface => (COL_TOKEN_INTERFACE, F::ONE),
         Word::IsToken => (COL_TOKEN_LOAD, F::ONE),
         Word::Handled => (COL_EFFECT_HANDLED, F::ONE),
         Word::FrameId => (COL_EFFECT_FRAME_ID, F::ONE),

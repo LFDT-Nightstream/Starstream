@@ -201,12 +201,13 @@ fn final_claim_requires_termination_and_correct_width() {
 fn dictionary_must_be_unique_and_canonical() {
     let config = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 1).unwrap();
     let app = application(&Batch::new(1).unwrap(), &config).unwrap();
+    let statement = crate::tests::empty_statement();
     let method = MethodHash([1; 8]);
     assert!(matches!(
-        program(&app, &[method, method], &Default::default()),
+        program(&app, &[method, method], &statement),
         Err(ProvingError::MethodDictionary)
     ));
-    assert!(program(&app, &[method], &Default::default()).is_ok());
+    assert!(program(&app, &[method], &statement).is_ok());
 }
 
 fn carried_index(column: usize) -> usize {
@@ -223,7 +224,7 @@ fn nebula_native_run_preserves_state_and_binds_method_rom() {
     let normalized = normalize(&trace);
     for config in [
         ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3).unwrap(),
-        ProofConfig::for_trace_benchmark(&trace, &statement.signers, 3, 8).unwrap(),
+        ProofConfig::for_trace_benchmark(&trace, &statement, 3, 8).unwrap(),
     ] {
         let batch = Batch::new(config.batch_size).unwrap();
         let mut packed = batch.pack(&normalized.steps);
@@ -354,13 +355,19 @@ fn initial_limits_cover_the_fixture() -> Result<(), ProvingError> {
     let (trace, mut statement, _) = transaction_fixture();
     // Benchmark sizing must cover the entire preload, even keys the trace never reads.
     statement.signers.extend([11, 17, 23]);
-    let used = ProofConfig::for_trace_benchmark(&trace, &statement.signers, 3, 8)?;
+    let token = starstream_interleaving_spec::InputToken {
+        owner: 0,
+        storage: starstream_interleaving_spec::StarstreamValue::UNIT_VALUE,
+    };
+    statement.input_tokens = vec![token; 3];
+    let used = ProofConfig::for_trace_benchmark(&trace, &statement, 3, 8)?;
     let batch = Batch::new(used.batch_size)?;
-    program(
-        &application(&batch, &used)?,
-        &method_dictionary(&trace),
-        &statement.signers,
-    )?;
+    let app = application(&batch, &used)?;
+    let methods = method_dictionary(&trace);
+    statement.inputs.push(statement.inputs[0].clone());
+    let original = program(&app, &methods, &statement)?.d_init();
+    statement.input_tokens[2].owner = 1;
+    assert_ne!(original, program(&app, &methods, &statement)?.d_init());
     let limits = ProofConfig::for_limits(Limits::SMALL_DEFAULTS, 3)?;
     for (id, region) in &used.regions {
         let (_, limit) = limits
@@ -501,7 +508,7 @@ fn relation_census() {
         ),
         (
             "trace-sized",
-            ProofConfig::for_trace_benchmark(&trace, &statement.signers, 16, 8).unwrap(),
+            ProofConfig::for_trace_benchmark(&trace, &statement, 16, 8).unwrap(),
         ),
     ] {
         println!("{name}: {:?}", config.geometry);

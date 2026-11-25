@@ -15,6 +15,9 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {
+    Upcast,
+    Attach,
+    EnterAttach,
     AssertSignedBy,
     CallCoordinator,
     SetStorage,
@@ -47,12 +50,18 @@ pub enum Word {
     Handled,
     FrameId,
     IsToken,
+    TokenInterface,
+    Destination,
+    SourceHandle,
 }
 
 impl EventKind {
     #[must_use]
     pub const fn from_tag(tag: u64) -> Option<Self> {
         Some(match tag {
+            23 => Self::Upcast,
+            21 => Self::Attach,
+            22 => Self::EnterAttach,
             1 => Self::NewUtxo,
             2 => Self::EnterConstructor,
             3 => Self::YieldBegin,
@@ -89,6 +98,9 @@ impl EventKind {
             Step::YieldBegin => Self::YieldBegin,
             Step::RegisterMethod { .. } => Self::RegisterMethod,
             Step::Return { .. } => Self::Return,
+            Step::Upcast { .. } => Self::Upcast,
+            Step::Attach { .. } => Self::Attach,
+            Step::EnterAttach { .. } => Self::EnterAttach,
             Step::CallMethod { .. } => Self::CallMethod,
             Step::ReceiveCallResult { .. } => Self::ReceiveCallResult,
             Step::EnterCall { .. } => Self::EnterCall,
@@ -118,6 +130,9 @@ impl EventKind {
             Self::RegisterMethod => 4,
             Self::Return => 5,
             Self::CallMethod => 6,
+            Self::Upcast => 23,
+            Self::Attach => 21,
+            Self::EnterAttach => 22,
             Self::EnterCall => 7,
             Self::SetStorage => 8,
             Self::GetStorage => 9,
@@ -151,7 +166,7 @@ impl EventKind {
         match self {
             Self::SetStorage => {
                 root(&mut words, &mut last_root_block, true);
-                words.push(IsToken);
+                words.extend([IsToken, TokenInterface]);
             }
             Self::GetStorage | Self::Return | Self::ResumeEffect | Self::ReceiveCallResult => {
                 root(&mut words, &mut last_root_block, false)
@@ -163,6 +178,9 @@ impl EventKind {
             Self::RegisterMethod | Self::AddEffectHandler => {
                 words.extend((0..METHOD_WORDS).map(Method))
             }
+            Self::Upcast => words.extend([SourceHandle, Resource]),
+            Self::Attach => words.extend([Resource, Destination]),
+            Self::EnterAttach => words.extend([TokenInterface, Resource]),
             Self::CallMethod => {
                 words.push(Resource);
                 words.extend((0..METHOD_WORDS).map(Method));
@@ -207,7 +225,10 @@ impl EventKind {
                 actual: blocks.len(),
             });
         }
-        let mut storage_kind = crate::StorageKind::Utxo;
+        let mut is_token = false;
+        let mut interface = 0;
+        let mut source = 0;
+        let mut destination = 0;
         let mut resource = 0_u32;
         let mut frame_id = 0_u32;
         let mut method = [0_u32; METHOD_WORDS];
@@ -250,9 +271,9 @@ impl EventKind {
                         }
                     }
                     Word::IsToken => {
-                        storage_kind = match value {
-                            0 => crate::StorageKind::Utxo,
-                            1 => crate::StorageKind::Token,
+                        is_token = match value {
+                            0 => false,
+                            1 => true,
                             _ => {
                                 return Err(EventCodecError::NamedArgumentOutOfRange {
                                     block: block_index,
@@ -263,6 +284,19 @@ impl EventKind {
                             }
                         }
                     }
+                    Word::TokenInterface => {
+                        interface = named("token_interface")?;
+                        if *self == Self::SetStorage && !is_token && interface != 0 {
+                            return Err(EventCodecError::UnexpectedConstant {
+                                block: block_index,
+                                word: word_index,
+                                expected: 0,
+                                value,
+                            });
+                        }
+                    }
+                    Word::SourceHandle => source = named("source")?,
+                    Word::Destination => destination = named("destination")?,
                     Word::Resource => resource = named("resource")?,
                     Word::FrameId => frame_id = named("frame_id")?,
                     Word::Method(index) => method[index] = named("method")?,
@@ -320,7 +354,11 @@ impl EventKind {
                 arguments: argument,
             },
             EventKind::SetStorage => Step::SetStorage {
-                kind: storage_kind,
+                kind: if is_token {
+                    crate::StorageKind::Token { interface }
+                } else {
+                    crate::StorageKind::Utxo
+                },
                 storage: argument,
                 entry_handle: entry_handle.ok_or(EventCodecError::MissingEntryHandle)?,
             },
@@ -345,6 +383,18 @@ impl EventKind {
             EventKind::PopEffectHandlerFrame => Step::PopEffectHandlerFrame,
             EventKind::Return => Step::Return {
                 result: Out(result),
+            },
+            EventKind::Upcast => Step::Upcast {
+                source: ResourceHandle(source),
+                result: Out(ResourceHandle(resource)),
+            },
+            EventKind::Attach => Step::Attach {
+                token: ResourceHandle(resource),
+                destination: ResourceHandle(destination),
+            },
+            EventKind::EnterAttach => Step::EnterAttach {
+                interface,
+                destination: ResourceHandle(resource),
             },
             EventKind::CallMethod => Step::CallMethod {
                 resource: ResourceHandle(resource),
@@ -395,6 +445,9 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
             signer = EventIdentity::from_u64_words([*key, 0, 0, 0]);
             (0, Some(&signer), None, None)
         }
+        Step::Upcast { result, .. } => (result.0.0, None, None, None),
+        Step::Attach { token, .. } => (token.0, None, None, None),
+        Step::EnterAttach { destination, .. } => (destination.0, None, None, None),
         Step::CallCoordinator { script, arguments } => (0, Some(script), Some(arguments), None),
         Step::SetStorage { storage, .. } => (0, None, Some(storage), None),
         Step::GetStorage { storage } => (0, None, None, Some(&storage.0)),
@@ -441,10 +494,26 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
                 Word::IsToken => u64::from(matches!(
                     step,
                     Step::SetStorage {
-                        kind: crate::StorageKind::Token,
+                        kind: crate::StorageKind::Token { .. },
                         ..
                     }
                 )),
+                Word::TokenInterface => match step {
+                    Step::SetStorage {
+                        kind: crate::StorageKind::Token { interface },
+                        ..
+                    }
+                    | Step::EnterAttach { interface, .. } => u64::from(*interface),
+                    _ => 0,
+                },
+                Word::SourceHandle => match step {
+                    Step::Upcast { source, .. } => u64::from(source.0),
+                    _ => unreachable!(),
+                },
+                Word::Destination => match step {
+                    Step::Attach { destination, .. } => u64::from(destination.0),
+                    _ => unreachable!(),
+                },
                 Word::Resource => u64::from(resource),
                 Word::FrameId => u64::from(frame_id),
                 Word::Method(i) => u64::from(method.unwrap().0[i]),
@@ -519,7 +588,7 @@ mod test {
                 entry_handle: ResourceHandle(7),
             },
             Step::SetStorage {
-                kind: crate::StorageKind::Token,
+                kind: crate::StorageKind::Token { interface: 3 },
                 storage: OTHER,
                 entry_handle: ResourceHandle(8),
             },
@@ -537,6 +606,18 @@ mod test {
             },
             Step::YieldBegin,
             Step::RegisterMethod { method: METHOD },
+            Step::Upcast {
+                source: ResourceHandle(7),
+                result: Out(ResourceHandle(8)),
+            },
+            Step::Attach {
+                token: ResourceHandle(10),
+                destination: ResourceHandle(8),
+            },
+            Step::EnterAttach {
+                interface: 3,
+                destination: ResourceHandle(19),
+            },
             Step::Return { result: Out(ROOT) },
             Step::CallMethod {
                 resource: ResourceHandle(7),

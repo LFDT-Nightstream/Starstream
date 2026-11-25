@@ -34,6 +34,9 @@ pub(crate) enum Opcode {
     BeginExecution,
     CallCoordinator,
     AssertSignedBy,
+    Upcast,
+    Attach,
+    EnterAttach,
 }
 
 /// Linear terms for the sum of the supplied opcode selectors.
@@ -48,6 +51,9 @@ pub(crate) fn selector_sum(opcodes: impl IntoIterator<Item = Opcode>) -> Vec<(us
 impl From<&starstream_interleaving_spec::Step> for Opcode {
     fn from(value: &starstream_interleaving_spec::Step) -> Self {
         match value {
+            starstream_interleaving_spec::Step::Upcast { .. } => Self::Upcast,
+            starstream_interleaving_spec::Step::Attach { .. } => Self::Attach,
+            starstream_interleaving_spec::Step::EnterAttach { .. } => Self::EnterAttach,
             starstream_interleaving_spec::Step::AssertSignedBy { .. } => Self::AssertSignedBy,
             starstream_interleaving_spec::Step::CallCoordinator { .. } => Self::CallCoordinator,
             starstream_interleaving_spec::Step::BeginExecution { .. } => Self::BeginExecution,
@@ -104,7 +110,10 @@ impl Opcode {
     pub fn is_execution(&self) -> bool {
         matches!(
             self,
-            Self::AssertSignedBy
+            Self::Upcast
+                | Self::Attach
+                | Self::EnterAttach
+                | Self::AssertSignedBy
                 | Self::NewUtxo
                 | Self::ReceiveNewUtxoHandle
                 | Self::EnterConstructor
@@ -156,17 +165,18 @@ impl Opcode {
         use crate::ivc_state::CurrPhase;
         Some(match self {
             Self::NewUtxo => CurrPhase::CtorEnterPending,
-            Self::CallMethod | Self::CallCoordinator | Self::BeginExecution => {
+            Self::Attach | Self::CallMethod | Self::CallCoordinator | Self::BeginExecution => {
                 CurrPhase::CallEnterPending
             }
             Self::EnterConstructor => CurrPhase::ConstructorExecuting,
             Self::YieldBegin => CurrPhase::Registering,
-            Self::EnterCall => CurrPhase::Executing,
+            Self::EnterAttach | Self::EnterCall => CurrPhase::Executing,
             Self::RegisterMethod => CurrPhase::Registering,
             Self::RaiseEffect => CurrPhase::EffectHandlerPending,
             Self::EnterEffectHandler => CurrPhase::EffectHandlerExecuting,
             Self::SkipEffectHandler => CurrPhase::EffectHandlerPending,
-            Self::AssertSignedBy
+            Self::Upcast
+            | Self::AssertSignedBy
             | Self::PushEffectHandlerFrame
             | Self::AddEffectHandler
             | Self::PopEffectHandlerFrame => before,
@@ -215,6 +225,9 @@ impl Opcode {
             Self::BeginExecution,
             Self::CallCoordinator,
             Self::AssertSignedBy,
+            Self::Upcast,
+            Self::Attach,
+            Self::EnterAttach,
         ]
     }
 
@@ -231,6 +244,8 @@ impl Opcode {
             | Self::ResumeEffect => Some(true),
             Self::NewUtxo
             | Self::EnterConstructor
+            | Self::Attach
+            | Self::EnterAttach
             | Self::CallMethod
             | Self::CallCoordinator
             | Self::BeginExecution
@@ -246,9 +261,12 @@ impl Opcode {
     pub fn required_constructor_frame(&self) -> Option<bool> {
         match self {
             Self::NewUtxo | Self::EnterConstructor => Some(true),
-            Self::CallMethod | Self::CallCoordinator | Self::BeginExecution | Self::EnterCall => {
-                Some(false)
-            }
+            Self::Attach
+            | Self::EnterAttach
+            | Self::CallMethod
+            | Self::CallCoordinator
+            | Self::BeginExecution
+            | Self::EnterCall => Some(false),
             _ => None,
         }
     }
@@ -257,6 +275,7 @@ impl Opcode {
         matches!(
             self,
             Self::NewUtxo
+                | Self::Attach
                 | Self::CallMethod
                 | Self::CallCoordinator
                 | Self::RaiseEffect
@@ -273,7 +292,7 @@ impl Opcode {
     pub fn pushes_instance(&self) -> bool {
         matches!(
             self,
-            Self::NewUtxo | Self::CallMethod | Self::CallCoordinator
+            Self::NewUtxo | Self::Attach | Self::CallMethod | Self::CallCoordinator
         )
     }
 
@@ -288,6 +307,7 @@ impl Opcode {
         matches!(
             self,
             Self::EnterConstructor
+                | Self::EnterAttach
                 | Self::EnterCall
                 | Self::SkipEffectHandler
                 | Self::EnterEffectHandler
@@ -306,6 +326,9 @@ impl Opcode {
 
     pub fn selector(&self) -> usize {
         match self {
+            Self::Upcast => COL_SEL_UPCAST,
+            Self::Attach => COL_SEL_ATTACH,
+            Self::EnterAttach => COL_SEL_ENTER_ATTACH,
             Self::AssertSignedBy => COL_SEL_ASSERT_SIGNED_BY,
             Self::PushEffectHandlerFrame => COL_SEL_PUSH_EFFECT_HANDLER_FRAME,
             Self::AddEffectHandler => COL_SEL_ADD_EFFECT_HANDLER,

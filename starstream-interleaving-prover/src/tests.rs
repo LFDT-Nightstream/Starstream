@@ -23,6 +23,8 @@ mod padding {
             COL_ABI_GENERATION_READ,
             COL_METHOD_APPEND,
             COL_EVENT_ACTIVE,
+            COL_RESOLVER_SECOND_READ,
+            COL_TOKEN_EVENT,
             COL_RESOURCE_RESOLVER_READ,
             COL_RESOURCE_RESOLVER_WRITE,
             COL_ABI_METHOD_COUNT_READ,

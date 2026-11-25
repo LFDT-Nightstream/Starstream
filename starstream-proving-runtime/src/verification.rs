@@ -151,28 +151,27 @@ pub fn prepare_verification(
             source.coordination_exports,
             source.contract_digest,
         )?;
-        for (indices, kind) in [
-            (source.input_utxos, crate::StorageKind::Utxo),
-            (source.input_tokens, crate::StorageKind::Token),
-        ] {
+        for (indices, token) in [(source.input_utxos, false), (source.input_tokens, true)] {
             for (index, export) in indices {
                 let setter = templates
                     .export_fref(&format!("{export}#set-storage"))
                     .context("input resource is missing its set-storage export")?;
                 ensure!(
-                    templates.storage_setters.get(&setter) == Some(&kind),
+                    templates
+                        .storage_setters
+                        .get(&setter)
+                        .is_some_and(
+                            |kind| matches!(kind, crate::StorageKind::Token { .. }) == token
+                        ),
                     "storage setter has the wrong resource kind"
                 );
                 let index = u32::try_from(*index)?;
-                let id = match kind {
-                    crate::StorageKind::Utxo => {
-                        input_count += 1;
-                        CoroutineId::Utxo(index)
-                    }
-                    crate::StorageKind::Token => {
-                        input_token_count += 1;
-                        CoroutineId::Token(index)
-                    }
+                let id = if token {
+                    input_token_count += 1;
+                    CoroutineId::Token(index)
+                } else {
+                    input_count += 1;
+                    CoroutineId::Utxo(index)
                 };
                 bind(id, source_index, vec![setter])?;
             }

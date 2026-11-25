@@ -21,12 +21,45 @@ module replay_trace {
     .then({ state' = { input_tokens: List({owner: 0, storage: UNIT_VALUE}), ...state } })
     .then(set_storage(UNIT_VALUE, 7))
     .then(preload_method(method))
-    .then(set_token_storage(UNIT_VALUE, 8))
+    .then(set_token_storage(UNIT_VALUE, 8, 0))
     .then(all {
       assert(state.resource_resolver.get({holder: ENTRY_COORDINATOR, handle: 7}) == Utxo(0)),
       assert(state.resource_resolver.get({holder: ENTRY_COORDINATOR, handle: 8}) == Token(0)),
       state' = state,
     })
+
+  run detached_payment = fresh
+    .then(set_token_storage(UNIT_VALUE, 8, 3))
+    .then(enter_root)
+    .then(new_utxo(CTOR, UNIT_VALUE))
+    .then(enter_constructor(CTOR, UNIT_VALUE))
+    .then(register_method(method))
+    .then(return({ value: UNIT_VALUE }))
+    .then(receive_new_utxo_handle({ value: 7 }))
+    .then(upcast(7, 9))
+    .then(attach(8, 9))
+
+  run test_attach_binds_owner_across_callback = detached_payment
+    .then(enter_attach(42, 3))
+    .then(all {
+      assert(state.token_owners.get(Token(0)) == Utxo(0)),
+      assert(state.resource_resolver.get({holder: Token(0), handle: 42}) == Utxo(0)),
+      state' = state,
+    })
+    .then(return({value: UNIT_VALUE}))
+    .then(receive_call_result({value: UNIT_VALUE}))
+    .then(attach(8, 9).fail())
+
+  run test_attach_rejects_a_different_token_interface = detached_payment
+    .then(enter_attach(42, 4).fail())
+
+  run test_attach_requires_detach_for_a_ledger_input = init_transaction
+    .then({ state' = {input_tokens: List({owner: 0, storage: UNIT_VALUE}), ...state} })
+    .then(set_storage(UNIT_VALUE, 7))
+    .then(preload_method(method))
+    .then(set_token_storage(UNIT_VALUE, 8, 3))
+    .then(enter_root)
+    .then(attach(8, 7).fail())
 
   run test_storage_roundtrip = init_transaction
     .then(set_storage(UNIT_VALUE, 0))

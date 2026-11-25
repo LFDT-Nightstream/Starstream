@@ -545,18 +545,18 @@ impl fmt::Display for Qnt<&Step> {
                 kind,
                 storage,
                 entry_handle,
-            } => {
-                write!(
+            } => match kind {
+                crate::StorageKind::Utxo => {
+                    write!(f, "set_storage({}, {})", Qnt(storage), Qnt(entry_handle))
+                }
+                crate::StorageKind::Token { interface } => write!(
                     f,
-                    "{}({}, {})",
-                    match kind {
-                        crate::StorageKind::Utxo => "set_storage",
-                        crate::StorageKind::Token => "set_token_storage",
-                    },
+                    "set_token_storage({}, {}, {})",
                     Qnt(storage),
-                    Qnt(entry_handle)
-                )
-            }
+                    Qnt(entry_handle),
+                    interface
+                ),
+            },
             Step::PreloadMethod { method } => write!(f, "preload_method({})", Qnt(method)),
             Step::GetStorage { storage } => write!(f, "get_storage({})", Qnt(storage)),
             Step::SkipConsumed => f.write_str("skip_consumed"),
@@ -579,6 +579,16 @@ impl fmt::Display for Qnt<&Step> {
                 Qnt(constructor),
                 Qnt(arguments)
             ),
+            Step::Upcast { source, result } => {
+                write!(f, "upcast({}, {})", Qnt(source), Qnt(&result.0))
+            }
+            Step::Attach { token, destination } => {
+                write!(f, "attach({}, {})", Qnt(token), Qnt(destination))
+            }
+            Step::EnterAttach {
+                destination,
+                interface,
+            } => write!(f, "enter_attach({}, {})", Qnt(destination), interface),
             Step::YieldBegin => f.write_str("yield_begin"),
             Step::RegisterMethod { method } => write!(f, "register_method({})", Qnt(method)),
             Step::Return { result } => write!(f, "return({})", Qnt(result)),

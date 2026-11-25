@@ -164,9 +164,9 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
         ContinuityGroup {
             name: "call_handoff",
             role: "argument, method and result that a call, return or handler exit hands to the next step",
-            links: COL_PENDING_ROOT_AFTER
+            links: COL_PENDING_VALUE_AFTER
                 .into_iter()
-                .zip(COL_PENDING_ROOT_BEFORE)
+                .zip(COL_PENDING_VALUE_BEFORE)
                 .chain(
                     COL_PENDING_METHOD_AFTER
                         .into_iter()

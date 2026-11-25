@@ -149,11 +149,23 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_ENABLED_METHOD_LOG_UTXO] = input.enabled_method_log_utxo.field();
     wit[COL_ENABLED_METHOD_LOG_GENERATION] = F::new(u64::from(input.enabled_method_log_generation));
 
+    wit[COL_TOKEN_INTERFACE] = F::from_u32(input.token_interface);
+    wit[COL_RESOLVER_SECOND_READ] =
+        F::from_bool(matches!(input.opcode, Opcode::Upcast | Opcode::Attach));
+    wit[COL_RESOURCE_RESOLVER_SECOND_ADDR_HANDLE] = F::from_u32(input.second_handle.0);
+    wit[COL_RESOLVER_SECOND_VALUE] = input.second_target.field();
+    wit[COL_TOKEN_EVENT] = F::from_bool(
+        input.opcode.has_event() && matches!(input.event_owner, crate::CoroutineId::Token(_)),
+    );
     wit[COL_RESOURCE_RESOLVER_ADDR_CID] = input.resolver_address.0.field();
     wit[COL_RESOURCE_RESOLVER_ADDR_HANDLE] = F::new(u64::from(input.resolver_address.1.0));
     wit[COL_RESOURCE_RESOLVER_VALUE] = input.resolver_value.field();
-    // Binding writes assert an unbound key, rather than witnessing an overwrite.
-    wit[COL_RESOURCE_RESOLVER_BEFORE] = F::ZERO;
+    if input.opcode == Opcode::Upcast {
+        wit[COL_UPCAST_HANDLE_DIFF_INVERSE] = (wit[COL_RESOURCE_RESOLVER_ADDR_HANDLE]
+            - wit[COL_RESOURCE_RESOLVER_SECOND_ADDR_HANDLE])
+            .try_inverse()
+            .unwrap_or(F::ZERO);
+    }
     wit[COL_RESOURCE_RESOLVER_READ] = if input.resolver_read { F::ONE } else { F::ZERO };
     wit[COL_RESOURCE_RESOLVER_WRITE] = if input.resolver_write {
         F::ONE
@@ -228,8 +240,8 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     }
 
     for (cols, values) in [
-        (COL_PENDING_ROOT_BEFORE, input.pending_root_before),
-        (COL_PENDING_ROOT_AFTER, input.pending_root_after),
+        (COL_PENDING_VALUE_BEFORE, input.pending_value_before),
+        (COL_PENDING_VALUE_AFTER, input.pending_value_after),
     ] {
         for (col, value) in cols.into_iter().zip(values) {
             wit[col] = value;

@@ -122,8 +122,6 @@ async fn send_single_token_from_storage() -> wasmtime::Result<()> {
             [],
         )
         .await?;
-    let storage = token.storage(export.storage()).call_get(&mut store).await?;
-    assert_eq!(storage, [("attached".to_owned(), Val::S64(1))]);
     let registry = store.data().wasm_trace_registry();
     let (_, coordinator_trace) = registry
         .instances()?
@@ -139,11 +137,60 @@ async fn send_single_token_from_storage() -> wasmtime::Result<()> {
         panic!("unexpected payment entry arguments: {arguments:?}")
     };
     let handle = ResourceHandle(u32::try_from(token_handle)?);
-    assert_ne!(handle, constructed_resource(&coordinator_steps));
+    let constructed = constructed_resource(&coordinator_steps);
+    let destination = coordinator_steps
+        .0
+        .iter()
+        .find_map(|step| match step {
+            Step::Upcast { source, result } if *source == constructed => Some(result.0),
+            _ => None,
+        })
+        .context("payment UTXO upcast")?;
+    assert!(coordinator_steps.0.contains(&Step::Attach {
+        token: handle,
+        destination
+    }));
+
+    // Cross-check the interleaving against the actual three Wasm event chains,
+    // before the separate storage getter appends its finalization event.
+    use starstream_interleaving_prover::{CoroutineId, verify_sat_with_commitments};
+    let mut traces = Vec::new();
+    let mut roots = TraceCommitments::new();
+    let mut entry_handles = [handle].into_iter();
+    for (_, captured) in registry.instances()? {
+        let wasm = neo_wasm::traces_from_wasmtime_steps_with_host_events(
+            captured.steps(),
+            captured.artifacts(),
+            Default::default(),
+        )
+        .map_err(|e| wasmtime::format_err!("normalize payment trace: {e}"))?;
+        let blocks = neo_wasm::comm_chain::absorbed_event_blocks(&wasm)
+            .into_iter()
+            .map(|block| block.words)
+            .collect::<Vec<_>>();
+        let trace = starstream_proving_runtime::decode_tagged_blocks(&blocks, &mut entry_handles)?;
+        let owner = match trace.0.first() {
+            Some(Step::EnterCall { .. }) => CoroutineId::Coord(1),
+            Some(Step::SetStorage { .. }) => CoroutineId::Token(0),
+            Some(Step::EnterConstructor { .. }) => CoroutineId::Utxo(0),
+            step => panic!("unexpected payment guest entry {step:?}"),
+        };
+        assert!(
+            roots
+                .insert(owner.encoded(), wasm.last().unwrap().state_after.comm_chain)
+                .is_none()
+        );
+        traces.push(trace);
+    }
+    let execution = starstream_interleaving_spec::interleaver::interleave_execution_only(&traces)?;
+    verify_sat_with_commitments(&execution, BATCH_SIZE, &roots, &Default::default())?;
+    let storage = token.storage(export.storage()).call_get(&mut store).await?;
+    assert_eq!(storage, [("attached".to_owned(), Val::S64(1))]);
+    let registry = store.data().wasm_trace_registry();
     let token_steps =
         decode_captured_instance(registry.instance(token_id)?, &mut [handle].into_iter())?;
     assert!(matches!(token_steps.0.first(), Some(Step::SetStorage {
-        kind: starstream_proving_runtime::StorageKind::Token,
+        kind: starstream_proving_runtime::StorageKind::Token { .. },
         storage,
         ..
     }) if *storage == flat_value_root(&[ValType::I64], &[0])));
@@ -903,7 +950,7 @@ mod proving {
         let mut config = if std::env::var_os("STARSTREAM_PROOF_TIGHT_MEMORY").is_some() {
             ProofConfig::for_trace_benchmark(
                 &transaction.trace,
-                &transaction.statement.signers,
+                &transaction.statement,
                 batch_size,
                 segment_batches,
             )?
