@@ -29,7 +29,7 @@ use starstream_ledger::server::Ledger;
 use starstream_ledger::wrpc::LEDGER_BLOCK_INSTANCE;
 use starstream_ledger::{
     APPLICATION_COSE, APPLICATION_WRPC, CardanoCtx, Envelope, Message, Transaction,
-    TransactionInput, TransactionOutput, encode_digest,
+    TransactionInput, TransactionNonce, TransactionOutput, encode_digest,
 };
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio_util::codec::Encoder as _;
@@ -92,6 +92,13 @@ async fn post_envelope(
 
 #[tokio::test]
 async fn http() {
+    fn admin_nonce(nonce: u64) -> Vec<TransactionNonce> {
+        vec![TransactionNonce {
+            key: ADMIN.verifying_key().to_bytes(),
+            nonce,
+        }]
+    }
+
     let mut engine_config = wasmtime::Config::default();
     starstream_ledger::configure_wasmtime(&mut engine_config);
     let engine = wasmtime::Engine::new(&engine_config).unwrap();
@@ -553,6 +560,7 @@ async fn http() {
         outputs,
         events,
         proof,
+        ..
     } = client
         .call_coordination_script(
             &mut Store::new(
@@ -590,7 +598,7 @@ async fn http() {
     assert_eq!(proof.as_ref(), [0; 0]);
     assert_eq!(storage.as_ref(), score_progress_utxo_storage_buf);
 
-    client
+    let err = client
         .transact(
             ADMIN.clone(),
             NETWORK,
@@ -599,10 +607,18 @@ async fn http() {
                 outputs: outputs.clone(),
                 events: events.clone(),
                 proof: proof.clone(),
+                nonces: Vec::default(),
             },
         )
         .await
-        .expect_err("transactions with no inputs must fail");
+        .expect_err("signers without a nonce must be rejected");
+    assert_eq!(
+        err.to_string(),
+        format!(
+            "signer `{}` has no nonce",
+            hex::encode(ADMIN.verifying_key().as_bytes())
+        )
+    );
 
     let err = client
         .transact(
@@ -613,6 +629,7 @@ async fn http() {
                 outputs: outputs.clone(),
                 events: events.clone(),
                 proof: proof.clone(),
+                nonces: admin_nonce(3),
             },
         )
         .await
@@ -624,6 +641,7 @@ async fn http() {
         outputs: outputs.clone(),
         events,
         proof,
+        nonces: admin_nonce(3),
     };
     let tx_cbor = minicbor::to_vec(&tx).unwrap();
     let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
@@ -680,6 +698,26 @@ async fn http() {
             NETWORK,
             Transaction {
                 outputs: Vec::default(),
+                ..tx.clone()
+            },
+        )
+        .await
+        .expect_err("used nonces must be rejected");
+    assert_eq!(
+        err.to_string(),
+        format!(
+            "nonce of `{}` must be higher than 3, got 3",
+            hex::encode(ADMIN.verifying_key().as_bytes())
+        )
+    );
+
+    let err = client
+        .transact(
+            ADMIN.clone(),
+            NETWORK,
+            Transaction {
+                outputs: Vec::default(),
+                nonces: admin_nonce(4),
                 ..tx
             },
         )
@@ -716,6 +754,7 @@ async fn http() {
         outputs: outputs.clone(),
         events: Vec::default(),
         proof: Box::default(),
+        nonces: admin_nonce(4),
     };
     let tx_digest: [u8; 32] = Sha256::digest(minicbor::to_vec(&tx).unwrap()).into();
     let tx_payload = minicbor::to_vec(Envelope {
@@ -729,6 +768,26 @@ async fn http() {
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let got = client.get_transaction(tx_digest).await.unwrap();
     assert_eq!(got.unwrap(), tx);
+
+    client
+        .transact(
+            ADMIN.clone(),
+            NETWORK,
+            Transaction {
+                inputs: Vec::default(),
+                outputs,
+                events: Vec::default(),
+                proof: Box::default(),
+                nonces: admin_nonce(5),
+            },
+        )
+        .await
+        .expect("transactions without inputs must be accepted");
+    let nonce = client
+        .get_account_nonce(&ADMIN.verifying_key())
+        .await
+        .unwrap();
+    assert_eq!(nonce, Some(5));
 
     shutdown.notify_one();
     ledger.await.expect("ledger task panicked")

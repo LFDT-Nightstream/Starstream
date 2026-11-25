@@ -3,7 +3,10 @@
 use bytes::Bytes;
 
 use crate::runtime::{DataState, GlobalValue, ModuleState};
-use crate::{DigestParseError, Transaction, TransactionEvent, TransactionInput, TransactionOutput};
+use crate::{
+    DigestParseError, Transaction, TransactionEvent, TransactionInput, TransactionNonce,
+    TransactionOutput,
+};
 
 wrpc::generate!();
 
@@ -153,6 +156,24 @@ impl From<TransactionOutput> for types::TransactionOutput {
     }
 }
 
+impl From<types::TransactionNonce> for TransactionNonce {
+    fn from(v: types::TransactionNonce) -> Self {
+        Self {
+            key: v.key,
+            nonce: v.nonce,
+        }
+    }
+}
+
+impl From<TransactionNonce> for types::TransactionNonce {
+    fn from(v: TransactionNonce) -> Self {
+        Self {
+            key: v.key,
+            nonce: v.nonce,
+        }
+    }
+}
+
 impl From<types::Transaction> for Transaction {
     fn from(v: types::Transaction) -> Self {
         Self {
@@ -160,6 +181,7 @@ impl From<types::Transaction> for Transaction {
             outputs: v.outputs.into_iter().map(Into::into).collect(),
             events: v.events.into_iter().map(Into::into).collect(),
             proof: Box::from(&*v.proof),
+            nonces: v.nonces.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -171,6 +193,7 @@ impl From<Transaction> for types::Transaction {
             outputs: v.outputs.into_iter().map(Into::into).collect(),
             events: v.events.into_iter().map(Into::into).collect(),
             proof: Bytes::from(v.proof),
+            nonces: v.nonces.into_iter().map(Into::into).collect(),
         }
     }
 }

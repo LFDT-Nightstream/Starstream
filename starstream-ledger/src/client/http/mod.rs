@@ -356,7 +356,7 @@ where
         }
     }
 
-    /// Get the last nonce used by the account `key` to publish contracts.
+    /// Get the last nonce used by the account `key` to publish contracts or sign transactions.
     #[instrument(skip_all)]
     pub async fn get_account_nonce(&self, key: &VerifyingKey) -> anyhow::Result<Option<u64>> {
         let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;

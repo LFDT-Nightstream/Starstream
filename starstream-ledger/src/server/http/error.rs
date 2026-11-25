@@ -145,8 +145,6 @@ pub enum TransactionPostError {
     WrpcEncoding(PackError),
     #[error("transaction `{}` already exists", encode_digest(.0))]
     AlreadyExists([u8; 32]),
-    #[error("transaction must have at least one input")]
-    InputsEmpty,
     #[error("duplicate input")]
     InputDuplicate,
     #[error("failed to parse input transaction digest `{0}`: {1}")]
@@ -163,6 +161,20 @@ pub enum TransactionPostError {
     InputTransactionDigestNotCanonical(Box<str>),
     #[error("output contract digest `{0}` is not in canonical base32-lower form")]
     OutputContractDigestNotCanonical(Box<str>),
+    #[error("nonce key is not a valid Ed25519 public key: {0}")]
+    NonceKey(ed25519_dalek::SignatureError),
+    #[error("duplicate nonce for `{}`", hex::encode(.0))]
+    NonceDuplicate([u8; 32]),
+    #[error("nonce for `{}`, which did not sign the transaction", hex::encode(.0))]
+    NonceUnsigned([u8; 32]),
+    #[error("signer `{}` has no nonce", hex::encode(.0))]
+    NonceMissing([u8; 32]),
+    #[error("nonce of `{}` must be higher than {last_nonce}, got {nonce}", hex::encode(.key))]
+    NonceTooLow {
+        key: [u8; 32],
+        last_nonce: u64,
+        nonce: u64,
+    },
     #[error(transparent)]
     Http(http::Error),
 }
@@ -170,14 +182,17 @@ pub enum TransactionPostError {
 impl TransactionPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
-            Self::InputsEmpty
-            | Self::InputDuplicate
+            Self::InputDuplicate
             | Self::InputTransactionDigestParsing(..)
             | Self::InputIndexOverflow
             | Self::OutputContractDigestParsing(..)
             | Self::InputTransactionDigestNotCanonical(..)
-            | Self::OutputContractDigestNotCanonical(..) => http::StatusCode::BAD_REQUEST,
-            Self::AlreadyExists(..) => http::StatusCode::CONFLICT,
+            | Self::OutputContractDigestNotCanonical(..)
+            | Self::NonceKey(..)
+            | Self::NonceDuplicate(..)
+            | Self::NonceUnsigned(..)
+            | Self::NonceMissing(..) => http::StatusCode::BAD_REQUEST,
+            Self::AlreadyExists(..) | Self::NonceTooLow { .. } => http::StatusCode::CONFLICT,
             Self::InputNotFound => http::StatusCode::NOT_FOUND,
             Self::InputUnauthorized => http::StatusCode::FORBIDDEN,
             Self::CborEncoding(..) | Self::WrpcEncoding(..) | Self::Http(..) => {

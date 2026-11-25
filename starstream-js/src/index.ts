@@ -22,6 +22,7 @@ export type {
   Transaction,
   TransactionEvent,
   TransactionInput,
+  TransactionNonce,
   TransactionOutput,
 } from "./bindings/starstream/ledger/types.js";
 

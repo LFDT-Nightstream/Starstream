@@ -45,11 +45,17 @@ interface types {
         malformed(string),
     }
 
+    record transaction-nonce {
+        key: list<u8, 32>,
+        nonce: u64,
+    }
+
     record transaction {
         inputs: list<transaction-input>,
         outputs: list<transaction-output>,
         events: list<transaction-event>,
         proof: list<u8>,
+        nonces: list<transaction-nonce>,
     }
 }
 
