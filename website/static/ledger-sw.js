@@ -40,8 +40,16 @@ async function forward(request) {
       : await request.arrayBuffer();
   const { port1, port2 } = new MessageChannel();
   return new Promise((resolve) => {
+    let acked = false;
     const timer = setInterval(async () => {
-      if (!(await self.clients.get(page.id))) {
+      if (!acked) {
+        clearInterval(timer);
+        resolve(
+          new Response("the ledger terminal page did not answer", {
+            status: 503,
+          }),
+        );
+      } else if (!(await self.clients.get(page.id))) {
         clearInterval(timer);
         resolve(
           new Response("the ledger terminal page was closed", { status: 503 }),
@@ -49,6 +57,10 @@ async function forward(request) {
       }
     }, PAGE_CHECK_INTERVAL);
     port1.onmessage = ({ data }) => {
+      if (data.ack) {
+        acked = true;
+        return;
+      }
       clearInterval(timer);
       resolve(
         new Response(data.body.byteLength > 0 ? data.body : null, {

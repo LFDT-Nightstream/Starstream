@@ -7,6 +7,11 @@ export interface NodeConfig {
   genesis: string;
   /** Paths of the contracts the genesis imports. */
   imports: string[];
+  /** Path of a contract whose script to run at genesis, imported as well. */
+  genesisContract: string;
+  genesisScript: string;
+  /** WAVE-encoded arguments of `genesisScript`, as typed in the terminal. */
+  genesisArgs: string;
   fuel: string;
   maxRequests: string;
   cardanoBlockHeight: string;
@@ -18,6 +23,9 @@ export const DEFAULT_CONFIG: NodeConfig = {
   admin: "",
   genesis: "",
   imports: [],
+  genesisContract: "",
+  genesisScript: "",
+  genesisArgs: "",
   fuel: "",
   maxRequests: "",
   cardanoBlockHeight: "",

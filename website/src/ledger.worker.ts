@@ -2,13 +2,16 @@ import starstreamWasm from "file-loader!../starstream.wasm";
 import starstreamLedgerWasm from "file-loader!../starstream_ledger_web.wasm";
 import { Directory, File, type Inode } from "@bjorn3/browser_wasi_shim";
 import {
+  digest,
   type Genesis,
   Ledger,
+  type TransactionInput,
   WasmLedger,
 } from "../../starstream-js/src/index";
 import { parse } from "smol-toml";
 import { runStarstream } from "./starstream";
 import { DEFAULT_CONFIG, type NodeConfig } from "./ledger-config";
+import { Explorer, type ExplorerState } from "./ledger-explorer";
 
 /** Status of the in-browser ledger. */
 export interface NodeInfo {
@@ -21,14 +24,44 @@ export interface NodeInfo {
   error?: string;
 }
 
-/** Snapshot of the state of the in-browser ledger. */
-export interface LedgerState {
-  height: bigint;
-  adminNonce: bigint;
-  genesis: { contract: string; instance: string }[];
-  /** The latest blocks, newest first, with the size of each envelope. */
-  blocks: { height: bigint; envelopes: number[] }[];
+/** A `starstream` command run on behalf of the page, as typed in the terminal. */
+export interface Activity {
+  id: number;
+  command: string;
+  status: "running" | "ok" | "error";
+  /** What the command wrote to stderr, and why it failed. */
+  output: string;
 }
+
+/** Contract published from the page. */
+export interface Published {
+  /** Path of the component. */
+  path: string;
+  /** WIT of the component, if compiled from a Starstream source. */
+  wit?: string;
+}
+
+/** Action of the page, run like the corresponding `starstream` commands. */
+export type LedgerCall =
+  | { op: "publish"; files: { name: string; data: Uint8Array }[] }
+  | { op: "publishFile"; path: string }
+  | { op: "fund"; amount: string }
+  | {
+      op: "script";
+      contract: string;
+      script: string;
+      args: string;
+      /** Path of the signing key. */
+      key: string;
+    }
+  | {
+      op: "utxo";
+      utxo: TransactionInput;
+      method: string;
+      args: string;
+    }
+  | { op: "utxoWit"; utxo: TransactionInput }
+  | { op: "download"; contract: string };
 
 /** Request forwarded from the service worker. */
 export interface HttpRequest {
@@ -51,8 +84,9 @@ export type LedgerWorkerRequest =
   | { type: "cancel" }
   | { type: "start"; config: NodeConfig }
   | { type: "stop" }
-  | { type: "state" }
+  | { type: "explore" }
   | { type: "download"; path: string }
+  | { type: "call"; id: number; call: LedgerCall }
   | { type: "http"; request: HttpRequest; port: MessagePort };
 
 export type LedgerWorkerResponse =
@@ -60,14 +94,27 @@ export type LedgerWorkerResponse =
   | { type: "done" }
   | { type: "download"; path: string; data: Uint8Array }
   | { type: "node"; info: NodeInfo }
-  | { type: "state"; state: LedgerState | undefined }
-  | { type: "files"; paths: string[] };
+  | {
+      type: "explorer";
+      state: ExplorerState | undefined;
+      /** Hex-encoded public key of `user.key`, if any. */
+      wallet: string | undefined;
+      /** Contracts published from the page, by digest. */
+      published: Record<string, Published>;
+      error?: string;
+    }
+  | { type: "files"; paths: string[] }
+  | { type: "activity"; activity: Activity }
+  | { type: "reply"; id: number; result?: unknown; error?: string };
 
 /** Path the service worker serves the in-browser ledger under. */
 export const LEDGER_PATH = "/ledger-node/";
 
 const LEDGER_URL = new URL(LEDGER_PATH, self.location.origin).href;
-const MAX_BLOCKS = 20;
+/** Signing key of the account the page publishes contracts and calls scripts with. */
+const WALLET = "user.key";
+/** Amount the page funds a new wallet with. */
+const WALLET_FUNDS = "1000000";
 
 function send(r: LedgerWorkerResponse, transfer?: Transferable[]): void {
   self.postMessage(r, { transfer });
@@ -269,11 +316,7 @@ function optional<T>(s: string, f: (s: string) => T): T | undefined {
 }
 
 let node: WasmLedger | undefined;
-/** The genesis outputs and the envelope sizes of the blocks of `node`. */
-let known: {
-  genesis?: LedgerState["genesis"];
-  blocks: Map<bigint, number[]>;
-} = { blocks: new Map() };
+let explorer: Explorer | undefined;
 let info: NodeInfo = {
   running: false,
   url: LEDGER_URL,
@@ -287,7 +330,7 @@ function api(node: WasmLedger): Ledger {
 function stopNode(): void {
   node?.dispose();
   node = undefined;
-  known = { blocks: new Map() };
+  explorer = undefined;
   info = { ...info, running: false, error: undefined };
 }
 
@@ -296,16 +339,33 @@ async function startNode(config: NodeConfig): Promise<void> {
     const admin = config.admin.trim()
       ? unhex(config.admin.trim(), 32, "admin key")
       : await adminKey();
+    const genesis: Genesis =
+      optional(
+        config.genesis,
+        (path) => parse(decoder.decode(readFile(path))) as Genesis,
+      ) ?? {};
+    const imports = config.imports.map(readFile);
+    if (config.genesisContract) {
+      const wasm = readFile(config.genesisContract);
+      if (!config.imports.includes(config.genesisContract)) {
+        imports.push(wasm);
+      }
+      genesis.scripts = [
+        ...(genesis.scripts ?? []),
+        {
+          contract: await digest(wasm),
+          script: config.genesisScript.trim(),
+          args: args(config.genesisArgs),
+        },
+      ];
+    }
     const next = await WasmLedger.start(
       await loadModule(starstreamLedgerWasm),
       {
         network: config.network.trim() || "dev",
         admin,
-        genesis: optional(
-          config.genesis,
-          (path) => parse(decoder.decode(readFile(path))) as Genesis,
-        ),
-        imports: config.imports.map(readFile),
+        genesis,
+        imports,
         fuel: optional(config.fuel, (s) => integer(s, "fuel", 64)),
         maxRequests: optional(config.maxRequests, (s) =>
           Number(integer(s, "maximum requests", 32)),
@@ -326,6 +386,7 @@ async function startNode(config: NodeConfig): Promise<void> {
       });
     stopNode();
     node = next;
+    explorer = new Explorer(api(next), network, hex(admin));
     info = {
       running: true,
       url: LEDGER_URL,
@@ -337,29 +398,6 @@ async function startNode(config: NodeConfig): Promise<void> {
     info = { ...info, error: errorMessage(err) };
   }
   send({ type: "node", info });
-}
-
-async function state(): Promise<LedgerState | undefined> {
-  if (!node) {
-    return undefined;
-  }
-  const ledger = api(node);
-  const cache = known;
-  const height = await ledger.getBlockHeight();
-  const adminNonce = await ledger.getAdminNonce();
-  cache.genesis ??= (await ledger.getGenesisOutputs()).map(
-    ({ contract, instance }) => ({ contract, instance }),
-  );
-  const latest = [];
-  for (let h = height; h > 0n && latest.length < MAX_BLOCKS; h--) {
-    let envelopes = cache.blocks.get(h);
-    if (!envelopes) {
-      envelopes = ((await ledger.getBlock(h)) ?? []).map((e) => e.length);
-      cache.blocks.set(h, envelopes);
-    }
-    latest.push({ height: h, envelopes });
-  }
-  return { height, adminNonce, genesis: cache.genesis, blocks: latest };
 }
 
 /** Send requests to `LEDGER_URL` to the in-browser ledger, others out. */
@@ -499,6 +537,8 @@ function path(argv: string[]): string {
 async function run(
   argv: string[],
   out: (data: Uint8Array) => void,
+  err: (text: string) => void,
+  fetch: typeof globalThis.fetch,
 ): Promise<void> {
   const [command, ...args] = argv;
   switch (command) {
@@ -528,17 +568,12 @@ async function run(
     }
     case "starstream": {
       const errors = new TextDecoder();
-      const err = (text: string) => {
-        if (text) {
-          send({ type: "stderr", text });
-        }
-      };
       let code: number;
       try {
         code = await runStarstream(await loadModule(starstreamWasm), args, {
           dir: root,
           env: { STARSTREAM_LEDGER_URL: LEDGER_URL },
-          fetch: abortable(ledgerFetch),
+          fetch,
           stdout: out,
           stderr: (data) => err(errors.decode(data, { stream: true })),
         });
@@ -587,6 +622,12 @@ async function exec(line: string): Promise<void> {
       redirect
         ? (data) => chunks.push(data.slice())
         : (data) => show(text.decode(data, { stream: true })),
+      (text) => {
+        if (text) {
+          send({ type: "stderr", text });
+        }
+      },
+      abortable(ledgerFetch),
     );
   } finally {
     if (redirect) {
@@ -608,10 +649,20 @@ async function exec(line: string): Promise<void> {
   }
 }
 
-async function handle(f: () => Promise<void>): Promise<void> {
+/** `exec` requests received. */
+let execs = 0;
+/** The last `exec` request cancelled, which is skipped if it has not started. */
+let cancelled = 0;
+
+async function handle(f: () => Promise<void>, exec?: number): Promise<void> {
   controller = new AbortController();
+  if (exec !== undefined && exec === cancelled) {
+    controller.abort();
+  }
   try {
-    await f();
+    if (!controller.signal.aborted) {
+      await f();
+    }
   } catch (err) {
     if (!controller.signal.aborted && !(err instanceof Exit)) {
       stderr(`error: ${errorMessage(err)}`);
@@ -621,9 +672,291 @@ async function handle(f: () => Promise<void>): Promise<void> {
   send({ type: "done" });
 }
 
+// ----------------------------------------------------------------------------
+// Page actions
+
+type ExplorerMessage = Extract<LedgerWorkerResponse, { type: "explorer" }>;
+
+const ANSI = /\x1b\[[0-9;]*m/g;
+
+let activities = 0;
+const published: Record<string, Published> = {};
+
+function quote(arg: string): string {
+  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'"'"'`)}'`;
+}
+
+function args(line: string): string[] {
+  return tokenize(line).map((token) => {
+    if (typeof token !== "string") {
+      throw new Error("quote arguments containing `>`");
+    }
+    return token;
+  });
+}
+
+/**
+ * Run `argv` like the terminal does, reporting it as an activity, and return
+ * what it wrote to stdout, or write that to `redirect`.
+ */
+async function command(argv: string[], redirect?: string): Promise<string> {
+  const activity: Activity = {
+    id: activities++,
+    command: [
+      ...argv.map(quote),
+      ...(redirect ? [">", quote(redirect)] : []),
+    ].join(" "),
+    status: "running",
+    output: "",
+  };
+  send({ type: "activity", activity });
+  let stdout = "";
+  const text = new TextDecoder();
+  try {
+    await run(
+      argv,
+      (data) => {
+        const s = text.decode(data, { stream: true });
+        stdout += s;
+        if (!redirect) {
+          activity.output += s;
+        }
+      },
+      (s) => {
+        activity.output += s.replace(ANSI, "");
+      },
+      ledgerFetch,
+    );
+    stdout += text.decode();
+    activity.status = "ok";
+  } catch (err) {
+    activity.status = "error";
+    if (!(err instanceof Exit)) {
+      activity.output += `error: ${errorMessage(err)}\n`;
+    }
+    throw new Error(activity.output.trim() || errorMessage(err));
+  } finally {
+    send({ type: "activity", activity });
+  }
+  if (redirect) {
+    writeFile(redirect, encoder.encode(stdout));
+    sendFiles();
+  }
+  return stdout;
+}
+
+async function walletKey(): Promise<string | undefined> {
+  const file = lookup(WALLET);
+  if (!(file instanceof File)) {
+    return undefined;
+  }
+  const seed = unhex(
+    decoder.decode(file.data).trim(),
+    32,
+    `key in \`${WALLET}\``,
+  );
+  return hex(await publicKey(seed));
+}
+
+function fund(account: string, amount: string): Promise<string> {
+  return command([
+    "starstream",
+    "ledger",
+    "account",
+    "fund",
+    "--key",
+    "admin.key",
+    account,
+    amount,
+  ]);
+}
+
+/**
+ * Get the public key of `WALLET`, generating it if missing, and funding it if
+ * the ledger does not know the account.
+ */
+async function wallet(): Promise<string> {
+  let account = await walletKey();
+  if (!account) {
+    await command(["starstream", "ledger", "key", "generate"], WALLET);
+    account = (await walletKey())!;
+  }
+  const nonce =
+    node && (await api(node).getAccountNonce(unhex(account, 32, "wallet key")));
+  if (nonce === undefined) {
+    await fund(account, WALLET_FUNDS);
+  }
+  return account;
+}
+
+/**
+ * Publish `files`, compiling Starstream sources first, and return their
+ * digests. Files another of the sources imports are only written.
+ */
+async function publish(
+  files: { name: string; data: Uint8Array }[],
+): Promise<string[]> {
+  const named = files.map(({ name, data }) => ({
+    path: name.split("/").pop()!,
+    data,
+  }));
+  for (const { path } of named) {
+    if (!path.endsWith(".star") && !path.endsWith(".wasm")) {
+      throw new Error(
+        `\`${path}\` is neither a Starstream source (.star) nor a component (.wasm)`,
+      );
+    }
+  }
+  const imported = new Set<string>();
+  for (const { path, data } of named) {
+    writeFile(path, data);
+    if (path.endsWith(".star")) {
+      for (const [, from] of decoder
+        .decode(data)
+        .matchAll(/from\s+"([^"]+)"/g)) {
+        imported.add(from.split("/").pop()!);
+      }
+    }
+  }
+  sendFiles();
+  const digests = [];
+  for (const { path } of named.filter(({ path }) => !imported.has(path))) {
+    let wasm = path;
+    let wit: string | undefined;
+    if (path.endsWith(".star")) {
+      const stem = path.slice(0, -".star".length);
+      wasm = `${stem}.wasm`;
+      await command([
+        "starstream",
+        "wasm",
+        "-c",
+        path,
+        "--output-component",
+        wasm,
+        "--output-wit",
+        `${stem}.wit`,
+      ]);
+      wit = decoder.decode(readFile(`${stem}.wit`));
+    }
+    await wallet();
+    const out = await command([
+      "starstream",
+      "ledger",
+      "contract",
+      "publish",
+      "--key",
+      WALLET,
+      wasm,
+    ]);
+    const contract = out.trim();
+    published[contract] = { path: wasm, wit };
+    digests.push(contract);
+  }
+  sendFiles();
+  return digests;
+}
+
+type ReadCall = Extract<LedgerCall, { op: "utxoWit" | "download" }>;
+
+function isRead(call: LedgerCall): call is ReadCall {
+  return call.op === "utxoWit" || call.op === "download";
+}
+
+async function perform(call: Exclude<LedgerCall, ReadCall>): Promise<unknown> {
+  switch (call.op) {
+    case "publish":
+      return publish(call.files);
+    case "publishFile":
+      return publish([{ name: call.path, data: readFile(call.path) }]);
+    case "fund":
+      return fund(await wallet(), call.amount);
+    case "script":
+      if (call.key === WALLET) {
+        await wallet();
+      }
+      return command([
+        "starstream",
+        "ledger",
+        "contract",
+        "script",
+        "call",
+        "--key",
+        call.key,
+        call.contract,
+        call.script,
+        "--",
+        ...args(call.args),
+      ]);
+    case "utxo":
+      return command([
+        "starstream",
+        "ledger",
+        "utxo",
+        "call",
+        ...(call.utxo.transaction
+          ? ["--transaction", call.utxo.transaction]
+          : []),
+        String(call.utxo.index),
+        call.method,
+        "--",
+        ...args(call.args),
+      ]);
+  }
+}
+
+/** Answer `call` without waiting for running commands. */
+async function read(call: ReadCall): Promise<unknown> {
+  if (!node) {
+    throw new Error("the in-browser ledger is not running");
+  }
+  switch (call.op) {
+    case "utxoWit":
+      return api(node).getUtxoWit(call.utxo);
+    case "download": {
+      const data = await api(node).getContractWasm(call.contract);
+      if (!data) {
+        throw new Error(`contract \`${call.contract}\` not found`);
+      }
+      const bytes = data.slice();
+      send({ type: "download", path: `${call.contract}.wasm`, data: bytes }, [
+        bytes.buffer,
+      ]);
+      return undefined;
+    }
+  }
+}
+
+async function explore(): Promise<ExplorerMessage> {
+  const message: ExplorerMessage = {
+    type: "explorer",
+    state: undefined,
+    wallet: undefined,
+    published,
+  };
+  const current = explorer;
+  try {
+    message.state = await current?.state();
+    message.wallet = await walletKey();
+  } catch (err) {
+    message.error = errorMessage(err);
+  }
+  if (explorer !== current) {
+    message.state = undefined;
+    message.error = undefined;
+  }
+  return message;
+}
+
+function reply(id: number, f: () => Promise<unknown>): Promise<void> {
+  return f().then(
+    (result) => send({ type: "reply", id, result }),
+    (err: unknown) => send({ type: "reply", id, error: errorMessage(err) }),
+  );
+}
+
 let queue = Promise.resolve();
 let nodeQueue = Promise.resolve();
-let refreshing: Promise<LedgerState | undefined> | undefined;
+let refreshing: Promise<ExplorerMessage> | undefined;
 
 function enqueue(f: () => Promise<void>): void {
   queue = queue.then(f);
@@ -636,6 +969,7 @@ function enqueueNode(f: () => Promise<void>): void {
 self.addEventListener("message", ({ data }: { data: LedgerWorkerRequest }) => {
   switch (data.type) {
     case "cancel":
+      cancelled = execs;
       controller.abort();
       return;
     case "http":
@@ -651,15 +985,21 @@ self.addEventListener("message", ({ data }: { data: LedgerWorkerRequest }) => {
       }
       return;
     }
-    case "state":
-      refreshing ??= state().finally(() => {
+    case "explore":
+      refreshing ??= explore().finally(() => {
         refreshing = undefined;
       });
-      void refreshing.then(
-        (state) => send({ type: "state", state }),
-        () => send({ type: "state", state: undefined }),
-      );
+      void refreshing.then(send);
       return;
+    case "call": {
+      const { id, call } = data;
+      if (isRead(call)) {
+        void reply(id, () => read(call));
+      } else {
+        enqueue(() => reply(id, () => perform(call)));
+      }
+      return;
+    }
     case "start":
       enqueueNode(() => startNode(data.config));
       return;
@@ -679,8 +1019,10 @@ self.addEventListener("message", ({ data }: { data: LedgerWorkerRequest }) => {
         }),
       );
       return;
-    case "exec":
-      enqueue(() => handle(() => exec(data.line)));
+    case "exec": {
+      const id = ++execs;
+      enqueue(() => handle(() => exec(data.line), id));
+    }
   }
 });
 
