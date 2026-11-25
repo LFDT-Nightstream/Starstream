@@ -85,7 +85,6 @@ tracing = { version = "0.1.44", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false }
 wasm-bindgen = "0.2.128"
 wasm-encoder = "0.263.0"
-wasm-tokio = { version = "0.8", default-features = false }
 wasm-wave = { version = "0.263.0", default-features = false }
 wasmprinter = "0.263.0"
 wat = "1.263.0"
@@ -93,12 +92,9 @@ wasmparser = "0.263.0"
 wasmtime = { version = "51.0.0", default-features = false }
 wasmtime-wizer = { version = "51.0.0", default-features = false }
 wit-bindgen = "0.51.0"
-wit-bindgen-wrpc = { version = "0.12", default-features = false }
 wit-component = "0.263.0"
 wit-parser = { version = "0.263.0", default-features = false }
-wrpc-http = { version = "0.1", default-features = false }
-wrpc-transport = { version = "0.30", default-features = false }
-wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", rev = "f711c65d2e33fb3a0b82ecfea3b6b03a64e0bae2", default-features = false }
+wrpc = { version = "0.19.0-rc.3", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
 
 nightstream = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "ff21a0b2a4f47d38dd69bb1a156b3eb4e5243dd0" }

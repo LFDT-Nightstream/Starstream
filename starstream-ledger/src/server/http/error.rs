@@ -3,8 +3,10 @@ use std::sync::Arc;
 use ed25519_dalek::VerifyingKey;
 use mediatype::MediaType;
 use thiserror::Error;
+use wrpc::{FrameDecodeError, HeaderDecodeError, PackError, ReceiveError, ServeError};
 
 use crate::cose::EnvelopeReadError;
+use crate::wrpc::LEDGER_UTXO_INSTANCE;
 use crate::{APPLICATION_COSE, APPLICATION_WRPC, DigestParseError, encode_digest};
 
 #[derive(Debug, Error)]
@@ -139,8 +141,8 @@ impl TransactionGetError {
 pub enum TransactionPostError {
     #[error("failed to encode transaction as CBOR: {0}")]
     CborEncoding(minicbor::encode::Error<core::convert::Infallible>),
-    #[error("failed to encode transaction as wRPC: {0}")]
-    WrpcEncoding(std::io::Error),
+    #[error("failed to encode transaction as wRPC: {}", format_error_chain(.0))]
+    WrpcEncoding(PackError),
     #[error("transaction `{}` already exists", encode_digest(.0))]
     AlreadyExists([u8; 32]),
     #[error("transaction must have at least one input")]
@@ -231,14 +233,14 @@ pub enum RpcPostError {
     ContentTypeMissing,
     #[error(transparent)]
     Envelope(EnvelopePostError),
-    #[error("failed to read wRPC invocation header: {0}")]
-    Header(wrpc_transport::frame::HeaderReadError),
+    #[error("failed to read wRPC invocation header: {}", format_error_chain(.0))]
+    Header(HeaderDecodeError),
     #[error("function `{name}` not found in instance `{instance}`")]
     FunctionNotFound { instance: String, name: String },
-    #[error("failed to parse transaction digest: {0}")]
-    TransactionDigestParsing(DigestParseError),
-    #[error("UTXO index does not fit in usize")]
-    UtxoIndexOverflow,
+    #[error(transparent)]
+    UtxoQuery(UtxoQueryError),
+    #[error("query parameters are only supported for `{LEDGER_UTXO_INSTANCE}` functions")]
+    UnexpectedQuery,
     #[error("UTXO not found")]
     UtxoNotFound,
     #[error("failed to parse contract digest: {0}")]
@@ -247,8 +249,8 @@ pub enum RpcPostError {
     ContractNotFound,
     #[error("failed to merge UTXO state into contract: {0:#}")]
     StateMerge(anyhow::Error),
-    #[error("failed to decode UTXO storage: {0}")]
-    StorageDecoding(std::io::Error),
+    #[error("failed to decode UTXO storage: {0:#}")]
+    StorageDecoding(wasmtime::Error),
     #[error("UTXO instance `{instance}` not found: {source:#}")]
     UtxoInstanceNotFound {
         instance: Box<str>,
@@ -262,22 +264,39 @@ pub enum RpcPostError {
     },
     #[error("UTXO storage missing")]
     UtxoStorageMissing,
-    #[error("failed to decode parameters: {0}")]
-    ParameterDecoding(std::io::Error),
+    #[error("failed to receive request: {}", format_error_chain(.0))]
+    Request(ReceiveError),
+    #[error("failed to convert parameters: {0:#}")]
+    ParameterConversion(wasmtime::Error),
     #[error("runtime failed: {0:#}")]
     Runtime(wasmtime::Error),
     #[error("execution trapped: {0}")]
     Trap(wasmtime::Trap),
     #[error("resource table error: {0}")]
     ResourceTable(wasmtime::component::ResourceTableError),
+    #[error("handler dropped an unread parameter")]
+    Unread,
+    #[error("handler failed: {0}")]
+    Handler(std::io::Error),
     #[error("failed to encode result: {0}")]
     ResultEncoding(std::io::Error),
-    #[error("failed to encode call result: {0:#}")]
-    CallResultEncoding(wasmtime::Error),
-    #[error("failed to encode response frame: {0}")]
-    FrameEncoding(std::io::Error),
-    #[error(transparent)]
-    Http(http::Error),
+}
+
+impl From<RpcPostError> for std::io::Error {
+    fn from(err: RpcPostError) -> Self {
+        Self::other(err)
+    }
+}
+
+impl From<ServeError> for RpcPostError {
+    fn from(err: ServeError) -> Self {
+        match err {
+            ServeError::Request(err) => Self::Request(err),
+            ServeError::Unread => Self::Unread,
+            ServeError::Handler(err) => err.downcast().unwrap_or_else(Self::Handler),
+            ServeError::Response(err) => Self::ResultEncoding(err),
+        }
+    }
 }
 
 impl RpcPostError {
@@ -291,8 +310,8 @@ impl RpcPostError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
             Self::Envelope(err) => err.http_status_code(),
-            Self::Header(wrpc_transport::frame::HeaderReadError::IO(err))
-            | Self::ParameterDecoding(err)
+            Self::Header(HeaderDecodeError::Io(err))
+            | Self::Request(ReceiveError::Frame(FrameDecodeError::Io(err)))
                 if err.kind() == std::io::ErrorKind::TimedOut =>
             {
                 http::StatusCode::REQUEST_TIMEOUT
@@ -303,11 +322,10 @@ impl RpcPostError {
             Self::ContentTypeToStr(..)
             | Self::ContentTypeParsing(..)
             | Self::Header(..)
-            | Self::TransactionDigestParsing(..)
-            | Self::UtxoIndexOverflow
-            | Self::ParameterDecoding(..)
-            | Self::UtxoStorageMissing
-            | Self::ResourceTable(..) => http::StatusCode::BAD_REQUEST,
+            | Self::UtxoQuery(..)
+            | Self::UnexpectedQuery
+            | Self::Request(..)
+            | Self::UtxoStorageMissing => http::StatusCode::BAD_REQUEST,
             Self::FunctionNotFound { .. }
             | Self::UtxoNotFound
             | Self::ContractNotFound
@@ -318,10 +336,11 @@ impl RpcPostError {
             | Self::StateMerge(..)
             | Self::StorageDecoding(..)
             | Self::Runtime(..)
-            | Self::ResultEncoding(..)
-            | Self::CallResultEncoding(..)
-            | Self::FrameEncoding(..)
-            | Self::Http(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            | Self::ParameterConversion(..)
+            | Self::ResourceTable(..)
+            | Self::Unread
+            | Self::Handler(..)
+            | Self::ResultEncoding(..) => http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -330,18 +349,8 @@ impl RpcPostError {
 pub enum RpcGetError {
     #[error(transparent)]
     AcceptHeader(AcceptHeaderError),
-    #[error("unknown query parameter `{0}`, expected `index` and optionally `transaction`")]
-    UnknownQueryParameter(Box<str>),
-    #[error("query parameter `{0}` specified more than once")]
-    DuplicateQueryParameter(Box<str>),
-    #[error("`index` query parameter missing")]
-    UtxoIndexMissing,
-    #[error("failed to parse transaction digest: {0}")]
-    TransactionDigestParsing(DigestParseError),
-    #[error("failed to parse UTXO index: {0}")]
-    UtxoIndexParsing(core::num::ParseIntError),
-    #[error("UTXO index does not fit in usize")]
-    UtxoIndexOverflow,
+    #[error(transparent)]
+    UtxoQuery(UtxoQueryError),
     #[error("UTXO not found")]
     UtxoNotFound,
     #[error("failed to parse contract digest: {0}")]
@@ -358,12 +367,7 @@ impl RpcGetError {
     pub fn http_status_code(&self) -> http::StatusCode {
         match self {
             Self::AcceptHeader(err) => err.http_status_code(),
-            Self::UnknownQueryParameter(..)
-            | Self::DuplicateQueryParameter(..)
-            | Self::UtxoIndexMissing
-            | Self::TransactionDigestParsing(..)
-            | Self::UtxoIndexParsing(..)
-            | Self::UtxoIndexOverflow => http::StatusCode::BAD_REQUEST,
+            Self::UtxoQuery(..) => http::StatusCode::BAD_REQUEST,
             Self::UtxoNotFound | Self::ContractNotFound | Self::UtxoInstanceNotFound(..) => {
                 http::StatusCode::NOT_FOUND
             }
@@ -372,6 +376,33 @@ impl RpcGetError {
             }
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum UtxoQueryError {
+    #[error("unknown query parameter `{0}`, expected `index` and optionally `transaction`")]
+    UnknownParameter(Box<str>),
+    #[error("query parameter `{0}` specified more than once")]
+    DuplicateParameter(Box<str>),
+    #[error("`index` query parameter missing")]
+    IndexMissing,
+    #[error("failed to parse transaction digest: {0}")]
+    TransactionDigestParsing(DigestParseError),
+    #[error("failed to parse UTXO index: {0}")]
+    IndexParsing(core::num::ParseIntError),
+    #[error("UTXO index does not fit in usize")]
+    IndexOverflow,
+}
+
+fn format_error_chain(err: &dyn core::error::Error) -> String {
+    let mut msg = err.to_string();
+    let mut source = err.source();
+    while let Some(err) = source {
+        msg.push_str(": ");
+        msg.push_str(&err.to_string());
+        source = err.source();
+    }
+    msg
 }
 
 fn format_media_types(available: &[MediaType<'_>]) -> String {

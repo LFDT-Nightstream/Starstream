@@ -138,7 +138,7 @@ test("concurrent requests", async () => {
   const controller = new AbortController();
   const stalled = node.fetch("http://ledger/rpc", {
     method: "POST",
-    headers: { "content-type": "application/x.wrpc" },
+    headers: { "content-type": "application/vnd.bytecodealliance.wrpc" },
     body: new ReadableStream(),
     duplex: "half",
     signal: controller.signal,
@@ -162,7 +162,7 @@ test("request body", async () => {
     node.fetch("http://ledger/rpc", {
       method: "POST",
       headers: {
-        "content-type": "application/x.wrpc",
+        "content-type": "application/vnd.bytecodealliance.wrpc",
         ...(length === undefined ? {} : { "content-length": String(length) }),
       },
       body: new ReadableStream({
@@ -254,6 +254,26 @@ test("cancel the body of a missing UTXO WIT", async () => {
   expect(cancel).toHaveBeenCalledOnce();
 });
 
+test("cancel an oversized error body", async () => {
+  const cancel = vi.fn();
+  const client = new starstream.Ledger("http://localhost", {
+    fetch: async () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            controller.enqueue(new Uint8Array(1 << 16));
+          },
+          cancel,
+        }),
+        { status: 500 },
+      ),
+  });
+  await expect(client.getNetworkName()).rejects.toThrow(
+    /^HTTP request failed with status 500$/,
+  );
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
 test("missing", async () => {
   const missing = await starstream.digest(new Uint8Array());
   expect(await ledger.getContractWasm(missing)).toBeUndefined();
@@ -338,7 +358,7 @@ test("contract and UTXO method calls", async () => {
 
   const genesis = { transaction: "", index: 0 };
   expect(await ledger.getUtxoWit(genesis)).toContain(
-    "get-chips: func(transaction: option<string>, index: u32) -> u64;",
+    "get-chips: func() -> u64;",
   );
   const utxoWitWasm = await ledger.getUtxoWitWasm(genesis);
   expect(utxoWitWasm?.subarray(0, 4)).toEqual(WASM_MAGIC);
@@ -428,7 +448,7 @@ test("contract and UTXO method calls", async () => {
     tx?.outputs[0],
   );
   expect(await ledger.getUtxoWit({ transaction, index: 0 })).toContain(
-    "get-chips: func(transaction: option<string>, index: u32) -> u64;",
+    "get-chips: func() -> u64;",
   );
   expect(
     await ledger.callUtxoMethod(
