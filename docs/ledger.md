@@ -151,6 +151,9 @@ as `sha256:HEX`.
   its results as WAVE.
 - **`utxo wit [--transaction DIGEST] <index>`**: print the WIT of an
   unspent output's methods.
+- **`coroutine tip [--transaction DIGEST] <index>`**: print the unspent
+  output at the tip of the coroutine the output created, as
+  `[TRANSACTION]:INDEX`.
 - **`block height`**: print the block height.
 - **`block get <height>`**: print the envelopes of a block, hex-encoded,
   one per line.
@@ -179,6 +182,12 @@ as `sha256:HEX`.
 - **UTXOs.** Transaction outputs, referenced as `(transaction, index)`; an
   empty transaction refers to the genesis outputs. Spent outputs are
   removed.
+- **Coroutines.** An output either creates a coroutine, identified by that
+  output's reference, or continues the coroutine of the transaction input
+  its `input` field indexes. An input whose `main fn` returns during the
+  transaction is consumed and has no such output, which ends its
+  coroutine. The ledger tracks the unspent output at the tip of each
+  coroutine.
 - **Blocks.** Every accepted envelope is a new block, so the block height
   is the number of accepted envelopes. Block `1` holds the first one;
   height `0` is genesis, whose outputs are queried separately.
@@ -219,6 +228,7 @@ parameters is `400 Bad Request`, and one stalling after them
 | `starstream:ledger/contract`    | `get-wasm`        | the Wasm of a contract                          |
 | `starstream:ledger/transaction` | `get-envelope`    | the envelope of a transaction                   |
 | `starstream:ledger/transaction` | `get-transaction` | the decoded transaction                         |
+| `starstream:ledger/coroutine`   | `get-tip`         | the unspent output at the tip of a coroutine    |
 | `starstream:ledger/genesis`     | `get-outputs`     | the genesis outputs, including spent ones       |
 | `starstream:ledger/network`     | `get-name`        | the network envelopes must be bound to          |
 
@@ -281,7 +291,9 @@ payload is a CBOR array `[network, context, message]`:
   whose UTXO methods are synchronous and take and return only booleans,
   integers, and options, results and tuples of them.
 - **Transaction** has at least one unspent input and no duplicates.
-  Spending a genesis output requires the admin's signature.
+  Spending a genesis output requires the admin's signature. Each input is
+  continued by at most one output, which keeps the input's contract and
+  instance.
 
 Errors are plain text: `400` for a malformed request or another network,
 `401` for a bad signature, `402` for a missing account or insufficient

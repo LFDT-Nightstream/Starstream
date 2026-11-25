@@ -116,6 +116,8 @@ pub struct TransactionOutput {
     pub storage: Box<[u8]>,
     #[n(4)]
     pub state: Vec<ModuleState>,
+    #[n(5)]
+    pub input: Option<u32>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]

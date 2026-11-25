@@ -25,14 +25,14 @@ use wrpc::{Codec, Decode, Header, RawCodec};
 use crate::cose::read_envelope;
 use crate::runtime::apply_state;
 use crate::server::http::timeout::{TimeoutBody, TimeoutError};
-use crate::server::{Contract, Ctx, Ledger, Transaction, UtxoCtx, wit};
+use crate::server::{Contract, Ctx, Ledger, OutputRef, Transaction, Utxo, UtxoCtx, wit};
 use crate::wrpc::bindings;
 use crate::wrpc::bindings::starstream::ledger::types::GetError;
 use crate::wrpc::unpack_val;
 use crate::wrpc::{
     LEDGER_ACCOUNT_INSTANCE, LEDGER_ADMIN_INSTANCE, LEDGER_BLOCK_INSTANCE,
-    LEDGER_CONTRACT_INSTANCE, LEDGER_GENESIS_INSTANCE, LEDGER_NETWORK_INSTANCE,
-    LEDGER_TRANSACTION_INSTANCE, LEDGER_UTXO_INSTANCE,
+    LEDGER_CONTRACT_INSTANCE, LEDGER_COROUTINE_INSTANCE, LEDGER_GENESIS_INSTANCE,
+    LEDGER_NETWORK_INSTANCE, LEDGER_TRANSACTION_INSTANCE, LEDGER_UTXO_INSTANCE,
 };
 use crate::{
     APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Action, Block, Fund, Message, Publish,
@@ -339,7 +339,8 @@ impl Ledger {
         if inputs.is_empty() {
             return Err(TransactionPostError::InputsEmpty);
         }
-        let mut resolved_inputs = HashSet::with_capacity(inputs.len());
+        let mut resolved_inputs = Vec::with_capacity(inputs.len());
+        let mut unique_inputs = HashSet::with_capacity(inputs.len());
         for TransactionInput { transaction, index } in inputs {
             let index =
                 usize::try_from(*index).map_err(|_| TransactionPostError::InputIndexOverflow)?;
@@ -356,11 +357,18 @@ impl Ledger {
                 }
                 Some(digest)
             };
-            if !resolved_inputs.insert((transaction, index)) {
+            if !unique_inputs.insert((transaction, index)) {
                 return Err(TransactionPostError::InputDuplicate);
             }
+            resolved_inputs.push((transaction, index));
         }
+        let mut continued_inputs = HashSet::with_capacity(outputs.len());
         for output in outputs {
+            if let Some(input) = output.input
+                && !continued_inputs.insert(input)
+            {
+                return Err(TransactionPostError::OutputInputDuplicate(input));
+            }
             let digest = parse_digest(&output.contract).map_err(|err| {
                 TransactionPostError::OutputContractDigestParsing(output.contract.clone(), err)
             })?;
@@ -380,42 +388,76 @@ impl Ledger {
             return Err(TransactionPostError::AlreadyExists(digest));
         }
         let mut genesis = self.genesis.outputs.write().await;
+        let mut coroutines = self.coroutines.write().await;
         let mut blocks = self.blocks.write().await;
+        let mut spent_outputs = Vec::with_capacity(resolved_inputs.len());
         for (tx, i) in &resolved_inputs {
             // TODO: Verify transaction signatures
-            if let Some(tx) = tx {
+            let utxo = if let Some(tx) = tx {
                 let Transaction { outputs, .. } =
                     txs.get(tx).ok_or(TransactionPostError::InputNotFound)?;
                 let utxo = outputs.get(*i).ok_or(TransactionPostError::InputNotFound)?;
-                let _utxo = utxo.as_ref().ok_or(TransactionPostError::InputNotFound)?;
+                utxo.as_ref().ok_or(TransactionPostError::InputNotFound)?
             } else {
-                genesis
+                let utxo = genesis
                     .get(*i)
                     .and_then(Option::as_ref)
                     .ok_or(TransactionPostError::InputNotFound)?;
                 if !signers.contains(&self.admin.key) {
                     return Err(TransactionPostError::InputUnauthorized);
                 }
+                utxo
+            };
+            spent_outputs.push(utxo.clone());
+        }
+        let mut continued_coroutines = Vec::with_capacity(transaction.outputs.len());
+        for output in &transaction.outputs {
+            let Some(input) = output.input else {
+                continued_coroutines.push(None);
+                continue;
+            };
+            let Some(spent) = usize::try_from(input)
+                .ok()
+                .and_then(|input| spent_outputs.get(input))
+            else {
+                return Err(TransactionPostError::OutputInputNotFound(input));
+            };
+            if *output.contract != *spent.output.contract
+                || *output.instance != *spent.output.instance
+            {
+                return Err(TransactionPostError::OutputCoroutineMismatch(input));
             }
+            continued_coroutines.push(Some(spent.coroutine));
         }
         // TODO: Verify sum(inputs) >= sum(outputs) + fee
         for (tx, i) in resolved_inputs {
-            let utxo = if let Some(tx) = tx {
+            if let Some(tx) = tx {
                 let Some(Transaction { outputs, .. }) = txs.get_mut(&tx) else {
                     unreachable!();
                 };
-                outputs[i].take()
+                outputs[i] = None;
             } else {
-                genesis[i].take()
-            };
-            let Some(..) = utxo else {
-                unreachable!();
-            };
+                genesis[i] = None;
+            }
         }
-        let outputs = transaction
-            .outputs
-            .into_iter()
-            .map(|utxo| Some(Arc::new(utxo.into())))
+        for spent in &spent_outputs {
+            coroutines.remove(&spent.coroutine);
+        }
+        let outputs = (0..)
+            .zip(transaction.outputs)
+            .zip(continued_coroutines)
+            .map(|((index, output), coroutine)| {
+                let tip = OutputRef {
+                    transaction: Some(digest),
+                    index,
+                };
+                let coroutine = coroutine.unwrap_or(tip);
+                coroutines.insert(coroutine, tip);
+                Some(Utxo {
+                    coroutine,
+                    output: Arc::new(output.into()),
+                })
+            })
             .collect();
         let tx = Transaction {
             outputs,
@@ -495,11 +537,11 @@ impl Ledger {
             let txs = self.transactions.read().await;
             let Transaction { outputs, .. } = txs.get(&transaction)?;
             let utxo = outputs.get(index)?;
-            utxo.as_ref().map(Arc::clone)
+            utxo.as_ref().map(|utxo| Arc::clone(&utxo.output))
         } else {
             let outputs = self.genesis.outputs.read().await;
             let utxo = outputs.get(index)?;
-            utxo.as_ref().map(Arc::clone)
+            utxo.as_ref().map(|utxo| Arc::clone(&utxo.output))
         }
     }
 
@@ -597,6 +639,25 @@ impl Ledger {
         ) -> Result<&'a T, GetError> {
             let key = VerifyingKey::try_from(key)?;
             vs.get(&key).ok_or(GetError::NotFound)
+        }
+
+        fn get_coroutine_tip(
+            coroutines: &HashMap<OutputRef, OutputRef>,
+            id: &bindings::starstream::ledger::types::TransactionInput,
+        ) -> Result<OutputRef, GetError> {
+            let transaction = if id.transaction.is_empty() {
+                None
+            } else {
+                let transaction = parse_digest(&id.transaction)?;
+                Some(transaction)
+            };
+            coroutines
+                .get(&OutputRef {
+                    transaction,
+                    index: id.index,
+                })
+                .copied()
+                .ok_or(GetError::NotFound)
         }
 
         let content_type = headers
@@ -740,6 +801,24 @@ impl Ledger {
                     )
                     .await?;
                 res.map(BodyExt::boxed_unsync)
+            }
+            (LEDGER_COROUTINE_INSTANCE, "get-tip") => {
+                reject_query(query)?;
+                wrpc::serve(
+                    req,
+                    async move |(id,): (bindings::starstream::ledger::types::TransactionInput,)| {
+                        let coroutines = self.coroutines.read().await;
+                        let tip = get_coroutine_tip(&coroutines, &id).map(|tip| {
+                            let tip = match tip.transaction {
+                                Some(transaction) => TransactionInput::new(transaction, tip.index),
+                                None => TransactionInput::genesis(tip.index),
+                            };
+                            bindings::starstream::ledger::types::TransactionInput::from(tip)
+                        });
+                        Ok((tip,))
+                    },
+                )
+                .await?
             }
             (LEDGER_GENESIS_INSTANCE, "get-outputs") => {
                 reject_query(query)?;
