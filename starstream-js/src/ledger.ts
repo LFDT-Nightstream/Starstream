@@ -15,19 +15,20 @@ import type {
 import {
   fromFetch,
   invoke,
-  t,
+  InvokeError,
   type InputValue,
-  type Transport,
+  type Invoke,
   type Type,
 } from "@bytecodealliance/wrpc";
 
 const APPLICATION_WASM = "application/wasm";
-const APPLICATION_WRPC = "application/x.wrpc";
 const TEXT_PLAIN = "text/plain";
 
 const LEDGER_UTXO_INSTANCE = "starstream:ledger/utxo";
 
 const CANONICAL_DIGEST = /^b[a-z2-7]{55}$/;
+
+const MAX_ERROR_BODY_SIZE = 1 << 16;
 
 /** Parameter and result types of a function. */
 export interface FuncType {
@@ -37,6 +38,47 @@ export interface FuncType {
 
 type GetResult<T> =
   { kind: "ok"; value: T } | { kind: "error"; value: GetError };
+
+/**
+ * Read the body of `res`, unless it exceeds `MAX_ERROR_BODY_SIZE` bytes or
+ * fails.
+ */
+async function readErrorBody(res: Response): Promise<string | undefined> {
+  if (!res.body) {
+    return "";
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let size = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        return text + decoder.decode();
+      }
+      size += value.byteLength;
+      if (size > MAX_ERROR_BODY_SIZE) {
+        await reader.cancel();
+        return undefined;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+function unwrapRequestError(err: unknown): never {
+  if (
+    err instanceof InvokeError &&
+    err.kind === "request" &&
+    err.cause !== undefined
+  ) {
+    throw err.cause;
+  }
+  throw err;
+}
 
 function unwrapGet<T>(res: GetResult<T>, what: string): T | undefined {
   if (res.kind === "ok") {
@@ -64,12 +106,29 @@ export class Ledger {
     this.fetch = options?.fetch;
   }
 
-  private transport(): Transport {
-    return fromFetch(this.url, {
-      fetch: this.fetch,
+  private transport(url = this.url): Invoke {
+    const get = this.fetch ?? fetch;
+    const client = fromFetch(url, {
+      fetch: async (input, init) => {
+        const res = await get(input, init);
+        if (!res.ok) {
+          const text = await readErrorBody(res);
+          throw new Error(
+            `HTTP request failed with status ${res.status}${text ? `: ${text}` : ""}`,
+          );
+        }
+        return res;
+      },
       buffer: true,
-      headers: { "content-type": APPLICATION_WRPC },
     });
+    return {
+      async invoke(codec, instance, name, params) {
+        const [results, finished] = await client
+          .invoke(codec, instance, name, params)
+          .catch(unwrapRequestError);
+        return [results, finished.catch(unwrapRequestError)];
+      },
+    };
   }
 
   /** Get the name of the ledger network. */
@@ -169,6 +228,14 @@ export class Ledger {
     return tx?.outputs[output.index];
   }
 
+  private utxoUrl(output: TransactionInput): string {
+    const query = new URLSearchParams({ index: String(output.index) });
+    if (output.transaction) {
+      query.set("transaction", output.transaction);
+    }
+    return `${this.url}?${query}`;
+  }
+
   private fetchWit(accept: string): Promise<Response>;
   private fetchWit(
     accept: string,
@@ -178,21 +245,16 @@ export class Ledger {
     accept: string,
     output?: TransactionInput,
   ): Promise<Response | undefined> {
-    const query = new URLSearchParams();
-    if (output) {
-      query.set("index", String(output.index));
-      if (output.transaction) {
-        query.set("transaction", output.transaction);
-      }
-    }
+    const url = output ? this.utxoUrl(output) : this.url;
     const get = this.fetch ?? fetch;
-    const res = await get(`${this.url}?${query}`, { headers: { accept } });
+    const res = await get(url, { headers: { accept } });
     if (output && res.status === 404) {
       await res.body?.cancel();
       return undefined;
     }
     if (!res.ok) {
-      throw new Error(`failed to get WIT: ${await res.text()}`);
+      const text = await readErrorBody(res);
+      throw new Error(`failed to get WIT${text ? `: ${text}` : ""}`);
     }
     return res;
   }
@@ -245,12 +307,12 @@ export class Ledger {
         `expected ${params.length} argument(s), got ${args.length}`,
       );
     }
-    const { results, finished } = await invoke(
-      this.transport(),
+    const [results, finished] = await invoke(
+      this.transport(this.utxoUrl(output)),
       LEDGER_UTXO_INSTANCE,
       name,
-      [t.option(t.string), t.u32, ...params],
-      [output.transaction || undefined, output.index, ...args] as InputValue[],
+      params,
+      args as InputValue[],
       ty.result ? [ty.result] : [],
     );
     await finished;

@@ -45,7 +45,7 @@ pub fn attach_proof(
     Ok(sizes)
 }
 
-async fn storage_root(
+fn storage_root(
     contract: &CompiledContract,
     output: &TransactionOutput,
 ) -> anyhow::Result<StarstreamValue> {
@@ -57,10 +57,7 @@ async fn storage_root(
         );
         return Ok(StarstreamValue::UNIT_VALUE);
     };
-    let mut bytes = output.storage.as_ref();
-    let mut record = Val::Record(Vec::new());
-    read_value(&mut bytes, &mut record, &Type::Record(storage.ty().clone())).await?;
-    anyhow::ensure!(bytes.is_empty(), "trailing UTXO storage bytes");
+    let record = unpack_val(Type::Record(storage.ty().clone()), &output.storage)?;
     let Val::Record(fields) = record else {
         anyhow::bail!("expected storage record")
     };
@@ -140,8 +137,9 @@ pub async fn verify_transaction_proof(
         get_or_insert_program(&mut sources, &contract, &digest)
             .input_utxos
             .push((inputs.len(), utxo.instance.to_string()));
+        let storage = storage_root(&contract, &utxo)?;
         inputs.push(InputUtxo {
-            storage: storage_root(&contract, &utxo).await?,
+            storage,
             methods: utxo
                 .methods
                 .iter()
@@ -194,10 +192,11 @@ pub async fn verify_transaction_proof(
             stored_methods == registrations.iter().copied().collect(),
             "output method set mismatch"
         );
+        let storage = storage_root(contract, output)?;
         outputs.push(OutputUtxo {
             utxo,
             methods: registrations.into_iter().map(MethodHash).collect(),
-            storage: storage_root(contract, output).await?,
+            storage,
         });
     }
     let expected = prepare_verification(&sources, submitted.proof.circuit_sizes()?)?;

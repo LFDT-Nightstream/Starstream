@@ -19,10 +19,11 @@ use wasmtime::component::{Component, Resource, ResourceTable, Type, Val, types};
 use wasmtime::error::Context as _;
 use wasmtime::{AsContextMut as _, Engine, Store, StoreContextMut, bail, ensure, format_err};
 use wasmtime_wizer::{WasmtimeWizerComponent, Wizer};
+use wrpc::wasmtime::ValEncoder;
 
 use crate::client::CoordinationScriptArg;
 use crate::runtime::{apply_state, parse_state};
-use crate::wrpc::codec::{ValEncoder, read_value};
+use crate::wrpc::unpack_val;
 use crate::{
     CardanoCtx, Transaction, TransactionEvent, TransactionInput, TransactionOutput, encode_digest,
     parse_digest,
@@ -261,15 +262,8 @@ pub async fn call_coordination_script(
                 );
                 let utxo_export = contract.get_utxo(&utxo.instance)?;
                 let storage_export = utxo_export.storage().context("UTXO has no storage")?;
-                let mut storage = Val::Record(Vec::default());
-                // TODO: Use sync decoder
-                read_value(
-                    &mut utxo.storage.as_ref(),
-                    &mut storage,
-                    &Type::Record(storage_export.ty().clone()),
-                )
-                .await
-                .context("failed to decode UTXO storage")?;
+                let storage = unpack_val(Type::Record(storage_export.ty().clone()), &utxo.storage)
+                    .context("failed to decode UTXO storage")?;
                 let cx = Arc::new(std::sync::Mutex::new(UtxoCtx {
                     export: utxo_export.clone(),
                     instance: utxo.instance.into(),
@@ -320,7 +314,7 @@ pub async fn call_coordination_script(
         let storage = if let Some(export) = cx.export.storage() {
             let storage = utxo.storage(export).call_get(&mut *store).await?;
             let mut buf = BytesMut::new();
-            ValEncoder::new(&Type::Record(export.ty().clone()))
+            ValEncoder::new(Type::Record(export.ty().clone()))
                 .encode(&Val::Record(storage), &mut buf)
                 .context("failed to encode storage")?;
             buf.to_vec().into()
@@ -536,7 +530,7 @@ impl starstream_runtime::Host for Ctx {
     ) -> wasmtime::Result<()> {
         let mut buf = BytesMut::new();
         for (v, (.., ty)) in zip(params, ty.params()) {
-            ValEncoder::new(&ty)
+            ValEncoder::new(ty)
                 .encode(v, &mut buf)
                 .context("failed to encode event parameter")?;
         }

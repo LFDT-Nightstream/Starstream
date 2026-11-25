@@ -5,7 +5,7 @@ use bytes::Bytes;
 use crate::runtime::{DataState, GlobalValue, ModuleState};
 use crate::{DigestParseError, Transaction, TransactionEvent, TransactionInput, TransactionOutput};
 
-wit_bindgen_wrpc::generate!();
+wrpc::generate!();
 
 use starstream::ledger::types;
 

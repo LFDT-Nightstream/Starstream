@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context as _, ensure};
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Method, Request, Uri};
@@ -10,14 +10,11 @@ use http_body_util::Full;
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
 use starstream_runtime::{CoordinationScriptExport, Utxo};
-use tokio_util::codec::Encoder as _;
 use tracing::{instrument, warn};
-use wasm_tokio::cm::OptionEncoder;
-use wasm_tokio::{CoreNameEncoder, Leb128Encoder};
 use wasmtime::Store;
 use wasmtime::component::Val;
 use wasmtime_wizer::Wizer;
-use wrpc_transport::Invoke;
+use wrpc::{Codec, Invoke, RawCodec};
 
 use crate::client::runtime::{CompiledContract, Contract, Ctx, UtxoCtx, call_coordination_script};
 use crate::client::{
@@ -27,9 +24,8 @@ use crate::client::{
 use crate::cose::read_envelope;
 use crate::wrpc::{LEDGER_UTXO_INSTANCE, bindings};
 use crate::{
-    APPLICATION_COSE, APPLICATION_WRPC, Fund, PUBLISH_CONTEXT, Publish, TRANSACTION_CONTEXT,
-    Transaction, TransactionInput, TransactionOutput, configure_wasmtime, encode_digest,
-    parse_digest,
+    APPLICATION_COSE, Fund, PUBLISH_CONTEXT, Publish, TRANSACTION_CONTEXT, Transaction,
+    TransactionInput, TransactionOutput, configure_wasmtime, encode_digest, parse_digest,
 };
 
 #[cfg(feature = "tcp")]
@@ -46,15 +42,14 @@ fn endpoint_uri(base: &Uri, endpoint: impl AsRef<str>) -> anyhow::Result<String>
     Ok(format!("{base}/{endpoint}"))
 }
 
-fn wrpc_context(base: &Uri) -> anyhow::Result<http::request::Parts> {
-    let uri = endpoint_uri(base, "rpc")?;
-    let req = Request::builder()
-        .uri(uri)
-        .header(CONTENT_TYPE, APPLICATION_WRPC.to_string())
-        .body(())
-        .context("failed to build request")?;
-    let (cx, ()) = req.into_parts();
-    Ok(cx)
+fn wrpc_client<T: Clone>(
+    base: &Uri,
+    endpoint: impl AsRef<str>,
+    service: &T,
+) -> anyhow::Result<wrpc::http::Client<T>> {
+    let uri = endpoint_uri(base, endpoint)?;
+    let uri = Uri::try_from(uri).context("failed to parse wRPC endpoint URI")?;
+    Ok(wrpc::http::Client::new(uri, service.clone()))
 }
 
 fn build_envelope_request(
@@ -138,19 +133,23 @@ pub fn build_transaction_get_request(
     build_get_request(uri, accept)
 }
 
-/// Build a request for the WIT of the UTXO created by the transaction output `input`.
-pub fn build_utxo_wit_request(
-    base: &Uri,
-    TransactionInput { transaction, index }: &TransactionInput,
-    accept: Option<MediaType>,
-) -> anyhow::Result<http::Request<Full<Bytes>>> {
-    let mut query = form_urlencoded::Serializer::new(String::new());
+fn utxo_endpoint(TransactionInput { transaction, index }: &TransactionInput) -> String {
+    let mut query = form_urlencoded::Serializer::new(String::default());
     if !transaction.is_empty() {
         query.append_pair("transaction", transaction);
     }
     query.append_pair("index", &index.to_string());
     let query = query.finish();
-    let uri = endpoint_uri(base, format!("rpc?{query}"))?;
+    format!("rpc?{query}")
+}
+
+/// Build a request for the WIT of the UTXO created by the transaction output `input`.
+pub fn build_utxo_wit_request(
+    base: &Uri,
+    input: &TransactionInput,
+    accept: Option<MediaType>,
+) -> anyhow::Result<http::Request<Full<Bytes>>> {
+    let uri = endpoint_uri(base, utxo_endpoint(input))?;
     build_get_request(uri, accept)
 }
 
@@ -259,7 +258,8 @@ impl<W, H> From<ClientBuilder<W, H>> for Client<W, H> {
 
 impl<W, H> runtime::Client for Client<W, H>
 where
-    W: Invoke<Context = http::request::Parts>,
+    W: Clone,
+    wrpc::http::Client<W>: Invoke,
     H: Transport,
 {
     async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
@@ -286,7 +286,8 @@ where
 
 impl<W, H> Client<W, H>
 where
-    W: Invoke<Context = http::request::Parts>,
+    W: Clone,
+    wrpc::http::Client<W>: Invoke,
     H: Transport,
 {
     pub fn new(wrpc: W, http: H, api_base: impl Into<Uri>) -> Self {
@@ -304,16 +305,17 @@ where
     /// Get the height of the latest ledger block.
     #[instrument(skip_all)]
     pub async fn block_height(&self) -> anyhow::Result<u64> {
-        let cx = wrpc_context(&self.api_base)?;
-        bindings::starstream::ledger::block::get_height(&self.wrpc, cx).await
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        bindings::starstream::ledger::block::get_height(clt)
+            .await
+            .map_err(anyhow::Error::from)
     }
 
     /// Get the envelopes of the block at `height`, in order.
     #[instrument(skip_all)]
     pub async fn get_block(&self, height: u64) -> anyhow::Result<Option<Vec<Bytes>>> {
-        let cx = wrpc_context(&self.api_base)?;
-        let envelopes =
-            bindings::starstream::ledger::block::get_block(&self.wrpc, cx, height).await?;
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let envelopes = bindings::starstream::ledger::block::get_block(clt, height).await?;
         let Some(envelopes) = envelopes else {
             return Ok(None);
         };
@@ -326,24 +328,27 @@ where
     /// Get the name of the network the ledger accepts envelopes for.
     #[instrument(skip_all)]
     pub async fn get_network(&self) -> anyhow::Result<String> {
-        let cx = wrpc_context(&self.api_base)?;
-        bindings::starstream::ledger::network::get_name(&self.wrpc, cx).await
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        bindings::starstream::ledger::network::get_name(clt)
+            .await
+            .map_err(anyhow::Error::from)
     }
 
     /// Get the last nonce used by the admin key to fund accounts.
     #[instrument(skip_all)]
     pub async fn get_admin_nonce(&self) -> anyhow::Result<u64> {
-        let cx = wrpc_context(&self.api_base)?;
-        bindings::starstream::ledger::admin::get_nonce(&self.wrpc, cx).await
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        bindings::starstream::ledger::admin::get_nonce(clt)
+            .await
+            .map_err(anyhow::Error::from)
     }
 
     /// Get the balance of the account `key`.
     #[instrument(skip_all)]
     pub async fn get_account_balance(&self, key: &VerifyingKey) -> anyhow::Result<Option<u64>> {
-        let cx = wrpc_context(&self.api_base)?;
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
         let key = Bytes::copy_from_slice(key.as_bytes());
-        let balance =
-            bindings::starstream::ledger::account::get_balance(&self.wrpc, cx, &key).await?;
+        let balance = bindings::starstream::ledger::account::get_balance(clt, &key).await?;
         match balance {
             Ok(balance) => Ok(Some(balance)),
             Err(bindings::starstream::ledger::types::GetError::NotFound) => Ok(None),
@@ -354,9 +359,9 @@ where
     /// Get the last nonce used by the account `key` to publish contracts.
     #[instrument(skip_all)]
     pub async fn get_account_nonce(&self, key: &VerifyingKey) -> anyhow::Result<Option<u64>> {
-        let cx = wrpc_context(&self.api_base)?;
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
         let key = Bytes::copy_from_slice(key.as_bytes());
-        let nonce = bindings::starstream::ledger::account::get_nonce(&self.wrpc, cx, &key).await?;
+        let nonce = bindings::starstream::ledger::account::get_nonce(clt, &key).await?;
         match nonce {
             Ok(nonce) => Ok(Some(nonce)),
             Err(bindings::starstream::ledger::types::GetError::NotFound) => Ok(None),
@@ -422,34 +427,29 @@ where
     }
 
     /// Call the method `name` exported by the UTXO
-    /// created by the transaction output `input` with encoded `args`.
+    /// created by the transaction output `input` with encoded `args`,
+    /// returning the encoded results.
     #[instrument(skip_all)]
     pub async fn call_utxo_method(
         &self,
-        TransactionInput { transaction, index }: &TransactionInput,
+        input: &TransactionInput,
         name: &str,
         args: &[u8],
-    ) -> anyhow::Result<wrpc_transport::frame::Incoming> {
-        let cx = wrpc_context(&self.api_base)?;
-        let mut params = BytesMut::with_capacity(1 + 5 + transaction.len() + 5 + args.len());
-        let transaction = if transaction.is_empty() {
-            None
-        } else {
-            Some(transaction)
-        };
-        OptionEncoder(CoreNameEncoder)
-            .encode(transaction, &mut params)
-            .context("failed to encode transaction digest")?;
-        Leb128Encoder
-            .encode(*index, &mut params)
-            .context("failed to encode output index")?;
-        params.extend_from_slice(args);
-        let (tx, rx) = self
-            .wrpc
-            .invoke(cx, LEDGER_UTXO_INSTANCE, name, params.freeze(), [[]])
-            .await?;
-        drop(tx);
-        Ok(rx)
+    ) -> anyhow::Result<Bytes> {
+        let clt = wrpc_client(&self.api_base, utxo_endpoint(input), &self.wrpc)?;
+        let (results, io) = Invoke::invoke_with(
+            clt,
+            Codec {
+                enc: RawCodec,
+                dec: RawCodec,
+            },
+            LEDGER_UTXO_INSTANCE,
+            name,
+            args,
+        )
+        .await?;
+        io.await?;
+        Ok(results)
     }
 
     /// Get the WIT of the UTXO created by the transaction output `input`,
@@ -537,10 +537,9 @@ where
     /// Get the transaction identified by `digest`.
     #[instrument(skip_all)]
     pub async fn get_transaction(&self, digest: [u8; 32]) -> anyhow::Result<Option<Transaction>> {
-        let cx = wrpc_context(&self.api_base)?;
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
         let tx = bindings::starstream::ledger::transaction::get_transaction(
-            &self.wrpc,
-            cx,
+            clt,
             &encode_digest(&digest),
         )
         .await?;
@@ -565,13 +564,10 @@ where
         &self,
         digest: &[u8; 32],
     ) -> anyhow::Result<Option<Bytes>> {
-        let cx = wrpc_context(&self.api_base)?;
-        let body = bindings::starstream::ledger::transaction::get_envelope(
-            &self.wrpc,
-            cx,
-            &encode_digest(digest),
-        )
-        .await?;
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let body =
+            bindings::starstream::ledger::transaction::get_envelope(clt, &encode_digest(digest))
+                .await?;
         verify_envelope(body, digest, TRANSACTION_CONTEXT)
             .context("failed to get transaction envelope")
     }
@@ -579,21 +575,17 @@ where
     /// Get the genesis outputs.
     #[instrument(skip_all)]
     pub async fn get_genesis(&self) -> anyhow::Result<Vec<TransactionOutput>> {
-        let cx = wrpc_context(&self.api_base)?;
-        let outputs = bindings::starstream::ledger::genesis::get_outputs(&self.wrpc, cx).await?;
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let outputs = bindings::starstream::ledger::genesis::get_outputs(clt).await?;
         Ok(outputs.into_iter().map(Into::into).collect())
     }
 
     /// Get the Wasm bytes of the contract identified by `digest`.
     #[instrument(skip_all)]
     pub async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Option<Bytes>> {
-        let cx = wrpc_context(&self.api_base)?;
-        let wasm = bindings::starstream::ledger::contract::get_wasm(
-            &self.wrpc,
-            cx,
-            &encode_digest(&digest),
-        )
-        .await?;
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let wasm =
+            bindings::starstream::ledger::contract::get_wasm(clt, &encode_digest(&digest)).await?;
         let wasm = match wasm {
             Ok(wasm) => wasm,
             Err(bindings::starstream::ledger::types::GetError::NotFound) => return Ok(None),
@@ -610,13 +602,10 @@ where
 
     #[instrument(skip_all)]
     pub async fn get_contract_envelope(&self, digest: &[u8; 32]) -> anyhow::Result<Option<Bytes>> {
-        let cx = wrpc_context(&self.api_base)?;
-        let body = bindings::starstream::ledger::contract::get_envelope(
-            &self.wrpc,
-            cx,
-            &encode_digest(digest),
-        )
-        .await?;
+        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let body =
+            bindings::starstream::ledger::contract::get_envelope(clt, &encode_digest(digest))
+                .await?;
         verify_envelope(body, digest, PUBLISH_CONTEXT).context("failed to get contract envelope")
     }
 }

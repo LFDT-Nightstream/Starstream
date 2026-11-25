@@ -1,7 +1,6 @@
 //! Starstream ledger client.
 
 use core::iter::zip;
-use core::pin::pin;
 use core::time::Duration;
 
 use std::collections::HashMap;
@@ -25,7 +24,7 @@ use starstream_ledger::{
 };
 use starstream_runtime::Utxo;
 use tokio::fs;
-use tokio::io::{AsyncRead, AsyncWriteExt as _, stdout};
+use tokio::io::{AsyncWriteExt as _, stdout};
 use tokio::try_join;
 use tokio_util::codec::Encoder as _;
 use tracing::{info, warn};
@@ -335,7 +334,7 @@ fn encode_args(
             .with_context(|| format!("missing value for parameter `{name}`"))?;
         let v = wasm_wave::from_str::<wasm_wave::value::Value>(&ty, &v)
             .with_context(|| format!("failed to parse value for parameter `{name}`"))?;
-        wrpc_wave::ValueEncoder::new(&ty)
+        wrpc::wave::ValueEncoder::new(ty)
             .encode(&v, &mut buf)
             .with_context(|| format!("failed to encode value of parameter `{name}`"))?;
     }
@@ -343,19 +342,18 @@ fn encode_args(
     Ok(buf.freeze())
 }
 
-async fn write_results(
-    ty: &wasm_wave::value::FuncType,
-    results: impl AsyncRead + Unpin,
-) -> anyhow::Result<()> {
-    let mut results = pin!(results);
+async fn write_results(ty: &wasm_wave::value::FuncType, results: Bytes) -> anyhow::Result<()> {
     if let Some(ty) = wasm_wave::value::Type::tuple(ty.results().collect::<Box<_>>()) {
-        let v = wrpc_wave::read_value::<wasm_wave::value::Value, _>(&mut results, &ty)
-            .await
-            .context("failed to read result tuple")?;
+        let v = wrpc::unpack_with(
+            wrpc::wave::ValueDecoder::<wasm_wave::value::Value>::new(ty),
+            results,
+        )
+        .context("failed to decode result tuple")?;
         let mut s = wasm_wave::to_string(&v).context("failed to encode result tuple")?;
         s.push('\n');
         stdout().write_all(s.as_bytes()).await
     } else {
+        ensure!(results.is_empty(), "unexpected result data");
         stdout().write_all(b"()\n").await
     }
     .context("failed to write result tuple to stdout")
@@ -762,11 +760,7 @@ async fn exec(args: Args) -> anyhow::Result<()> {
                 .functions
                 .get(&*method)
                 .with_context(|| format!("method `{method}` not found"))?;
-            let ty = wit_parser::Function {
-                params: ty.params.iter().skip(2).cloned().collect(),
-                ..ty.clone()
-            };
-            let ty = wasm_wave::value::resolve_wit_func_type(&resolve, &ty)
+            let ty = wasm_wave::value::resolve_wit_func_type(&resolve, ty)
                 .context("failed to resolve method type")?;
             let args = encode_args(&ty, args)?;
             let rx = client.call_utxo_method(&input, &method, &args).await?;

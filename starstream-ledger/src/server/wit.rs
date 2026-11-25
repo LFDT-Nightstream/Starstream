@@ -20,11 +20,10 @@ pub const LEDGER_WASM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ledger.
 ///
 /// Each is the `starstream:ledger` package containing the `utxo` interface, which exposes the
 /// methods of the UTXO exported by the instance the way `/rpc` invokes them: as freestanding
-/// functions taking the output reference followed by the method parameters, which are prefixed
-/// with `arg-` so they never clash with the output reference parameters. Only the shapes the
-/// compiler produces are handled: instances exporting a `utxo` resource, with synchronous methods
-/// taking and returning booleans, integers and options, results and tuples of them. Methods
-/// taking or returning anything else are rejected.
+/// functions taking the method parameters, with the output reference in the request query. Only
+/// the shapes the compiler produces are handled: instances exporting a `utxo` resource, with
+/// synchronous methods taking and returning booleans, integers and options, results and tuples of
+/// them. Methods taking or returning anything else are rejected.
 pub fn utxo_wits(wasm: &[u8], types: &Types) -> anyhow::Result<HashMap<Box<str>, (Bytes, Bytes)>> {
     let mut instances = Vec::new();
     let mut depth = 0usize;
@@ -65,15 +64,6 @@ pub fn utxo_wits(wasm: &[u8], types: &Types) -> anyhow::Result<HashMap<Box<str>,
     }
 
     let mut resolve = Resolve::default();
-    let transaction = resolve.types.alloc(TypeDef {
-        name: None,
-        kind: TypeDefKind::Option(Type::String),
-        owner: TypeOwner::None,
-        docs: Docs::default(),
-        stability: Stability::Unknown,
-        span: Span::default(),
-        external_id: None,
-    });
     let pkg = resolve.packages.alloc(Package {
         name: PackageName {
             namespace: "starstream".into(),
@@ -113,19 +103,7 @@ pub fn utxo_wits(wasm: &[u8], types: &Types) -> anyhow::Result<HashMap<Box<str>,
                 !func.async_,
                 "method `{name}` of UTXO instance `{instance}` is asynchronous",
             );
-            let mut params = Vec::with_capacity(func.params.len() + 1);
-            params.extend([
-                Param {
-                    name: "transaction".into(),
-                    ty: Type::Id(transaction),
-                    span: Span::default(),
-                },
-                Param {
-                    name: "index".into(),
-                    ty: Type::U32,
-                    span: Span::default(),
-                },
-            ]);
+            let mut params = Vec::with_capacity(func.params.len().saturating_sub(1));
             for (param, ty) in func.params.iter().skip(1) {
                 let ty = convert(&mut resolve, types, ty).with_context(|| {
                     format!(
@@ -133,7 +111,7 @@ pub fn utxo_wits(wasm: &[u8], types: &Types) -> anyhow::Result<HashMap<Box<str>,
                     )
                 })?;
                 params.push(Param {
-                    name: format!("arg-{param}"),
+                    name: param.to_string(),
                     ty,
                     span: Span::default(),
                 });

@@ -39,7 +39,7 @@ pub const APPLICATION_WASM: MediaType =
 /// wRPC media type
 pub const APPLICATION_WRPC: MediaType = MediaType::new(
     mediatype::names::APPLICATION,
-    mediatype::Name::new_unchecked("x.wrpc"),
+    mediatype::Name::new_unchecked("vnd.bytecodealliance.wrpc"),
 );
 
 /// The [multihash] code of sha2-256.

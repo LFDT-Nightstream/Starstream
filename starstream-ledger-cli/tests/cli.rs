@@ -260,17 +260,17 @@ async fn cli() {
         r#"package starstream:ledger;
 
 interface utxo {
-  get-chips: func(transaction: option<string>, index: u32) -> u64;
+  get-chips: func() -> u64;
 
-  get-mult: func(transaction: option<string>, index: u32) -> u64;
+  get-mult: func() -> u64;
 
-  plus-chips: func(transaction: option<string>, index: u32, arg-chips2: u64);
+  plus-chips: func(chips2: u64);
 
-  plus-mult: func(transaction: option<string>, index: u32, arg-mult2: u64);
+  plus-mult: func(mult2: u64);
 
-  mult-mult: func(transaction: option<string>, index: u32, arg-mult-pct: u64);
+  mult-mult: func(mult-pct: u64);
 
-  finish: func(transaction: option<string>, index: u32);
+  finish: func();
 }
 
 "#
@@ -287,6 +287,19 @@ interface utxo {
     .await
     .unwrap();
     assert_eq!(stdout, b"(42)\n");
+
+    let stdout = run_cli([
+        "--url",
+        &format!("http://{addr}"),
+        "utxo",
+        "call",
+        "0",
+        "plus-chips",
+        "1",
+    ])
+    .await
+    .unwrap();
+    assert_eq!(stdout, b"()\n");
 
     let require_hash_preimage_wasm = NamedTempFile::new().unwrap();
     fs::write(&require_hash_preimage_wasm, &*REQUIRE_HASH_PREIMAGE_WASM)
