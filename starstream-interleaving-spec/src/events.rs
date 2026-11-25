@@ -22,6 +22,7 @@ pub enum EventKind {
     CallCoordinator,
     SetStorage,
     GetStorage,
+    GetTokenStorage,
     NewUtxo,
     ReceiveNewUtxoHandle,
     EnterConstructor,
@@ -59,6 +60,7 @@ impl EventKind {
     #[must_use]
     pub const fn from_tag(tag: u64) -> Option<Self> {
         Some(match tag {
+            24 => Self::GetTokenStorage,
             23 => Self::Upcast,
             21 => Self::Attach,
             22 => Self::EnterAttach,
@@ -91,6 +93,7 @@ impl EventKind {
             Step::AssertSignedBy { .. } => Self::AssertSignedBy,
             Step::CallCoordinator { .. } => Self::CallCoordinator,
             Step::SetStorage { .. } => Self::SetStorage,
+            Step::GetTokenStorage { .. } => Self::GetTokenStorage,
             Step::GetStorage { .. } => Self::GetStorage,
             Step::NewUtxo { .. } => Self::NewUtxo,
             Step::ReceiveNewUtxoHandle { .. } => Self::ReceiveNewUtxoHandle,
@@ -136,6 +139,7 @@ impl EventKind {
             Self::EnterCall => 7,
             Self::SetStorage => 8,
             Self::GetStorage => 9,
+            Self::GetTokenStorage => 24,
             Self::RaiseEffect => 10,
             Self::EnterEffectHandler => 11,
             Self::ExitEffectHandler => 12,
@@ -167,6 +171,10 @@ impl EventKind {
             Self::SetStorage => {
                 root(&mut words, &mut last_root_block, true);
                 words.extend([IsToken, TokenInterface]);
+            }
+            Self::GetTokenStorage => {
+                root(&mut words, &mut last_root_block, false);
+                words.push(TokenInterface);
             }
             Self::GetStorage | Self::Return | Self::ResumeEffect | Self::ReceiveCallResult => {
                 root(&mut words, &mut last_root_block, false)
@@ -362,6 +370,10 @@ impl EventKind {
                 storage: argument,
                 entry_handle: entry_handle.ok_or(EventCodecError::MissingEntryHandle)?,
             },
+            EventKind::GetTokenStorage => Step::GetTokenStorage {
+                interface,
+                storage: Out(result),
+            },
             EventKind::GetStorage => Step::GetStorage {
                 storage: Out(result),
             },
@@ -450,7 +462,9 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         Step::EnterAttach { destination, .. } => (destination.0, None, None, None),
         Step::CallCoordinator { script, arguments } => (0, Some(script), Some(arguments), None),
         Step::SetStorage { storage, .. } => (0, None, Some(storage), None),
-        Step::GetStorage { storage } => (0, None, None, Some(&storage.0)),
+        Step::GetTokenStorage { storage, .. } | Step::GetStorage { storage } => {
+            (0, None, None, Some(&storage.0))
+        }
         Step::PreloadMethod { .. }
         | Step::BeginExecution { .. }
         | Step::ReadAbi { .. }
@@ -499,7 +513,8 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
                     }
                 )),
                 Word::TokenInterface => match step {
-                    Step::SetStorage {
+                    Step::GetTokenStorage { interface, .. }
+                    | Step::SetStorage {
                         kind: crate::StorageKind::Token { interface },
                         ..
                     }
@@ -593,6 +608,10 @@ mod test {
                 entry_handle: ResourceHandle(8),
             },
             Step::GetStorage { storage: Out(ROOT) },
+            Step::GetTokenStorage {
+                interface: 3,
+                storage: Out(ROOT),
+            },
             Step::NewUtxo {
                 constructor: METHOD,
                 arguments: ROOT,

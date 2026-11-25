@@ -157,13 +157,17 @@ pub enum Step {
     GetStorage {
         storage: Out<StarstreamValue>,
     },
+    GetTokenStorage {
+        interface: u32,
+        storage: Out<StarstreamValue>,
+    },
     /// Host-synthesized enumeration of the last exported UTXO's ABI; no program event.
     ReadAbi {
         method: MethodSelector,
     },
     /// Advance the finalization scan without exporting a consumed UTXO.
     SkipConsumed,
-    /// Enumerate the next coordinator's final trace root after all UTXOs; no program event.
+    /// Enumerate the next coordinator's final trace root after all UTXOs and tokens; no program event.
     FinalizeCoordinator,
     FinishTransaction,
     /// Host-synthesized call from the transaction context into the entry

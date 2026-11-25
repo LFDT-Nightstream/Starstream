@@ -558,6 +558,9 @@ impl fmt::Display for Qnt<&Step> {
                 ),
             },
             Step::PreloadMethod { method } => write!(f, "preload_method({})", Qnt(method)),
+            Step::GetTokenStorage { interface, storage } => {
+                write!(f, "get_token_storage({}, {})", interface, Qnt(storage))
+            }
             Step::GetStorage { storage } => write!(f, "get_storage({})", Qnt(storage)),
             Step::SkipConsumed => f.write_str("skip_consumed"),
             Step::ReadAbi { method } => write!(f, "read_abi({})", Qnt(method)),

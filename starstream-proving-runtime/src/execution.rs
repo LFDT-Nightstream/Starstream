@@ -21,14 +21,15 @@ pub fn decode_captured_execution(
     registry: &neo_wasm::WasmtimeTraceRegistry,
     entry_handles: impl IntoIterator<Item = ResourceHandle>,
 ) -> wasmtime::Result<CapturedExecution> {
-    decode_captured_transaction(registry, entry_handles, &[])
+    decode_captured_transaction(registry, entry_handles, &[], &[])
 }
 
-/// Decode loaded inputs followed by constructed UTXOs, using the ledger's ABI lists.
+/// Decode input UTXOs and tokens using the ledger's method lists and token owner indices.
 pub fn decode_captured_transaction(
     registry: &neo_wasm::WasmtimeTraceRegistry,
     entry_handles: impl IntoIterator<Item = ResourceHandle>,
     input_methods: &[Vec<MethodHash>],
+    input_token_owners: &[u32],
 ) -> wasmtime::Result<CapturedExecution> {
     let mut entry_handles = entry_handles.into_iter();
     let mut traces = Vec::new();
@@ -41,8 +42,9 @@ pub fn decode_captured_transaction(
         })?;
         traces.push(trace);
     }
-    let transaction = interleave_transaction_with_inputs(&traces, input_methods)
-        .map_err(|error| wasmtime::format_err!("failed to interleave traces: {error}"))?;
+    let transaction =
+        interleave_transaction_with_inputs(&traces, input_methods, input_token_owners)
+            .map_err(|error| wasmtime::format_err!("failed to interleave traces: {error}"))?;
     Ok(CapturedExecution {
         traces,
         transaction,
@@ -72,8 +74,10 @@ pub fn check_captured_transaction(
     registry: &neo_wasm::WasmtimeTraceRegistry,
     entry_handles: impl IntoIterator<Item = ResourceHandle>,
     input_methods: &[Vec<MethodHash>],
+    input_token_owners: &[u32],
 ) -> wasmtime::Result<CapturedExecution> {
-    let execution = decode_captured_transaction(registry, entry_handles, input_methods)?;
+    let execution =
+        decode_captured_transaction(registry, entry_handles, input_methods, input_token_owners)?;
     starstream_interleaving_prover::verify_sat(
         &execution.transaction.execution,
         &execution.transaction.statement.signers,

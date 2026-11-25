@@ -39,12 +39,13 @@ pub(crate) fn method_table(trace: &Trace) -> Vec<MethodHash> {
 
 #[cfg(test)]
 pub(crate) fn normalize(trace: &Trace) -> NormalizedTrace {
-    normalize_with_inputs(trace, &Default::default())
+    normalize_with_inputs(trace, &Default::default(), &[])
 }
 
 pub(crate) fn normalize_with_inputs(
     trace: &Trace,
     signers: &std::collections::BTreeSet<u64>,
+    output_tokens: &[starstream_interleaving_spec::OutputToken],
 ) -> NormalizedTrace {
     let mut io_chain = [F::ZERO; 4];
     let signer_indices: HashMap<_, _> = signers.iter().copied().zip(0u32..).collect();
@@ -118,6 +119,9 @@ pub(crate) fn normalize_with_inputs(
             }
             Opcode::SetStorage => CoroutineId::Utxo(next_utxo_id),
             Opcode::PreloadMethod => CoroutineId::Utxo(next_utxo_id.saturating_sub(1)),
+            Opcode::GetTokenStorage => {
+                CoroutineId::Token(tx.output_cursor.saturating_sub(next_utxo_id))
+            }
             Opcode::GetStorage | Opcode::SkipConsumed => CoroutineId::Utxo(tx.output_cursor),
             Opcode::ReadAbi => CoroutineId::Utxo(tx.output_cursor.saturating_sub(1)),
             _ => CoroutineId::Coord(0),
@@ -259,6 +263,17 @@ pub(crate) fn normalize_with_inputs(
                 resource_resolver.insert(resolver_address, resolver_value);
             }
             Step::FinishTransaction => tx.phase = TxPhase::Finished,
+            Step::GetTokenStorage { storage, interface } => {
+                token_interface = *interface;
+                let index = tx.output_cursor.saturating_sub(next_utxo_id);
+                second_target = output_tokens
+                    .get(index as usize)
+                    .map(|output| CoroutineId::Utxo(output.owner))
+                    .filter(|owner| owner.checked_encoded().is_some())
+                    .unwrap_or(CoroutineId::Coord(0));
+                expected_result = Some(storage.0.words32().map(F::from_u32).to_vec());
+                tx.output_cursor += 1;
+            }
             Step::GetStorage { storage } => {
                 tx.abi_read_remaining = abi_method_counts
                     .get(&boundary_coroutine_id)
@@ -688,7 +703,7 @@ pub(crate) fn normalize_with_inputs(
                     .expect("registration count fits u32");
             }
             abi_method_counts.insert(abi_generation_address, abi_method_count_after);
-        } else if opcode.scans_output() {
+        } else if opcode.scans_utxo_output() {
             abi_method_count_before = abi_method_counts
                 .get(&boundary_coroutine_id)
                 .copied()
@@ -698,7 +713,10 @@ pub(crate) fn normalize_with_inputs(
             CoroutineId::Coord(tx_before.coordinator_cursor)
         } else if matches!(
             opcode,
-            Opcode::SetStorage | Opcode::GetStorage | Opcode::SkipConsumed
+            Opcode::SetStorage
+                | Opcode::GetStorage
+                | Opcode::GetTokenStorage
+                | Opcode::SkipConsumed
         ) {
             boundary_coroutine_id
         } else if matches!(opcode, Opcode::EnterEffectHandler | Opcode::ResumeEffect) {

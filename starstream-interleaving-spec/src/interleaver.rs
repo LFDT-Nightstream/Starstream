@@ -54,6 +54,8 @@ pub struct InterleavedTransaction {
     /// For each UTXO id, the position in the supplied trace list of the
     /// process that became that UTXO.
     pub utxos: Vec<ProcessIndex>,
+    /// Loaded tokens in transaction-local token ID order.
+    pub tokens: Vec<ProcessIndex>,
     /// The same for coordinators, in allocation order: the entry script
     /// first, then each called coordinator.
     pub coordinators: Vec<ProcessIndex>,
@@ -80,21 +82,23 @@ pub fn interleave_execution_only(traces: &[Trace]) -> Result<Trace, Interleaving
     Ok(Trace(scheduled.merged))
 }
 
-/// Schedule execution, then finalize UTXOs in allocation order.
+/// Schedule execution, then finalize UTXOs and coordinators in allocation order.
 /// Live UTXOs must have one trailing `GetStorage`; consumed UTXOs have none.
 /// ABI reads and transaction completion are synthesized. Inputs aren't supported.
 pub fn interleave_transaction(
     traces: &[Trace],
 ) -> Result<InterleavedTransaction, InterleavingError> {
-    interleave_transaction_with_inputs(traces, &[])
+    interleave_transaction_with_inputs(traces, &[], &[])
 }
 
 /// Input traces follow the root, in loading order, then constructor and
 /// coordinator traces in instantiation order.
-/// Each input starts with `SetStorage`; its stored ABI is host-supplied metadata.
+/// Each input starts with `SetStorage`. The ledger supplies the UTXO method lists
+/// and each input token’s owner as an index into the loaded UTXOs.
 pub fn interleave_transaction_with_inputs(
     traces: &[Trace],
     input_methods: &[Vec<MethodHash>],
+    input_token_owners: &[u32],
 ) -> Result<InterleavedTransaction, InterleavingError> {
     let Scheduled {
         mut merged,
@@ -104,10 +108,10 @@ pub fn interleave_transaction_with_inputs(
         registrations,
         inputs,
         entry,
-        token_count,
+        token_destinations,
     } = schedule_execution(traces, input_methods)?;
-    if token_count != 0 {
-        return Err(InterleavingError::TokenFinalization);
+    if token_destinations.len() != input_token_owners.len() {
+        return Err(InterleavingError::InputTokenOwners);
     }
     for &process in &coordinators {
         if cursors[process] != traces[process].0.len() {
@@ -150,6 +154,44 @@ pub fn interleave_transaction_with_inputs(
             methods: methods.clone(),
         });
     }
+    let mut input_tokens = Vec::new();
+    let mut output_tokens = Vec::new();
+    let mut tokens = Vec::new();
+    for (index, (&owner, destination)) in input_token_owners
+        .iter()
+        .zip(token_destinations)
+        .enumerate()
+    {
+        if owner as usize >= inputs.len() {
+            return Err(InterleavingError::InputTokenOwners);
+        }
+        let process = 1 + inputs.len() + index;
+        let Step::SetStorage { storage, .. } = &traces[process].0[0] else {
+            unreachable!("the scheduler consumed the input token setter")
+        };
+        input_tokens.push(crate::InputToken {
+            owner,
+            storage: storage.clone(),
+        });
+        let remaining = &traces[process].0[cursors[process]..];
+        let [step @ Step::GetTokenStorage { storage, .. }] = remaining else {
+            return Err(InterleavingError::MissingStorageRead {
+                process: ProcessIndex(process),
+                remaining: remaining.len(),
+            });
+        };
+        let owner = match destination {
+            Some(utxo) => u32::try_from(utxo).map_err(|_| InterleavingError::TooManyUtxos)?,
+            None => owner,
+        };
+        output_tokens.push(crate::OutputToken {
+            token: u32::try_from(index).map_err(|_| InterleavingError::TooManyTokens)?,
+            owner,
+            storage: storage.0.clone(),
+        });
+        tokens.push(ProcessIndex(process));
+        merged.push(step.clone());
+    }
     merged.extend(coordinators.iter().map(|_| Step::FinalizeCoordinator));
     merged.push(Step::FinishTransaction);
 
@@ -165,13 +207,14 @@ pub fn interleave_transaction_with_inputs(
         execution,
         trace: Trace(merged),
         statement: TransactionStatement {
-            input_tokens: Vec::new(),
-            output_tokens: Vec::new(),
+            input_tokens,
+            output_tokens,
             signers,
             entry,
             inputs,
             outputs,
         },
+        tokens,
         utxos: allocation_order.into_iter().map(ProcessIndex).collect(),
         coordinators: coordinators.into_iter().map(ProcessIndex).collect(),
     })
@@ -187,7 +230,8 @@ struct Scheduled {
     coordinators: Vec<usize>,
     /// Final-generation method registrations of each process.
     registrations: Vec<Vec<MethodHash>>,
-    token_count: usize,
+    /// Last attach destination, as a UTXO index, for each loaded token.
+    token_destinations: Vec<Option<usize>>,
 }
 
 fn bind_resource(
@@ -280,6 +324,7 @@ fn schedule_execution(
         next_process += 1;
     }
     let token_count = next_process - first_token;
+    let mut token_destinations = vec![None; token_count];
 
     // The transaction context calls the entry script with the identity and
     // arguments its own entry event commits to; the statement binds them.
@@ -371,10 +416,16 @@ fn schedule_execution(
                             resource: destination,
                         },
                     )?;
-                    if !allocation_order.contains(destination_process)
-                        || pending_attach_destinations
-                            .insert(target, *destination_process)
-                            .is_some()
+                    let Some(utxo) = allocation_order
+                        .iter()
+                        .position(|process| process == destination_process)
+                    else {
+                        return Err(InterleavingError::InvalidAttachment);
+                    };
+                    token_destinations[target - first_token] = Some(utxo);
+                    if pending_attach_destinations
+                        .insert(target, *destination_process)
+                        .is_some()
                     {
                         return Err(InterleavingError::InvalidAttachment);
                     }
@@ -513,6 +564,7 @@ fn schedule_execution(
             | Step::EnterConstructor { .. }
             | Step::EnterCall { .. } => merged.push(step),
             Step::GetStorage { .. }
+            | Step::GetTokenStorage { .. }
             | Step::BeginExecution { .. }
             | Step::SetStorage { .. }
             | Step::SkipEffectHandler
@@ -536,7 +588,7 @@ fn schedule_execution(
     }
 
     Ok(Scheduled {
-        token_count,
+        token_destinations,
         entry,
         inputs,
         merged,
@@ -550,8 +602,10 @@ fn schedule_execution(
 /// Scheduling failure. Quint or the circuit must still validate the merged trace.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InterleavingError {
-    #[error("transaction finalization for loaded tokens is not implemented")]
-    TokenFinalization,
+    #[error("each loaded token needs an input UTXO owner")]
+    InputTokenOwners,
+    #[error("too many token outputs")]
+    TooManyTokens,
     #[error("invalid token attach handoff or destination UTXO")]
     InvalidAttachment,
     #[error("the entry coordinator's trace does not start with its entry event")]
@@ -789,6 +843,7 @@ mod tests {
                 ]),
             ],
             &[vec![method(9)]],
+            &[],
         )
         .unwrap()
     }

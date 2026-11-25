@@ -395,6 +395,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
                 (COL_ONE, F::ONE),
                 (layout::COL_TOKEN_LOAD, -F::ONE),
                 (layout::COL_SEL_ENTER_ATTACH, -F::ONE),
+                (layout::COL_SEL_GET_TOKEN_STORAGE, -F::ONE),
                 (layout::COL_SEL_UPCAST, -F::ONE),
                 (layout::COL_SEL_ASSERT_SIGNED_BY, -F::ONE),
                 (layout::COL_SEL_RETURN, -F::ONE),

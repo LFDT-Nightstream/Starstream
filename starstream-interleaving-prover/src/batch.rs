@@ -199,7 +199,7 @@ fn verify_sat_inner(
     expected: Option<&crate::TraceCommitments>,
     signers: &BTreeSet<u64>,
 ) -> Result<(), Error> {
-    let normalized = crate::step::normalize_with_inputs(trace, signers);
+    let normalized = crate::step::normalize_with_inputs(trace, signers, &[]);
     verify_normalized(normalized, batch_size, expected, None, signers)
 }
 
@@ -209,7 +209,8 @@ pub(crate) fn verify_transaction(
     statement: &starstream_interleaving_spec::TransactionStatement,
     commitments: &crate::TraceCommitments,
 ) -> Result<(), Error> {
-    let normalized = crate::step::normalize_with_inputs(trace, &statement.signers);
+    let normalized =
+        crate::step::normalize_with_inputs(trace, &statement.signers, &statement.output_tokens);
     verify_normalized(
         normalized,
         batch_size,

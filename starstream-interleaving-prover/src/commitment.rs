@@ -39,6 +39,7 @@ fn kind(op: Opcode) -> Option<EventKind> {
         Opcode::ExitEffectHandler => EventKind::ExitEffectHandler,
         Opcode::ResumeEffect => EventKind::ResumeEffect,
         Opcode::SetStorage => EventKind::SetStorage,
+        Opcode::GetTokenStorage => EventKind::GetTokenStorage,
         Opcode::GetStorage => EventKind::GetStorage,
         Opcode::Padding
         | Opcode::BeginExecution

@@ -374,6 +374,23 @@ module starstream {
       abi_read_remaining: state.abi_method_count.get(Utxo(state.output_cursor)), abi_read_ordinal: 0, ...state }
   }
 
+  action get_token_storage(interface_id: int, storage: Output[StarstreamValue]): bool = all {
+    finalization_allowed,
+    state.abi_read_remaining == 0,
+    val i = state.output_cursor - state.next_utxo_id
+    all {
+      state.output_tokens.indices().contains(i),
+      i < state.next_token_id,
+      state.output_tokens[i].token == i,
+      state.token_interfaces.get(Token(i)) == interface_id,
+      state.token_owners.keys().contains(Token(i)),
+      state.token_owners.get(Token(i)) == Utxo(state.output_tokens[i].owner),
+      storage.value.is_valid(),
+      storage.value == state.output_tokens[i].storage,
+      state' = { output_cursor: state.output_cursor + 1, ...state }
+    }
+  }
+
   // Host-synthesized final ABI enumeration, not a wasm event.
   action read_abi(method: MethodSelector): bool = all {
     state.tx_phase == Running,
@@ -397,7 +414,7 @@ module starstream {
   action finalize_coordinator: bool = all {
     finalization_allowed,
     state.abi_read_remaining == 0,
-    state.output_cursor == state.next_utxo_id,
+    state.output_cursor == state.next_utxo_id + state.next_token_id,
     state.next_coordinator_to_finalize < state.next_coordinator_id,
     state' = {
       next_coordinator_to_finalize: state.next_coordinator_to_finalize + 1,
@@ -409,7 +426,7 @@ module starstream {
     state.next_coordinator_to_finalize == state.next_coordinator_id,
     state.abi_read_remaining == 0,
     finalization_allowed,
-    state.output_cursor == state.next_utxo_id,
+    state.output_cursor == state.next_utxo_id + state.next_token_id,
     state.outputs_seen == state.tx_outputs.length(),
     // Deferred statement binding; a framed preload digest can implement this.
     state.loaded_input_methods == state.tx_inputs.foldl(
@@ -425,8 +442,6 @@ module starstream {
       all {
         output.token == i,
         is_valid(output.storage),
-        output.storage == input.storage,
-        output.owner == input.owner,
         state.tx_inputs.indices().contains(input.owner),
         state.tx_outputs.indices().exists(j => state.tx_outputs[j].utxo == output.owner),
       }

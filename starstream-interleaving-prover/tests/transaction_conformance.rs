@@ -913,6 +913,13 @@ fn signer_and_token_statement_matches_quint() {
             entry_handle: ResourceHandle(8),
         },
     );
+    trace.0.insert(
+        trace.0.len() - 2,
+        Step::GetTokenStorage {
+            interface: 0,
+            storage: statement.output_tokens[0].storage.clone().into(),
+        },
+    );
     verifier.verify_transaction(&trace, &statement).unwrap();
     statement.signers.clear();
     assert!(matches!(
@@ -923,6 +930,6 @@ fn signer_and_token_statement_matches_quint() {
     statement.output_tokens[0].token = 1;
     assert!(matches!(
         verifier.verify_transaction(&trace, &statement),
-        Err(QuintError::IncompleteExecution(_))
+        Err(QuintError::RejectedStep { .. })
     ));
 }

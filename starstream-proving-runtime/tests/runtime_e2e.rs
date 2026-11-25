@@ -196,7 +196,8 @@ async fn send_single_token_from_storage() -> wasmtime::Result<()> {
     }) if *storage == flat_value_root(&[ValType::I64], &[0])));
     assert_eq!(
         token_steps.0.last(),
-        Some(&Step::GetStorage {
+        Some(&Step::GetTokenStorage {
+            interface: 0,
             storage: Out(flat_value_root(&[ValType::I64], &[1])),
         })
     );

@@ -72,6 +72,38 @@ module replay_trace {
     .then(finish_transaction)
     .then(transaction_complete)
 
+  run before_token_getter = init_transaction
+    .then({ state' = {
+      input_tokens: List({owner: 0, storage: UNIT_VALUE}),
+      output_tokens: List({token: 0, owner: 0, storage: UNIT_VALUE}), ...state } })
+    .then(set_storage(UNIT_VALUE, 7))
+    .then(preload_method(method))
+    .then(set_token_storage(UNIT_VALUE, 8, 3))
+    .then(enter_root)
+    .then(return({ value: UNIT_VALUE }))
+    .then(get_storage({ value: UNIT_VALUE }))
+    .then(read_abi(method))
+
+  run test_token_getter_finalizes_attached_token = before_token_getter
+    .then(get_token_storage(3, { value: UNIT_VALUE }))
+    .then(finalize_coordinator)
+    .then(finish_transaction)
+    .then(transaction_complete)
+
+  run test_token_getter_rejects_missing_owner = before_token_getter
+    .then({ state' = { token_owners: Map(), ...state } })
+    .then(get_token_storage(3, { value: UNIT_VALUE }).fail())
+
+  run test_token_getter_rejects_wrong_owner = before_token_getter
+    .then({ state' = { output_tokens: List({token: 0, owner: 1, storage: UNIT_VALUE}), ...state } })
+    .then(get_token_storage(3, { value: UNIT_VALUE }).fail())
+
+  run test_token_getter_rejects_wrong_interface = before_token_getter
+    .then(get_token_storage(4, { value: UNIT_VALUE }).fail())
+
+  run test_token_getter_rejects_wrong_storage = before_token_getter
+    .then(get_token_storage(3, { value: List(1, 0, 0, 0) }).fail())
+
   action check_abi_count: bool = all {
     assert(abi_method_count_matches_registrations),
     state' = state,

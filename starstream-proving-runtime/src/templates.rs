@@ -826,8 +826,13 @@ fn build_export_events(
             require_receiver(export, kind, "resource receiver")?;
             let record = storage_record_types(storage_kind, export, exports)?;
             let entry = bootstrap_receiver(export, &mut inputs)?;
-            let exit =
-                Sequence::op(EventKind::GetStorage).root(get_storage_root(export, &record)?)?;
+            let root = get_storage_root(export, &record)?;
+            let exit = match storage_kind {
+                StorageKind::Utxo => Sequence::op(EventKind::GetStorage).root(root)?,
+                StorageKind::Token { interface } => Sequence::op(EventKind::GetTokenStorage)
+                    .root(root)?
+                    .constant_i32(interface)?,
+            };
             Ok(ExportEvents {
                 entry,
                 exit: exit.finish()?,

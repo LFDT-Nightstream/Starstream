@@ -292,3 +292,81 @@ fn attach_resolves_both_handles_and_requires_a_detached_token() {
     );
     assert!(crate::verify_sat(&twice, &Default::default()).is_err());
 }
+
+#[test]
+fn token_finalization_reads_the_owner_written_by_attach() {
+    use crate::CoroutineId::{Token, Utxo};
+    use starstream_interleaving_spec::{OutputToken, StorageKind};
+    let unit = StarstreamValue::UNIT_VALUE;
+    let method = MethodHash([1; 8]);
+    let done = Step::Return {
+        result: unit.clone().into(),
+    };
+    let trace = crate::tests::loaded(
+        [
+            Step::SetStorage {
+                kind: StorageKind::Utxo,
+                entry_handle: ResourceHandle(7),
+                storage: unit.clone(),
+            },
+            Step::PreloadMethod { method },
+            Step::SetStorage {
+                kind: StorageKind::Token { interface: 3 },
+                entry_handle: ResourceHandle(8),
+                storage: unit.clone(),
+            },
+        ],
+        [
+            Step::Attach {
+                token: ResourceHandle(8),
+                destination: ResourceHandle(7),
+            },
+            Step::EnterAttach {
+                interface: 3,
+                destination: ResourceHandle(42),
+            },
+            done.clone(),
+            Step::ReceiveCallResult {
+                result: unit.clone().into(),
+            },
+            done,
+            Step::GetStorage {
+                storage: unit.clone().into(),
+            },
+            Step::ReadAbi { method },
+            Step::GetTokenStorage {
+                interface: 3,
+                storage: unit.clone().into(),
+            },
+            Step::FinalizeCoordinator,
+            Step::FinishTransaction,
+        ],
+    );
+    let getter = trace
+        .0
+        .iter()
+        .position(|step| matches!(step, Step::GetTokenStorage { .. }))
+        .unwrap();
+    // Execution-only preload leaves the token detached. Only Attach can supply the owner.
+    let check = |owner| {
+        let output = OutputToken {
+            token: 0,
+            owner,
+            storage: unit.clone(),
+        };
+        let normalized = crate::step::normalize_with_inputs(&trace, &Default::default(), &[output]);
+        let preload = crate::memory::preload_tables(&normalized.method_table);
+        let rows = normalized
+            .steps
+            .iter()
+            .map(crate::witness::build_witness_vector)
+            .collect::<Vec<_>>();
+        verify_witness_rows(&rows, &preload)
+    };
+    check(0).unwrap();
+    assert!(matches!(check(1),
+        Err(Error::Unsatisfied(Unsatisfied::Memory(neo_application::MemoryCheckError::ReadMismatch {
+            memory: crate::memory::MemoryId::TokenOwner, address, row, expected, actual,
+        }))) if row == getter && address == [Token(0).encoded()] && expected == Utxo(0).encoded() && actual == Utxo(1).encoded()
+    ));
+}

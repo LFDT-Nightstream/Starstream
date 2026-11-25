@@ -44,6 +44,7 @@ define_column_region! {
         COL_UTXO_LOAD: Boolean => "SetStorage for a UTXO",
         COL_TOKEN_LOAD: Boolean => "SetStorage for a token",
         COL_SEL_PRELOAD_METHOD: Boolean => "load a ledger ABI entry",
+        COL_SEL_GET_TOKEN_STORAGE: Boolean => "export the next token",
         COL_SEL_GET_STORAGE: Boolean => "export the next surviving UTXO",
         COL_SEL_SKIP_CONSUMED: Boolean => "skip the next consumed UTXO",
         COL_SEL_FINISH_TRANSACTION: Boolean => "finish the output scan",
@@ -56,7 +57,7 @@ define_column_region! {
         COL_UTXO_EVENT: Boolean => "this row emits a program event owned by a UTXO",
         COL_COORD_EVENT: Boolean => "this row emits a program event owned by a coordinator",
         COL_BOUNDARY_COROUTINE_ID: U32 => "encoded coroutine ID for input loading or the output scan",
-        COL_OUTPUT_REMAINING: U32 => "instances after this one in the active scan: next_utxo_id - output_cursor - 1 on output scans, next_coordinator_id - coordinator_cursor - 1 on coordinator finalization",
+        COL_OUTPUT_REMAINING: U32 => "remaining instances of this kind after the current output or coordinator",
         COL_CURR_BEFORE: U32 => "packed coroutine id that has the turn",
         COL_CURR_AFTER: U32 => "packed coroutine id that has the turn in the next step",
         COL_INSTANCE_DEPTH_BEFORE: U32 => "runtime invocation depth excluding the entry coordinator",
@@ -143,8 +144,8 @@ define_column_region! {
         COL_TX_PHASE_AFTER: (Bits(2)) => "transaction phase after this row",
         COL_LAST_INPUT_HAS_ABI_BEFORE: Boolean => "last loaded UTXO has a nonempty ABI (or none has been loaded yet)",
         COL_LAST_INPUT_HAS_ABI_AFTER: Boolean => "last loaded UTXO has a nonempty ABI after this row (or none has been loaded yet)",
-        COL_OUTPUT_CURSOR_BEFORE: U32 => "next UTXO ID to finalize",
-        COL_OUTPUT_CURSOR_AFTER: U32 => "next UTXO ID after this row",
+        COL_OUTPUT_CURSOR_BEFORE: U32 => "output scan position before this row (UTXOs followed by tokens)",
+        COL_OUTPUT_CURSOR_AFTER: U32 => "output scan position after this row",
         COL_NEXT_COORD_ID_BEFORE: U32 => "coordinator id allocator; Coord(0) is the transaction context",
         COL_NEXT_COORD_ID_AFTER: U32 => "coordinator id allocator after this row",
         COL_COORD_CURSOR_BEFORE: U32 => "next coordinator ID to finalize",
@@ -200,7 +201,7 @@ pub(crate) const SIGNER_KEY_LIMBS: usize = u64::BITS as usize / u32::BITS as usi
 /// Signer and method lookups occur on disjoint opcodes and share an advice column.
 pub(crate) const COL_SIGNER_INDEX: usize = COL_METHOD_INDEX;
 
-pub const SELECTORS: [usize; 31] = [
+pub const SELECTORS: [usize; 32] = [
     COL_SEL_UPCAST,
     COL_SEL_ATTACH,
     COL_SEL_ENTER_ATTACH,
@@ -230,6 +231,7 @@ pub const SELECTORS: [usize; 31] = [
     COL_SEL_SET_STORAGE,
     COL_SEL_PRELOAD_METHOD,
     COL_SEL_GET_STORAGE,
+    COL_SEL_GET_TOKEN_STORAGE,
     COL_SEL_SKIP_CONSUMED,
     COL_SEL_FINISH_TRANSACTION,
 ];
@@ -253,3 +255,6 @@ pub(crate) fn range_check_layout() -> &'static RangeCheckLayout {
         .expect("valid range-check layout")
     })
 }
+
+// The second resolver port is idle during token output reads.
+pub(crate) const COL_OUTPUT_TOKEN_OWNER: usize = COL_RESOLVER_SECOND_VALUE;

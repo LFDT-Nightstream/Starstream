@@ -91,7 +91,8 @@ impl ProofConfig {
             ));
         }
         let batch = Batch::new(batch_size)?;
-        let normalized = crate::step::normalize_with_inputs(trace, &statement.signers);
+        let normalized =
+            crate::step::normalize_with_inputs(trace, &statement.signers, &statement.output_tokens);
         let packed = batch.pack(&normalized.steps);
         let preload = crate::memory::transaction_preload(&normalized.method_table, statement)?;
         let preload = preload.entries();
@@ -461,7 +462,8 @@ impl InterleavingProofContext {
         statement: &TransactionStatement,
         roots: super::Roots<'_>,
     ) -> Result<InterleavingProof, ProvingError> {
-        let normalized = crate::step::normalize_with_inputs(trace, &statement.signers);
+        let normalized =
+            crate::step::normalize_with_inputs(trace, &statement.signers, &statement.output_tokens);
         let padding = normalized
             .steps
             .last()
@@ -556,7 +558,6 @@ fn check_transaction_claim(
     statement: &TransactionStatement,
     roots: &crate::TraceCommitments,
 ) -> Result<(), ProvingError> {
-    crate::transaction::check_token_carry_forward(statement)?;
     let expected = crate::transaction_commitment(statement, roots)?.map(F::new);
     check_final_state(
         final_state,

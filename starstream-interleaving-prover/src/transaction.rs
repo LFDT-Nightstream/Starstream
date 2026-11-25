@@ -36,7 +36,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         for (flag, terms) in [
             (COL_METHOD_APPEND, sum(Opcode::appends_method)),
             (COL_EVENT_ACTIVE, sum(Opcode::has_event)),
-            (COL_ABI_METHOD_COUNT_READ, sum(Opcode::scans_output)),
+            (COL_ABI_METHOD_COUNT_READ, sum(Opcode::scans_utxo_output)),
             (
                 COL_ABI_METHOD_COUNT_WRITE,
                 sum(|op| op.appends_method() || *op == Opcode::YieldBegin),
@@ -48,6 +48,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             (COL_OUTPUT_CURSOR_AFTER, F::ONE),
             (COL_OUTPUT_CURSOR_BEFORE, -F::ONE),
             (COL_SEL_GET_STORAGE, -F::ONE),
+            (COL_SEL_GET_TOKEN_STORAGE, -F::ONE),
             (COL_SEL_SKIP_CONSUMED, -F::ONE),
         ]);
         // Execution stays in Running, which only the entry call enters.
@@ -119,7 +120,8 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             [],
         );
         let finalization = sum(|op| {
-            op.scans_output()
+            op.scans_utxo_output()
+                || *op == Opcode::GetTokenStorage
                 || matches!(op, Opcode::FinalizeCoordinator | Opcode::FinishTransaction)
         });
         // Coordinators are enumerated in allocation order, Coord(1) first.
@@ -185,7 +187,12 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             );
         }
         b.push_row(
-            selector_sum([Opcode::SetStorage, Opcode::GetStorage, Opcode::SkipConsumed]),
+            selector_sum([
+                Opcode::SetStorage,
+                Opcode::GetStorage,
+                Opcode::GetTokenStorage,
+                Opcode::SkipConsumed,
+            ]),
             [
                 (COL_EVENT_OWNER, F::ONE),
                 (COL_BOUNDARY_COROUTINE_ID, -F::ONE),
@@ -198,6 +205,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                     && !matches!(
                         op,
                         Opcode::SetStorage
+                            | Opcode::GetTokenStorage
                             | Opcode::GetStorage
                             | Opcode::EnterEffectHandler
                             | Opcode::ResumeEffect
@@ -324,9 +332,38 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 equal(b, COL_COORD_CURSOR_BEFORE, COL_NEXT_COORD_ID_BEFORE);
             }
             if matches!(op, Opcode::FinishTransaction | Opcode::FinalizeCoordinator) {
-                equal(b, COL_OUTPUT_CURSOR_BEFORE, COL_NEXT_UTXO_ID_BEFORE);
+                b.push_gated_linear_zero(
+                    gate,
+                    [
+                        (COL_OUTPUT_CURSOR_BEFORE, F::ONE),
+                        (COL_NEXT_UTXO_ID_BEFORE, -F::ONE),
+                        (COL_NEXT_TOKEN_ID_BEFORE, -F::ONE),
+                    ],
+                );
             }
-            if op.scans_output() {
+            if op == Opcode::GetTokenStorage {
+                // Tokens follow every UTXO in the same output scan.
+                b.push_gated_linear_zero(
+                    gate,
+                    [
+                        (COL_BOUNDARY_COROUTINE_ID, F::ONE),
+                        (COL_OUTPUT_CURSOR_BEFORE, -F::new(4)),
+                        (COL_NEXT_UTXO_ID_BEFORE, F::new(4)),
+                        (COL_ONE, -F::new(2)),
+                    ],
+                );
+                b.push_gated_linear_zero(
+                    gate,
+                    [
+                        (COL_OUTPUT_REMAINING, F::ONE),
+                        (COL_NEXT_TOKEN_ID_BEFORE, -F::ONE),
+                        (COL_NEXT_UTXO_ID_BEFORE, -F::ONE),
+                        (COL_OUTPUT_CURSOR_BEFORE, F::ONE),
+                        (COL_ONE, F::ONE),
+                    ],
+                );
+            }
+            if op.scans_utxo_output() {
                 b.push_gated_linear_zero(
                     gate,
                     [
@@ -404,7 +441,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 } else {
                     constant(b, COL_ABI_METHOD_COUNT_AFTER, 0);
                 }
-            } else if op.scans_output() {
+            } else if op.scans_utxo_output() {
                 crate::ccs::require_utxo_index(
                     b,
                     op,
@@ -424,8 +461,8 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     });
 }
 
-/// Check the ledger's carry-forward rule for the declared token records.
-pub(crate) fn check_token_carry_forward(statement: &TransactionStatement) -> Result<(), Error> {
+/// Each loaded token has one output and each output names a surviving UTXO.
+pub(crate) fn check_token_records(statement: &TransactionStatement) -> Result<(), Error> {
     if statement.input_tokens.len() != statement.output_tokens.len() {
         return Err(Unsatisfied::TransactionStatement.into());
     }
@@ -437,8 +474,6 @@ pub(crate) fn check_token_carry_forward(statement: &TransactionStatement) -> Res
     {
         if output.token as usize != index
             || input.owner as usize >= statement.inputs.len()
-            || output.owner != input.owner
-            || output.storage != input.storage
             || statement
                 .outputs
                 .binary_search_by_key(&output.owner, |utxo| utxo.utxo)
@@ -460,7 +495,7 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
     mut finalized: Option<&mut crate::TraceCommitments>,
 ) -> Result<(), Error> {
     let reject = || Error::from(Unsatisfied::TransactionStatement);
-    check_token_carry_forward(statement)?;
+    check_token_records(statement)?;
     let mut rows = rows.into_iter().peekable();
     let first = rows.peek().ok_or_else(reject)?.as_ref();
     for (column, value) in [
@@ -490,6 +525,7 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
     let mut inputs = 0;
     let mut tokens = 0;
     let mut outputs = 0;
+    let mut token_outputs = 0;
     let mut methods = Vec::<Vec<[u32; 8]>>::new();
     let mut output_methods = Vec::<Vec<[u32; 8]>>::new();
     for row in rows {
@@ -527,6 +563,25 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
                     .map(|c| u32::try_from(at(c)).expect("range checked method limb")),
             );
         }
+        if row[COL_SEL_GET_TOKEN_STORAGE] == F::ONE {
+            let output = statement
+                .output_tokens
+                .get(token_outputs)
+                .ok_or_else(reject)?;
+            let token = crate::CoroutineId::Token(output.token)
+                .checked_encoded()
+                .ok_or_else(reject)?;
+            let owner = crate::CoroutineId::Utxo(output.owner)
+                .checked_encoded()
+                .ok_or_else(reject)?;
+            if row[COL_BOUNDARY_COROUTINE_ID] != F::from_u32(token)
+                || row[COL_OUTPUT_TOKEN_OWNER] != F::from_u32(owner)
+                || COL_RESULT_ROOT.map(at) != output.storage.0
+            {
+                return Err(reject());
+            }
+            token_outputs += 1;
+        }
         if row[COL_SEL_GET_STORAGE] == F::ONE {
             let output = statement.outputs.get(outputs).ok_or_else(reject)?;
             if at(COL_OUTPUT_CURSOR_BEFORE) != u64::from(output.utxo)
@@ -546,15 +601,16 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
         let Some(finalized) = finalized.as_deref_mut() else {
             continue;
         };
-        let (owner, chain) = if row[COL_SEL_GET_STORAGE] == F::ONE {
-            (COL_BOUNDARY_COROUTINE_ID, COL_OUT)
-        } else if row[COL_SEL_SKIP_CONSUMED] == F::ONE {
-            (COL_BOUNDARY_COROUTINE_ID, COL_IN)
-        } else if row[COL_SEL_FINALIZE_COORDINATOR] == F::ONE {
-            (COL_EVENT_OWNER, COL_IN)
-        } else {
-            continue;
-        };
+        let (owner, chain) =
+            if row[COL_SEL_GET_STORAGE] == F::ONE || row[COL_SEL_GET_TOKEN_STORAGE] == F::ONE {
+                (COL_BOUNDARY_COROUTINE_ID, COL_OUT)
+            } else if row[COL_SEL_SKIP_CONSUMED] == F::ONE {
+                (COL_BOUNDARY_COROUTINE_ID, COL_IN)
+            } else if row[COL_SEL_FINALIZE_COORDINATOR] == F::ONE {
+                (COL_EVENT_OWNER, COL_IN)
+            } else {
+                continue;
+            };
         let owner = u32::try_from(at(owner)).map_err(|_| Unsatisfied::TransactionCommitment)?;
         if finalized.insert(owner, chain.map(at)).is_some() {
             return Err(Unsatisfied::TransactionCommitment.into());
@@ -563,6 +619,7 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
     if entries != 1
         || inputs != statement.inputs.len()
         || tokens != statement.input_tokens.len()
+        || token_outputs != statement.output_tokens.len()
         || outputs != statement.outputs.len()
         || output_methods
             .iter()

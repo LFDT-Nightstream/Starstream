@@ -654,7 +654,8 @@ fn coroutine_ids(execution: &CapturedExecution) -> wasmtime::Result<Vec<Coroutin
     let utxos = (0..).map(CoroutineId::Utxo).zip(&transaction.utxos);
     // Coord(0) is the transaction context, so the entry script is Coord(1).
     let coordinators = (1..).map(CoroutineId::Coord).zip(&transaction.coordinators);
-    for (id, process) in utxos.chain(coordinators) {
+    let tokens = (0..).map(CoroutineId::Token).zip(&transaction.tokens);
+    for (id, process) in utxos.chain(tokens).chain(coordinators) {
         let slot = ids
             .get_mut(process.0)
             .context("the interleaving names a trace that was not captured")?;

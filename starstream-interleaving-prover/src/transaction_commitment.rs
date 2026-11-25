@@ -1,4 +1,4 @@
-//! Transaction-only chain: inputs/preloads, entry call, UTXO outputs/ABIs, coordinators, finish.
+//! Transaction-only chain: inputs/preloads, entry call, UTXO outputs/ABIs, token outputs, coordinators, finish.
 //! Records have distinct tags and fixed lengths, padded to eight-field blocks.
 //! Roots are transaction data, not persistent ledger storage. ABI duplicates stay.
 //! The proving API binds the expected final digest.
@@ -21,6 +21,7 @@ const CONSUMED: u64 = RECORD_PREFIX | 5;
 const COORDINATOR: u64 = RECORD_PREFIX | 6;
 const FINISH: u64 = RECORD_PREFIX | 7;
 const ENTRY: u64 = RECORD_PREFIX | 8;
+const OUTPUT_TOKEN: u64 = RECORD_PREFIX | 9;
 
 pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
     let (tag, columns): (_, Vec<usize>) = match op {
@@ -41,6 +42,14 @@ pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
         Opcode::GetStorage => (
             OUTPUT,
             std::iter::once(COL_BOUNDARY_COROUTINE_ID)
+                .chain(COL_RESULT_ROOT)
+                .chain(COL_OUT)
+                .collect(),
+        ),
+        Opcode::GetTokenStorage => (
+            OUTPUT_TOKEN,
+            [COL_BOUNDARY_COROUTINE_ID, COL_OUTPUT_TOKEN_OWNER]
+                .into_iter()
                 .chain(COL_RESULT_ROOT)
                 .chain(COL_OUT)
                 .collect(),
@@ -74,8 +83,8 @@ fn absorb(mut chain: [F; 4], words: &[F]) -> [F; 4] {
 }
 
 /// Compute the verifier's transaction digest from ledger inputs, the entry
-/// script call, and proposed outputs/instance roots. All allocated UTXOs (including consumed ones) and
-/// coordinators must be represented, each as a contiguous range: UTXOs from 0, coordinators from
+/// script call, and proposed outputs/instance roots. All allocated UTXOs (including consumed ones),
+/// tokens and coordinators must be represented, each as a contiguous range: UTXOs and tokens from 0, coordinators from
 /// Coord(1), the entry script. Coord(0) is the transaction context and has no trace.
 pub fn transaction_commitment(
     statement: &TransactionStatement,
@@ -94,23 +103,12 @@ pub fn transaction_commitment(
             })
             .collect()
     };
-    // Every declared input token has its own setter trace.
-    for index in 0..statement.input_tokens.len() {
-        let index = u32::try_from(index).map_err(|_| reject())?;
-        let packed = CoroutineId::Token(index)
-            .checked_encoded()
-            .ok_or_else(reject)?;
-        if !roots.contains_key(&packed) {
-            return Err(reject());
-        }
-    }
-    // Only coordinator and UTXO traces have finalization rows today.
+    crate::transaction::check_token_records(statement)?;
     for &packed in roots.keys() {
-        if !matches!(
-            CoroutineId::from_packed(packed),
-            Some(CoroutineId::Coord(_) | CoroutineId::Utxo(_))
-        ) {
-            return Err(reject());
+        match CoroutineId::from_packed(packed) {
+            Some(CoroutineId::Token(i)) if (i as usize) < statement.input_tokens.len() => {}
+            Some(CoroutineId::Coord(_) | CoroutineId::Utxo(_)) => {}
+            _ => return Err(reject()),
         }
     }
     let coordinators =
@@ -153,6 +151,16 @@ pub fn transaction_commitment(
                 method.0.map(|x| F::new(u64::from(x))).to_vec(),
             );
         }
+    }
+    for (index, input) in statement.input_tokens.iter().enumerate() {
+        let id = CoroutineId::Token(u32::try_from(index).map_err(|_| reject())?);
+        let packed = id.checked_encoded().ok_or_else(reject)?;
+        record(
+            INPUT,
+            std::iter::once(F::from_u32(packed))
+                .chain(canonical(&input.storage.0)?)
+                .collect(),
+        );
     }
     record(
         ENTRY,
@@ -207,6 +215,23 @@ pub fn transaction_commitment(
     }
     if outputs.next().is_some() || statement.inputs.len() as u64 > next_utxo {
         return Err(reject());
+    }
+    for output in &statement.output_tokens {
+        let token = CoroutineId::Token(output.token)
+            .checked_encoded()
+            .ok_or_else(reject)?;
+        let owner = CoroutineId::Utxo(output.owner)
+            .checked_encoded()
+            .ok_or_else(reject)?;
+        let root = roots.get(&token).ok_or_else(reject)?;
+        record(
+            OUTPUT_TOKEN,
+            [F::from_u32(token), F::from_u32(owner)]
+                .into_iter()
+                .chain(canonical(&output.storage.0)?)
+                .chain(canonical(root)?)
+                .collect(),
+        );
     }
     for (id, root) in coordinators {
         record(

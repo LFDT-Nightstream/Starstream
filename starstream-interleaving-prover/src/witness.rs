@@ -79,9 +79,15 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_ABI_READ_REMAINING_AFTER] = F::new(u64::from(input.tx_after.abi_read_remaining));
     wit[COL_ABI_READ_ORDINAL_BEFORE] = F::new(u64::from(input.tx_before.abi_read_ordinal));
     wit[COL_ABI_READ_ORDINAL_AFTER] = F::new(u64::from(input.tx_after.abi_read_ordinal));
-    if input.opcode.scans_output() {
+    if input.opcode.scans_utxo_output() {
         wit[COL_OUTPUT_REMAINING] = F::new(u64::from(input.next_utxo_id_before))
             - F::new(u64::from(input.tx_before.output_cursor))
+            - F::ONE;
+    }
+    if input.opcode == Opcode::GetTokenStorage {
+        wit[COL_OUTPUT_REMAINING] = F::from_u32(input.next_utxo_id_before)
+            + F::from_u32(input.next_token_id_before)
+            - F::from_u32(input.tx_before.output_cursor)
             - F::ONE;
     }
     if input.opcode == Opcode::FinalizeCoordinator {
@@ -91,7 +97,7 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     }
     wit[COL_METHOD_APPEND] = F::from_bool(input.opcode.appends_method());
     let count_write = input.opcode.appends_method() || input.opcode == Opcode::YieldBegin;
-    let count_read = input.opcode.scans_output();
+    let count_read = input.opcode.scans_utxo_output();
     wit[COL_ABI_METHOD_COUNT_WRITE] = F::from_bool(count_write);
     wit[COL_ABI_METHOD_COUNT_READ] = F::from_bool(count_read);
     if count_write || count_read {

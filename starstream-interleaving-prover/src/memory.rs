@@ -273,20 +273,34 @@ pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
                 kind: MemoryPortKind::Read,
                 activation: MemoryPortActivation::When(Opcode::EnterAttach.selector()),
             },
+            MemoryPortSpec {
+                address_columns: vec![COL_EVENT_OWNER],
+                value_column: COL_TOKEN_INTERFACE,
+                kind: MemoryPortKind::Read,
+                activation: MemoryPortActivation::When(Opcode::GetTokenStorage.selector()),
+            },
         ],
     });
     // Zero is detached. Packed UTXO ids are nonzero, including Utxo(0).
     memories.push(MemorySpec {
         id: MemoryId::TokenOwner,
         kind: MemoryKind::Ram,
-        ports: vec![MemoryPortSpec {
-            address_columns: vec![COL_CALL_TARGET],
-            value_column: crate::ccs::layout::COL_RESOLVER_SECOND_VALUE,
-            kind: MemoryPortKind::Write {
-                value_before_column: Some(crate::ccs::layout::COL_UNBOUND_VALUE),
+        ports: vec![
+            MemoryPortSpec {
+                address_columns: vec![COL_CALL_TARGET],
+                value_column: crate::ccs::layout::COL_RESOLVER_SECOND_VALUE,
+                kind: MemoryPortKind::Write {
+                    value_before_column: Some(crate::ccs::layout::COL_UNBOUND_VALUE),
+                },
+                activation: MemoryPortActivation::When(Opcode::Attach.selector()),
             },
-            activation: MemoryPortActivation::When(Opcode::Attach.selector()),
-        }],
+            MemoryPortSpec {
+                address_columns: vec![COL_EVENT_OWNER],
+                value_column: crate::ccs::layout::COL_OUTPUT_TOKEN_OWNER,
+                kind: MemoryPortKind::Read,
+                activation: MemoryPortActivation::When(Opcode::GetTokenStorage.selector()),
+            },
+        ],
     });
 
     memories.extend_from_slice(&trace_commitments_layout());

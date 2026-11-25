@@ -594,7 +594,7 @@ fn signer_membership_checks_both_limbs_and_slot_presence() {
     for wrong in [key ^ 1, key ^ (1 << 32)] {
         assert!(crate::verify_sat(&trace, &[0, wrong].into()).is_err());
     }
-    let normalized = crate::step::normalize_with_inputs(&trace, &signers);
+    let normalized = crate::step::normalize_with_inputs(&trace, &signers, &[]);
     let mut rows: Vec<_> = normalized.steps.iter().map(build_witness_vector).collect();
     let mut preload = crate::memory::preload_tables(&normalized.method_table);
     crate::memory::preload_signers(&mut preload, &signers);
@@ -630,7 +630,7 @@ fn signer_membership_checks_both_limbs_and_slot_presence() {
 }
 
 #[test]
-fn token_records_check_carry_forward() {
+fn token_records_require_ordered_ids_and_live_owners() {
     use crate::ivc_state::CoroutineId::{Coord, Utxo};
     use starstream_interleaving_spec::{InputToken, OutputToken, StarstreamValue};
     let (trace, mut statement) = fixture();
@@ -649,21 +649,21 @@ fn token_records_check_carry_forward() {
         owner: 0,
         storage,
     });
-    check_token_carry_forward(&statement).unwrap();
+    check_token_records(&statement).unwrap();
     assert!(verify_transaction_sat(&trace, 2, &statement, &roots).is_err());
     assert!(crate::transaction_commitment(&statement, &roots).is_err());
     statement.output_tokens[0].token = 1;
     assert!(verify_transaction_sat(&trace, 2, &statement, &roots).is_err());
     statement.output_tokens[0].token = 0;
     statement.output_tokens[0].owner = 1;
-    assert!(check_token_carry_forward(&statement).is_err());
+    assert!(check_token_records(&statement).is_err());
     statement.output_tokens[0].owner = 0;
     statement.output_tokens[0].storage.0[0] += 1;
-    assert!(check_token_carry_forward(&statement).is_err());
+    check_token_records(&statement).unwrap();
     statement.input_tokens[0].storage = statement.output_tokens[0].storage.clone();
-    check_token_carry_forward(&statement).unwrap();
+    check_token_records(&statement).unwrap();
     let token = statement.output_tokens.pop().unwrap();
-    assert!(check_token_carry_forward(&statement).is_err());
+    assert!(check_token_records(&statement).is_err());
     statement.output_tokens.push(token);
 
     // Two distinct tokens can share both an owner and a storage value.
@@ -673,10 +673,120 @@ fn token_records_check_carry_forward() {
     statement
         .output_tokens
         .push(statement.output_tokens[0].clone());
-    assert!(check_token_carry_forward(&statement).is_err());
+    assert!(check_token_records(&statement).is_err());
     statement.output_tokens[1].token = 1;
-    check_token_carry_forward(&statement).unwrap();
+    check_token_records(&statement).unwrap();
 
     statement.outputs.clear();
-    assert!(check_token_carry_forward(&statement).is_err());
+    assert!(check_token_records(&statement).is_err());
+}
+
+#[test]
+fn token_output_scan_binds_the_getter_owner_and_final_root() {
+    use crate::CoroutineId::{Coord, Token, Utxo};
+    use starstream_interleaving_spec::{
+        StorageKind, interleaver::interleave_transaction_with_inputs,
+    };
+
+    let method = MethodHash([1; 8]);
+    let unit = StarstreamValue::UNIT_VALUE;
+    let output = StarstreamValue([11, 12, 13, 14]);
+    let utxo = |handle| {
+        Trace::new([
+            Step::SetStorage {
+                kind: StorageKind::Utxo,
+                storage: unit.clone(),
+                entry_handle: ResourceHandle(handle),
+            },
+            Step::GetStorage {
+                storage: unit.clone().into(),
+            },
+        ])
+    };
+    let token = |handle, interface| {
+        Trace::new([
+            Step::SetStorage {
+                kind: StorageKind::Token { interface },
+                storage: unit.clone(),
+                entry_handle: ResourceHandle(handle),
+            },
+            Step::GetTokenStorage {
+                interface,
+                storage: output.clone().into(),
+            },
+        ])
+    };
+    let traces = [
+        Trace::new([
+            Step::EnterCall {
+                method,
+                arguments: unit.clone(),
+            },
+            Step::Return {
+                result: unit.clone().into(),
+            },
+        ]),
+        utxo(1),
+        utxo(2),
+        token(3, 7),
+        token(4, 9),
+    ];
+    let tx = interleave_transaction_with_inputs(&traces, &[vec![method], vec![method]], &[1, 0])
+        .unwrap();
+    let owners = [
+        Utxo(0),
+        Utxo(1),
+        Token(0),
+        Token(1),
+        Coord(1),
+        Coord(1),
+        Utxo(0),
+        Utxo(1),
+        Token(0),
+        Token(1),
+    ];
+    let roots = crate::commitment::tests::expected(&tx.trace, &owners);
+    let verify =
+        |trace: &Trace, statement: &TransactionStatement, roots: &crate::TraceCommitments| {
+            verify_transaction_sat(trace, 3, statement, roots)
+        };
+    verify(&tx.trace, &tx.statement, &roots).unwrap();
+    let digest = crate::transaction_commitment(&tx.statement, &roots).unwrap();
+
+    // Both UTXOs survive, so only the owner RAM distinguishes these claims.
+    let mut changed = tx.statement.clone();
+    changed.output_tokens[0].owner = 0;
+    assert_ne!(
+        crate::transaction_commitment(&changed, &roots).unwrap(),
+        digest
+    );
+    assert!(verify(&tx.trace, &changed, &roots).is_err());
+    let mut changed = tx.statement.clone();
+    changed.output_tokens[1].storage = unit.clone();
+    assert_ne!(
+        crate::transaction_commitment(&changed, &roots).unwrap(),
+        digest
+    );
+    assert!(verify(&tx.trace, &changed, &roots).is_err());
+
+    let mut wrong_roots = roots.clone();
+    wrong_roots.get_mut(&Token(1).encoded()).unwrap()[0] ^= 1;
+    assert!(verify(&tx.trace, &tx.statement, &wrong_roots).is_err());
+    wrong_roots.remove(&Token(1).encoded());
+    assert!(crate::transaction_commitment(&tx.statement, &wrong_roots).is_err());
+    let first = tx
+        .trace
+        .0
+        .iter()
+        .position(|s| matches!(s, Step::GetTokenStorage { .. }))
+        .unwrap();
+    let mut changed = tx.trace.clone();
+    changed.0.remove(first);
+    assert!(verify(&changed, &tx.statement, &roots).is_err());
+    let mut changed = tx.trace;
+    changed.0.swap(first, first + 1);
+    // Supply the event roots for the swapped getters as well. The interface RAM
+    // still requires each token to use its own setter's interface.
+    let wrong_roots = crate::commitment::tests::expected(&changed, &owners);
+    assert!(verify(&changed, &tx.statement, &wrong_roots).is_err());
 }

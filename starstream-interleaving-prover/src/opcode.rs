@@ -23,6 +23,7 @@ pub(crate) enum Opcode {
     SetStorage,
     PreloadMethod,
     GetStorage,
+    GetTokenStorage,
     SkipConsumed,
     FinishTransaction,
     ReadAbi,
@@ -69,6 +70,7 @@ impl From<&starstream_interleaving_spec::Step> for Opcode {
             starstream_interleaving_spec::Step::ReadAbi { .. } => Self::ReadAbi,
             starstream_interleaving_spec::Step::SetStorage { .. } => Self::SetStorage,
             starstream_interleaving_spec::Step::PreloadMethod { .. } => Self::PreloadMethod,
+            starstream_interleaving_spec::Step::GetTokenStorage { .. } => Self::GetTokenStorage,
             starstream_interleaving_spec::Step::GetStorage { .. } => Self::GetStorage,
             starstream_interleaving_spec::Step::SkipConsumed => Self::SkipConsumed,
             starstream_interleaving_spec::Step::FinishTransaction => Self::FinishTransaction,
@@ -143,10 +145,13 @@ impl Opcode {
     /// neither the raiser nor the skipped scope's owner observes it.
     pub fn has_event(&self) -> bool {
         (self.is_execution() && *self != Self::SkipEffectHandler)
-            || matches!(self, Self::SetStorage | Self::GetStorage)
+            || matches!(
+                self,
+                Self::SetStorage | Self::GetStorage | Self::GetTokenStorage
+            )
     }
 
-    pub fn scans_output(&self) -> bool {
+    pub fn scans_utxo_output(&self) -> bool {
         matches!(self, Self::GetStorage | Self::SkipConsumed)
     }
 
@@ -188,6 +193,7 @@ impl Opcode {
             Self::Padding
             | Self::SetStorage
             | Self::PreloadMethod
+            | Self::GetTokenStorage
             | Self::GetStorage
             | Self::SkipConsumed
             | Self::FinishTransaction => before,
@@ -214,6 +220,7 @@ impl Opcode {
             Self::SetStorage,
             Self::PreloadMethod,
             Self::GetStorage,
+            Self::GetTokenStorage,
             Self::SkipConsumed,
             Self::FinishTransaction,
             Self::ReadAbi,
@@ -341,6 +348,7 @@ impl Opcode {
             Self::SetStorage => COL_SEL_SET_STORAGE,
             Self::PreloadMethod => COL_SEL_PRELOAD_METHOD,
             Self::GetStorage => COL_SEL_GET_STORAGE,
+            Self::GetTokenStorage => COL_SEL_GET_TOKEN_STORAGE,
             Self::SkipConsumed => COL_SEL_SKIP_CONSUMED,
             Self::FinishTransaction => COL_SEL_FINISH_TRANSACTION,
             Opcode::Padding => COL_SEL_PADDING,
