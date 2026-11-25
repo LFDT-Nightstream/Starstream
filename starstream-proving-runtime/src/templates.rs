@@ -33,7 +33,7 @@ const ADD_EFFECT_HANDLER: &str = "add-effect-handler";
 const POP_EFFECT_HANDLER_FRAME: &str = "pop-effect-handler-frame";
 
 /// Schema tag of a flat `i32`/`i64` value tuple committed as an opaque root.
-pub const FLAT_VALUE_SCHEMA_TAG: u64 = u64::from_le_bytes(*b"SSFLAT01");
+pub const FLAT_VALUE_SCHEMA_TAG: u32 = u32::from_le_bytes(*b"SSFL");
 
 /// Flat tuples of up to this many words are committed inline.
 pub const INLINE_ROOT_WORDS: usize = 4;
@@ -122,7 +122,7 @@ struct Sequence {
 
 /// Sources and schema for one four-word value root.
 struct Root {
-    schema: [u64; 4],
+    schema: [u32; 4],
     sources: Vec<SlotBinding>,
 }
 
@@ -279,18 +279,23 @@ pub fn method_hash_from_name(name: &str) -> MethodSelector {
 ///
 /// TODO: in practice we can't extract everything from the lowered signature
 /// though, so eventually we'll need to hook-up to compiler/WIT metadata
-pub fn value_schema(types: &[ValType]) -> [u64; 4] {
+pub fn value_schema(types: &[ValType]) -> [u32; 4] {
     let wide = types
         .iter()
         .enumerate()
         .filter(|(_, ty)| **ty == ValType::I64)
         .fold(0_u64, |mask, (index, _)| mask | (1 << index.min(63)));
-    [FLAT_VALUE_SCHEMA_TAG, types.len() as u64, wide, 0]
+    [
+        FLAT_VALUE_SCHEMA_TAG,
+        u32::try_from(types.len()).expect("Wasm tuple arity fits u32"),
+        wide as u32,
+        (wide >> 32) as u32,
+    ]
 }
 
 /// Native root for a flat `i32`/`i64` tuple, matching template commitment.
 /// Tuples of at most four words are zero-padded; wider tuples use the
-/// `SSFLAT01` opaque schema.
+/// `SSFL` opaque schema.
 pub fn flat_value_root(types: &[ValType], values: &[u64]) -> StarstreamValue {
     assert_eq!(types.len(), values.len(), "one value per flat type");
     let mut words = Vec::with_capacity(types.len() * 2);
@@ -417,7 +422,7 @@ impl Root {
 impl Sequence {
     fn op(discriminant: EventKind) -> Self {
         Self {
-            builder: EventSequenceBuilder::op(u64::from(discriminant.tag())),
+            builder: EventSequenceBuilder::op(u32::from(discriminant.tag())),
             words: 1,
             root_block: None,
         }
