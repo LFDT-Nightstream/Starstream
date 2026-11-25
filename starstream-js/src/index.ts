@@ -17,6 +17,7 @@ export {
   type CoordinationScriptOptions,
   type EnvelopeOptions,
   type NonceOptions,
+  type Signature,
 } from "./wasm-client.ts";
 export { t, type Type } from "@bytecodealliance/wrpc";
 

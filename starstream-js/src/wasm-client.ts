@@ -30,6 +30,14 @@ interface Exports extends RuntimeWebExports {
     script: number,
     scriptLen: number,
   ): number;
+  client_scripts(contract: number, contractLen: number): number;
+  client_contract_scripts(wasm: number, wasmLen: number): number;
+  client_utxo_methods(
+    contract: number,
+    contractLen: number,
+    instance: number,
+    instanceLen: number,
+  ): number;
   client_call(
     contract: number,
     contractLen: number,
@@ -146,9 +154,33 @@ function described(ty: Described, utxo: Type): Type {
   }
 }
 
+interface DescribedSignature {
+  name: string;
+  params: { name: string; ty: Described }[];
+  result: Described | null;
+}
+
+function signature({ name, params, result }: DescribedSignature): Signature {
+  return {
+    name,
+    params: params.map(({ name, ty }) => ({
+      name,
+      ty: described(ty, TransactionInput),
+    })),
+    result: result ? described(result, t.u32) : undefined,
+  };
+}
+
 interface Outcome {
   value: Uint8Array;
   results: Uint8Array;
+}
+
+/** Coordination script or UTXO method, with the names of its parameters. */
+export interface Signature {
+  name: string;
+  params: { name: string; ty: Type }[];
+  result?: Type;
 }
 
 /** Options of `WasmClient.callCoordinationScript`. */
@@ -266,6 +298,9 @@ export class WasmClient {
     const { exports } = client;
     client.operations = {
       client_script_type: promising(exports.client_script_type),
+      client_scripts: promising(exports.client_scripts),
+      client_contract_scripts: promising(exports.client_contract_scripts),
+      client_utxo_methods: promising(exports.client_utxo_methods),
       client_call: promising(exports.client_call),
       client_fund: promising(exports.client_fund),
       client_publish: promising(exports.client_publish),
@@ -301,19 +336,50 @@ export class WasmClient {
         "client_script_type",
         [encoder.encode(contract), encoder.encode(script)],
       ).then(({ value }) => {
-        const { params, result } = JSON.parse(decoder.decode(value)) as {
-          params: { name: string; ty: Described }[];
-          result: Described | null;
-        };
-        return {
-          params: params.map(({ ty }) => described(ty, TransactionInput)),
-          result: result ? described(result, t.u32) : undefined,
-        };
+        const { params, result } = signature(
+          JSON.parse(decoder.decode(value)) as DescribedSignature,
+        );
+        return { params: params.map(({ ty }) => ty), result };
       });
       this.scriptTypes.set(key, ty);
       ty.catch(() => this.scriptTypes.delete(key));
     }
     return ty;
+  }
+
+  /**
+   * Get the coordination scripts of the published contract with `contract`
+   * digest, or of the contract `contract` itself, which need not be published,
+   * typed like by `getCoordinationScriptType`.
+   */
+  async getCoordinationScripts(
+    contract: string | Uint8Array,
+  ): Promise<Signature[]> {
+    const what = "failed to get coordination scripts";
+    const { value } = await (typeof contract === "string"
+      ? this.run(what, "client_scripts", [encoder.encode(contract)])
+      : this.run(what, "client_contract_scripts", [contract]));
+    return (JSON.parse(decoder.decode(value)) as DescribedSignature[]).map(
+      signature,
+    );
+  }
+
+  /**
+   * Get the methods of the UTXOs of the instance `instance` of the published
+   * contract with `contract` digest, as `Ledger.callUtxoMethod` invokes them.
+   */
+  async getUtxoMethods(
+    contract: string,
+    instance: string,
+  ): Promise<Signature[]> {
+    const { value } = await this.run(
+      "failed to get UTXO methods",
+      "client_utxo_methods",
+      [encoder.encode(contract), encoder.encode(instance)],
+    );
+    return (JSON.parse(decoder.decode(value)) as DescribedSignature[]).map(
+      signature,
+    );
   }
 
   /**

@@ -383,6 +383,25 @@ test("contract and UTXO method calls", async () => {
     ],
     result: starstream.t.s64,
   });
+  expect(await client.getCoordinationScripts(contract)).toContainEqual({
+    name: "update",
+    params: [{ name: expect.any(String), ty: starstream.TransactionInput }],
+    result: undefined,
+  });
+  expect(await client.getCoordinationScripts(wasm)).toEqual(
+    await client.getCoordinationScripts(contract),
+  );
+  const utxoMethods = await client.getUtxoMethods(contract, "score-progress");
+  expect(utxoMethods).toContainEqual({
+    name: "get-chips",
+    params: [],
+    result: starstream.t.u64,
+  });
+  expect(utxoMethods).toContainEqual({
+    name: "plus-chips",
+    params: [{ name: expect.any(String), ty: starstream.t.u64 }],
+    result: undefined,
+  });
   expect(
     await client.callCoordinationScript(contract, "total-value", [
       { amount: 2n, price: 3n },

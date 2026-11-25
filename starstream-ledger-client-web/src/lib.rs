@@ -42,7 +42,8 @@ use starstream_ledger::{
 use starstream_runtime_web::{block_on, configure_wasmtime, disable_cranelift_profiler};
 use tokio_util::codec::{Decoder as _, Encoder as _};
 use wasmtime::Store;
-use wasmtime::component::{Type, Val};
+use wasmtime::component::types::ComponentItem;
+use wasmtime::component::{Component, Type, Val};
 use wrpc::Receive as _;
 use wrpc::wasmtime::{ValDecoder, ValEncoder};
 
@@ -308,30 +309,116 @@ fn describe_script(ty: &Type) -> anyhow::Result<Value> {
     }
 }
 
+fn signature<'a>(
+    name: &str,
+    params: impl IntoIterator<Item = (&'a str, Type)>,
+    mut results: impl Iterator<Item = Type>,
+    describe: fn(&Type) -> anyhow::Result<Value>,
+) -> anyhow::Result<Value> {
+    let params = params
+        .into_iter()
+        .map(|(name, ty)| {
+            let ty = describe(&ty)?;
+            Ok(json!({ "name": name, "ty": ty }))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let result = results.next().as_ref().map(describe).transpose()?;
+    ensure!(
+        results.next().is_none(),
+        "multiple results are not supported"
+    );
+    Ok(json!({ "name": name, "params": params, "result": result }))
+}
+
 async fn script_type(
     client: &Client<TransportService<FetchTransport>, FetchTransport>,
     contract: Vec<u8>,
     script: Vec<u8>,
 ) -> anyhow::Result<Outcome> {
     let contract = string(contract, "contract digest")?;
-    let script = string(script, "script name")?;
+    let name = string(script, "script name")?;
     let compiled = compiled(client, &contract).await?;
-    let script = compiled.contract.get_coordination_script(&script)?;
+    let script = compiled.contract.get_coordination_script(&name)?;
     let ty = script.ty();
-    let params = ty
-        .params()
-        .map(|(name, ty)| {
-            let ty = describe_script(&ty)?;
-            Ok(json!({ "name": name, "ty": ty }))
+    let signature = signature(&name, ty.params(), ty.results(), describe_script)?;
+    let value = serde_json::to_vec(&signature)?;
+    Ok(Outcome {
+        value,
+        ..Outcome::default()
+    })
+}
+
+async fn scripts(
+    client: &Client<TransportService<FetchTransport>, FetchTransport>,
+    contract: Vec<u8>,
+) -> anyhow::Result<Outcome> {
+    let contract = string(contract, "contract digest")?;
+    let compiled = compiled(client, &contract).await?;
+    let scripts = compiled
+        .contract
+        .coordination_scripts()
+        .map(|(name, script)| {
+            let script = script?;
+            let ty = script.ty();
+            signature(name, ty.params(), ty.results(), describe_script)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let mut results = ty.results();
-    let result = results.next().as_ref().map(describe_script).transpose()?;
-    ensure!(
-        results.next().is_none(),
-        "multiple results are not supported"
-    );
-    let value = serde_json::to_vec(&json!({ "params": params, "result": result }))?;
+    let value = serde_json::to_vec(&scripts)?;
+    Ok(Outcome {
+        value,
+        ..Outcome::default()
+    })
+}
+
+fn contract_scripts(
+    client: &Client<TransportService<FetchTransport>, FetchTransport>,
+    wasm: Vec<u8>,
+) -> anyhow::Result<Outcome> {
+    let engine = client.engine();
+    let component = Component::new(engine, &wasm)
+        .map_err(anyhow::Error::from)
+        .context("failed to compile contract")?;
+    let scripts = component
+        .component_type()
+        .exports(engine)
+        .filter_map(|(name, export)| match export.ty {
+            ComponentItem::ComponentFunc(ty) => {
+                Some(signature(name, ty.params(), ty.results(), describe_script))
+            }
+            _ => None,
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let value = serde_json::to_vec(&scripts)?;
+    Ok(Outcome {
+        value,
+        ..Outcome::default()
+    })
+}
+
+async fn utxo_methods(
+    client: &Client<TransportService<FetchTransport>, FetchTransport>,
+    contract: Vec<u8>,
+    instance: Vec<u8>,
+) -> anyhow::Result<Outcome> {
+    let contract = string(contract, "contract digest")?;
+    let instance = string(instance, "UTXO instance")?;
+    let compiled = compiled(client, &contract).await?;
+    let utxo = compiled
+        .contract
+        .get_utxo(&instance)
+        .map_err(anyhow::Error::from)
+        .with_context(|| format!("failed to get UTXO instance `{instance}`"))?;
+    let methods = compiled
+        .contract
+        .utxo_methods(&utxo)
+        .map(|(name, method)| {
+            let method = method?;
+            let name = name.strip_prefix("[method]utxo.").unwrap_or(name);
+            let ty = method.ty();
+            signature(name, ty.params().skip(1), ty.results(), describe)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let value = serde_json::to_vec(&methods)?;
     Ok(Outcome {
         value,
         ..Outcome::default()
@@ -520,7 +607,7 @@ pub unsafe extern "C" fn client_start(url: *mut u8, len: usize) -> i32 {
 
 /// Get the type of the coordination script `script` of the contract with
 /// `contract` digest, as the value of the outcome, JSON-encoded as
-/// `{"params": [{"name", "ty"}...], "result": ty | null}`, each type an object
+/// `{"name", "params": [{"name", "ty"}...], "result": ty | null}`, each type an object
 /// with a `kind`: a primitive (`bool`, `s8` to `u64`, `f32`, `f64`, `char`,
 /// `string`), `list` with an `element`, `record` with `fields`, `tuple` with
 /// `elements`, `variant` with `cases`, `enum` or `flags` with `names`,
@@ -541,6 +628,52 @@ pub unsafe extern "C" fn client_script_type(
     let contract = unsafe { take(contract, contract_len) };
     let script = unsafe { take(script, script_len) };
     run(|client| script_type(client, contract, script))
+}
+
+/// Get the coordination scripts of the contract with `contract` digest, as the
+/// value of the outcome, a JSON-encoded array of
+/// `{"name", "params", "result"}`, described like by `client_script_type`.
+///
+/// # Safety
+///
+/// `contract` must be the result of `client_alloc(len)`, written in full.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn client_scripts(contract: *mut u8, len: usize) -> i32 {
+    let contract = unsafe { take(contract, len) };
+    run(|client| scripts(client, contract))
+}
+
+/// Get the coordination scripts of the contract `wasm`, which need not be
+/// published, described like by `client_scripts`.
+///
+/// # Safety
+///
+/// `wasm` must be the result of `client_alloc(len)`, written in full.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn client_contract_scripts(wasm: *mut u8, len: usize) -> i32 {
+    let wasm = unsafe { take(wasm, len) };
+    run(|client| async { contract_scripts(client, wasm) })
+}
+
+/// Get the methods of the UTXOs of the instance `instance` of the contract with
+/// `contract` digest, as the value of the outcome, a JSON-encoded array of
+/// `{"name", "params", "result"}` without the UTXO itself, described like by
+/// `client_script_type`.
+///
+/// # Safety
+///
+/// `contract` and `instance` must be results of `client_alloc`, written in
+/// full, with their lengths.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn client_utxo_methods(
+    contract: *mut u8,
+    contract_len: usize,
+    instance: *mut u8,
+    instance_len: usize,
+) -> i32 {
+    let contract = unsafe { take(contract, contract_len) };
+    let instance = unsafe { take(instance, instance_len) };
+    run(|client| utxo_methods(client, contract, instance))
 }
 
 /// Call the coordination script `script` of the contract with `contract`
