@@ -119,6 +119,15 @@ pub struct TransactionOutput {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
+pub struct TransactionNonce {
+    #[cbor(n(0), with = "minicbor::bytes")]
+    #[serde(serialize_with = "serialize_bytes")]
+    pub key: [u8; 32],
+    #[n(1)]
+    pub nonce: u64,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, Serialize)]
 pub struct Transaction {
     #[n(0)]
     pub inputs: Vec<TransactionInput>,
@@ -129,6 +138,8 @@ pub struct Transaction {
     #[cbor(n(3), with = "minicbor::bytes")]
     #[serde(serialize_with = "serialize_proof")]
     pub proof: Box<[u8]>,
+    #[n(4)]
+    pub nonces: Vec<TransactionNonce>,
 }
 
 fn serialize_bytes<S: serde::Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
@@ -339,6 +350,7 @@ mod tests {
             outputs: Vec::new(),
             events: Vec::new(),
             proof: proof.into(),
+            nonces: Vec::default(),
         }
     }
 

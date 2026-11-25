@@ -47,11 +47,10 @@ pub fn configure_wasmtime(engine_config: &mut wasmtime::Config) -> &mut wasmtime
     engine_config.consume_fuel(true)
 }
 
-/// The ledger-side state of a publishing account, identified by its Ed25519
-/// public key.
+/// The ledger-side state of an account, identified by its Ed25519 public key.
 ///
-/// Publishing charges the balance one unit per byte of envelope and must carry a
-/// nonce strictly greater than `last_nonce`.
+/// Publishing charges the balance one unit per byte of envelope. Publishing and
+/// signing a transaction must carry a nonce strictly greater than `last_nonce`.
 #[derive(Debug, Default)]
 struct Account {
     /// Account balance.
@@ -64,7 +63,7 @@ struct Account {
 struct AdminAccount {
     key: VerifyingKey,
     /// Last nonce used by admin account.
-    /// This nonce is not taken into account for publish actions.
+    /// This nonce is not taken into account for publish or transaction actions.
     last_nonce: AtomicU64,
 }
 
