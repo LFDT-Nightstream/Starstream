@@ -1,22 +1,16 @@
 import Layout from "@theme/Layout";
 import useBaseUrl from "@docusaurus/useBaseUrl";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity } from "../components/ledger/Activity";
 import { Details, type Call } from "../components/ledger/Details";
-import { Graph } from "../components/ledger/Graph";
 import { NodeSettings } from "../components/ledger/NodeSettings";
 import { Tables } from "../components/ledger/Tables";
 import { Terminal } from "../components/ledger/Terminal";
-import {
-  amount,
-  key,
-  liveUtxos,
-  type Selection,
-} from "../components/ledger/format";
+import { amount, key, type Selection } from "../components/ledger/format";
 import styles from "../components/ledger/styles.module.css";
 import type { NodeConfig } from "../ledger-config";
+import payToPublicKey from "file-loader!../../../examples/pay_to_public_key.star";
+import score from "file-loader!../../../examples/score.star";
 import type {
-  Activity as ActivityEntry,
   HttpResponse,
   LedgerCall,
   LedgerWorkerRequest,
@@ -25,10 +19,15 @@ import type {
 } from "../ledger.worker";
 
 const REFRESH_INTERVAL = 2000;
-const WALLET_TOP_UP = "1000000";
+const WALLET_TOP_UP = 1_000_000n;
+/** Examples of the repository that compile on their own, by file name. */
+const EXAMPLES: Record<string, string> = {
+  "score.star": score,
+  "pay_to_public_key.star": payToPublicKey,
+};
 
 type ExplorerMessage = Extract<LedgerWorkerResponse, { type: "explorer" }>;
-type Panel = "details" | "activity" | "node";
+type Panel = "details" | "node";
 
 function unavailable(text: string): HttpResponse {
   const body = new TextEncoder().encode(text).buffer as ArrayBuffer;
@@ -52,22 +51,12 @@ function download(path: string, data: Uint8Array<ArrayBuffer>): void {
   setTimeout(() => URL.revokeObjectURL(url), 40_000);
 }
 
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className={styles.stat}>
-      <span className={styles.statValue}>{value}</span>
-      <span className={styles.statLabel}>{label}</span>
-    </div>
-  );
-}
-
 function Explorer() {
   const serviceWorker = useBaseUrl("/ledger-sw.js");
   const [worker, setWorker] = useState<Worker>();
   const [info, setInfo] = useState<NodeInfo>();
   const [explorer, setExplorer] = useState<ExplorerMessage>();
   const [files, setFiles] = useState<string[]>([]);
-  const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const [selection, setSelection] = useState<Selection>();
   const [panel, setPanel] = useState<Panel>("details");
   const [terminal, setTerminal] = useState(false);
@@ -98,14 +87,6 @@ function Explorer() {
         case "files":
           setFiles(data.paths);
           return;
-        case "activity": {
-          const { activity } = data;
-          setActivities((entries) => [
-            activity,
-            ...entries.filter(({ id }) => id !== activity.id),
-          ]);
-          return;
-        }
         case "reply": {
           const reply = replies.current.get(data.id);
           replies.current.delete(data.id);
@@ -209,7 +190,6 @@ function Explorer() {
     }
     setPublishing(true);
     setError(undefined);
-    setPanel("activity");
     try {
       const digests = (await call({ op: "publish", files })) as string[];
       const last = digests.at(-1);
@@ -221,6 +201,19 @@ function Explorer() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const publishExample = async (name: string) => {
+    try {
+      const res = await fetch(EXAMPLES[name]);
+      if (!res.ok) {
+        throw new Error(`failed to fetch \`${name}\`: ${res.status}`);
+      }
+      const data = new Uint8Array(await res.arrayBuffer());
+      await publish([new File([data], name)]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -275,27 +268,41 @@ function Explorer() {
               ? "stopped"
               : "starting…"}
         </span>
-        <span className={styles.wallet} title={wallet}>
+        <span className={styles.spacer} />
+        <span className={styles.wallet}>
           {wallet ? (
             <button
               className={styles.link}
+              title={`Account ${wallet}, which signs what this page publishes and runs`}
               onClick={() => select({ kind: "account", key: wallet })}
             >
-              user.key {key(wallet)} · {amount(walletAccount?.balance)}
+              Wallet {key(wallet)}: {amount(walletAccount?.balance)}
             </button>
           ) : (
-            "no wallet yet"
+            "No wallet yet"
           )}
+          <button
+            className="button button--sm button--secondary"
+            disabled={!info?.running}
+            onClick={() => void topUp()}
+            title={`The ledger admin credits ${amount(WALLET_TOP_UP)} to your wallet, creating it if needed`}
+          >
+            {wallet ? "Add funds" : "Create wallet"}
+          </button>
         </span>
-        <span className={styles.spacer} />
-        <button
-          className="button button--sm button--secondary"
-          disabled={!info?.running}
-          onClick={() => void topUp()}
-          title={`Fund user.key with ${amount(BigInt(WALLET_TOP_UP))}, signed by admin.key`}
+        <select
+          className={styles.examples}
+          value=""
+          disabled={!info?.running || publishing}
+          onChange={(e) => void publishExample(e.target.value)}
         >
-          Fund wallet
-        </button>
+          <option value="" disabled>
+            Publish an example…
+          </option>
+          {Object.keys(EXAMPLES).map((name) => (
+            <option key={name}>{name}</option>
+          ))}
+        </select>
         <button
           className="button button--sm button--primary"
           disabled={!info?.running || publishing}
@@ -348,24 +355,14 @@ function Explorer() {
       <div className={styles.main}>
         <section className={styles.content}>
           {state ? (
-            <>
-              <div className={styles.stats}>
-                <Stat label="blocks" value={String(state.height)} />
-                <Stat label="contracts" value={state.contracts.length} />
-                <Stat label="transactions" value={state.transactions.length} />
-                <Stat label="live UTXOs" value={liveUtxos(state).length} />
-                <Stat label="accounts" value={state.accounts.length} />
-              </div>
-              <Graph state={state} selection={selection} onSelect={select} />
-              <Tables
-                state={state}
-                wallet={wallet}
-                files={files}
-                selection={selection}
-                onSelect={select}
-                onDownload={(path) => post(worker, { type: "download", path })}
-              />
-            </>
+            <Tables
+              state={state}
+              wallet={wallet}
+              files={files}
+              selection={selection}
+              onSelect={select}
+              onDownload={(path) => post(worker, { type: "download", path })}
+            />
           ) : (
             <div className={styles.empty}>
               <p>
@@ -386,7 +383,6 @@ function Explorer() {
             {(
               [
                 ["details", "Details"],
-                ["activity", `Activity (${activities.length})`],
                 ["node", "Node"],
               ] as [Panel, string][]
             ).map(([id, label]) => (
@@ -409,7 +405,6 @@ function Explorer() {
                   state={state}
                   wallet={wallet}
                   published={explorer?.published ?? {}}
-                  files={files}
                   call={call}
                   perform={perform}
                   onGenesis={(genesisContract, genesisScript) => {
@@ -423,8 +418,6 @@ function Explorer() {
                   onSelect={select}
                 />
               ) : null
-            ) : panel === "activity" ? (
-              <Activity entries={activities} />
             ) : (
               <NodeSettings
                 info={info}

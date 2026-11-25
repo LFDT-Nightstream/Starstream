@@ -97,7 +97,7 @@ export function NodeSettings({
         disabled={!files.includes("admin.key")}
         onClick={() => onDownload("admin.key")}
       >
-        Download admin.key
+        Download admin key
       </button>
       <p className={styles.hint}>
         Restarting the node starts a new, empty ledger. Pages of this site in
@@ -109,7 +109,7 @@ export function NodeSettings({
       <Field
         label="Admin public key"
         value={config.admin}
-        placeholder="the one of admin.key"
+        placeholder="generated, see admin.key"
         onChange={set("admin")}
       />
       <label className={styles.field}>

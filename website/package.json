@@ -9,7 +9,7 @@
     "build": "npm run build-vsix && npm run build-sandbox && npm run build-ledger && docusaurus build",
     "build-vsix": "cd ../vscode-starstream && npm ci && npx vsce package -o starstream.vsix",
     "build-sandbox": "cargo build -p starstream-sandbox-web --target wasm32-unknown-unknown --release && wasm-opt -O3 ../target/wasm32-unknown-unknown/release/starstream_sandbox_web.wasm -o starstream_sandbox_web.wasm",
-    "build-ledger": "cd ../starstream-js && npm ci && cd ../website && cargo build -p starstream-ledger-web --target wasm32-unknown-unknown --release && cargo build -p starstream-cli --target wasm32-wasip1 --release && wasm-opt -O3 ../target/wasm32-unknown-unknown/release/starstream_ledger_web.wasm -o starstream_ledger_web.wasm && wasm-opt -O3 ../target/wasm32-wasip1/release/starstream.wasm -o starstream.wasm",
+    "build-ledger": "cd ../starstream-js && npm ci && cd ../website && cargo build -p starstream-ledger-web -p starstream-ledger-client-web -p starstream-compiler-web --target wasm32-unknown-unknown --release && cargo build -p starstream-cli --target wasm32-wasip1 --release && wasm-opt -O3 ../target/wasm32-unknown-unknown/release/starstream_ledger_web.wasm -o starstream_ledger_web.wasm && wasm-opt -O3 ../target/wasm32-unknown-unknown/release/starstream_ledger_client_web.wasm -o starstream_ledger_client_web.wasm && wasm-opt -O3 ../target/wasm32-unknown-unknown/release/starstream_compiler_web.wasm -o starstream_compiler_web.wasm && wasm-opt -O3 ../target/wasm32-wasip1/release/starstream.wasm -o starstream.wasm",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",

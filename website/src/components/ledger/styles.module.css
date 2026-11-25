@@ -44,8 +44,19 @@
   background: var(--ledger-live);
 }
 .wallet {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 0.85rem;
   color: var(--ledger-muted);
+}
+.examples {
+  padding: 4px 8px;
+  border: 1px solid var(--ledger-border);
+  border-radius: 4px;
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-font-color-base);
+  font-size: 0.85rem;
 }
 
 .banner {
@@ -91,36 +102,10 @@
   padding: 12px 16px;
 }
 
-.stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px 16px 0;
-}
-.stat {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 4px 12px;
-  border: 1px solid var(--ledger-border);
-  border-radius: 8px;
-}
-.statValue {
-  font-size: 1.2rem;
-  font-weight: 600;
-}
-.statLabel {
-  color: var(--ledger-muted);
-  font-size: 0.85rem;
-}
-
 .graph {
-  flex: 1 1 55%;
-  min-height: 180px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
-  margin: 12px 16px;
-  border: 1px solid var(--ledger-border);
-  border-radius: 8px;
   background-color: var(--ifm-background-surface-color);
   background-image: radial-gradient(
     var(--ifm-color-emphasis-200) 1px,
@@ -219,11 +204,11 @@
 }
 
 .tables {
-  flex: 1 1 45%;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 140px;
-  margin: 0 16px 12px;
+  min-height: 0;
+  margin: 12px 16px;
   border: 1px solid var(--ledger-border);
   border-radius: 8px;
   overflow: hidden;
@@ -364,20 +349,43 @@
   font-size: 0.8rem;
 }
 .method {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
-.method > code {
-  display: block;
-  margin-bottom: 4px;
+.method summary {
+  cursor: pointer;
   overflow-wrap: anywhere;
+}
+.method[open] summary {
+  margin-bottom: 6px;
 }
 .invoke {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
-.invoke input,
+.param {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 2px;
+}
+.nested {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 2px solid var(--ledger-border);
+}
+.item {
+  display: flex;
+  gap: 6px;
+  align-self: stretch;
+}
+.invoke input:not([type="checkbox"]),
+.invoke select,
 .inline input,
 .inline select,
 .field input,
@@ -393,7 +401,7 @@
   font-size: 0.85rem;
 }
 .invoke pre {
-  flex-basis: 100%;
+  align-self: stretch;
   margin: 0;
   padding: 6px 8px;
   white-space: pre-wrap;
@@ -411,30 +419,6 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
-}
-
-.activity {
-  padding: 0;
-  list-style: none;
-}
-.activity li {
-  margin-bottom: 8px;
-  padding-left: 8px;
-  border-left: 3px solid var(--ledger-border);
-}
-.activity .running {
-  border-left-color: var(--ifm-color-warning);
-}
-.activity .ok {
-  border-left-color: var(--ledger-live);
-}
-.activity .error {
-  border-left-color: var(--ifm-color-danger);
-}
-.command {
-  display: block;
-  overflow-wrap: anywhere;
-  font-size: 0.8rem;
 }
 
 .node h4 {
@@ -495,10 +479,8 @@
     border-left: 0;
     border-top: 1px solid var(--ledger-border);
   }
-  .graph {
-    max-height: 60vh;
-  }
   .tables {
-    max-height: 50vh;
+    flex: none;
+    height: 70vh;
   }
 }

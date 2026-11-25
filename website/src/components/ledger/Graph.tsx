@@ -11,15 +11,17 @@ import {
   key,
   same,
   utxoId,
+  utxoLabel,
   type Selection,
 } from "./format";
 import styles from "./styles.module.css";
 
-const COLUMN = 210;
-const WIDTH = 170;
-const LEFT = 24;
-const TOP = 44;
-const GAP = 12;
+const WIDTH = 200;
+const LABEL = 80;
+const LEFT = 16;
+const TOP = 16;
+const GAP_X = 64;
+const GAP_Y = 32;
 const HEAD = 26;
 const ROW = 22;
 const PILL = 30;
@@ -48,8 +50,8 @@ function Port({ utxo, at }: { utxo: UtxoInfo; at: Point }) {
 }
 
 /**
- * Flow of the ledger: a column per block, after one for the genesis outputs,
- * with each UTXO linked to the transaction spending it.
+ * Flow of the ledger: a row per block, after one for the genesis outputs,
+ * with each UTXO linked to the input of the transaction spending it.
  */
 export function Graph({
   state,
@@ -61,16 +63,17 @@ export function Graph({
   onSelect: (selection: Selection) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
-  const columns = state.blocks.length + 1;
+  const blocks = state.blocks.length;
   useEffect(() => {
     const el = scroller.current;
     if (el) {
-      el.scrollLeft = el.scrollWidth;
+      el.scrollTop = el.scrollHeight;
     }
-  }, [columns]);
+  }, [blocks]);
 
+  const utxos = new Map(state.utxos.map((utxo) => [utxoId(utxo), utxo]));
   const outputs = new Map<string, Point>();
-  const inputs = new Map<string, Point>();
+  const edges: [string, Point][] = [];
   const byTransaction = new Map<string, UtxoInfo[]>();
   for (const utxo of state.utxos) {
     const list = byTransaction.get(utxo.transaction) ?? [];
@@ -80,36 +83,36 @@ export function Graph({
   const selected = (s: Selection) =>
     same(selection, s) ? styles.selected : "";
 
-  const rows = (utxos: UtxoInfo[], x: number, y: number): ReactNode[] =>
-    utxos.map((utxo, i) => {
-      const cy = y + i * ROW + ROW / 2;
-      const at = { x: x + WIDTH, y: cy };
-      outputs.set(utxoId(utxo), at);
-      const s: Selection = {
-        kind: "utxo",
-        transaction: utxo.transaction,
-        index: utxo.index,
-      };
-      return (
-        <g
-          key={utxoId(utxo)}
-          className={`${styles.row} ${selected(s)}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect(s);
-          }}
-        >
-          <title>
-            {`UTXO ${utxo.index}: ${utxo.instance} of contract ${utxo.contract}${utxo.spentBy ? `, spent by ${utxo.spentBy}` : ""}`}
-          </title>
-          <rect x={x + 1} y={y + i * ROW} width={WIDTH - 2} height={ROW} />
-          <text x={x + 10} y={cy + 4}>
-            {`${utxo.index} ${utxo.instance}`}
-          </text>
-          <Port utxo={utxo} at={at} />
-        </g>
-      );
-    });
+  const row = (
+    utxo: UtxoInfo,
+    x: number,
+    y: number,
+    text: string,
+    tooltip: string,
+  ): ReactNode => {
+    const s: Selection = {
+      kind: "utxo",
+      transaction: utxo.transaction,
+      index: utxo.index,
+    };
+    return (
+      <g
+        key={`row-${x}-${y}`}
+        className={`${styles.row} ${selected(s)}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect(s);
+        }}
+      >
+        <title>{tooltip}</title>
+        <rect x={x + 1} y={y} width={WIDTH - 2} height={ROW} />
+        <text x={x + 10} y={y + ROW / 2 + 4}>
+          {text}
+        </text>
+        <Port utxo={utxo} at={{ x: x + WIDTH, y: y + ROW / 2 }} />
+      </g>
+    );
+  };
 
   const card = (
     x: number,
@@ -117,27 +120,53 @@ export function Graph({
     title: string,
     tooltip: string,
     s: Selection,
-    utxos: UtxoInfo[],
+    inputs: UtxoInfo[],
+    created: UtxoInfo[],
     className: string,
   ): Layout => {
-    const height = HEAD + utxos.length * ROW + (utxos.length ? 6 : 0);
-    return {
-      height,
-      nodes: [
-        <g
-          key={`card-${title}-${y}`}
-          className={`${styles.card} ${className} ${selected(s)}`}
-          onClick={() => onSelect(s)}
-        >
-          <title>{tooltip}</title>
-          <rect x={x} y={y} width={WIDTH} height={height} rx={8} />
-          <text className={styles.cardTitle} x={x + 10} y={y + 17}>
-            {title}
-          </text>
-        </g>,
-        ...rows(utxos, x, y + HEAD),
-      ],
-    };
+    const rows = inputs.length + created.length;
+    const height = HEAD + rows * ROW + (rows ? 6 : 0);
+    const nodes: ReactNode[] = [
+      <g
+        key={`card-${title}-${y}`}
+        className={`${styles.card} ${className} ${selected(s)}`}
+        onClick={() => onSelect(s)}
+      >
+        <title>{tooltip}</title>
+        <rect x={x} y={y} width={WIDTH} height={height} rx={8} />
+        <text className={styles.cardTitle} x={x + 10} y={y + 17}>
+          {title}
+        </text>
+      </g>,
+    ];
+    let top = y + HEAD;
+    for (const utxo of inputs) {
+      edges.push([utxoId(utxo), { x: x + WIDTH, y: top + ROW / 2 }]);
+      nodes.push(
+        row(
+          utxo,
+          x,
+          top,
+          `← ${utxoLabel(utxo)} ${utxo.instance}`,
+          `Spends UTXO ${utxoLabel(utxo)}: ${utxo.instance} of contract ${utxo.contract}`,
+        ),
+      );
+      top += ROW;
+    }
+    for (const utxo of created) {
+      outputs.set(utxoId(utxo), { x: x + WIDTH, y: top + ROW / 2 });
+      nodes.push(
+        row(
+          utxo,
+          x,
+          top,
+          `→ ${utxo.index} ${utxo.instance}`,
+          `Creates UTXO ${utxo.index}: ${utxo.instance} of contract ${utxo.contract}${utxo.spentBy ? `, spent by ${utxo.spentBy}` : ""}`,
+        ),
+      );
+      top += ROW;
+    }
+    return { height, nodes };
   };
 
   const envelope = (
@@ -149,17 +178,17 @@ export function Graph({
   ): Layout => {
     switch (e.kind) {
       case "transaction": {
-        const layout = card(
+        const tx = state.transactions.find(({ digest }) => digest === e.digest);
+        return card(
           x,
           y,
           `tx ${digest(e.digest)}`,
           `Transaction ${e.digest}`,
           { kind: "transaction", digest: e.digest },
+          (tx?.inputs ?? []).flatMap((input) => utxos.get(utxoId(input)) ?? []),
           byTransaction.get(e.digest) ?? [],
           "",
         );
-        inputs.set(e.digest, { x, y: y + HEAD / 2 });
-        return layout;
       }
       case "publish": {
         const s: Selection = { kind: "contract", digest: e.digest };
@@ -211,101 +240,95 @@ export function Graph({
   };
 
   const nodes: ReactNode[] = [];
-  let height = 0;
-  const column = (
-    i: number,
+  let width = 0;
+  let y = TOP;
+  const block = (
     label: string,
     s: Selection | undefined,
     items: ((x: number, y: number) => Layout)[],
   ) => {
-    const x = LEFT + i * COLUMN;
     nodes.push(
       <text
-        key={`label-${i}`}
+        key={`label-${label}`}
         className={`${styles.columnLabel} ${s ? styles.clickable : ""}`}
-        x={x}
-        y={24}
+        x={LEFT}
+        y={y + 19}
         onClick={s && (() => onSelect(s))}
       >
         {label}
       </text>,
     );
-    let y = TOP;
+    let x = LEFT + LABEL;
+    let height = PILL;
     for (const item of items) {
       const layout = item(x, y);
       nodes.push(...layout.nodes);
-      y += layout.height + GAP;
+      height = Math.max(height, layout.height);
+      x += WIDTH + GAP_X;
     }
-    height = Math.max(height, y);
+    width = Math.max(width, x);
+    y += height + GAP_Y;
   };
 
   const genesis = byTransaction.get("") ?? [];
-  column(
-    0,
-    "Genesis",
-    undefined,
-    genesis.length
-      ? [
-          (x, y) =>
-            card(
-              x,
-              y,
-              "genesis outputs",
-              "Outputs of the genesis block",
-              { kind: "block", height: 0n },
-              genesis,
-              styles.genesis,
-            ),
-        ]
-      : [],
-  );
-  state.blocks.forEach(({ height, envelopes }, i) =>
-    column(
-      i + 1,
+  if (genesis.length) {
+    block("Genesis", { kind: "block", height: 0n }, [
+      (x, y) =>
+        card(
+          x,
+          y,
+          "genesis outputs",
+          "Outputs of the genesis block",
+          { kind: "block", height: 0n },
+          [],
+          genesis,
+          styles.genesis,
+        ),
+    ]);
+  }
+  state.blocks.forEach(({ height, envelopes }) =>
+    block(
       `Block ${height}`,
       { kind: "block", height },
       envelopes.map((e, index) => (x, y) => envelope(e, height, index, x, y)),
     ),
   );
 
-  const edges: ReactNode[] = [];
-  for (const tx of state.transactions) {
-    const to = inputs.get(tx.digest);
-    tx.inputs.forEach((input) => {
-      const from = outputs.get(utxoId(input));
-      const utxo = state.utxos.find(
-        (u) => u.transaction === input.transaction && u.index === input.index,
-      );
-      if (!from || !to || !utxo) {
-        return;
-      }
-      const bend = Math.max(40, (to.x - from.x) / 2);
-      edges.push(
-        <path
-          key={`${utxoId(input)}->${tx.digest}`}
-          className={styles.edge}
-          d={`M ${from.x} ${from.y} C ${from.x + bend} ${from.y}, ${to.x - bend} ${to.y}, ${to.x} ${to.y}`}
-          style={{ stroke: color(utxo.contract) }}
-        />,
-      );
-    });
-  }
+  const paths = edges.flatMap(([id, to]) => {
+    const from = outputs.get(id);
+    const utxo = utxos.get(id);
+    if (!from || !utxo) {
+      return [];
+    }
+    const bend = 16 + Math.min(GAP_X - 24, Math.abs(to.y - from.y) / 8);
+    return [
+      <path
+        key={`${id}->${to.x},${to.y}`}
+        className={styles.edge}
+        d={`M ${from.x} ${from.y} C ${from.x + bend} ${from.y}, ${to.x + bend} ${to.y}, ${to.x} ${to.y}`}
+        style={{ stroke: color(utxo.contract) }}
+      />,
+    ];
+  });
 
   return (
     <div className={styles.graph} ref={scroller}>
       <svg
-        width={LEFT * 2 + columns * COLUMN - (COLUMN - WIDTH)}
-        height={Math.max(height, 120)}
+        width={Math.max(width, LEFT + LABEL + WIDTH + GAP_X)}
+        height={Math.max(y, 120)}
         role="img"
         aria-label="Blocks, transactions and UTXOs of the ledger"
       >
-        <g>{edges}</g>
+        <g>{paths}</g>
         <g>{nodes}</g>
       </svg>
-      {columns === 1 && !genesis.length ? (
+      {!blocks && !genesis.length ? (
         <p className={styles.graphEmpty}>
-          The ledger is empty. Drop a Starstream source (<code>.star</code>) or
-          a component (<code>.wasm</code>) here to publish it.
+          <span>
+            The ledger is empty. Drop a Starstream source (<code>.star</code>)
+            or a component (<code>.wasm</code>) here, or pick an example, to
+            publish it.
+          </span>
         </p>
       ) : null}
     </div>

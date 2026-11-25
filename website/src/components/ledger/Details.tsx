@@ -1,17 +1,17 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { ExplorerState, UtxoInfo } from "../../ledger-explorer";
-import type { LedgerCall, Published } from "../../ledger.worker";
+import type { Func, LedgerCall, Published, Signer } from "../../ledger.worker";
 import {
   amount,
   color,
   digest,
   key,
+  liveUtxos,
   utxoLabel,
-  witExports,
-  witFuncs,
   type Selection,
 } from "./format";
 import styles from "./styles.module.css";
+import { CallForm, formatValue, signature } from "./ValueInput";
 
 export type Call = (call: LedgerCall) => Promise<unknown>;
 
@@ -19,8 +19,6 @@ interface Context {
   state: ExplorerState;
   wallet: string | undefined;
   published: Record<string, Published>;
-  /** Paths of the files of the terminal. */
-  files: string[];
   call: Call;
   /** Run `call`, reporting its failure. */
   perform: (call: LedgerCall) => void;
@@ -87,72 +85,76 @@ function UtxoLink({ utxo, ctx }: { utxo: UtxoInfo; ctx: Context }) {
   );
 }
 
-/** Form running a call that takes arguments as typed in the terminal. */
-function Invoke({
-  label,
-  placeholder,
-  disabled,
-  run,
+/** Load the functions `load` lists while `active`, again when `deps` change. */
+function useFuncs(
+  active: boolean,
+  load: () => Promise<unknown>,
+  deps: unknown[],
+): { funcs?: Func[]; error?: string } | undefined {
+  const [funcs, setFuncs] = useState<{ funcs?: Func[]; error?: string }>();
+  useEffect(() => {
+    setFuncs(undefined);
+    if (!active) {
+      return;
+    }
+    let current = true;
+    load().then(
+      (funcs) => current && setFuncs({ funcs: funcs as Func[] }),
+      (err: unknown) =>
+        current &&
+        setFuncs({ error: err instanceof Error ? err.message : String(err) }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [active, ...deps]);
+  return funcs;
+}
+
+function Funcs({
+  loaded,
+  children,
 }: {
-  label: string;
-  placeholder?: string;
-  disabled?: boolean;
-  run: (args: string) => Promise<unknown>;
+  loaded: { funcs?: Func[]; error?: string } | undefined;
+  children: (func: Func) => ReactNode;
 }) {
-  const [args, setArgs] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string }>();
+  if (!loaded) {
+    return <p className={styles.hint}>loading…</p>;
+  }
+  if (loaded.error) {
+    return <p className={styles.error}>{loaded.error}</p>;
+  }
+  if (!loaded.funcs?.length) {
+    return <p className={styles.hint}>none</p>;
+  }
   return (
-    <form
-      className={styles.invoke}
-      onSubmit={(e) => {
-        e.preventDefault();
-        setBusy(true);
-        setResult(undefined);
-        void run(args)
-          .then(
-            (out) => setResult({ ok: true, text: String(out ?? "").trim() }),
-            (err: unknown) =>
-              setResult({
-                ok: false,
-                text: err instanceof Error ? err.message : String(err),
-              }),
-          )
-          .finally(() => setBusy(false));
-      }}
-    >
-      <input
-        value={args}
-        placeholder={placeholder ?? 'WAVE arguments, e.g. 1 "text"'}
-        onChange={(e) => setArgs(e.target.value)}
-      />
-      <button
-        className="button button--sm button--primary"
-        disabled={disabled || busy}
-      >
-        {label}
-      </button>
-      {result ? (
-        <pre className={result.ok ? styles.result : styles.error}>
-          {result.text || "()"}
-        </pre>
-      ) : null}
-    </form>
+    <>
+      {loaded.funcs.map((func) => (
+        <details key={func.name} className={styles.method}>
+          <summary>
+            <code>{signature(func)}</code>
+          </summary>
+          {children(func)}
+        </details>
+      ))}
+    </>
   );
 }
 
 function ContractDetails({ d, ctx }: { d: string; ctx: Context }) {
   const contract = ctx.state.contracts.find(({ digest }) => digest === d);
-  const [script, setScript] = useState("");
-  const [signer, setSigner] = useState("user.key");
+  const [signer, setSigner] = useState<Signer>("wallet");
+  const onLedger = contract?.height !== undefined;
+  const scripts = useFuncs(
+    onLedger,
+    () => ctx.call({ op: "scripts", contract: d }),
+    [d],
+  );
   if (!contract) {
     return <p>Contract not found.</p>;
   }
   const utxos = ctx.state.utxos.filter(({ contract }) => contract === d);
   const published = ctx.published[d];
-  const wit = published?.wit;
-  const scripts = wit ? witExports(wit) : [];
-  const params = scripts.find(({ name }) => name === script)?.params;
   return (
     <>
       <h3>
@@ -181,7 +183,9 @@ function ContractDetails({ d, ctx }: { d: string; ctx: Context }) {
               to={{ kind: "account", key: contract.publisher }}
               onSelect={ctx.onSelect}
             >
-              {key(contract.publisher)}
+              {contract.publisher === ctx.wallet
+                ? "your wallet"
+                : key(contract.publisher)}
             </Link>
           </Field>
         ) : null}
@@ -189,7 +193,7 @@ function ContractDetails({ d, ctx }: { d: string; ctx: Context }) {
           <Field label="Size">{amount(BigInt(contract.size))} bytes</Field>
         ) : null}
       </dl>
-      {contract.height !== undefined ? (
+      {onLedger ? (
         <button
           className="button button--sm button--secondary margin-bottom--md"
           onClick={() => ctx.perform({ op: "download", contract: d })}
@@ -198,59 +202,69 @@ function ContractDetails({ d, ctx }: { d: string; ctx: Context }) {
         </button>
       ) : null}
 
-      <h4>Call a coordination script</h4>
-      <p className={styles.hint}>
-        Runs locally and submits the transaction. UTXO arguments are{" "}
-        <code>TRANSACTION:INDEX</code>, with an empty <code>TRANSACTION</code>{" "}
-        for genesis outputs, which only <code>admin.key</code> may spend.
-      </p>
-      <label className={styles.inline}>
-        <span>Sign with</span>
-        <select value={signer} onChange={(e) => setSigner(e.target.value)}>
-          {[...new Set(["user.key", ...ctx.files])]
-            .filter((path) => path.endsWith(".key"))
-            .map((path) => (
-              <option key={path}>{path}</option>
-            ))}
-        </select>
-      </label>
-      <label className={styles.inline}>
-        <span>Script</span>
-        <input
-          list={`scripts-${d}`}
-          value={script}
-          placeholder="name"
-          onChange={(e) => setScript(e.target.value)}
-        />
-        <datalist id={`scripts-${d}`}>
-          {scripts.map(({ name }) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-      </label>
-      <Invoke
-        label="Call"
-        disabled={!script}
-        placeholder={
-          params === undefined ? undefined : params || "no arguments"
-        }
-        run={(args) =>
-          ctx.call({ op: "script", contract: d, script, args, key: signer })
-        }
-      />
-      {published ? (
-        <p className={styles.hint}>
-          A transaction needs an input, so scripts creating the first UTXOs of a
-          contract run at genesis.{" "}
-          <button
-            className={styles.link}
-            onClick={() => ctx.onGenesis(published.path, script)}
-          >
-            Start a new ledger running{" "}
-            {script ? <code>{script}</code> : "a script"} at genesis
-          </button>
-        </p>
-      ) : null}
+      <h4>Coordination scripts</h4>
+      {onLedger ? (
+        <>
+          <p className={styles.hint}>
+            Scripts run in this browser and submit the transaction they build.
+            Genesis UTXOs may only be spent by the ledger admin.
+          </p>
+          <label className={styles.inline}>
+            <span>Sign with</span>
+            <select
+              value={signer}
+              onChange={(e) => setSigner(e.target.value as Signer)}
+            >
+              <option value="wallet">your wallet</option>
+              <option value="admin">the ledger admin</option>
+            </select>
+          </label>
+          <Funcs loaded={scripts}>
+            {(func) => (
+              <>
+                <CallForm
+                  func={func}
+                  utxos={liveUtxos(ctx.state)}
+                  label="Run"
+                  run={async (args) => {
+                    const { transaction, result, error } = (await ctx.call({
+                      op: "script",
+                      contract: d,
+                      script: func.name,
+                      args,
+                      signer,
+                    })) as {
+                      transaction?: string;
+                      result: unknown;
+                      error?: string;
+                    };
+                    return [
+                      ...(func.result
+                        ? [`returned ${formatValue(result)}`]
+                        : []),
+                      transaction
+                        ? `submitted tx ${digest(transaction)}`
+                        : `not submitted: ${error}`,
+                    ].join("\n");
+                  }}
+                />
+                {published ? (
+                  <p className={styles.hint}>
+                    <button
+                      className={styles.link}
+                      onClick={() => ctx.onGenesis(published.path, func.name)}
+                    >
+                      Start a new ledger running it at genesis
+                    </button>
+                  </p>
+                ) : null}
+              </>
+            )}
+          </Funcs>
+        </>
+      ) : (
+        <p className={styles.hint}>Publish the contract to list its scripts.</p>
+      )}
 
       <h4>UTXOs ({utxos.length})</h4>
       <ul className={styles.list}>
@@ -260,12 +274,6 @@ function ContractDetails({ d, ctx }: { d: string; ctx: Context }) {
           </li>
         ))}
       </ul>
-      {wit ? (
-        <details>
-          <summary>WIT</summary>
-          <pre className={styles.code}>{wit}</pre>
-        </details>
-      ) : null}
     </>
   );
 }
@@ -282,28 +290,20 @@ function UtxoDetails({
   const utxo = ctx.state.utxos.find(
     (u) => u.transaction === transaction && u.index === index,
   );
-  const [methods, setMethods] = useState<{ wit?: string; error?: string }>();
-  const spent = utxo?.spentBy;
   const published =
     utxo &&
     ctx.state.contracts.find(({ digest }) => digest === utxo.contract)
       ?.height !== undefined;
-  useEffect(() => {
-    setMethods(undefined);
-    if (spent !== undefined) {
-      return;
-    }
-    let active = true;
-    ctx.call({ op: "utxoWit", utxo: { transaction, index } }).then(
-      (wit) => active && setMethods({ wit: wit as string | undefined }),
-      (err: unknown) =>
-        active &&
-        setMethods({ error: err instanceof Error ? err.message : String(err) }),
-    );
-    return () => {
-      active = false;
-    };
-  }, [transaction, index, spent, published]);
+  const methods = useFuncs(
+    !!utxo && !utxo.spentBy && !!published,
+    () =>
+      ctx.call({
+        op: "utxoMethods",
+        contract: utxo!.contract,
+        instance: utxo!.instance,
+      }),
+    [utxo?.contract, utxo?.instance],
+  );
   if (!utxo) {
     return <p>UTXO not found.</p>;
   }
@@ -363,14 +363,10 @@ function UtxoDetails({
           <p className={styles.hint}>
             Calls discard the resulting state, so they only read the UTXO.
           </p>
-          {!methods ? (
-            <p>loading</p>
-          ) : methods.error ? (
-            <p className={styles.error}>{methods.error}</p>
-          ) : methods.wit === undefined ? (
+          {!published ? (
             <p className={styles.hint}>
-              The contract of this UTXO is not published on this ledger, so the
-              ledger cannot describe its methods.{" "}
+              The contract of this UTXO is not published on this ledger, so its
+              methods are unknown.{" "}
               {ctx.published[utxo.contract] ? (
                 <button
                   className={styles.link}
@@ -386,25 +382,27 @@ function UtxoDetails({
               ) : null}
             </p>
           ) : (
-            witFuncs(methods.wit).map(({ name, params, result }) => (
-              <div key={name} className={styles.method}>
-                <code>
-                  {name}({params}){result ? ` -> ${result}` : ""}
-                </code>
-                <Invoke
-                  label="Call"
-                  placeholder={params ? undefined : "no arguments"}
-                  run={(args) =>
-                    ctx.call({
+            <Funcs loaded={methods}>
+              {(func) => (
+                <CallForm
+                  func={func}
+                  utxos={liveUtxos(ctx.state)}
+                  run={async (args) => {
+                    const result = await ctx.call({
                       op: "utxo",
                       utxo: { transaction, index },
-                      method: name,
+                      method: func.name,
+                      ty: {
+                        params: func.params.map(({ ty }) => ty),
+                        result: func.result,
+                      },
                       args,
-                    })
-                  }
+                    });
+                    return func.result ? formatValue(result) : "done";
+                  }}
                 />
-              </div>
-            ))
+              )}
+            </Funcs>
           )}
         </>
       )}
@@ -494,7 +492,7 @@ function AccountDetails({ k, ctx }: { k: string; ctx: Context }) {
   );
   return (
     <>
-      <h3>Account{k === ctx.wallet ? " (user.key)" : ""}</h3>
+      <h3>{k === ctx.wallet ? "Your wallet" : "Account"}</h3>
       <dl className={styles.fields}>
         <Field label="Public key">
           <Copy value={k} />

@@ -61,29 +61,3 @@ export function color(digest: string): string {
 export function liveUtxos(state: ExplorerState): UtxoInfo[] {
   return state.utxos.filter(({ spentBy }) => !spentBy);
 }
-
-export interface WitFunc {
-  name: string;
-  params: string;
-  result?: string;
-}
-
-const FUNC = String.raw`(%?[a-z][a-z0-9-]*): func\(([^)]*)\)(?:\s*->\s*([^;{]+))?;`;
-
-function funcs(wit: string, pattern: RegExp): WitFunc[] {
-  return Array.from(wit.matchAll(pattern), ([, name, params, result]) => ({
-    name: name.replace(/^%/, ""),
-    params,
-    result: result?.trim(),
-  }));
-}
-
-/** List the functions of a WIT interface, without parsing it fully. */
-export function witFuncs(wit: string): WitFunc[] {
-  return funcs(wit, new RegExp(`^\\s*${FUNC}`, "gm"));
-}
-
-/** List the functions a WIT world exports, the coordination scripts of a contract. */
-export function witExports(wit: string): WitFunc[] {
-  return funcs(wit, new RegExp(`^\\s*export ${FUNC}`, "gm"));
-}
