@@ -15,7 +15,7 @@
 //!
 //! A constructor identity binds the contract digest, the UTXO export and the
 //! constructor name and its ordered user-parameter types.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sha2::{Digest, Sha256};
 use wasm_encoder::Encode;
@@ -38,6 +38,7 @@ pub(crate) struct CoordinatorAbis {
     /// Constructor parameter signatures keyed by the core interface and field names.
     pub constructor_imports: ConstructorSignatures,
     pub constructor_exports: ConstructorSignatures,
+    pub token_interfaces: BTreeSet<String>,
     pub is_component: bool,
     /// Digest of this contract, which owns its `starstream:self` UTXOs.
     pub contract_digest: [u8; 32],
@@ -157,6 +158,17 @@ impl CoordinatorAbis {
         for (key, item) in &resolve.worlds[world].exports {
             let name = resolve.name_world_key(key);
             if let WorldItem::Interface { id, .. } = item {
+                let interface = &resolve.interfaces[*id];
+                if let Some(Type::Id(result)) = interface
+                    .functions
+                    .get("set-storage")
+                    .and_then(|f| f.result)
+                    && let TypeDefKind::Handle(wit_parser::Handle::Own(resource)) =
+                        resolve.types[result].kind
+                    && interface.types.get("token") == Some(&resource)
+                {
+                    abis.token_interfaces.insert(name.clone());
+                }
                 abis.constructor_exports
                     .insert(name.clone(), types.signatures(*id, true)?);
             }

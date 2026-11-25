@@ -12,7 +12,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_interleaving_spec::events::EventKind;
 use starstream_interleaving_spec::{
     BLOCK_SIZE, ConstructorIdentity, EffectIdentity, METHOD_WORDS, MethodSelector, ScriptIdentity,
-    StarstreamValue,
+    StarstreamValue, StorageKind,
 };
 use wasmparser::{CompositeInnerType, Parser, Payload, TypeRef, ValType};
 
@@ -49,6 +49,8 @@ pub struct ComponentTemplates {
     pub import_frefs: BTreeMap<(String, String), u32>,
     /// Export frefs keyed by name.
     pub export_frefs: BTreeMap<String, u32>,
+    /// Resource kind restored by each storage setter, keyed by function reference.
+    pub(crate) storage_setters: BTreeMap<u32, StorageKind>,
     /// Exports that can start a coordinator, new UTXO, or loaded input.
     pub(crate) initial_exports: Vec<u32>,
 }
@@ -102,10 +104,10 @@ enum ExportKind {
     Method(MethodSelector),
     /// An allowlisted plain export: the transaction entrypoint.
     CoordinationScript,
-    /// `<utxo>#get-storage`: publishes the storage record when it returns.
-    GetStorage,
-    /// `<utxo>#set-storage`: loads the storage record when it is entered.
-    SetStorage,
+    /// `<resource>#get-storage`: publishes the storage record when it returns.
+    GetStorage(StorageKind),
+    /// `<resource>#set-storage`: loads the storage record when it is entered.
+    SetStorage(StorageKind),
     /// A compiler-generated export with no interleaving semantics.
     Internal,
     /// `starstream:effect-handler/<abi>#<effect>`: the dispatcher takes the
@@ -183,6 +185,7 @@ fn build_templates(
     let mut import_frefs = BTreeMap::new();
     let mut export_frefs = BTreeMap::new();
     let mut initial_exports = Vec::new();
+    let mut storage_setters = BTreeMap::new();
 
     for export in &exports {
         let fref = export.index.saturating_add(1);
@@ -190,9 +193,12 @@ fn build_templates(
         let classified = classify_export(export, &coordination_exports, coordinator_abis)?;
         if matches!(
             classified,
-            ExportKind::CoordinationScript | ExportKind::Constructor(_) | ExportKind::SetStorage
+            ExportKind::CoordinationScript | ExportKind::Constructor(_) | ExportKind::SetStorage(_)
         ) {
             initial_exports.push(fref);
+        }
+        if let ExportKind::SetStorage(kind) = classified {
+            storage_setters.insert(fref, kind);
         }
         if matches!(classified, ExportKind::CoordinationScript) {
             matched_coordination_exports.insert(export.name.as_str());
@@ -254,6 +260,7 @@ fn build_templates(
         import_frefs,
         export_frefs,
         initial_exports,
+        storage_setters,
     })
 }
 
@@ -326,8 +333,8 @@ impl ExportKind {
             Self::Constructor(_) => "constructor",
             Self::Method(_) => "method",
             Self::CoordinationScript => "coordination script",
-            Self::GetStorage => "get-storage",
-            Self::SetStorage => "set-storage",
+            Self::GetStorage(_) => "get-storage",
+            Self::SetStorage(_) => "set-storage",
             Self::Internal => "internal",
             Self::EffectHandler(_) => "effect handler",
         }
@@ -384,9 +391,17 @@ fn classify_export(
         if let Some(method) = item.strip_prefix(METHOD_PREFIX) {
             return Ok(ExportKind::Method(method_hash_from_segment(method)?));
         }
+        let storage_kind = if abis.token_interfaces.contains(instance) {
+            if let Some(method) = item.strip_prefix("[method]token.") {
+                return Ok(ExportKind::Method(method_hash_from_segment(method)?));
+            }
+            StorageKind::Token
+        } else {
+            StorageKind::Utxo
+        };
         return Ok(match item {
-            GET_STORAGE_EXPORT => ExportKind::GetStorage,
-            SET_STORAGE_EXPORT => ExportKind::SetStorage,
+            GET_STORAGE_EXPORT => ExportKind::GetStorage(storage_kind),
+            SET_STORAGE_EXPORT => ExportKind::SetStorage(storage_kind),
             _ => ExportKind::Internal,
         });
     }
@@ -615,6 +630,7 @@ fn require_receiver(
 
 /// Storage record types from the matching `set-storage` export.
 fn storage_record_types(
+    kind: StorageKind,
     export: &FunctionExport,
     exports: &[FunctionExport],
 ) -> Result<Box<[ValType]>, TemplateBuildError> {
@@ -632,14 +648,17 @@ fn storage_record_types(
             name: export.name.clone(),
             sibling: sibling.clone(),
         })?;
-    let Some((ValType::I32, record)) = setter.params.split_first() else {
-        return Err(TemplateBuildError::InvalidStorageExport {
-            name: sibling,
-            message: format!(
-                "expected an i32 context handle followed by the flat record, found {:?}",
-                setter.params
-            ),
-        });
+    let record = match (kind, setter.params.as_ref()) {
+        (StorageKind::Token, fields) | (StorageKind::Utxo, [ValType::I32, fields @ ..]) => fields,
+        (StorageKind::Utxo, _) => {
+            return Err(TemplateBuildError::InvalidStorageExport {
+                name: sibling,
+                message: format!(
+                    "expected an i32 context handle followed by the flat record, found {:?}",
+                    setter.params
+                ),
+            });
+        }
     };
     if setter.results.as_ref() != [ValType::I32] {
         return Err(TemplateBuildError::InvalidStorageExport {
@@ -681,18 +700,23 @@ fn get_storage_root(
     export: &FunctionExport,
     record: &[ValType],
 ) -> Result<Root, TemplateBuildError> {
-    if export.params.as_ref() != [ValType::I32] || export.results.as_ref() != [ValType::I32] {
+    let result = match record {
+        [ty] => *ty,
+        _ => ValType::I32, // Pointer to a multi-field return record.
+    };
+    if export.params.as_ref() != [ValType::I32] || export.results.as_ref() != [result] {
         return Err(TemplateBuildError::InvalidStorageExport {
             name: export.name.clone(),
             message: format!(
-                "expected (i32) -> i32, found {:?} -> {:?}",
+                "expected (i32) -> {result:?}, found {:?} -> {:?}",
                 export.params, export.results
             ),
         });
     }
     let sources = match record {
-        [] => Vec::new(),
-        [ValType::I32] => vec![SlotBinding::OutputElem { limb: Limb::Lo }],
+        [ty] => flat_limbs(*ty)
+            .map(|limb| SlotBinding::OutputElem { limb })
+            .collect(),
         record => record
             .iter()
             .zip(record_field_offsets(record))
@@ -768,9 +792,9 @@ fn build_export_events(
                 exit: return_exit_events(export_result_root(export)?)?,
             })
         }
-        ExportKind::GetStorage => {
+        ExportKind::GetStorage(storage_kind) => {
             require_receiver(export, kind, "resource receiver")?;
-            let record = storage_record_types(export, exports)?;
+            let record = storage_record_types(storage_kind, export, exports)?;
             let entry = bootstrap_receiver(export, &mut inputs)?;
             let exit =
                 Sequence::op(EventKind::GetStorage).root(get_storage_root(export, &record)?)?;
@@ -779,16 +803,20 @@ fn build_export_events(
                 exit: exit.finish()?,
             })
         }
-        ExportKind::SetStorage => {
-            require_receiver(export, kind, "utxo-context handle")?;
-            storage_record_types(export, exports)?;
+        ExportKind::SetStorage(storage_kind) => {
+            let fields = storage_record_types(storage_kind, export, exports)?;
+            let first_field = export.params.len() - fields.len();
             let entry = Sequence::op(EventKind::SetStorage).root(entry_arguments_root(
                 export,
                 &mut inputs,
-                1,
+                first_field,
             )?)?;
-            let mut entry = entry.finish()?;
-            entry.extend(bootstrap_receiver(export, &mut inputs)?);
+            let mut entry = entry
+                .constant_i32(u32::from(storage_kind == StorageKind::Token))?
+                .finish()?;
+            if storage_kind == StorageKind::Utxo {
+                entry.extend(bootstrap_receiver(export, &mut inputs)?);
+            }
             // The returned resource is not the coordinator-local binding.
             Ok(ExportEvents {
                 entry,
@@ -2244,6 +2272,27 @@ mod tests {
     }
 
     #[test]
+    fn utxo_get_storage_reads_both_limbs_of_a_direct_i64_result() {
+        let templates = build(
+            r#"(module
+                (func (export "counter#set-storage") (param i32 i64) (result i32) i32.const 0)
+                (func (export "counter#get-storage") (param i32) (result i64) i64.const 0))"#,
+            &[],
+        );
+        assert_eq!(
+            exit(
+                &templates,
+                "counter#get-storage",
+                Some((0x55667788, 0x11223344)),
+                &[]
+            ),
+            Trace::new([Step::GetStorage {
+                storage: Out(flat_value_root(&[ValType::I64], &[0x1122334455667788]))
+            }])
+        );
+    }
+
+    #[test]
     fn storage_exports_commit_the_record_root() {
         let templates = counter();
         let record = [ValType::I32, ValType::I64, ValType::I64];
@@ -2271,9 +2320,10 @@ mod tests {
         assert_eq!(
             enter(&templates, "counter#set-storage", &[1, 20, 0, 30, 0, 3]),
             Trace::new([Step::SetStorage {
+                kind: starstream_interleaving_spec::StorageKind::Utxo,
                 storage,
                 // TODO: review
-                entry_utxo_handle: ResourceHandle(0),
+                entry_handle: ResourceHandle(0),
             }])
         );
     }

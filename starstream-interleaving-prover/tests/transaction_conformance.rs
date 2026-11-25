@@ -84,8 +84,9 @@ fn fixture_with_handle(
     let output = StarstreamValue([17, 18, 19, 20]);
     let mut trace = Trace::new([
         Step::SetStorage {
+            kind: starstream_interleaving_spec::StorageKind::Utxo,
             storage: input.clone(),
-            entry_utxo_handle: handle,
+            entry_handle: handle,
         },
         Step::PreloadMethod { method: METHOD },
     ]);
@@ -198,8 +199,9 @@ fn new_utxo_transaction(
     // Input UTXO 0 survives; UTXO 1 survives iff its constructor registers an ABI.
     let mut trace = Trace::new([
         Step::SetStorage {
+            kind: starstream_interleaving_spec::StorageKind::Utxo,
             storage: UNIT,
-            entry_utxo_handle: ResourceHandle(0),
+            entry_handle: ResourceHandle(0),
         },
         Step::PreloadMethod { method: METHOD },
         Step::PreloadMethod { method: METHOD }, // idempotent membership, recorded in the input sequence
@@ -559,8 +561,9 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
             "load during execution",
             5,
             Step::SetStorage {
+                kind: starstream_interleaving_spec::StorageKind::Utxo,
                 storage: UNIT,
-                entry_utxo_handle: ResourceHandle(8),
+                entry_handle: ResourceHandle(8),
             },
         ),
         (
@@ -723,11 +726,8 @@ fn negative_cases() -> Vec<(&'static str, Trace, TransactionStatement, TraceComm
     changed.inputs.clear();
     cases.push(("excess input", trace.clone(), changed, commitments.clone()));
     let mut changed = trace.clone();
-    if let Step::SetStorage {
-        entry_utxo_handle, ..
-    } = &mut changed.0[0]
-    {
-        *entry_utxo_handle = ResourceHandle(9);
+    if let Step::SetStorage { entry_handle, .. } = &mut changed.0[0] {
+        *entry_handle = ResourceHandle(9);
     }
     cases.push((
         "call through an unbound input handle",
@@ -899,8 +899,20 @@ fn signer_and_token_statement_matches_quint() {
     statement.output_tokens.push(OutputToken {
         token: 0,
         owner: 0,
-        storage,
+        storage: storage.clone(),
     });
+    assert!(matches!(
+        verifier.verify_transaction(&trace, &statement),
+        Err(QuintError::RejectedStep { .. })
+    ));
+    trace.0.insert(
+        2,
+        Step::SetStorage {
+            kind: starstream_interleaving_spec::StorageKind::Token,
+            storage,
+            entry_handle: ResourceHandle(8),
+        },
+    );
     verifier.verify_transaction(&trace, &statement).unwrap();
     statement.signers.clear();
     assert!(matches!(

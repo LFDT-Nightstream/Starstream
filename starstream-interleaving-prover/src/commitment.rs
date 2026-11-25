@@ -72,6 +72,7 @@ fn source(word: Word) -> (usize, F) {
         Word::Method(i) => (COL_METHOD_HASH_VALUE[i], F::ONE),
         Word::Argument(i) => (COL_ARGUMENT_ROOT[i], F::ONE),
         Word::Result(i) => (COL_RESULT_ROOT[i], F::ONE),
+        Word::IsToken => (COL_TOKEN_LOAD, F::ONE),
         Word::Handled => (COL_EFFECT_HANDLED, F::ONE),
         Word::FrameId => (COL_EFFECT_FRAME_ID, F::ONE),
     }

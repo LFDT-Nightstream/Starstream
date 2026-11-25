@@ -23,8 +23,9 @@ fn get_storage_binds_chain_switch_and_fresh_program_root() {
     let trace = crate::tests::loaded(
         [
             Step::SetStorage {
+                kind: starstream_interleaving_spec::StorageKind::Utxo,
                 storage: storage.clone(),
-                entry_utxo_handle: ResourceHandle(0),
+                entry_handle: ResourceHandle(0),
             },
             Step::PreloadMethod {
                 method: MethodHash([1; 8]),

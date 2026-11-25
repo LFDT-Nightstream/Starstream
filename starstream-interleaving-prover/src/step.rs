@@ -81,6 +81,7 @@ pub(crate) fn normalize_with_inputs(
     // BeginExecution pushes the entry frame, whose caller is the context.
     let mut callers: Vec<CallFrame> = vec![];
     let mut call_sp = F::ZERO;
+    let mut next_token_id = 0u32;
     let mut next_utxo_id = 0u32;
     // Coord(0) is the transaction context; scripts are allocated from Coord(1).
     let mut next_coordinator_id = 1u32;
@@ -101,7 +102,18 @@ pub(crate) fn normalize_with_inputs(
     for step in &trace.0 {
         let opcode = Opcode::from(step);
         let tx_before = tx;
-        let boundary_utxo = match opcode {
+        let boundary_coroutine_id = match opcode {
+            Opcode::SetStorage
+                if matches!(
+                    step,
+                    Step::SetStorage {
+                        kind: starstream_interleaving_spec::StorageKind::Token,
+                        ..
+                    }
+                ) =>
+            {
+                CoroutineId::Token(next_token_id)
+            }
             Opcode::SetStorage => CoroutineId::Utxo(next_utxo_id),
             Opcode::PreloadMethod => CoroutineId::Utxo(next_utxo_id.saturating_sub(1)),
             Opcode::GetStorage | Opcode::SkipConsumed => CoroutineId::Utxo(tx.output_cursor),
@@ -111,6 +123,7 @@ pub(crate) fn normalize_with_inputs(
         let curr_before = curr;
         let instance_depth_before = instance_stack.len().saturating_sub(1) as u32;
         let curr_phase_before = curr_phase;
+        let next_token_id_before = next_token_id;
         let next_utxo_id_before = next_utxo_id;
         let next_coordinator_id_before = next_coordinator_id;
         let enabled_method_log_len_before =
@@ -196,13 +209,16 @@ pub(crate) fn normalize_with_inputs(
             Step::ReadAbi { method } => {
                 event_identity = Some(identity_limbs(*method));
                 method_index = method_indices[method];
-                abi_generation_address = boundary_utxo;
-                abi_generation_before = abi_generations.get(&boundary_utxo).copied().unwrap_or(0);
-                enabled_method_log_utxo = boundary_utxo;
+                abi_generation_address = boundary_coroutine_id;
+                abi_generation_before = abi_generations
+                    .get(&boundary_coroutine_id)
+                    .copied()
+                    .unwrap_or(0);
+                enabled_method_log_utxo = boundary_coroutine_id;
                 enabled_method_log_generation = abi_generation_before;
                 enabled_method_log_address = log_address_by_entry
                     .get(&(
-                        boundary_utxo,
+                        boundary_coroutine_id,
                         method_index,
                         abi_generation_before,
                         tx.abi_read_ordinal,
@@ -213,22 +229,35 @@ pub(crate) fn normalize_with_inputs(
                 tx.abi_read_remaining = tx.abi_read_remaining.wrapping_sub(1);
             }
             Step::SetStorage {
+                kind,
                 storage,
-                entry_utxo_handle,
+                entry_handle,
             } => {
                 expected_arguments = Some(storage.words32().map(|x| F::new(u64::from(x))).to_vec());
-                next_utxo_id = next_utxo_id
-                    .checked_add(1)
-                    .expect("UTXO allocator fits u32");
-                resolver_address = (CoroutineId::Coord(1), *entry_utxo_handle);
-                resolver_value = boundary_utxo;
+                match kind {
+                    starstream_interleaving_spec::StorageKind::Token => {
+                        next_token_id = next_token_id
+                            .checked_add(1)
+                            .expect("token allocator fits u32")
+                    }
+                    starstream_interleaving_spec::StorageKind::Utxo => {
+                        next_utxo_id = next_utxo_id
+                            .checked_add(1)
+                            .expect("UTXO allocator fits u32");
+                        tx.last_input_has_abi = false;
+                    }
+                }
+                resolver_address = (CoroutineId::Coord(1), *entry_handle);
+                resolver_value = boundary_coroutine_id;
                 resolver_write = true;
                 resource_resolver.insert(resolver_address, resolver_value);
-                tx.last_input_has_abi = false;
             }
             Step::FinishTransaction => tx.phase = TxPhase::Finished,
             Step::GetStorage { storage } => {
-                tx.abi_read_remaining = abi_method_counts.get(&boundary_utxo).copied().unwrap_or(0);
+                tx.abi_read_remaining = abi_method_counts
+                    .get(&boundary_coroutine_id)
+                    .copied()
+                    .unwrap_or(0);
                 tx.abi_read_ordinal = 0;
                 expected_result = Some(storage.0.words32().map(|x| F::new(u64::from(x))).to_vec());
                 tx.output_cursor = tx
@@ -306,7 +335,7 @@ pub(crate) fn normalize_with_inputs(
             Step::RegisterMethod { method } | Step::PreloadMethod { method } => {
                 let owner = if opcode == Opcode::PreloadMethod {
                     tx.last_input_has_abi = true;
-                    boundary_utxo
+                    boundary_coroutine_id
                 } else {
                     curr_before
                 };
@@ -599,7 +628,10 @@ pub(crate) fn normalize_with_inputs(
             }
             abi_method_counts.insert(abi_generation_address, abi_method_count_after);
         } else if opcode.scans_output() {
-            abi_method_count_before = abi_method_counts.get(&boundary_utxo).copied().unwrap_or(0);
+            abi_method_count_before = abi_method_counts
+                .get(&boundary_coroutine_id)
+                .copied()
+                .unwrap_or(0);
         }
         let event_owner = if opcode == Opcode::FinalizeCoordinator {
             CoroutineId::Coord(tx_before.coordinator_cursor)
@@ -607,7 +639,7 @@ pub(crate) fn normalize_with_inputs(
             opcode,
             Opcode::SetStorage | Opcode::GetStorage | Opcode::SkipConsumed
         ) {
-            boundary_utxo
+            boundary_coroutine_id
         } else if matches!(opcode, Opcode::EnterEffectHandler | Opcode::ResumeEffect) {
             call_target
         } else if opcode.has_event() {
@@ -655,7 +687,7 @@ pub(crate) fn normalize_with_inputs(
             abi_method_count_after,
             tx_before,
             tx_after: tx,
-            boundary_utxo,
+            boundary_coroutine_id,
             event_owner,
             commitment_before,
             opcode,
@@ -694,6 +726,8 @@ pub(crate) fn normalize_with_inputs(
             effect_arena_len_before,
             effect_arena_len_after: u32::try_from(arena.len())
                 .expect("the effect arena fits in u32"),
+            next_token_id_before,
+            next_token_id_after: next_token_id,
             next_utxo_id_before,
             next_utxo_id_after: next_utxo_id,
             next_coordinator_id_before,
@@ -791,7 +825,7 @@ pub(crate) struct Wit {
     pub(crate) io_after: [F; 4],
     pub(crate) tx_before: TransactionState,
     pub(crate) tx_after: TransactionState,
-    pub(crate) boundary_utxo: CoroutineId,
+    pub(crate) boundary_coroutine_id: CoroutineId,
     pub(crate) event_owner: CoroutineId,
     pub(crate) commitment_before: [F; 4],
     pub(crate) opcode: Opcode,
@@ -823,6 +857,8 @@ pub(crate) struct Wit {
     pub(crate) effect_arena_len_after: u32,
     pub(crate) instance_depth_before: u32,
     pub(crate) instance_depth_after: u32,
+    pub(crate) next_token_id_before: u32,
+    pub(crate) next_token_id_after: u32,
     pub(crate) next_utxo_id_before: u32,
     pub(crate) next_utxo_id_after: u32,
     pub(crate) next_coordinator_id_before: u32,
@@ -869,7 +905,7 @@ impl Wit {
             io_before: self.io_after,
             io_after: self.io_after,
             tx_after: self.tx_after,
-            boundary_utxo: CoroutineId::Coord(0),
+            boundary_coroutine_id: CoroutineId::Coord(0),
             event_owner: CoroutineId::Coord(0),
             commitment_before: [F::ZERO; 4],
             opcode: Opcode::Padding,
@@ -899,6 +935,8 @@ impl Wit {
             effect_depth_after: self.effect_depth_after,
             effect_arena_len_before: self.effect_arena_len_after,
             effect_arena_len_after: self.effect_arena_len_after,
+            next_token_id_before: self.next_token_id_after,
+            next_token_id_after: self.next_token_id_after,
             next_utxo_id_before: self.next_utxo_id_after,
             next_utxo_id_after: self.next_utxo_id_after,
             next_coordinator_id_before: self.next_coordinator_id_after,

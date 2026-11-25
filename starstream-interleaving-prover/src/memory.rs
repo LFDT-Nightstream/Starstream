@@ -60,6 +60,7 @@ pub enum MemoryId {
     SignerKey,
     SignerPresent,
     ResourceResolver,
+    TokenTraceCommitments,
     UtxoTraceCommitments,
     CoordTraceCommitments,
 }
@@ -322,11 +323,11 @@ fn effect_scope_layout() -> [MemorySpec<MemoryId>; 4] {
     ]
 }
 
-fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 2] {
+fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 3] {
     use crate::ccs::layout::{
         COL_COORD_EVENT, COL_SEL_FINALIZE_COORDINATOR, COL_SEL_SKIP_CONSUMED, COL_UTXO_EVENT,
     };
-    let memory = |id, event, read| MemorySpec {
+    let memory = |id, event, read: Option<usize>| MemorySpec {
         id,
         kind: MemoryKind::Ram,
         ports: COL_EVENT_OWNER_STRIDE_8
@@ -341,26 +342,33 @@ fn trace_commitments_layout() -> [MemorySpec<MemoryId>; 2] {
                 },
                 activation: MemoryPortActivation::When(event),
             })
-            .chain(COL_EVENT_OWNER_STRIDE_8.into_iter().zip(COL_IN_WORDS).map(
-                |(address, value)| MemoryPortSpec {
-                    address_columns: vec![address],
-                    value_column: value,
-                    kind: MemoryPortKind::Read,
-                    activation: MemoryPortActivation::When(read),
-                },
-            ))
+            .chain(read.into_iter().flat_map(|read| {
+                COL_EVENT_OWNER_STRIDE_8.into_iter().zip(COL_IN_WORDS).map(
+                    move |(address, value)| MemoryPortSpec {
+                        address_columns: vec![address],
+                        value_column: value,
+                        kind: MemoryPortKind::Read,
+                        activation: MemoryPortActivation::When(read),
+                    },
+                )
+            }))
             .collect(),
     };
     [
         memory(
+            MemoryId::TokenTraceCommitments,
+            crate::ccs::layout::COL_TOKEN_LOAD,
+            None,
+        ),
+        memory(
             MemoryId::UtxoTraceCommitments,
             COL_UTXO_EVENT,
-            COL_SEL_SKIP_CONSUMED,
+            Some(COL_SEL_SKIP_CONSUMED),
         ),
         memory(
             MemoryId::CoordTraceCommitments,
             COL_COORD_EVENT,
-            COL_SEL_FINALIZE_COORDINATOR,
+            Some(COL_SEL_FINALIZE_COORDINATOR),
         ),
     ]
 }
@@ -767,6 +775,7 @@ pub(crate) fn sanity_checking_policy(
             (EnabledMethodLogGeneration, RamInitialization::Zero),
             (EnabledMethodLogOrdinal, RamInitialization::Zero),
             (ResourceResolver, RamInitialization::Zero),
+            (TokenTraceCommitments, RamInitialization::Zero),
             (UtxoTraceCommitments, RamInitialization::Zero),
             (CoordTraceCommitments, RamInitialization::Zero),
         ],
@@ -837,6 +846,7 @@ impl MemoryId {
             MemoryId::SignerKey => "signer_key",
             MemoryId::SignerPresent => "signer_present",
             MemoryId::ResourceResolver => "resource_resolver",
+            MemoryId::TokenTraceCommitments => "token_trace_commitments",
             MemoryId::UtxoTraceCommitments => "utxo_trace_commitments",
             MemoryId::CoordTraceCommitments => "coord_trace_commitments",
         }

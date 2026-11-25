@@ -63,6 +63,10 @@ const UNHANDLED_EFFECT: &str = r#"
 /// Start at script entry with a detached token restored in its own component.
 #[tokio::test]
 async fn send_single_token_from_storage() -> wasmtime::Result<()> {
+    use starstream_proving_runtime::{
+        WasmTraceSink, build_component_templates, decode_captured_instance, enable_tracing,
+        register_tracing_component,
+    };
     use starstream_runtime::{Contract, Host};
     use wasmtime::component::{Component, Val};
     use wasmtime::error::Context as _;
@@ -70,19 +74,25 @@ async fn send_single_token_from_storage() -> wasmtime::Result<()> {
     let mut config = wasmtime::Config::default();
     starstream_runtime::configure_wasmtime(&mut config);
     let engine = wasmtime::Engine::new(&config)?;
-    let contract = |source| -> wasmtime::Result<Contract<common::Ctx>> {
+    let mut store = wasmtime::Store::new(&engine, common::Ctx::default());
+    let mut contract = |source| -> wasmtime::Result<Contract<common::Ctx>> {
         let wasm = common::compile_component(source)?;
-        Contract::new(
+        let contract = Contract::new(
             &Component::from_binary(&engine, &wasm)?,
             None,
             common::NoopContractLookup,
-        )
+        )?;
+        let names = contract.coordination_script_names().collect::<Vec<_>>();
+        let digest = <sha2::Sha256 as sha2::Digest>::digest(&wasm).into();
+        let templates = build_component_templates(&wasm, &names, &digest)?;
+        register_tracing_component(store.data_mut(), &wasm, &templates.bindings)?;
+        Ok(contract)
     };
     let payment = contract(include_str!("../../examples/pay_to_public_key.star"))?;
     let token_contract = contract(include_str!(
         "../../starstream-to-wasm/tests/inputs/token_attach.star"
     ))?;
-    let mut store = wasmtime::Store::new(&engine, common::Ctx::default());
+    enable_tracing(&mut store)?;
     let coordinator = payment.instantiate(&mut store).await?;
     let token_instance = token_contract.instantiate(&mut store).await?;
     let export = token_contract.get_token("my-token")?;
@@ -94,6 +104,13 @@ async fn send_single_token_from_storage() -> wasmtime::Result<()> {
             [(String::from("attached"), Val::S64(0))],
         )
         .await?;
+    let token_id = store
+        .data()
+        .wasm_trace_registry()
+        .instances()?
+        .next()
+        .context("missing token load")?
+        .0;
     let handle = store.data_mut().table().push(token.clone())?;
     let handle = handle.try_into_resource_any(&mut store)?;
     let recipient = Val::Record(vec![(String::from("dummy"), Val::U64(17))]);
@@ -107,6 +124,35 @@ async fn send_single_token_from_storage() -> wasmtime::Result<()> {
         .await?;
     let storage = token.storage(export.storage()).call_get(&mut store).await?;
     assert_eq!(storage, [("attached".to_owned(), Val::S64(1))]);
+    let registry = store.data().wasm_trace_registry();
+    let (_, coordinator_trace) = registry
+        .instances()?
+        .next()
+        .context("missing coordinator")?;
+    let coordinator_steps = decode_captured_instance(coordinator_trace, &mut std::iter::empty())?;
+    let Some(Step::EnterCall { arguments, .. }) = coordinator_steps.0.first() else {
+        panic!("missing payment entry")
+    };
+    // The by-value entry arguments are the recipient's two limbs followed by
+    // the token handle in this coordination instance's canonical ABI table.
+    let [17, 0, token_handle, 0] = arguments.0 else {
+        panic!("unexpected payment entry arguments: {arguments:?}")
+    };
+    let handle = ResourceHandle(u32::try_from(token_handle)?);
+    assert_ne!(handle, constructed_resource(&coordinator_steps));
+    let token_steps =
+        decode_captured_instance(registry.instance(token_id)?, &mut [handle].into_iter())?;
+    assert!(matches!(token_steps.0.first(), Some(Step::SetStorage {
+        kind: starstream_proving_runtime::StorageKind::Token,
+        storage,
+        ..
+    }) if *storage == flat_value_root(&[ValType::I64], &[0])));
+    assert_eq!(
+        token_steps.0.last(),
+        Some(&Step::GetStorage {
+            storage: Out(flat_value_root(&[ValType::I64], &[1])),
+        })
+    );
     let [output] = store.data().created.as_slice() else {
         panic!("expected one PayToPublicKey output")
     };
@@ -117,6 +163,48 @@ async fn send_single_token_from_storage() -> wasmtime::Result<()> {
         .call_get(&mut store)
         .await?;
     assert!(storage.contains(&("recipient".to_owned(), Val::S64(17))));
+    Ok(())
+}
+
+#[test]
+fn verification_preparation_rejects_wrong_setter_kind() -> wasmtime::Result<()> {
+    use starstream_proving_runtime::{VerificationProgram, WasmSize, prepare_verification};
+
+    let wasm = common::compile_component(
+        r#"
+        token MyToken {
+            storage { let mut count: u32; }
+            mint fn new() { count = 0; }
+            impl Token {
+                fn attach(to: Utxo) { count = count + 1; }
+                fn detach(source: Utxo) { count = count - 1; }
+            }
+        }
+        utxo Holder {
+            main fn new() { yield(); }
+        }
+    "#,
+    )?;
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&wasm).into();
+    let prepare = |utxo: &str, token: &str| {
+        prepare_verification(
+            &[VerificationProgram {
+                wasm: &wasm,
+                contract_digest: &digest,
+                coordination_exports: &[],
+                is_original_image: true,
+                input_utxos: &[(0, utxo.to_owned())],
+                input_tokens: &[(0, token.to_owned())],
+                new_utxos: &[],
+            }],
+            [WasmSize::Large],
+        )
+    };
+    prepare("holder", "my-token")?;
+    for (utxo, token) in [("holder", "holder"), ("my-token", "my-token")] {
+        let error = prepare(utxo, token).err().expect("wrong setter kind");
+        assert!(error.to_string().contains("wrong resource kind"), "{error}");
+    }
     Ok(())
 }
 

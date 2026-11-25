@@ -12,8 +12,9 @@ fn bindings(first_input: bool, second_input: bool, duplicate: bool) -> Trace {
         let handle = ResourceHandle(if duplicate { 0 } else { index as u32 });
         if input {
             loading.push(Step::SetStorage {
+                kind: starstream_interleaving_spec::StorageKind::Utxo,
                 storage: StarstreamValue::UNIT_VALUE,
-                entry_utxo_handle: handle,
+                entry_handle: handle,
             });
             loading.push(Step::PreloadMethod {
                 method: MethodHash([1; 8]),
@@ -80,4 +81,62 @@ fn duplicate_constructor_bindings_fail_across_batch_sizes() {
                 .is_err()
         );
     }
+}
+
+#[test]
+fn storage_loads_bind_each_kind_in_its_own_index_space() {
+    use crate::CoroutineId::{Coord, Token, Utxo};
+    use starstream_interleaving_spec::StorageKind;
+
+    let load = |kind, handle| Step::SetStorage {
+        kind,
+        storage: StarstreamValue([1, 2, 3, 4]),
+        entry_handle: ResourceHandle(handle),
+    };
+    let trace = crate::tests::loaded(
+        [
+            load(StorageKind::Utxo, 8),
+            Step::PreloadMethod {
+                method: MethodHash([1; 8]),
+            },
+            load(StorageKind::Token, 7),
+            load(StorageKind::Token, 9),
+        ],
+        [Step::Return {
+            result: StarstreamValue::UNIT_VALUE.into(),
+        }],
+    );
+    let roots = crate::commitment::tests::expected(
+        &trace,
+        &[Utxo(0), Token(0), Token(1), Coord(1), Coord(1)],
+    );
+    crate::verify_sat_with_commitments(&trace, 3, &roots, &Default::default()).unwrap();
+    let (rows, preload) = build_witness_rows(&trace);
+    verify_witness_rows(&rows, &preload).unwrap();
+    for (row, (target, handle)) in rows
+        .iter()
+        .filter(|row| row[COL_SEL_SET_STORAGE] == F::ONE)
+        .zip([(Utxo(0), 8), (Token(0), 7), (Token(1), 9)])
+    {
+        assert_eq!(row[COL_RESOURCE_RESOLVER_ADDR_CID], Coord(1).field());
+        assert_eq!(row[COL_RESOURCE_RESOLVER_ADDR_HANDLE], F::new(handle));
+        assert_eq!(row[COL_RESOURCE_RESOLVER_VALUE], target.field());
+        assert_eq!(row[COL_EVENT_OWNER], target.field());
+    }
+
+    let mut duplicate = trace.clone();
+    duplicate.0[0] = load(StorageKind::Utxo, 7);
+    assert!(crate::verify_sat(&duplicate, &Default::default()).is_err());
+
+    let mut late_utxo = trace.clone();
+    late_utxo.0[..3].rotate_right(1);
+    assert!(crate::verify_sat(&late_utxo, &Default::default()).is_err());
+
+    let mut late_method = trace.clone();
+    late_method.0.insert(3, trace.0[1].clone());
+    assert!(crate::verify_sat(&late_method, &Default::default()).is_err());
+
+    let mut missing_abi = trace;
+    missing_abi.0.remove(1);
+    assert!(crate::verify_sat(&missing_abi, &Default::default()).is_err());
 }

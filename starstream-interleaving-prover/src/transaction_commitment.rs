@@ -26,7 +26,7 @@ pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
     let (tag, columns): (_, Vec<usize>) = match op {
         Opcode::SetStorage => (
             INPUT,
-            std::iter::once(COL_BOUNDARY_UTXO)
+            std::iter::once(COL_BOUNDARY_COROUTINE_ID)
                 .chain(COL_ARGUMENT_ROOT)
                 .collect(),
         ),
@@ -40,7 +40,7 @@ pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
         ),
         Opcode::GetStorage => (
             OUTPUT,
-            std::iter::once(COL_BOUNDARY_UTXO)
+            std::iter::once(COL_BOUNDARY_COROUTINE_ID)
                 .chain(COL_RESULT_ROOT)
                 .chain(COL_OUT)
                 .collect(),
@@ -48,7 +48,9 @@ pub(crate) fn schema(op: Opcode) -> Vec<(usize, F)> {
         Opcode::ReadAbi => (OUTPUT_METHOD, COL_METHOD_HASH_VALUE.to_vec()),
         Opcode::SkipConsumed => (
             CONSUMED,
-            std::iter::once(COL_BOUNDARY_UTXO).chain(COL_IN).collect(),
+            std::iter::once(COL_BOUNDARY_COROUTINE_ID)
+                .chain(COL_IN)
+                .collect(),
         ),
         Opcode::FinalizeCoordinator => (
             COORDINATOR,
@@ -92,6 +94,16 @@ pub fn transaction_commitment(
             })
             .collect()
     };
+    // Every declared input token has its own setter trace.
+    for index in 0..statement.input_tokens.len() {
+        let index = u32::try_from(index).map_err(|_| reject())?;
+        let packed = CoroutineId::Token(index)
+            .checked_encoded()
+            .ok_or_else(reject)?;
+        if !roots.contains_key(&packed) {
+            return Err(reject());
+        }
+    }
     // Only coordinator and UTXO traces have finalization rows today.
     for &packed in roots.keys() {
         if !matches!(

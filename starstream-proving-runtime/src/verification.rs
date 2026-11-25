@@ -18,6 +18,8 @@ pub struct VerificationProgram<'a> {
     pub is_original_image: bool,
     /// Ledger input positions and their UTXO export names in this component.
     pub input_utxos: &'a [(usize, String)],
+    /// Transaction-local token indices and their storage interfaces in this component.
+    pub input_tokens: &'a [(usize, String)],
     /// Transaction-local IDs of outputs created by this component, and their
     /// UTXO export names. IDs follow the inputs, in creation order.
     pub new_utxos: &'a [(u32, String)],
@@ -33,15 +35,20 @@ pub(crate) struct ProgramVerificationInputs {
 /// Independently reconstructed programs and canonical entry states.
 pub struct PreparedVerification {
     programs: BTreeMap<WasmSize, Vec<ProgramVerificationInputs>>,
-    /// Source program and admissible entry exports per bound UTXO coroutine:
+    /// Source program and admissible entry exports per bound resource coroutine:
     /// `set-storage` for an input, any constructor for a new output.
-    utxo_entries: BTreeMap<u32, (usize, Vec<u32>)>,
+    resource_entries: BTreeMap<u32, (usize, Vec<u32>)>,
     input_count: usize,
+    input_token_count: usize,
 }
 
 impl PreparedVerification {
     pub(crate) fn input_count(&self) -> usize {
         self.input_count
+    }
+
+    pub(crate) fn input_token_count(&self) -> usize {
+        self.input_token_count
     }
 
     pub(crate) fn resolve(
@@ -51,7 +58,14 @@ impl PreparedVerification {
         digest: [u64; 4],
         entry_fref: u32,
     ) -> wasmtime::Result<(&Program, &WasmStepState)> {
-        let bound = self.utxo_entries.get(&coroutine);
+        let bound = self.resource_entries.get(&coroutine);
+        match CoroutineId::from_packed(coroutine) {
+            Some(CoroutineId::Token(_)) => {
+                ensure!(bound.is_some(), "missing input token program binding")
+            }
+            Some(_) => {}
+            None => wasmtime::bail!("invalid coroutine kind"),
+        }
         let program = self
             .programs
             .get(&size)
@@ -65,7 +79,7 @@ impl PreparedVerification {
         if let Some((_, entries)) = bound {
             ensure!(
                 entries.contains(&entry_fref),
-                "UTXO proof must start at its export's set-storage or constructor"
+                "resource proof must start at its bound export"
             );
         }
         let initial = program
@@ -116,17 +130,18 @@ pub fn prepare_verification(
         .iter()
         .map(|&size| Ok((size, size.application()?)))
         .collect::<wasmtime::Result<BTreeMap<_, _>>>()?;
-    let mut utxo_entries = BTreeMap::new();
+    let mut resource_entries = BTreeMap::new();
     let mut input_count = 0;
-    let mut bind = |coroutine: u32, source_index, entries: Vec<u32>| {
-        let packed = CoroutineId::Utxo(coroutine)
+    let mut input_token_count = 0;
+    let mut bind = |coroutine: CoroutineId, source_index, entries: Vec<u32>| {
+        let packed = coroutine
             .checked_encoded()
-            .context("UTXO index exceeds coroutine ID range")?;
+            .context("resource index exceeds coroutine ID range")?;
         ensure!(
-            utxo_entries
+            resource_entries
                 .insert(packed, (source_index, entries))
                 .is_none(),
-            "duplicate UTXO program binding"
+            "duplicate resource program binding"
         );
         Ok(())
     };
@@ -136,12 +151,31 @@ pub fn prepare_verification(
             source.coordination_exports,
             source.contract_digest,
         )?;
-        for (index, export) in source.input_utxos {
-            let setter = templates
-                .export_fref(&format!("{export}#set-storage"))
-                .context("input UTXO is missing its set-storage export")?;
-            bind(u32::try_from(*index)?, source_index, vec![setter])?;
-            input_count += 1;
+        for (indices, kind) in [
+            (source.input_utxos, crate::StorageKind::Utxo),
+            (source.input_tokens, crate::StorageKind::Token),
+        ] {
+            for (index, export) in indices {
+                let setter = templates
+                    .export_fref(&format!("{export}#set-storage"))
+                    .context("input resource is missing its set-storage export")?;
+                ensure!(
+                    templates.storage_setters.get(&setter) == Some(&kind),
+                    "storage setter has the wrong resource kind"
+                );
+                let index = u32::try_from(*index)?;
+                let id = match kind {
+                    crate::StorageKind::Utxo => {
+                        input_count += 1;
+                        CoroutineId::Utxo(index)
+                    }
+                    crate::StorageKind::Token => {
+                        input_token_count += 1;
+                        CoroutineId::Token(index)
+                    }
+                };
+                bind(id, source_index, vec![setter])?;
+            }
         }
         ensure!(
             source.new_utxos.is_empty() || source.is_original_image,
@@ -164,7 +198,7 @@ pub fn prepare_verification(
                 !constructors.is_empty(),
                 "output UTXO export has no constructor"
             );
-            bind(*utxo, source_index, constructors)?;
+            bind(CoroutineId::Utxo(*utxo), source_index, constructors)?;
         }
         let module = crate::templates::first_core_module(source.wasm)?;
         let mut artifacts = neo_wasm::extract_wasm_program_artifacts(module)?;
@@ -221,10 +255,18 @@ pub fn prepare_verification(
             .all(|(index, _)| *index < input_count),
         "input program bindings must follow transaction input order"
     );
+    ensure!(
+        programs
+            .iter()
+            .flat_map(|p| p.input_tokens)
+            .all(|(index, _)| *index < input_token_count),
+        "token bindings must follow transaction input order"
+    );
     Ok(PreparedVerification {
         programs: prepared,
-        utxo_entries,
+        resource_entries,
         input_count,
+        input_token_count,
     })
 }
 
@@ -249,6 +291,7 @@ mod tests {
                 coordination_exports: &[],
                 contract_digest: &[0; 32],
                 is_original_image: false,
+                input_tokens: &[],
                 input_utxos: &[(0, "first".into()), (2, "second".into())],
                 new_utxos: &[],
             },
@@ -257,6 +300,7 @@ mod tests {
                 coordination_exports: &[],
                 contract_digest: &[0; 32],
                 is_original_image: false,
+                input_tokens: &[],
                 input_utxos: &[(1, "first".into())],
                 new_utxos: &[],
             },
@@ -301,6 +345,7 @@ mod tests {
             coordination_exports: &[],
             contract_digest: &[0; 32],
             is_original_image,
+            input_tokens: &[],
             input_utxos,
             new_utxos,
         };
@@ -375,6 +420,7 @@ mod tests {
                     coordination_exports: &[],
                     contract_digest: &[0; 32],
                     is_original_image: true,
+                    input_tokens: &[],
                     input_utxos: &[],
                     new_utxos: &[],
                 }],

@@ -542,14 +542,19 @@ impl fmt::Display for Qnt<&Step> {
                 write!(f, "begin_execution({}, {})", Qnt(script), Qnt(arguments))
             }
             Step::SetStorage {
+                kind,
                 storage,
-                entry_utxo_handle,
+                entry_handle,
             } => {
                 write!(
                     f,
-                    "set_storage({}, {})",
+                    "{}({}, {})",
+                    match kind {
+                        crate::StorageKind::Utxo => "set_storage",
+                        crate::StorageKind::Token => "set_token_storage",
+                    },
                     Qnt(storage),
-                    Qnt(entry_utxo_handle)
+                    Qnt(entry_handle)
                 )
             }
             Step::PreloadMethod { method } => write!(f, "preload_method({})", Qnt(method)),

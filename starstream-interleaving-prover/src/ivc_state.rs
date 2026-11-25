@@ -69,7 +69,8 @@ impl CoroutineKind {
 }
 
 impl CoroutineId {
-    pub(crate) fn from_packed(packed: u32) -> Option<Self> {
+    /// Decode a local index and its kind, rejecting the reserved tag.
+    pub fn from_packed(packed: u32) -> Option<Self> {
         let id = packed >> 2;
         match packed & 3 {
             0 => Some(Self::Coord(id)),
@@ -178,6 +179,11 @@ pub(crate) fn build_ivc_state_continuity_links() -> Vec<ContinuityGroup> {
             name: "call_stack_pointer_continuity",
             role: "row[i].COL_CALL_SP_AFTER must match row[i+1].COL_CALL_SP_BEFORE",
             links: vec![link(COL_CALL_SP_AFTER, COL_CALL_SP_BEFORE)],
+        },
+        ContinuityGroup {
+            name: "next_token_id_continuity",
+            role: "token allocator carries across adjacent rows",
+            links: vec![link(COL_NEXT_TOKEN_ID_AFTER, COL_NEXT_TOKEN_ID_BEFORE)],
         },
         ContinuityGroup {
             name: "next_utxo_id_continuity",

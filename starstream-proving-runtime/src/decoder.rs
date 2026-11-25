@@ -11,7 +11,7 @@ pub type AbsorbedBlock = [u64; BLOCK_SIZE];
 /// absent from the committed event blocks.
 pub fn decode_tagged_blocks(
     blocks: &[AbsorbedBlock],
-    entry_utxo_handles: &mut impl Iterator<Item = ResourceHandle>,
+    entry_handles: &mut impl Iterator<Item = ResourceHandle>,
 ) -> Result<Trace, BlockCodecError> {
     let mut steps = Vec::new();
     let mut block_index = 0;
@@ -35,7 +35,7 @@ pub fn decode_tagged_blocks(
         }
         let words = &blocks[block_index..block_index + count];
         let handle = (kind == EventKind::SetStorage)
-            .then(|| entry_utxo_handles.next())
+            .then(|| entry_handles.next())
             .flatten();
         steps.push(kind.decode(words, None, handle)?);
         block_index += count;
@@ -94,14 +94,15 @@ mod tests {
     #[test]
     fn storage_load_requires_host_handle() {
         let step = Step::SetStorage {
+            kind: starstream_interleaving_spec::StorageKind::Utxo,
             storage: StarstreamValue::UNIT_VALUE,
-            entry_utxo_handle: ResourceHandle(17),
+            entry_handle: ResourceHandle(17),
         };
         let blocks = events::encode(&step);
         assert!(matches!(
             decode_tagged_blocks(&blocks, &mut std::iter::empty()),
             Err(BlockCodecError::SingleEventError(
-                events::EventCodecError::MissingEntryUtxoHandle
+                events::EventCodecError::MissingEntryHandle
             ))
         ));
         assert_eq!(

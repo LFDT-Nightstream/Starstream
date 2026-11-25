@@ -360,6 +360,7 @@ pub fn prepare_contract_verification(
             wasm,
             coordination_exports: &[script],
             is_original_image: true,
+            input_tokens: &[],
             input_utxos: &[],
             new_utxos: &[],
             contract_digest: &digest,

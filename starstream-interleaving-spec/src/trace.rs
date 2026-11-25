@@ -119,6 +119,14 @@ impl From<Vec<u32>> for StarstreamValue {
     }
 }
 
+/// The resource whose storage is restored by a set-storage boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageKind {
+    Utxo,
+    Token,
+}
+
 /// A single observable transition of an execution, as attributed to the
 /// coroutine that produced it.
 ///
@@ -132,10 +140,11 @@ pub enum Step {
         key: u64,
     },
     SetStorage {
+        kind: StorageKind,
         storage: StarstreamValue,
         /// Host-supplied Coord(1)-local binding, not a wasm return value.
         /// Excluded from both the program event and transaction IO commitments.
-        entry_utxo_handle: ResourceHandle,
+        entry_handle: ResourceHandle,
     },
     /// Ledger-supplied ABI entry for the most recently loaded UTXO; no program event.
     PreloadMethod {

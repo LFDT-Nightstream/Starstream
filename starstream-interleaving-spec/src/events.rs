@@ -46,6 +46,7 @@ pub enum Word {
     Result(usize),
     Handled,
     FrameId,
+    IsToken,
 }
 
 impl EventKind {
@@ -150,6 +151,7 @@ impl EventKind {
         match self {
             Self::SetStorage => {
                 root(&mut words, &mut last_root_block, true);
+                words.push(IsToken);
             }
             Self::GetStorage | Self::Return | Self::ResumeEffect | Self::ReceiveCallResult => {
                 root(&mut words, &mut last_root_block, false)
@@ -190,13 +192,13 @@ impl EventKind {
 
     /// Decode an event using this kind's layout. `expected_identity`, when supplied,
     /// is checked for method, effect, coordinator and constructor identity events.
-    /// `entry_utxo_handle` is required for `SetStorage` and ignored otherwise:
+    /// `entry_handle` is required for `SetStorage` and ignored otherwise:
     /// it is host metadata, absent from the committed blocks.
     pub fn decode(
         &self,
         blocks: &[[u64; BLOCK_SIZE]],
         expected_identity: Option<EventIdentity>,
-        entry_utxo_handle: Option<ResourceHandle>,
+        entry_handle: Option<ResourceHandle>,
     ) -> Result<Step, EventCodecError> {
         let layout = self.blocks();
         if blocks.len() != layout.len() {
@@ -205,6 +207,7 @@ impl EventKind {
                 actual: blocks.len(),
             });
         }
+        let mut storage_kind = crate::StorageKind::Utxo;
         let mut resource = 0_u32;
         let mut frame_id = 0_u32;
         let mut method = [0_u32; METHOD_WORDS];
@@ -244,6 +247,20 @@ impl EventKind {
                                     value,
                                 })
                             };
+                        }
+                    }
+                    Word::IsToken => {
+                        storage_kind = match value {
+                            0 => crate::StorageKind::Utxo,
+                            1 => crate::StorageKind::Token,
+                            _ => {
+                                return Err(EventCodecError::NamedArgumentOutOfRange {
+                                    block: block_index,
+                                    word: word_index,
+                                    name: "is_token",
+                                    value,
+                                });
+                            }
                         }
                     }
                     Word::Resource => resource = named("resource")?,
@@ -303,9 +320,9 @@ impl EventKind {
                 arguments: argument,
             },
             EventKind::SetStorage => Step::SetStorage {
+                kind: storage_kind,
                 storage: argument,
-                entry_utxo_handle: entry_utxo_handle
-                    .ok_or(EventCodecError::MissingEntryUtxoHandle)?,
+                entry_handle: entry_handle.ok_or(EventCodecError::MissingEntryHandle)?,
             },
             EventKind::GetStorage => Step::GetStorage {
                 storage: Out(result),
@@ -421,6 +438,13 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         .map(|block| {
             block.map(|word| match word {
                 Word::Constant(x) => u64::from(x),
+                Word::IsToken => u64::from(matches!(
+                    step,
+                    Step::SetStorage {
+                        kind: crate::StorageKind::Token,
+                        ..
+                    }
+                )),
                 Word::Resource => u64::from(resource),
                 Word::FrameId => u64::from(frame_id),
                 Word::Method(i) => u64::from(method.unwrap().0[i]),
@@ -438,8 +462,8 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
 /// Failure to decode or dispatch an absorbed block assignment.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum EventCodecError {
-    #[error("SetStorage requires a host-supplied entry UTXO handle")]
-    MissingEntryUtxoHandle,
+    #[error("SetStorage requires a host-supplied entry resource handle")]
+    MissingEntryHandle,
     #[error("expected {expected} blocks from the static template, found {actual}")]
     WrongBlockCount { expected: usize, actual: usize },
 
@@ -490,8 +514,14 @@ mod test {
     fn program_steps() -> Vec<Step> {
         vec![
             Step::SetStorage {
+                kind: crate::StorageKind::Utxo,
                 storage: ROOT,
-                entry_utxo_handle: ResourceHandle(7),
+                entry_handle: ResourceHandle(7),
+            },
+            Step::SetStorage {
+                kind: crate::StorageKind::Token,
+                storage: OTHER,
+                entry_handle: ResourceHandle(8),
             },
             Step::GetStorage { storage: Out(ROOT) },
             Step::NewUtxo {
@@ -564,14 +594,12 @@ mod test {
             let encoded = encode(&step);
             assert_eq!(encoded.len(), kind.blocks().len(), "{step:?}");
             assert_eq!(encoded[0][0], kind.tag() as u64, "{step:?}");
-            let entry_utxo_handle = match &step {
-                Step::SetStorage {
-                    entry_utxo_handle, ..
-                } => Some(*entry_utxo_handle),
+            let entry_handle = match &step {
+                Step::SetStorage { entry_handle, .. } => Some(*entry_handle),
                 _ => None,
             };
             assert_eq!(
-                kind.decode(&encoded, expected_identity, entry_utxo_handle)
+                kind.decode(&encoded, expected_identity, entry_handle)
                     .unwrap(),
                 step
             );
@@ -581,18 +609,20 @@ mod test {
     #[test]
     fn storage_handle_is_host_metadata_not_committed_data() {
         let first = Step::SetStorage {
+            kind: crate::StorageKind::Utxo,
             storage: ROOT,
-            entry_utxo_handle: ResourceHandle(7),
+            entry_handle: ResourceHandle(7),
         };
         let second = Step::SetStorage {
+            kind: crate::StorageKind::Utxo,
             storage: ROOT,
-            entry_utxo_handle: ResourceHandle(9),
+            entry_handle: ResourceHandle(9),
         };
         let blocks = encode(&first);
         assert_eq!(blocks, encode(&second));
         assert_eq!(
             EventKind::SetStorage.decode(&blocks, None, None),
-            Err(EventCodecError::MissingEntryUtxoHandle)
+            Err(EventCodecError::MissingEntryHandle)
         );
         assert_eq!(
             EventKind::SetStorage

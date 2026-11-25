@@ -249,6 +249,7 @@ fn planned_slots(batch_size: usize) -> Result<Vec<Vec<usize>>, ProvingError> {
 pub struct Limits {
     /// UTXOs the transaction consumes or creates.
     pub utxos: usize,
+    pub tokens: usize,
     /// Coordinator instances, counting the transaction context.
     pub coordinators: usize,
     /// Call-stack frames: nested calls plus raised effects being handled.
@@ -270,6 +271,7 @@ pub struct Limits {
 impl Limits {
     pub const SMALL_DEFAULTS: Self = Self {
         utxos: 32,
+        tokens: 32,
         coordinators: 32,
         call_depth: 64,
         handles_per_holder: 16,
@@ -306,6 +308,7 @@ impl Limits {
             MemoryId::SignerPresent => vec![bits(self.signers)],
             MemoryId::MethodTable => vec![bits(self.methods) + 3],
             MemoryId::ResourceResolver => vec![packed_id, bits(self.handles_per_holder)],
+            MemoryId::TokenTraceCommitments => vec![bits(self.tokens) + 3],
             MemoryId::UtxoTraceCommitments => vec![bits(self.utxos) + 3],
             MemoryId::CoordTraceCommitments => vec![bits(self.coordinators) + 3],
         }
@@ -624,6 +627,7 @@ fn initial_state() -> Vec<F> {
             | COL_EFFECT_HEAD_BEFORE
             | COL_EFFECT_DEPTH_BEFORE
             | COL_EFFECT_ARENA_LEN_BEFORE
+            | COL_NEXT_TOKEN_ID_BEFORE
             | COL_NEXT_UTXO_ID_BEFORE
             | COL_TX_PHASE_BEFORE
             | COL_ABI_READ_REMAINING_BEFORE

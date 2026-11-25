@@ -78,20 +78,9 @@ fn transaction_claim_binds_statement_roots_and_finished_phase() {
 fn transaction_proof_round_trip() -> Result<(), ProvingError> {
     use crate::ivc_state::CoroutineId::{Coord, Utxo};
     use starstream_interleaving_spec::Step;
-    use starstream_interleaving_spec::{InputToken, OutputToken, StarstreamValue};
     let (mut trace, mut statement) = crate::transaction::tests::fixture();
     trace.0.insert(4, Step::AssertSignedBy { key: 17 });
     statement.signers.extend([0, 17]);
-    let storage = StarstreamValue([1, 2, 3, 4]);
-    statement.input_tokens.push(InputToken {
-        owner: 0,
-        storage: storage.clone(),
-    });
-    statement.output_tokens.push(OutputToken {
-        token: 0,
-        owner: 0,
-        storage,
-    });
     let roots = crate::commitment::tests::expected(
         &Trace::new(trace.0[..7].to_vec()),
         &[Utxo(0), Coord(1), Coord(1), Coord(1), Utxo(0)],
@@ -425,6 +414,7 @@ fn transaction_proof_timings() -> Result<(), ProvingError> {
             effect_scopes,
             methods,
             registrations,
+            tokens: Limits::SMALL_DEFAULTS.tokens,
             signers: Limits::SMALL_DEFAULTS.signers,
         },
         _ => Limits::SMALL_DEFAULTS,

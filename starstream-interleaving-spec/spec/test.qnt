@@ -17,6 +17,17 @@ module replay_trace {
     List({ storage: UNIT_VALUE, methods: List(method) }),
     List({ utxo: 0, storage: UNIT_VALUE, methods: List(method) })) }
 
+  run test_token_load_binds_root_handle = init_transaction
+    .then({ state' = { input_tokens: List({owner: 0, storage: UNIT_VALUE}), ...state } })
+    .then(set_storage(UNIT_VALUE, 7))
+    .then(preload_method(method))
+    .then(set_token_storage(UNIT_VALUE, 8))
+    .then(all {
+      assert(state.resource_resolver.get({holder: ENTRY_COORDINATOR, handle: 7}) == Utxo(0)),
+      assert(state.resource_resolver.get({holder: ENTRY_COORDINATOR, handle: 8}) == Token(0)),
+      state' = state,
+    })
+
   run test_storage_roundtrip = init_transaction
     .then(set_storage(UNIT_VALUE, 0))
     .then(preload_method(method))

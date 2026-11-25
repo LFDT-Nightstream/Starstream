@@ -116,6 +116,7 @@ module starstream {
     instance_stack: List[CoroutineId],
     curr_cid_phase: CurrPhase,
     utxo_lifecycle: CoroutineId -> UtxoLifecycle,
+    next_token_id: int,
     next_utxo_id: int,
     enabled_methods: CoroutineId -> Set[MethodSelector],
     // Current-generation registrations, including duplicates (maximum 255).
@@ -248,6 +249,7 @@ module starstream {
     call_stack: List(),
     curr_cid_phase: Executing,
     utxo_lifecycle: Map(),
+    next_token_id: 0,
     next_utxo_id: 0,
     enabled_methods: Map(),
     abi_method_count: Map(),
@@ -270,6 +272,7 @@ module starstream {
   // TODO: Replace with resource translation of the entry arguments.
   action set_storage(storage: StarstreamValue, entry_utxo_handle: ResourceHandle): bool = all {
     state.tx_phase == Loading,
+    state.next_token_id == 0,
     not(state.resource_resolver.keys().contains({ holder: ENTRY_COORDINATOR, handle: entry_utxo_handle })),
     last_input_has_abi,
     state.next_utxo_id < state.tx_inputs.length(),
@@ -294,9 +297,26 @@ module starstream {
     }
   }
 
+  action set_token_storage(storage: StarstreamValue, handle: ResourceHandle): bool = all {
+    state.tx_phase == Loading,
+    state.next_token_id < state.input_tokens.length(),
+    storage.is_valid(),
+    storage == state.input_tokens[state.next_token_id].storage,
+    val key = {holder: ENTRY_COORDINATOR, handle: handle}
+    all {
+      not(state.resource_resolver.keys().contains(key)),
+      state' = {
+        next_token_id: state.next_token_id + 1,
+        resource_resolver: state.resource_resolver.put(key, Token(state.next_token_id)),
+        ...state
+      }
+    }
+  }
+
   // Host-synthesized from the input's stored ABI, not emitted by wasm.
   action preload_method(method: MethodSelector): bool = all {
     state.tx_phase == Loading,
+    state.next_token_id == 0,
     state.next_utxo_id > 0,
     state.abi_method_count.get(Utxo(state.next_utxo_id - 1)) < 255,
     state' = {
@@ -317,6 +337,7 @@ module starstream {
   def inputs_loaded: bool = all {
     last_input_has_abi,
     state.next_utxo_id == state.tx_inputs.length(),
+    state.next_token_id == state.input_tokens.length(),
   }
 
   def finalization_allowed: bool = all {

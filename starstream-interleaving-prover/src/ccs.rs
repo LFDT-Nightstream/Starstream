@@ -176,12 +176,24 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         },
     );
 
+    b.with_tag(always("storage load kind and next token index"), |b| {
+        b.push_linear_zero([
+            (layout::COL_SEL_SET_STORAGE, F::ONE),
+            (layout::COL_TOKEN_LOAD, -F::ONE),
+            (layout::COL_UTXO_LOAD, -F::ONE),
+        ]);
+        b.push_linear_zero([
+            (layout::COL_NEXT_TOKEN_ID_AFTER, F::ONE),
+            (layout::COL_NEXT_TOKEN_ID_BEFORE, -F::ONE),
+            (layout::COL_TOKEN_LOAD, -F::ONE),
+        ]);
+    });
     b.with_tag(always("next UTXO allocator transition"), |b| {
         b.push_linear_zero([
             (COL_NEXT_UTXO_ID_AFTER, F::ONE),
             (COL_NEXT_UTXO_ID_BEFORE, -F::ONE),
             (COL_SEL_NEW_UTXO, -F::ONE),
-            (layout::COL_SEL_SET_STORAGE, -F::ONE),
+            (layout::COL_UTXO_LOAD, -F::ONE),
         ]);
     });
 
@@ -342,8 +354,12 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
     // address columns. Their tags differ in the low bit.
     b.with_tag(always("trace commitment memory selection"), |b| {
         let [lo, hi] = coroutine_kind_bits(layout::COL_EVENT_OWNER);
-        // Existing event ports accept coordinator and UTXO roots only.
-        b.push_gated_linear_zero(layout::COL_EVENT_ACTIVE, [(hi, F::ONE)]);
+        // SetStorage is currently the only event emitted by a token.
+        b.push_row(
+            [(layout::COL_EVENT_ACTIVE, F::ONE)],
+            [(hi, F::ONE)],
+            [(layout::COL_TOKEN_LOAD, F::ONE)],
+        );
         b.push_row(
             [(layout::COL_EVENT_ACTIVE, F::ONE)],
             [(lo, F::ONE)],
@@ -351,7 +367,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         );
         b.push_row(
             [(layout::COL_EVENT_ACTIVE, F::ONE)],
-            [(COL_ONE, F::ONE), (lo, -F::ONE)],
+            [(COL_ONE, F::ONE), (lo, -F::ONE), (hi, -F::ONE)],
             [(layout::COL_COORD_EVENT, F::ONE)],
         );
         // The final-root reads name their memory by opcode.

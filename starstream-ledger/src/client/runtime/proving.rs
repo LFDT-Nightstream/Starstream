@@ -297,6 +297,7 @@ pub fn prepare_verification(
                 coordination_exports: scripts,
                 contract_digest: &source.digest,
                 is_original_image: source.is_original_image,
+                input_tokens: &[],
                 input_utxos: &source.input_utxos,
                 new_utxos: &source.new_utxos,
             },

@@ -62,8 +62,7 @@ pub struct InterleavedTransaction {
 /// Merge process-local semantic traces in cooperative control-flow order.
 ///
 /// `traces[0]` is the coordinator. The caller must supply subsequent traces in
-/// `NewUtxo` / `CallCoordinator` instantiation order; loading inputs via
-/// `SetStorage` isn't supported yet.
+/// instantiation order, starting with any loaded input tokens.
 /// Handles are bound on constructor return. All steps must be consumed when
 /// the coordinator returns; use [`interleave_transaction`] for storage reads.
 pub fn interleave_execution_only(traces: &[Trace]) -> Result<Trace, InterleavingError> {
@@ -104,7 +103,11 @@ pub fn interleave_transaction_with_inputs(
         registrations,
         inputs,
         entry,
+        token_count,
     } = schedule_execution(traces, input_methods)?;
+    if token_count != 0 {
+        return Err(InterleavingError::TokenFinalization);
+    }
     for &process in &coordinators {
         if cursors[process] != traces[process].0.len() {
             return Err(InterleavingError::UnconsumedSteps {
@@ -183,6 +186,22 @@ struct Scheduled {
     coordinators: Vec<usize>,
     /// Final-generation method registrations of each process.
     registrations: Vec<Vec<MethodHash>>,
+    token_count: usize,
+}
+
+fn bind_resource(
+    targets: &mut HashMap<(usize, ResourceHandle), usize>,
+    holder: usize,
+    resource: ResourceHandle,
+    process: usize,
+) -> Result<(), InterleavingError> {
+    if targets.insert((holder, resource), process).is_some() {
+        return Err(InterleavingError::DuplicateResource {
+            holder: ProcessIndex(holder),
+            resource,
+        });
+    }
+    Ok(())
 }
 
 fn schedule_execution(
@@ -216,12 +235,14 @@ fn schedule_execution(
     // constructor call is suspended, so each caller needs a stack of pending targets.
     let mut pending_constructors = HashMap::<usize, Vec<usize>>::new();
     let mut resource_targets = HashMap::<(usize, ResourceHandle), usize>::new();
+
     let mut inputs = Vec::with_capacity(input_methods.len());
     for methods in input_methods {
         let process = next_process;
         let Some(Step::SetStorage {
+            kind: crate::StorageKind::Utxo,
             storage,
-            entry_utxo_handle,
+            entry_handle,
         }) = traces.get(process).and_then(|trace| trace.0.first())
         else {
             return Err(InterleavingError::MissingStorageLoad {
@@ -238,11 +259,25 @@ fn schedule_execution(
         registrations[process] = methods.clone();
         cursors[process] = 1;
         allocation_order.push(process);
-        resource_targets.insert((0, *entry_utxo_handle), process);
+        bind_resource(&mut resource_targets, 0, *entry_handle, process)?;
         // SetStorage takes the role of NewUtxo for inputs
         // so new coroutines get ids after the inputs
         next_process += 1;
     }
+
+    let first_token = next_process;
+    while let Some(Step::SetStorage {
+        kind: crate::StorageKind::Token,
+        entry_handle,
+        ..
+    }) = traces.get(next_process).and_then(|trace| trace.0.first())
+    {
+        merged.push(traces[next_process].0[0].clone());
+        cursors[next_process] = 1;
+        bind_resource(&mut resource_targets, 0, *entry_handle, next_process)?;
+        next_process += 1;
+    }
+    let token_count = next_process - first_token;
 
     // The transaction context calls the entry script with the identity and
     // arguments its own entry event commits to; the statement binds them.
@@ -320,6 +355,12 @@ fn schedule_execution(
                         resource,
                     });
                 };
+                if (first_token..first_token + token_count).contains(&target) {
+                    return Err(InterleavingError::TokenMethodTarget {
+                        holder: ProcessIndex(current),
+                        resource,
+                    });
+                }
                 instance_stack.push(target);
                 call_stack.push(current);
                 merged.push(step);
@@ -345,7 +386,7 @@ fn schedule_execution(
                         process: ProcessIndex(current),
                     });
                 };
-                resource_targets.insert((current, resource.0), target);
+                bind_resource(&mut resource_targets, current, resource.0, target)?;
                 merged.push(step);
             }
             Step::ReceiveCallResult { .. } => {
@@ -450,6 +491,7 @@ fn schedule_execution(
     }
 
     Ok(Scheduled {
+        token_count,
         entry,
         inputs,
         merged,
@@ -463,6 +505,8 @@ fn schedule_execution(
 /// Scheduling failure. Quint or the circuit must still validate the merged trace.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InterleavingError {
+    #[error("transaction finalization for loaded tokens is not implemented")]
+    TokenFinalization,
     #[error("the entry coordinator's trace does not start with its entry event")]
     MissingEntry,
     #[error("no coordinator trace for call from {caller:?} at step {step_index}")]
@@ -498,6 +542,18 @@ pub enum InterleavingError {
     MissingUtxoTrace {
         caller: ProcessIndex,
         step_index: usize,
+    },
+
+    #[error("resource {resource:?} is already bound in {holder:?}")]
+    DuplicateResource {
+        holder: ProcessIndex,
+        resource: ResourceHandle,
+    },
+
+    #[error("CallMethod requires a UTXO, but resource {resource:?} in {holder:?} is a token")]
+    TokenMethodTarget {
+        holder: ProcessIndex,
+        resource: ResourceHandle,
     },
 
     #[error("process {holder:?} called through unknown caller-local resource {resource:?}")]
@@ -676,8 +732,9 @@ mod tests {
                 ]),
                 Trace::new([
                     Step::SetStorage {
+                        kind: crate::StorageKind::Utxo,
                         storage: value([42]),
-                        entry_utxo_handle: handle,
+                        entry_handle: handle,
                     },
                     enter_call(method(9), [13]),
                     ret(),
@@ -695,7 +752,7 @@ mod tests {
         assert!(matches!(
             transaction.trace.0[0],
             Step::SetStorage {
-                entry_utxo_handle: ResourceHandle(7),
+                entry_handle: ResourceHandle(7),
                 ..
             }
         ));

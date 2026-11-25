@@ -98,6 +98,12 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             [(COL_TX_PHASE_AFTER, F::ONE), (COL_TX_PHASE_BEFORE, -F::ONE)],
             [],
         );
+        // The transaction digest enumerates UTXOs and their methods before tokens.
+        b.push_row(
+            [(COL_UTXO_LOAD, F::ONE), (COL_SEL_PRELOAD_METHOD, F::ONE)],
+            [(COL_NEXT_TOKEN_ID_BEFORE, F::ONE)],
+            [],
+        );
         // Only loading changes this flag; padding preserves it separately.
         b.push_row(
             sum(|op| {
@@ -180,7 +186,10 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         }
         b.push_row(
             selector_sum([Opcode::SetStorage, Opcode::GetStorage, Opcode::SkipConsumed]),
-            [(COL_EVENT_OWNER, F::ONE), (COL_BOUNDARY_UTXO, -F::ONE)],
+            [
+                (COL_EVENT_OWNER, F::ONE),
+                (COL_BOUNDARY_COROUTINE_ID, -F::ONE),
+            ],
             [],
         );
         b.push_row(
@@ -242,7 +251,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                     b.push_gated_linear_zero(
                         gate,
                         [
-                            (COL_BOUNDARY_UTXO, F::ONE),
+                            (COL_BOUNDARY_COROUTINE_ID, F::ONE),
                             (COL_OUTPUT_CURSOR_BEFORE, -F::new(4)),
                             (COL_ONE, F::new(3)),
                         ],
@@ -251,9 +260,9 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                         b,
                         op,
                         COL_ABI_GENERATION_ADDR,
-                        COL_BOUNDARY_UTXO,
+                        COL_BOUNDARY_COROUTINE_ID,
                     );
-                    equal(b, COL_ENABLED_METHOD_LOG_UTXO, COL_BOUNDARY_UTXO);
+                    equal(b, COL_ENABLED_METHOD_LOG_UTXO, COL_BOUNDARY_COROUTINE_ID);
                     equal(
                         b,
                         COL_ENABLED_METHOD_LOG_GENERATION,
@@ -269,8 +278,44 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             }
             match op {
                 Opcode::SetStorage => {
-                    constant(b, COL_LAST_INPUT_HAS_ABI_BEFORE, 1);
-                    constant(b, COL_LAST_INPUT_HAS_ABI_AFTER, 0);
+                    b.push_gated_linear_zero(
+                        COL_UTXO_LOAD,
+                        [(COL_LAST_INPUT_HAS_ABI_BEFORE, F::ONE), (COL_ONE, -F::ONE)],
+                    );
+                    b.push_gated_linear_zero(
+                        COL_UTXO_LOAD,
+                        [(COL_LAST_INPUT_HAS_ABI_AFTER, F::ONE)],
+                    );
+                    b.push_gated_linear_zero(
+                        COL_TOKEN_LOAD,
+                        [
+                            (COL_LAST_INPUT_HAS_ABI_AFTER, F::ONE),
+                            (COL_LAST_INPUT_HAS_ABI_BEFORE, -F::ONE),
+                        ],
+                    );
+                    // Both setters use the same event and resolver port. The kind
+                    // selects the allocator and the packed target's low bits.
+                    for (load, index, tag) in [
+                        (
+                            COL_UTXO_LOAD,
+                            COL_NEXT_UTXO_ID_BEFORE,
+                            crate::ivc_state::CoroutineKind::Utxo,
+                        ),
+                        (
+                            COL_TOKEN_LOAD,
+                            COL_NEXT_TOKEN_ID_BEFORE,
+                            crate::ivc_state::CoroutineKind::Token,
+                        ),
+                    ] {
+                        b.push_gated_linear_zero(
+                            load,
+                            [
+                                (COL_BOUNDARY_COROUTINE_ID, F::ONE),
+                                (index, -F::new(4)),
+                                (COL_ONE, -F::from_u32(tag.tag())),
+                            ],
+                        );
+                    }
                 }
                 Opcode::PreloadMethod => constant(b, COL_LAST_INPUT_HAS_ABI_AFTER, 1),
                 _ => {}
@@ -285,7 +330,7 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 b.push_gated_linear_zero(
                     gate,
                     [
-                        (COL_BOUNDARY_UTXO, F::ONE),
+                        (COL_BOUNDARY_COROUTINE_ID, F::ONE),
                         (COL_OUTPUT_CURSOR_BEFORE, -F::new(4)),
                         (COL_ONE, -F::ONE),
                     ],
@@ -300,22 +345,14 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                     ],
                 );
             }
-            if matches!(op, Opcode::SetStorage | Opcode::PreloadMethod) {
-                // SetStorage loads Utxo(next), encoded as 4 * next + 1.
-                // PreloadMethod uses Utxo(next - 1), encoded as 4 * next - 3.
+            if op == Opcode::PreloadMethod {
+                // Utxo(next - 1) encodes as 4 * next - 3.
                 b.push_gated_linear_zero(
                     gate,
                     [
-                        (COL_BOUNDARY_UTXO, F::ONE),
+                        (COL_BOUNDARY_COROUTINE_ID, F::ONE),
                         (COL_NEXT_UTXO_ID_BEFORE, -F::new(4)),
-                        (
-                            COL_ONE,
-                            if op == Opcode::SetStorage {
-                                -F::ONE
-                            } else {
-                                F::new(3)
-                            },
-                        ),
+                        (COL_ONE, F::new(3)),
                     ],
                 );
             }
@@ -327,11 +364,16 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                     COL_RESOURCE_RESOLVER_ADDR_CID,
                     u64::from(crate::ivc_state::CoroutineId::Coord(1).encoded()),
                 );
-                equal(b, COL_RESOURCE_RESOLVER_VALUE, COL_BOUNDARY_UTXO);
+                equal(b, COL_RESOURCE_RESOLVER_VALUE, COL_BOUNDARY_COROUTINE_ID);
             }
             if op == Opcode::PreloadMethod {
-                crate::ccs::require_utxo_index(b, op, COL_ABI_GENERATION_ADDR, COL_BOUNDARY_UTXO);
-                equal(b, COL_ENABLED_METHOD_LOG_UTXO, COL_BOUNDARY_UTXO);
+                crate::ccs::require_utxo_index(
+                    b,
+                    op,
+                    COL_ABI_GENERATION_ADDR,
+                    COL_BOUNDARY_COROUTINE_ID,
+                );
+                equal(b, COL_ENABLED_METHOD_LOG_UTXO, COL_BOUNDARY_COROUTINE_ID);
                 equal(
                     b,
                     COL_ENABLED_METHOD_LOG_GENERATION,
@@ -363,7 +405,12 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                     constant(b, COL_ABI_METHOD_COUNT_AFTER, 0);
                 }
             } else if op.scans_output() {
-                crate::ccs::require_utxo_index(b, op, COL_ABI_METHOD_COUNT_ADDR, COL_BOUNDARY_UTXO);
+                crate::ccs::require_utxo_index(
+                    b,
+                    op,
+                    COL_ABI_METHOD_COUNT_ADDR,
+                    COL_BOUNDARY_COROUTINE_ID,
+                );
                 if op == Opcode::SkipConsumed {
                     constant(b, COL_ABI_METHOD_COUNT_BEFORE, 0);
                 }
@@ -431,6 +478,7 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
         (COL_EFFECT_HEAD_BEFORE, 0),
         (COL_EFFECT_DEPTH_BEFORE, 0),
         (COL_EFFECT_ARENA_LEN_BEFORE, 0),
+        (COL_NEXT_TOKEN_ID_BEFORE, 0),
         (COL_NEXT_UTXO_ID_BEFORE, 0),
         (COL_ENABLED_METHOD_LOG_LEN_BEFORE, 0),
     ] {
@@ -440,13 +488,24 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
     }
     let mut entries = 0;
     let mut inputs = 0;
+    let mut tokens = 0;
     let mut outputs = 0;
     let mut methods = Vec::<Vec<[u32; 8]>>::new();
     let mut output_methods = Vec::<Vec<[u32; 8]>>::new();
     for row in rows {
         let row = row.as_ref();
         let at = |c: usize| row[c].as_canonical_u64();
-        if row[COL_SEL_SET_STORAGE] == F::ONE {
+        if row[COL_TOKEN_LOAD] == F::ONE {
+            let input = statement
+                .input_tokens
+                .get(at(COL_NEXT_TOKEN_ID_BEFORE) as usize)
+                .ok_or_else(reject)?;
+            tokens += 1;
+            if COL_ARGUMENT_ROOT.map(at) != input.storage.0 {
+                return Err(reject());
+            }
+        }
+        if row[COL_UTXO_LOAD] == F::ONE {
             let input = statement.inputs.get(inputs).ok_or_else(reject)?;
             if COL_ARGUMENT_ROOT.map(at) != input.storage.0 {
                 return Err(reject());
@@ -488,9 +547,9 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
             continue;
         };
         let (owner, chain) = if row[COL_SEL_GET_STORAGE] == F::ONE {
-            (COL_BOUNDARY_UTXO, COL_OUT)
+            (COL_BOUNDARY_COROUTINE_ID, COL_OUT)
         } else if row[COL_SEL_SKIP_CONSUMED] == F::ONE {
-            (COL_BOUNDARY_UTXO, COL_IN)
+            (COL_BOUNDARY_COROUTINE_ID, COL_IN)
         } else if row[COL_SEL_FINALIZE_COORDINATOR] == F::ONE {
             (COL_EVENT_OWNER, COL_IN)
         } else {
@@ -503,6 +562,7 @@ pub(crate) fn check_statement<R: AsRef<[F]>>(
     }
     if entries != 1
         || inputs != statement.inputs.len()
+        || tokens != statement.input_tokens.len()
         || outputs != statement.outputs.len()
         || output_methods
             .iter()

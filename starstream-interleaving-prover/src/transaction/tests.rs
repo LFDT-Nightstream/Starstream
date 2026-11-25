@@ -13,8 +13,9 @@ pub(crate) fn fixture() -> (Trace, TransactionStatement) {
         crate::tests::loaded(
             [
                 Step::SetStorage {
+                    kind: starstream_interleaving_spec::StorageKind::Utxo,
                     storage: storage.clone(),
-                    entry_utxo_handle: ResourceHandle(0),
+                    entry_handle: ResourceHandle(0),
                 },
                 Step::PreloadMethod { method },
             ],
@@ -637,7 +638,7 @@ fn token_records_check_carry_forward() {
         &Trace::new(trace.0[..6].to_vec()),
         &[Utxo(0), Coord(1), Coord(1), Utxo(0)],
     );
-    let empty = crate::transaction_commitment(&statement, &roots).unwrap();
+    verify_transaction_sat(&trace, 2, &statement, &roots).unwrap();
     let storage = StarstreamValue([1, 2, 3, 4]);
     statement.input_tokens.push(InputToken {
         owner: 0,
@@ -648,9 +649,9 @@ fn token_records_check_carry_forward() {
         owner: 0,
         storage,
     });
-    verify_transaction_sat(&trace, 2, &statement, &roots).unwrap();
-    let original = crate::transaction_commitment(&statement, &roots).unwrap();
-    assert_eq!(original, empty);
+    check_token_carry_forward(&statement).unwrap();
+    assert!(verify_transaction_sat(&trace, 2, &statement, &roots).is_err());
+    assert!(crate::transaction_commitment(&statement, &roots).is_err());
     statement.output_tokens[0].token = 1;
     assert!(verify_transaction_sat(&trace, 2, &statement, &roots).is_err());
     statement.output_tokens[0].token = 0;
@@ -660,8 +661,7 @@ fn token_records_check_carry_forward() {
     statement.output_tokens[0].storage.0[0] += 1;
     assert!(check_token_carry_forward(&statement).is_err());
     statement.input_tokens[0].storage = statement.output_tokens[0].storage.clone();
-    let updated = crate::transaction_commitment(&statement, &roots).unwrap();
-    assert_eq!(updated, original);
+    check_token_carry_forward(&statement).unwrap();
     let token = statement.output_tokens.pop().unwrap();
     assert!(check_token_carry_forward(&statement).is_err());
     statement.output_tokens.push(token);
@@ -675,7 +675,7 @@ fn token_records_check_carry_forward() {
         .push(statement.output_tokens[0].clone());
     assert!(check_token_carry_forward(&statement).is_err());
     statement.output_tokens[1].token = 1;
-    verify_transaction_sat(&trace, 2, &statement, &roots).unwrap();
+    check_token_carry_forward(&statement).unwrap();
 
     statement.outputs.clear();
     assert!(check_token_carry_forward(&statement).is_err());

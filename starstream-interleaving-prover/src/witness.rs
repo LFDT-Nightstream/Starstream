@@ -54,9 +54,17 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_CALL_FRAME_SAVED_EFFECT_DEPTH] = F::new(u64::from(input.saved_effect_depth));
 
     wit[input.opcode.selector()] = F::ONE;
+    if input.opcode == Opcode::SetStorage {
+        let load = match input.boundary_coroutine_id {
+            crate::CoroutineId::Token(_) => COL_TOKEN_LOAD,
+            crate::CoroutineId::Utxo(_) => COL_UTXO_LOAD,
+            crate::CoroutineId::Coord(_) => unreachable!("coordinators have no storage setter"),
+        };
+        wit[load] = F::ONE;
+    }
     wit[COL_EVENT_ACTIVE] = F::from_bool(input.opcode.has_event());
     wit[COL_EVENT_OWNER] = input.event_owner.field();
-    wit[COL_BOUNDARY_UTXO] = input.boundary_utxo.field();
+    wit[COL_BOUNDARY_COROUTINE_ID] = input.boundary_coroutine_id.field();
     wit[COL_TX_PHASE_BEFORE] = F::new(input.tx_before.phase as u64);
     wit[COL_TX_PHASE_AFTER] = F::new(input.tx_after.phase as u64);
     wit[COL_LAST_INPUT_HAS_ABI_BEFORE] = F::from_bool(input.tx_before.last_input_has_abi);
@@ -88,7 +96,7 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_ABI_METHOD_COUNT_READ] = F::from_bool(count_read);
     if count_write || count_read {
         wit[COL_ABI_METHOD_COUNT_ADDR] = if count_read {
-            input.boundary_utxo.local_index()
+            input.boundary_coroutine_id.local_index()
         } else {
             input.abi_generation_address.local_index()
         };
@@ -127,6 +135,8 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_EFFECT_HANDLED] = F::from_bool(input.effect_handled);
     wit[COL_EFFECT_RESTORE_DELTA] = wit[COL_EFFECT_HANDLED]
         * (wit[COL_CALL_FRAME_SAVED_EFFECT_HEAD] - wit[COL_EFFECT_HEAD_BEFORE]);
+    wit[COL_NEXT_TOKEN_ID_BEFORE] = F::from_u32(input.next_token_id_before);
+    wit[COL_NEXT_TOKEN_ID_AFTER] = F::from_u32(input.next_token_id_after);
     wit[COL_NEXT_UTXO_ID_BEFORE] = F::new(u64::from(input.next_utxo_id_before));
     wit[COL_NEXT_UTXO_ID_AFTER] = F::new(u64::from(input.next_utxo_id_after));
     wit[COL_ENABLED_METHOD_LOG_LEN_BEFORE] = F::new(u64::from(input.enabled_method_log_len_before));
