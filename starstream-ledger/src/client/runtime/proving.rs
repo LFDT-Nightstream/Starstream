@@ -300,6 +300,7 @@ pub fn prepare_verification(
                 input_tokens: &[],
                 input_utxos: &source.input_utxos,
                 new_utxos: &source.new_utxos,
+                new_tokens: &[],
             },
         )
         .collect::<Vec<_>>();

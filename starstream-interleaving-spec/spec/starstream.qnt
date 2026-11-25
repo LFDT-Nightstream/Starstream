@@ -47,7 +47,7 @@ module starstream {
     | EffectHandlerExecuting
     | EffectResumePending
     | CallResultPending
-    | NewUtxoHandlePending
+    | NewResourceHandlePending
 
   type CallFrameKind = ProgramCall | ConstructorCall | EffectCall
 
@@ -135,7 +135,7 @@ module starstream {
 
   type Opcode =
       NewUtxo
-    | ReceiveNewUtxoHandle
+    | ReceiveNewResourceHandle
     | EnterConstructor
     | CallCoordinator
     | CallMethod
@@ -163,12 +163,12 @@ module starstream {
     state.call_stack.length() > 0,
     // Opcodes supported in the token handlers.
     match state.curr {
-      | Token(_) => Set(EnterCall, Upcast, AssertSignedBy, Return).contains(op)
+      | Token(_) => Set(EnterConstructor, EnterCall, Upcast, AssertSignedBy, Return).contains(op)
       | _ => true
     },
     match op {
       | NewUtxo => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
-      | ReceiveNewUtxoHandle => state.curr_cid_phase == NewUtxoHandlePending
+      | ReceiveNewResourceHandle => state.curr_cid_phase == NewResourceHandlePending
       | EnterConstructor => state.curr_cid_phase == CtorEnterPending
       | CallCoordinator => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
       | CallMethod => state.curr_cid_phase == Executing or state.curr_cid_phase == EffectHandlerExecuting
@@ -435,14 +435,13 @@ module starstream {
   }
 
   action transaction_complete: bool = all {
-    state.input_tokens.length() == state.output_tokens.length(),
-    state.input_tokens.indices().forall(i => {
-      val input = state.input_tokens[i]
+    state.next_token_id == state.output_tokens.length(),
+    state.input_tokens.indices().forall(i => state.tx_inputs.indices().contains(state.input_tokens[i].owner)),
+    state.output_tokens.indices().forall(i => {
       val output = state.output_tokens[i]
       all {
         output.token == i,
         is_valid(output.storage),
-        state.tx_inputs.indices().contains(input.owner),
         state.tx_outputs.indices().exists(j => state.tx_outputs[j].utxo == output.owner),
       }
     }),
@@ -506,14 +505,25 @@ module starstream {
   // A constructor identity binds the target contract and UTXO export, as a
   // script identity does for call_coordinator. The new instance must open with
   // a matching enter_constructor.
-  action new_utxo(constructor: ConstructorIdentity, arguments: StarstreamValue): bool = {
+  action call_constructor(minting: bool, constructor: ConstructorIdentity, arguments: StarstreamValue): bool = {
     val caller = state.curr
-    val target = Utxo(state.next_utxo_id)
+    val target = if (minting) Token(state.next_token_id) else Utxo(state.next_utxo_id)
 
     all {
       action_allowed(NewUtxo),
       arguments.is_valid(),
       caller.is_coord(),
+      val allocated = if (minting) { {next_token_id: state.next_token_id + 1, ...state} }
+      else {
+        {
+          utxo_lifecycle: state.utxo_lifecycle.put(target, Live),
+          next_utxo_id: state.next_utxo_id + 1,
+          enabled_methods: state.enabled_methods.put(target, Set()),
+          abi_method_count: state.abi_method_count.put(target, 0),
+          abi_registrations: state.abi_registrations.put(target, List()),
+          ...state
+        }
+      }
       state' = {
         curr: target,
         effect_local_depth: 0,
@@ -531,14 +541,26 @@ module starstream {
           }
         ),
         curr_cid_phase: CtorEnterPending,
-        utxo_lifecycle: state.utxo_lifecycle.put(target, Live),
-        next_utxo_id: state.next_utxo_id + 1,
-        enabled_methods: state.enabled_methods.put(target, Set()),
-        abi_method_count: state.abi_method_count.put(target, 0),
-        abi_registrations: state.abi_registrations.put(target, List()),
-        ...state
+        ...allocated
       }
     }
+  }
+
+  action new_utxo(constructor: ConstructorIdentity, arguments: StarstreamValue): bool =
+    call_constructor(false, constructor, arguments)
+
+  action mint(constructor: ConstructorIdentity, arguments: StarstreamValue): bool =
+    call_constructor(true, constructor, arguments)
+
+  action enter_mint(constructor: ConstructorIdentity, arguments: StarstreamValue, interface_id: int): bool = all {
+    action_allowed(EnterConstructor),
+    match state.curr { | Token(_) => true | _ => false },
+    arguments.is_valid(),
+    state.call_stack.last().kind == ConstructorCall,
+    state.call_stack.last().expected_arguments == arguments,
+    state.call_stack.last().expected_identity == Some(constructor),
+    state' = { curr_cid_phase: ConstructorExecuting,
+      token_interfaces: state.token_interfaces.put(state.curr, interface_id), ...state }
   }
 
   action enter_constructor(constructor: ConstructorIdentity, arguments: StarstreamValue): bool = all {
@@ -638,18 +660,18 @@ module starstream {
         utxo_lifecycle: utxo_lifecycle,
         curr_cid_phase:
           if (not(returning_to_import)) Executing
-          else if (frame.kind == ConstructorCall) NewUtxoHandlePending
+          else if (frame.kind == ConstructorCall) NewResourceHandlePending
           else CallResultPending,
         ...state
       },
     }
   }
 
-  action receive_new_utxo_handle(resource: Output[ResourceHandle]): bool = {
+  action receive_new_resource_handle(resource: Output[ResourceHandle]): bool = {
     val frame = state.call_stack.last()
     val key = { holder: state.curr, handle: resource.value }
     all {
-      action_allowed(ReceiveNewUtxoHandle),
+      action_allowed(ReceiveNewResourceHandle),
       frame.caller == state.curr,
       not(state.resource_resolver.keys().contains(key)),
       state' = {

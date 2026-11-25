@@ -76,7 +76,7 @@ fn nested_invocations() -> Trace {
         exit(),
         resume(),
         ret(),
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(ResourceHandle(1)),
         },
         Step::PopEffectHandlerFrame,
@@ -85,7 +85,7 @@ fn nested_invocations() -> Trace {
         resume(),
         Step::PopEffectHandlerFrame,
         ret(),
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(ResourceHandle(0)),
         },
         Step::PopEffectHandlerFrame,

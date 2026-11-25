@@ -22,7 +22,7 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     wit[COL_INSTANCE_PUSH] = F::from_bool(input.opcode.pushes_instance());
     wit[COL_INSTANCE_POP] = F::from_bool(matches!(
         input.opcode,
-        Opcode::ReceiveNewUtxoHandle | Opcode::ReceiveCallResult
+        Opcode::ReceiveNewResourceHandle | Opcode::ReceiveCallResult
     ));
     wit[COL_EFFECT_HEAD_BEFORE] = F::new(u64::from(input.effect_head_before));
     wit[COL_EFFECT_HEAD_AFTER] = F::new(u64::from(input.effect_head_after));
@@ -62,6 +62,7 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
         };
         wit[load] = F::ONE;
     }
+    wit[COL_TOKEN_INTERFACE_WRITE] = wit[COL_TOKEN_LOAD] + wit[COL_SEL_ENTER_MINT];
     wit[COL_EVENT_ACTIVE] = F::from_bool(input.opcode.has_event());
     wit[COL_EVENT_OWNER] = input.event_owner.field();
     wit[COL_BOUNDARY_COROUTINE_ID] = input.boundary_coroutine_id.field();
@@ -136,7 +137,12 @@ pub(crate) fn assign_base_columns(input: &Wit) -> Vec<F> {
     crate::ccs::CALL_TARGET_ZERO_TEST.assign(&mut wit);
     wit[COL_CALL_FRAME_IS_EFFECT] = F::from_bool(input.call_frame_is_effect);
     wit[COL_CALL_FRAME_CONSTRUCTOR] = F::from_bool(input.call_frame_constructor);
-    wit[COL_RETURN_REQUIRES_UNIT] = F::from_bool(input.return_requires_unit);
+    if input.opcode == Opcode::Return {
+        wit[COL_UNIT_RETURN_WEIGHT] =
+            F::from_bool(matches!(input.curr_before, crate::CoroutineId::Token(_)))
+                + wit[COL_CALL_FRAME_CONSTRUCTOR]
+                + wit[COL_CALL_TARGET_IS_ZERO];
+    }
     wit[COL_CALL_FRAME_SAVED_PHASE] = F::new(u64::from(input.call_frame_saved_phase.value()));
     wit[COL_EFFECT_HANDLED] = F::from_bool(input.effect_handled);
     wit[COL_EFFECT_RESTORE_DELTA] = wit[COL_EFFECT_HANDLED]

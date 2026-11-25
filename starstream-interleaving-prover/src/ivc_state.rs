@@ -23,7 +23,7 @@ pub(crate) enum CurrPhase {
     EffectHandlerPending = 0b1110,
     EffectResumePending = 0b1111,
     CallResultPending = 0b1000,
-    NewUtxoHandlePending = 0b1001,
+    NewResourceHandlePending = 0b1001,
 }
 
 impl CurrPhase {

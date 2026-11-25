@@ -36,13 +36,41 @@ impl<'a> ConstructorTypes<'a> {
         exported: bool,
     ) -> Result<BTreeMap<String, [u8; 32]>, TemplateBuildError> {
         let mut signatures = BTreeMap::new();
-        for (name, function) in &self.resolve.interfaces[interface].functions {
-            if !name.starts_with("[static]utxo.") {
+        let interface = &self.resolve.interfaces[interface];
+        for (name, function) in &interface.functions {
+            let utxo = name.starts_with("[static]utxo.");
+            // Mint and burn both use static methods. Only mint returns an owned token.
+            let mint = match function.result {
+                Some(Type::Id(id)) if name.starts_with("[static]token.") => {
+                    matches!(self.resolve.types[id].kind, TypeDefKind::Handle(Handle::Own(resource))
+                        if Some(&resource) == interface.types.get("token"))
+                }
+                _ => false,
+            };
+            if !utxo && !mint {
                 continue;
+            }
+            if mint {
+                let abi = if exported {
+                    wit_parser::abi::AbiVariant::GuestExport
+                } else {
+                    wit_parser::abi::AbiVariant::GuestImport
+                };
+                if self.resolve.wasm_signature(abi, function).indirect_params
+                    || !function.params.iter().all(|param| {
+                        crate::coordinator_abi::by_value(self.resolve, param.ty, false)
+                    })
+                {
+                    return Err(TemplateBuildError::CoordinatorAbi {
+                        message: format!(
+                            "mint {name} requires direct by-value arguments without resource handles"
+                        ),
+                    });
+                }
             }
             let params = function
                 .params
-                .get(usize::from(exported)..)
+                .get(usize::from(exported && utxo)..)
                 .ok_or_else(|| TemplateBuildError::CoordinatorAbi {
                     message: format!("missing context parameter on constructor {name}"),
                 })?;

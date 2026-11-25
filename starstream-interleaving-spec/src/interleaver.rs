@@ -54,7 +54,7 @@ pub struct InterleavedTransaction {
     /// For each UTXO id, the position in the supplied trace list of the
     /// process that became that UTXO.
     pub utxos: Vec<ProcessIndex>,
-    /// Loaded tokens in transaction-local token ID order.
+    /// Token processes in allocation order, with loaded inputs first.
     pub tokens: Vec<ProcessIndex>,
     /// The same for coordinators, in allocation order: the entry script
     /// first, then each called coordinator.
@@ -109,8 +109,10 @@ pub fn interleave_transaction_with_inputs(
         inputs,
         entry,
         token_destinations,
+        token_processes,
+        input_token_count,
     } = schedule_execution(traces, input_methods)?;
-    if token_destinations.len() != input_token_owners.len() {
+    if input_token_count != input_token_owners.len() {
         return Err(InterleavingError::InputTokenOwners);
     }
     for &process in &coordinators {
@@ -156,23 +158,22 @@ pub fn interleave_transaction_with_inputs(
     }
     let mut input_tokens = Vec::new();
     let mut output_tokens = Vec::new();
-    let mut tokens = Vec::new();
-    for (index, (&owner, destination)) in input_token_owners
-        .iter()
-        .zip(token_destinations)
-        .enumerate()
+    for (index, (&process, destination)) in
+        token_processes.iter().zip(token_destinations).enumerate()
     {
-        if owner as usize >= inputs.len() {
-            return Err(InterleavingError::InputTokenOwners);
+        let initial_owner = input_token_owners.get(index).copied();
+        if let Some(owner) = initial_owner {
+            if owner as usize >= inputs.len() {
+                return Err(InterleavingError::InputTokenOwners);
+            }
+            let Step::SetStorage { storage, .. } = &traces[process].0[0] else {
+                unreachable!("the scheduler consumed the input token setter")
+            };
+            input_tokens.push(crate::InputToken {
+                owner,
+                storage: storage.clone(),
+            });
         }
-        let process = 1 + inputs.len() + index;
-        let Step::SetStorage { storage, .. } = &traces[process].0[0] else {
-            unreachable!("the scheduler consumed the input token setter")
-        };
-        input_tokens.push(crate::InputToken {
-            owner,
-            storage: storage.clone(),
-        });
         let remaining = &traces[process].0[cursors[process]..];
         let [step @ Step::GetTokenStorage { storage, .. }] = remaining else {
             return Err(InterleavingError::MissingStorageRead {
@@ -182,14 +183,13 @@ pub fn interleave_transaction_with_inputs(
         };
         let owner = match destination {
             Some(utxo) => u32::try_from(utxo).map_err(|_| InterleavingError::TooManyUtxos)?,
-            None => owner,
+            None => initial_owner.ok_or(InterleavingError::DetachedOutputToken)?,
         };
         output_tokens.push(crate::OutputToken {
             token: u32::try_from(index).map_err(|_| InterleavingError::TooManyTokens)?,
             owner,
             storage: storage.0.clone(),
         });
-        tokens.push(ProcessIndex(process));
         merged.push(step.clone());
     }
     merged.extend(coordinators.iter().map(|_| Step::FinalizeCoordinator));
@@ -214,7 +214,7 @@ pub fn interleave_transaction_with_inputs(
             inputs,
             outputs,
         },
-        tokens,
+        tokens: token_processes.into_iter().map(ProcessIndex).collect(),
         utxos: allocation_order.into_iter().map(ProcessIndex).collect(),
         coordinators: coordinators.into_iter().map(ProcessIndex).collect(),
     })
@@ -230,8 +230,10 @@ struct Scheduled {
     coordinators: Vec<usize>,
     /// Final-generation method registrations of each process.
     registrations: Vec<Vec<MethodHash>>,
-    /// Last attach destination, as a UTXO index, for each loaded token.
+    /// Last attach destination, as a UTXO index, for each allocated token.
     token_destinations: Vec<Option<usize>>,
+    token_processes: Vec<usize>,
+    input_token_count: usize,
 }
 
 fn bind_resource(
@@ -323,8 +325,9 @@ fn schedule_execution(
         bind_resource(&mut resource_targets, 0, *entry_handle, next_process)?;
         next_process += 1;
     }
-    let token_count = next_process - first_token;
-    let mut token_destinations = vec![None; token_count];
+    let mut token_processes = (first_token..next_process).collect::<Vec<_>>();
+    let input_token_count = token_processes.len();
+    let mut token_destinations = vec![None; input_token_count];
 
     // The transaction context calls the entry script with the identity and
     // arguments its own entry event commits to; the statement binds them.
@@ -365,7 +368,7 @@ fn schedule_execution(
                 merged.push(step);
                 current = target;
             }
-            Step::NewUtxo { .. } => {
+            Step::Mint { .. } | Step::NewUtxo { .. } => {
                 if let Some(&target) = pending_constructors
                     .get(&current)
                     .and_then(|pending| pending.last())
@@ -377,7 +380,7 @@ fn schedule_execution(
                     });
                 }
                 if next_process >= traces.len() {
-                    return Err(InterleavingError::MissingUtxoTrace {
+                    return Err(InterleavingError::MissingConstructorTrace {
                         caller: ProcessIndex(current),
                         step_index,
                     });
@@ -385,7 +388,12 @@ fn schedule_execution(
 
                 let target = next_process;
                 next_process += 1;
-                allocation_order.push(target);
+                if matches!(step, Step::Mint { .. }) {
+                    token_processes.push(target);
+                    token_destinations.push(None);
+                } else {
+                    allocation_order.push(target);
+                }
                 pending_constructors
                     .entry(current)
                     .or_default()
@@ -405,11 +413,9 @@ fn schedule_execution(
                         resource,
                     });
                 };
-                let is_token = (first_token..first_token + token_count).contains(&target);
+                let token_index = token_processes.binary_search(&target).ok();
                 if let Step::Attach { destination, .. } = step {
-                    if !is_token {
-                        return Err(InterleavingError::InvalidAttachment);
-                    }
+                    let token_index = token_index.ok_or(InterleavingError::InvalidAttachment)?;
                     let destination_process = resource_targets.get(&(current, destination)).ok_or(
                         InterleavingError::UnknownResource {
                             holder: ProcessIndex(current),
@@ -422,14 +428,14 @@ fn schedule_execution(
                     else {
                         return Err(InterleavingError::InvalidAttachment);
                     };
-                    token_destinations[target - first_token] = Some(utxo);
+                    token_destinations[token_index] = Some(utxo);
                     if pending_attach_destinations
                         .insert(target, *destination_process)
                         .is_some()
                     {
                         return Err(InterleavingError::InvalidAttachment);
                     }
-                } else if is_token {
+                } else if token_index.is_some() {
                     return Err(InterleavingError::TokenMethodTarget {
                         holder: ProcessIndex(current),
                         resource,
@@ -453,7 +459,7 @@ fn schedule_execution(
                 };
                 current = caller;
             }
-            Step::ReceiveNewUtxoHandle { resource } => {
+            Step::ReceiveNewResourceHandle { resource } => {
                 instance_stack.pop();
                 let Some(target) = pending_constructors.get_mut(&current).and_then(Vec::pop) else {
                     return Err(InterleavingError::ConstructorResumeWithoutPendingCall {
@@ -561,6 +567,7 @@ fn schedule_execution(
                 merged.push(step);
             }
             Step::AssertSignedBy { .. }
+            | Step::EnterMint { .. }
             | Step::EnterConstructor { .. }
             | Step::EnterCall { .. } => merged.push(step),
             Step::GetStorage { .. }
@@ -589,6 +596,8 @@ fn schedule_execution(
 
     Ok(Scheduled {
         token_destinations,
+        token_processes,
+        input_token_count,
         entry,
         inputs,
         merged,
@@ -604,6 +613,8 @@ fn schedule_execution(
 pub enum InterleavingError {
     #[error("each loaded token needs an input UTXO owner")]
     InputTokenOwners,
+    #[error("minted token has no output owner")]
+    DetachedOutputToken,
     #[error("too many token outputs")]
     TooManyTokens,
     #[error("invalid token attach handoff or destination UTXO")]
@@ -640,7 +651,7 @@ pub enum InterleavingError {
         "process {caller:?} began a constructor at local step {step_index}, \
          but no unassigned process trace remains"
     )]
-    MissingUtxoTrace {
+    MissingConstructorTrace {
         caller: ProcessIndex,
         step_index: usize,
     },
@@ -758,8 +769,8 @@ mod tests {
         }
     }
 
-    fn receive_new_utxo_handle(resource: ResourceHandle) -> Step {
-        Step::ReceiveNewUtxoHandle {
+    fn receive_new_resource_handle(resource: ResourceHandle) -> Step {
+        Step::ReceiveNewResourceHandle {
             resource: Out(resource),
         }
     }
@@ -798,9 +809,9 @@ mod tests {
         let coordinator = Trace::new([
             entry(),
             new_utxo([1]),
-            receive_new_utxo_handle(live),
+            receive_new_resource_handle(live),
             new_utxo([2]),
-            receive_new_utxo_handle(consumed),
+            receive_new_resource_handle(consumed),
             call_method(live, method(9), [13]),
             receive_call_result(),
             ret(),
@@ -930,7 +941,7 @@ mod tests {
         let coordinator = Trace::new([
             entry(),
             new_utxo([1]),
-            receive_new_utxo_handle(resource),
+            receive_new_resource_handle(resource),
             ret(),
         ]);
         let without_read = Trace::new([enter_constructor([1]), register(method(1)), ret()]);
@@ -969,7 +980,7 @@ mod tests {
         let coordinator = Trace::new([
             entry(),
             new_utxo([55]),
-            receive_new_utxo_handle(resource),
+            receive_new_resource_handle(resource),
             call_method(resource, method(1), [13]),
             receive_call_result(),
             call_method(resource, method(2), []),
@@ -1008,7 +1019,7 @@ mod tests {
                 Step::RegisterMethod { method: method(1) },
                 Step::RegisterMethod { method: method(2) },
                 ret(),
-                receive_new_utxo_handle(resource),
+                receive_new_resource_handle(resource),
                 call_method(resource, method(1), [13]),
                 enter_call(method(1), [13]),
                 ret(),
@@ -1028,9 +1039,9 @@ mod tests {
         let coordinator = Trace::new([
             entry(),
             new_utxo([1]),
-            receive_new_utxo_handle(ResourceHandle(0)),
+            receive_new_resource_handle(ResourceHandle(0)),
             new_utxo([2]),
-            receive_new_utxo_handle(ResourceHandle(1)),
+            receive_new_resource_handle(ResourceHandle(1)),
             call_method(ResourceHandle(1), method(2), []),
             receive_call_result(),
             call_method(ResourceHandle(0), method(1), []),
@@ -1137,7 +1148,7 @@ mod tests {
             new_utxo([]),
             enter_handler(1, effect(1)),
             exit_handler(true),
-            receive_new_utxo_handle(ResourceHandle(0)),
+            receive_new_resource_handle(ResourceHandle(0)),
             Step::PopEffectHandlerFrame,
             ret(),
         ]);
@@ -1247,7 +1258,7 @@ mod tests {
 
         assert_eq!(
             interleave_execution_only(&[coordinator]),
-            Err(InterleavingError::MissingUtxoTrace {
+            Err(InterleavingError::MissingConstructorTrace {
                 caller: ProcessIndex(0),
                 step_index: 1,
             })

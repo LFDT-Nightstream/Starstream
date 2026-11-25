@@ -84,9 +84,9 @@ module starstream_sim_core {
     new_utxo(identity, arguments),
   }
 
-  action simulate_receive_new_utxo_handle: bool = {
+  action simulate_receive_new_resource_handle: bool = {
     nondet resource = SIM_RESOURCE_HANDLES.oneOf()
-    receive_new_utxo_handle({ value: resource })
+    receive_new_resource_handle({ value: resource })
   }
 
   action simulate_register_method: bool = all {
@@ -233,7 +233,7 @@ module starstream_sim_core {
   action execution_step: bool = any {
       simulate_call_coordinator,
       simulate_new_utxo,
-      simulate_receive_new_utxo_handle,
+      simulate_receive_new_resource_handle,
       simulate_enter_constructor,
       yield_begin,
       simulate_register_method,

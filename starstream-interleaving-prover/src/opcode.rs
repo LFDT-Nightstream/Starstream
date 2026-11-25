@@ -7,7 +7,9 @@ use crate::ccs::layout::*;
 #[repr(u8)]
 pub(crate) enum Opcode {
     NewUtxo = 0,
-    ReceiveNewUtxoHandle,
+    Mint,
+    EnterMint,
+    ReceiveNewResourceHandle,
     EnterConstructor,
     YieldBegin,
     RegisterMethod,
@@ -74,9 +76,11 @@ impl From<&starstream_interleaving_spec::Step> for Opcode {
             starstream_interleaving_spec::Step::GetStorage { .. } => Self::GetStorage,
             starstream_interleaving_spec::Step::SkipConsumed => Self::SkipConsumed,
             starstream_interleaving_spec::Step::FinishTransaction => Self::FinishTransaction,
+            starstream_interleaving_spec::Step::Mint { .. } => Self::Mint,
+            starstream_interleaving_spec::Step::EnterMint { .. } => Self::EnterMint,
             starstream_interleaving_spec::Step::NewUtxo { .. } => Opcode::NewUtxo,
-            starstream_interleaving_spec::Step::ReceiveNewUtxoHandle { .. } => {
-                Opcode::ReceiveNewUtxoHandle
+            starstream_interleaving_spec::Step::ReceiveNewResourceHandle { .. } => {
+                Opcode::ReceiveNewResourceHandle
             }
             starstream_interleaving_spec::Step::EnterConstructor { .. } => Opcode::EnterConstructor,
             starstream_interleaving_spec::Step::YieldBegin => Opcode::YieldBegin,
@@ -117,8 +121,10 @@ impl Opcode {
                 | Self::EnterAttach
                 | Self::AssertSignedBy
                 | Self::NewUtxo
-                | Self::ReceiveNewUtxoHandle
+                | Self::Mint
+                | Self::ReceiveNewResourceHandle
                 | Self::EnterConstructor
+                | Self::EnterMint
                 | Self::YieldBegin
                 | Self::RegisterMethod
                 | Self::Return
@@ -169,11 +175,11 @@ impl Opcode {
     ) -> Option<crate::ivc_state::CurrPhase> {
         use crate::ivc_state::CurrPhase;
         Some(match self {
-            Self::NewUtxo => CurrPhase::CtorEnterPending,
+            Self::NewUtxo | Self::Mint => CurrPhase::CtorEnterPending,
             Self::Attach | Self::CallMethod | Self::CallCoordinator | Self::BeginExecution => {
                 CurrPhase::CallEnterPending
             }
-            Self::EnterConstructor => CurrPhase::ConstructorExecuting,
+            Self::EnterConstructor | Self::EnterMint => CurrPhase::ConstructorExecuting,
             Self::YieldBegin => CurrPhase::Registering,
             Self::EnterAttach | Self::EnterCall => CurrPhase::Executing,
             Self::RegisterMethod => CurrPhase::Registering,
@@ -185,7 +191,7 @@ impl Opcode {
             | Self::PushEffectHandlerFrame
             | Self::AddEffectHandler
             | Self::PopEffectHandlerFrame => before,
-            Self::ReceiveNewUtxoHandle
+            Self::ReceiveNewResourceHandle
             | Self::ReceiveCallResult
             | Self::Return
             | Self::ExitEffectHandler
@@ -204,7 +210,9 @@ impl Opcode {
     pub fn all() -> Vec<Self> {
         vec![
             Opcode::NewUtxo,
-            Opcode::ReceiveNewUtxoHandle,
+            Self::Mint,
+            Self::EnterMint,
+            Opcode::ReceiveNewResourceHandle,
             Opcode::EnterConstructor,
             Opcode::YieldBegin,
             Opcode::RegisterMethod,
@@ -250,7 +258,9 @@ impl Opcode {
             | Self::ExitEffectHandler
             | Self::ResumeEffect => Some(true),
             Self::NewUtxo
+            | Self::Mint
             | Self::EnterConstructor
+            | Self::EnterMint
             | Self::Attach
             | Self::EnterAttach
             | Self::CallMethod
@@ -267,7 +277,7 @@ impl Opcode {
     /// no read: Return reads this flag to determine its result and phase constraints.
     pub fn required_constructor_frame(&self) -> Option<bool> {
         match self {
-            Self::NewUtxo | Self::EnterConstructor => Some(true),
+            Self::Mint | Self::EnterMint | Self::NewUtxo | Self::EnterConstructor => Some(true),
             Self::Attach
             | Self::EnterAttach
             | Self::CallMethod
@@ -282,6 +292,7 @@ impl Opcode {
         matches!(
             self,
             Self::NewUtxo
+                | Self::Mint
                 | Self::Attach
                 | Self::CallMethod
                 | Self::CallCoordinator
@@ -299,14 +310,14 @@ impl Opcode {
     pub fn pushes_instance(&self) -> bool {
         matches!(
             self,
-            Self::NewUtxo | Self::Attach | Self::CallMethod | Self::CallCoordinator
+            Self::Mint | Self::NewUtxo | Self::Attach | Self::CallMethod | Self::CallCoordinator
         )
     }
 
     pub fn pops_from_call_stack_unconditionally(&self) -> bool {
         matches!(
             self,
-            Self::ReceiveNewUtxoHandle | Self::ReceiveCallResult | Self::ResumeEffect
+            Self::ReceiveNewResourceHandle | Self::ReceiveCallResult | Self::ResumeEffect
         )
     }
 
@@ -314,6 +325,7 @@ impl Opcode {
         matches!(
             self,
             Self::EnterConstructor
+                | Self::EnterMint
                 | Self::EnterAttach
                 | Self::EnterCall
                 | Self::SkipEffectHandler
@@ -352,8 +364,10 @@ impl Opcode {
             Self::SkipConsumed => COL_SEL_SKIP_CONSUMED,
             Self::FinishTransaction => COL_SEL_FINISH_TRANSACTION,
             Opcode::Padding => COL_SEL_PADDING,
+            Self::Mint => COL_SEL_MINT,
+            Self::EnterMint => COL_SEL_ENTER_MINT,
             Opcode::NewUtxo => COL_SEL_NEW_UTXO,
-            Opcode::ReceiveNewUtxoHandle => COL_SEL_RECEIVE_NEW_UTXO_HANDLE,
+            Opcode::ReceiveNewResourceHandle => COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE,
             Opcode::EnterConstructor => COL_SEL_ENTER_CONSTRUCTOR,
             Opcode::YieldBegin => COL_SEL_YIELD_BEGIN,
             Opcode::RegisterMethod => COL_SEL_REGISTER_METHOD,

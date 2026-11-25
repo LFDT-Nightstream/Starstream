@@ -32,7 +32,7 @@ fn bindings(first_input: bool, second_input: bool, duplicate: bool) -> Trace {
                 Step::Return {
                     result: StarstreamValue::UNIT_VALUE.into(),
                 },
-                Step::ReceiveNewUtxoHandle {
+                Step::ReceiveNewResourceHandle {
                     resource: handle.into(),
                 },
             ]);
@@ -293,10 +293,27 @@ fn attach_resolves_both_handles_and_requires_a_detached_token() {
     assert!(crate::verify_sat(&twice, &Default::default()).is_err());
 }
 
+fn check_token_output(trace: &Trace, owner: u32) -> Result<(), Error> {
+    use starstream_interleaving_spec::OutputToken;
+    let output = OutputToken {
+        token: 0,
+        owner,
+        storage: StarstreamValue::UNIT_VALUE,
+    };
+    let normalized = crate::step::normalize_with_inputs(trace, &Default::default(), &[output]);
+    let preload = crate::memory::preload_tables(&normalized.method_table);
+    let rows = normalized
+        .steps
+        .iter()
+        .map(crate::witness::build_witness_vector)
+        .collect::<Vec<_>>();
+    verify_witness_rows(&rows, &preload)
+}
+
 #[test]
 fn token_finalization_reads_the_owner_written_by_attach() {
     use crate::CoroutineId::{Token, Utxo};
-    use starstream_interleaving_spec::{OutputToken, StorageKind};
+    use starstream_interleaving_spec::StorageKind;
     let unit = StarstreamValue::UNIT_VALUE;
     let method = MethodHash([1; 8]);
     let done = Step::Return {
@@ -348,25 +365,119 @@ fn token_finalization_reads_the_owner_written_by_attach() {
         .position(|step| matches!(step, Step::GetTokenStorage { .. }))
         .unwrap();
     // Execution-only preload leaves the token detached. Only Attach can supply the owner.
-    let check = |owner| {
-        let output = OutputToken {
-            token: 0,
-            owner,
-            storage: unit.clone(),
-        };
-        let normalized = crate::step::normalize_with_inputs(&trace, &Default::default(), &[output]);
-        let preload = crate::memory::preload_tables(&normalized.method_table);
-        let rows = normalized
-            .steps
-            .iter()
-            .map(crate::witness::build_witness_vector)
-            .collect::<Vec<_>>();
-        verify_witness_rows(&rows, &preload)
-    };
-    check(0).unwrap();
-    assert!(matches!(check(1),
+    check_token_output(&trace, 0).unwrap();
+    assert!(matches!(check_token_output(&trace, 1),
         Err(Error::Unsatisfied(Unsatisfied::Memory(neo_application::MemoryCheckError::ReadMismatch {
             memory: crate::memory::MemoryId::TokenOwner, address, row, expected, actual,
         }))) if row == getter && address == [Token(0).encoded()] && expected == Utxo(0).encoded() && actual == Utxo(1).encoded()
     ));
+}
+
+#[test]
+fn mint_requires_token_entry_matching_attach_interface_and_a_final_owner() {
+    use crate::CoroutineId::{Token, Utxo};
+    use crate::memory::MemoryId;
+    use neo_application::MemoryCheckError::{ReadMismatch, ZeroReadMismatch};
+    let unit = StarstreamValue::UNIT_VALUE;
+    let done = Step::Return {
+        result: unit.clone().into(),
+    };
+    let mint_entry = Step::EnterMint {
+        constructor: CONSTRUCTOR,
+        arguments: unit.clone(),
+        interface: 3,
+    };
+    let attach = Step::Attach {
+        token: ResourceHandle(1),
+        destination: ResourceHandle(0),
+    };
+    let enter_attach = Step::EnterAttach {
+        interface: 3,
+        destination: ResourceHandle(7),
+    };
+    let getter = Step::GetTokenStorage {
+        interface: 3,
+        storage: unit.clone().into(),
+    };
+    let (mut trace, _) = crate::transaction::tests::fixture();
+    let position = |trace: &Trace, step: &Step| trace.0.iter().position(|s| s == step).unwrap();
+    // Mint and attach before the coordinator returns to the transaction output scan.
+    let body = position(&trace, &done);
+    trace.0.splice(
+        body..body,
+        [
+            Step::Mint {
+                constructor: CONSTRUCTOR,
+                arguments: unit.clone(),
+            },
+            mint_entry.clone(),
+            done.clone(),
+            Step::ReceiveNewResourceHandle {
+                resource: ResourceHandle(1).into(),
+            },
+            attach.clone(),
+            enter_attach.clone(),
+            done,
+            Step::ReceiveCallResult {
+                result: unit.clone().into(),
+            },
+        ],
+    );
+    let scan = position(&trace, &Step::FinalizeCoordinator);
+    trace.0.insert(scan, getter.clone());
+    check_token_output(&trace, 0).unwrap();
+
+    let entry = position(&trace, &mint_entry);
+    let mut wrong_kind = trace.clone();
+    wrong_kind.0[entry] = Step::EnterConstructor {
+        constructor: CONSTRUCTOR,
+        arguments: unit.clone(),
+    };
+    let error = check_token_output(&wrong_kind, 0).unwrap_err();
+    assert!(
+        matches!(error, Error::Unsatisfied(Unsatisfied::Constraint { step, .. }) if step == entry),
+        "{error}"
+    );
+
+    let mut wrong_interface = trace.clone();
+    let Step::EnterMint { interface, .. } = &mut wrong_interface.0[entry] else {
+        unreachable!()
+    };
+    *interface = 4;
+    let error = check_token_output(&wrong_interface, 0).unwrap_err();
+    let Error::Unsatisfied(Unsatisfied::Memory(ReadMismatch {
+        memory: MemoryId::TokenInterface,
+        address,
+        row,
+        expected,
+        actual,
+    })) = error
+    else {
+        panic!("{error}")
+    };
+    assert_eq!(row, position(&trace, &enter_attach));
+    assert_eq!(address, [Token(0).encoded()]);
+    assert_eq!((expected, actual), (4, 3));
+
+    let start = position(&trace, &attach);
+    let end = position(
+        &trace,
+        &Step::ReceiveCallResult {
+            result: unit.into(),
+        },
+    );
+    trace.0.drain(start..=end);
+    let error = check_token_output(&trace, 0).unwrap_err();
+    let Error::Unsatisfied(Unsatisfied::Memory(ZeroReadMismatch {
+        memory: MemoryId::TokenOwner,
+        address,
+        row,
+        actual,
+    })) = error
+    else {
+        panic!("{error}")
+    };
+    assert_eq!(row, position(&trace, &getter));
+    assert_eq!(address, [Token(0).encoded()]);
+    assert_eq!(actual, Utxo(0).encoded());
 }

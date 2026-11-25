@@ -189,7 +189,16 @@ pub enum Step {
         constructor: ConstructorIdentity,
         arguments: StarstreamValue,
     },
-    ReceiveNewUtxoHandle {
+    Mint {
+        constructor: ConstructorIdentity,
+        arguments: StarstreamValue,
+    },
+    EnterMint {
+        constructor: ConstructorIdentity,
+        arguments: StarstreamValue,
+        interface: u32,
+    },
+    ReceiveNewResourceHandle {
         resource: Out<ResourceHandle>,
     },
     EnterConstructor {
@@ -300,7 +309,7 @@ pub struct InputToken {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputToken {
-    /// Transaction-local token ID, preserved across its input and output records.
+    /// Transaction-local token ID. Input tokens retain their index; minted tokens follow in allocation order.
     pub token: u32,
     pub owner: u32,
     pub storage: StarstreamValue,

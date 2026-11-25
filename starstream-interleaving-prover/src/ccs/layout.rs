@@ -12,8 +12,10 @@ define_column_region! {
     indices: pub,
     columns: [
         COL_ONE: Field => "",
+        COL_SEL_MINT: Boolean => "call a fresh token mint",
+        COL_SEL_ENTER_MINT: Boolean => "enter the minted token",
         COL_SEL_NEW_UTXO: Boolean => "selector for the NewUtxo action",
-        COL_SEL_RECEIVE_NEW_UTXO_HANDLE: Boolean => "selector for the ReceiveNewUtxoHandle action",
+        COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE: Boolean => "selector for the ReceiveNewResourceHandle action",
         COL_SEL_ENTER_CONSTRUCTOR: Boolean => "selector for the EnterConstructor action",
         COL_SEL_YIELD_BEGIN: Boolean => "selector for the YieldBegin action",
         COL_SEL_REGISTER_METHOD: Boolean => "selector for the RegisterMethod action",
@@ -42,6 +44,7 @@ define_column_region! {
         COL_SEL_PADDING: Boolean => "state-preserving circuit-only padding slot",
         COL_SEL_SET_STORAGE: Boolean => "load an input resource",
         COL_UTXO_LOAD: Boolean => "SetStorage for a UTXO",
+        COL_TOKEN_INTERFACE_WRITE: Boolean => "initialize the token interface on storage load or mint entry",
         COL_TOKEN_LOAD: Boolean => "SetStorage for a token",
         COL_SEL_PRELOAD_METHOD: Boolean => "load a ledger ABI entry",
         COL_SEL_GET_TOKEN_STORAGE: Boolean => "export the next token",
@@ -77,7 +80,7 @@ define_column_region! {
         COL_CALL_FRAME_IS_EFFECT: Boolean => "whether the call frame is an effect frame",
         COL_CALL_FRAME_CONSTRUCTOR: Boolean => "program call is a constructor call",
         COL_CALL_FRAME_SAVED_PHASE: (Bits(4)) => "phase saved in an effect frame and restored on resume",
-        COL_RETURN_REQUIRES_UNIT: Boolean => "return is from a constructor or the entry coordinator",
+        COL_UNIT_RETURN_WEIGHT: Field => "sum of token, constructor and root indicators on Return",
         COL_CALL_FRAME_SAVED_EFFECT_HEAD: U32 => "caller's effect head saved on push, restored by an accepted handler exit",
         COL_CALL_FRAME_SAVED_EFFECT_DEPTH: U32 => "caller's local scope depth saved on push, restored on return and handler exit",
         COL_EFFECT_HANDLED: Boolean => "handler exit status: continue search = 0, resume = 1",
@@ -154,8 +157,8 @@ define_column_region! {
         COL_CURR_PHASE_AFTER: (Bits(4)) => "internal phase of curr in the next step",
         COL_CALL_SP_BEFORE: U32 => "call stack pointer before",
         COL_CALL_SP_AFTER: U32 => "call stack pointer after",
-        COL_NEXT_TOKEN_ID_BEFORE: U32 => "next input token index before this row",
-        COL_NEXT_TOKEN_ID_AFTER: U32 => "next input token index after this row",
+        COL_NEXT_TOKEN_ID_BEFORE: U32 => "next token index before this row",
+        COL_NEXT_TOKEN_ID_AFTER: U32 => "next token index after this row",
         COL_NEXT_UTXO_ID_BEFORE: U32 => "utxo id allocator",
         COL_NEXT_UTXO_ID_AFTER: U32 => "utxo id allocator",
         COL_ENABLED_METHOD_LOG_LEN_BEFORE: U32 => "next free enabled-method append-log entry",
@@ -201,7 +204,7 @@ pub(crate) const SIGNER_KEY_LIMBS: usize = u64::BITS as usize / u32::BITS as usi
 /// Signer and method lookups occur on disjoint opcodes and share an advice column.
 pub(crate) const COL_SIGNER_INDEX: usize = COL_METHOD_INDEX;
 
-pub const SELECTORS: [usize; 32] = [
+pub const SELECTORS: [usize; 34] = [
     COL_SEL_UPCAST,
     COL_SEL_ATTACH,
     COL_SEL_ENTER_ATTACH,
@@ -210,8 +213,10 @@ pub const SELECTORS: [usize; 32] = [
     COL_SEL_FINALIZE_COORDINATOR,
     COL_SEL_BEGIN_EXECUTION,
     COL_SEL_READ_ABI,
+    COL_SEL_MINT,
+    COL_SEL_ENTER_MINT,
     COL_SEL_NEW_UTXO,
-    COL_SEL_RECEIVE_NEW_UTXO_HANDLE,
+    COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE,
     COL_SEL_ENTER_CONSTRUCTOR,
     COL_SEL_YIELD_BEGIN,
     COL_SEL_REGISTER_METHOD,

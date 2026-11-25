@@ -99,6 +99,7 @@ enum ExportKind {
     /// callee-local `utxo-context` handle before the user arguments. Entered
     /// under the constructor identity its caller commits to.
     Constructor(ConstructorIdentity),
+    Mint(ConstructorIdentity, u32),
     /// `<utxo>#[method]utxo.<name>`: the exported method takes the
     /// callee-local resource receiver before the user arguments.
     Method(MethodSelector),
@@ -137,6 +138,7 @@ enum ImportKind {
     YieldBegin,
     RegisterMethod,
     NewUtxo(ConstructorIdentity),
+    Mint(ConstructorIdentity),
     CallMethod(MethodSelector),
     Advice,
     Effect(EffectIdentity),
@@ -196,7 +198,10 @@ fn build_templates(
         let classified = classify_export(export, &coordination_exports, coordinator_abis)?;
         if matches!(
             classified,
-            ExportKind::CoordinationScript | ExportKind::Constructor(_) | ExportKind::SetStorage(_)
+            ExportKind::CoordinationScript
+                | ExportKind::Constructor(_)
+                | ExportKind::Mint(..)
+                | ExportKind::SetStorage(_)
         ) {
             initial_exports.push(fref);
         }
@@ -333,6 +338,7 @@ pub fn flat_value_root(types: &[ValType], values: &[u64]) -> StarstreamValue {
 impl ExportKind {
     const fn name(self) -> &'static str {
         match self {
+            Self::Mint(..) => "mint",
             Self::Constructor(_) => "constructor",
             Self::EnterAttach(_) => "token attach",
             Self::Method(_) => "method",
@@ -401,6 +407,23 @@ fn classify_export(
             .position(|name| name == instance)
         {
             let interface = u32::try_from(index).expect("component interface index fits u32");
+            if let Some(name) = item.strip_prefix("[static]token.")
+                && let Some(signature) = abis
+                    .constructor_exports
+                    .get(instance)
+                    .and_then(|s| s.get(item))
+            {
+                return Ok(ExportKind::Mint(
+                    hash_constructor(
+                        &abis.contract_digest,
+                        instance,
+                        name,
+                        &export.params,
+                        Some(*signature),
+                    )?,
+                    interface,
+                ));
+            }
             if item == "[method]token.attach" {
                 return Ok(ExportKind::EnterAttach(interface));
             }
@@ -773,6 +796,20 @@ fn build_export_events(
                 exit: return_exit_events(Root::unit())?,
             })
         }
+        ExportKind::Mint(constructor, interface) => {
+            let mut entry = Sequence::op(EventKind::EnterMint);
+            for word in constructor.0 {
+                entry = entry.constant_i32(word)?;
+            }
+            let entry = entry
+                .root(entry_arguments_root(export, &mut inputs, 0)?)?
+                .constant_i32(interface)?
+                .finish()?;
+            Ok(ExportEvents {
+                entry,
+                exit: return_exit_events(Root::unit())?,
+            })
+        }
         ExportKind::EnterAttach(interface) => {
             if export.params.as_ref() != [ValType::I32, ValType::I32] || !export.results.is_empty()
             {
@@ -951,23 +988,31 @@ fn classify_import(
         });
     }
     let own = import.module.strip_prefix(SELF_INTERFACE_PREFIX);
-    let typed = import.module.strip_prefix(TYPED_UTXO_INTERFACE_PREFIX);
-    if let Some(utxo) = own.or(typed) {
-        if let Some(constructor) = import.field.strip_prefix(CONSTRUCTOR_PREFIX) {
-            // The identity names the contract that exports the UTXO: this one,
+    let typed = import
+        .module
+        .strip_prefix(TYPED_UTXO_INTERFACE_PREFIX)
+        .or_else(|| import.module.strip_prefix("starstream:token/"));
+    if let Some(resource) = own.or(typed) {
+        let mint = import.field.strip_prefix("[static]token.").filter(|_| {
+            abis.constructor_imports
+                .get(&import.module)
+                .is_some_and(|s| s.contains_key(&import.field))
+        });
+        if let Some(constructor) = mint.or_else(|| import.field.strip_prefix(CONSTRUCTOR_PREFIX)) {
+            // The identity names the contract that exports the resource: this one,
             // or the one a typed import's `external-id` points to.
             let contract_digest = if own.is_some() {
                 &abis.contract_digest
             } else {
-                abis.utxo_contracts
-                    .get(utxo)
-                    .ok_or_else(|| TemplateBuildError::CoordinatorAbi {
-                        message: format!("typed UTXO import {utxo} has no external-id"),
-                    })?
+                abis.resource_contracts.get(&import.module).ok_or_else(|| {
+                    TemplateBuildError::CoordinatorAbi {
+                        message: format!("typed resource import {resource} has no external-id"),
+                    }
+                })?
             };
-            return Ok(ImportKind::NewUtxo(hash_constructor(
+            let identity = hash_constructor(
                 contract_digest,
-                utxo,
+                resource,
                 constructor,
                 &import.params,
                 abis.constructor_signature(
@@ -975,7 +1020,12 @@ fn classify_import(
                     &import.module,
                     &import.field,
                 )?,
-            )?));
+            )?;
+            return Ok(if mint.is_some() {
+                ImportKind::Mint(identity)
+            } else {
+                ImportKind::NewUtxo(identity)
+            });
         }
         if let Some(method) = import.field.strip_prefix(METHOD_PREFIX) {
             return Ok(ImportKind::CallMethod(method_hash_from_segment(method)?));
@@ -1049,7 +1099,12 @@ fn build_import_template(
         }
         ImportKind::YieldBegin => build_yield_begin_template(import),
         ImportKind::RegisterMethod => build_register_method_template(import),
-        ImportKind::NewUtxo(constructor) => return build_new_utxo_template(import, constructor),
+        ImportKind::NewUtxo(constructor) => {
+            return build_constructor_template(import, constructor, EventKind::NewUtxo);
+        }
+        ImportKind::Mint(constructor) => {
+            return build_constructor_template(import, constructor, EventKind::Mint);
+        }
         ImportKind::CallMethod(method) => return build_call_method_template(import, method),
         ImportKind::Advice => result_advice_events(import),
         ImportKind::Effect(effect) => return build_effect_template(import, effect),
@@ -1217,9 +1272,10 @@ fn import_result_root(
     })
 }
 
-fn build_new_utxo_template(
+fn build_constructor_template(
     import: &FunctionImport,
     constructor: ConstructorIdentity,
+    kind: EventKind,
 ) -> Result<ImportEvents, TemplateBuildError> {
     if import.results.as_ref() != [ValType::I32] {
         return Err(TemplateBuildError::InvalidConstructorResult {
@@ -1229,13 +1285,13 @@ fn build_new_utxo_template(
         });
     }
 
-    let mut call = Sequence::op(EventKind::NewUtxo);
+    let mut call = Sequence::op(kind);
     for word in constructor.0 {
         call = call.constant_i32(word)?;
     }
     let call = call.root(import_arguments_root(import, 0)?)?.finish()?;
 
-    let mut return_events = Sequence::op(EventKind::ReceiveNewUtxoHandle)
+    let mut return_events = Sequence::op(EventKind::ReceiveNewResourceHandle)
         .map(1, |builder| {
             builder.push(SlotBinding::ResultElem { limb: Limb::Lo })
         })?
@@ -2135,7 +2191,7 @@ mod tests {
                         .unwrap(),
                         arguments: flat_value_root(&types, &values),
                     },
-                    Step::ReceiveNewUtxoHandle {
+                    Step::ReceiveNewResourceHandle {
                         resource: Out(ResourceHandle(42)),
                     },
                 ]),
@@ -2177,7 +2233,7 @@ mod tests {
         assert!(matches!(
             try_build(&wasm, &[]),
             Err(TemplateBuildError::CoordinatorAbi { message })
-                if message == "typed UTXO import counter has no external-id"
+                if message == "typed resource import counter has no external-id"
         ));
     }
 
@@ -2198,7 +2254,7 @@ mod tests {
                     constructor: counter_constructor(),
                     arguments: arguments.clone(),
                 },
-                Step::ReceiveNewUtxoHandle {
+                Step::ReceiveNewResourceHandle {
                     resource: Out(ResourceHandle(7)),
                 },
             ])

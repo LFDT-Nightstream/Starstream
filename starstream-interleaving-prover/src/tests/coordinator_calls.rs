@@ -192,7 +192,7 @@ fn only_coordinators_call_scripts() {
         ret(RESULT_A),
         receive(RESULT_A),
         ret(unit.clone()),
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(ResourceHandle(0)),
         },
         ret(unit),

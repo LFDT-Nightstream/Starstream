@@ -64,7 +64,7 @@ fn final_instance_roots_are_authenticated_by_memory() {
         Step::Return {
             result: unit.clone().into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {

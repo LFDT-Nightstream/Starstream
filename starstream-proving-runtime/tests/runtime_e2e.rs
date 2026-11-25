@@ -60,6 +60,85 @@ const UNHANDLED_EFFECT: &str = r#"
     }
 "#;
 
+const MINT_PAYMENT: &str = concat!(
+    include_str!("../../examples/pay_to_public_key.star"),
+    r#"
+    token PaymentToken {
+        storage { let mut amount: u64; }
+        mint fn issue(pub value: u64) { amount = value; }
+        impl Token {
+            fn attach(to: Utxo) {}
+            fn detach(source: Utxo) {}
+        }
+    }
+    script fn mint_payment() {
+        let payment: Token = PaymentToken::issue(42);
+        send_single_token(PublicKey { dummy: 17 }, payment);
+    }
+"#
+);
+
+fn minted_payment_verification(
+    wasm: &[u8],
+    sizes: impl IntoIterator<Item = starstream_proving_runtime::WasmSize>,
+) -> wasmtime::Result<starstream_proving_runtime::PreparedVerification> {
+    use starstream_proving_runtime::{VerificationProgram, prepare_verification};
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(wasm).into();
+    let program = VerificationProgram {
+        wasm,
+        contract_digest: &digest,
+        coordination_exports: &["mint-payment", "send-single-token"],
+        is_original_image: true,
+        input_tokens: &[],
+        input_utxos: &[],
+        new_tokens: &[(0, "payment-token".into())],
+        new_utxos: &[(0, "pay-to-public-key".into())],
+    };
+    prepare_verification(&[program], sizes)
+}
+
+#[tokio::test]
+async fn mint_and_attach_to_pay_to_public_key() -> wasmtime::Result<()> {
+    let execution = trace_coordination_script(MINT_PAYMENT, "mint-payment").await?;
+    minted_payment_verification(
+        &execution.wasm,
+        [starstream_proving_runtime::WasmSize::Medium],
+    )?;
+    let tx = &execution.transaction;
+    let statement = &tx.statement;
+    assert!(statement.input_tokens.is_empty() && statement.inputs.is_empty());
+    let [token] = statement.output_tokens.as_slice() else {
+        panic!("expected one minted token")
+    };
+    let [utxo] = statement.outputs.as_slice() else {
+        panic!("expected one payment output")
+    };
+    assert_eq!((token.token, token.owner, utxo.utxo), (0, 0, 0));
+    assert_eq!(token.storage, u64_root(42));
+    assert!(
+        execution.storage[0].contains(&("recipient".to_owned(), wasmtime::component::Val::S64(17)))
+    );
+    verify_transaction_sat(&tx.trace, BATCH_SIZE, statement, &execution.commitments)?;
+
+    let mut missing = statement.clone();
+    missing.output_tokens.clear();
+    assert!(
+        verify_transaction_sat(&tx.trace, BATCH_SIZE, &missing, &execution.commitments).is_err()
+    );
+
+    let mut wrong = tx.execution.clone();
+    let Some(Step::EnterMint { constructor, .. }) = wrong
+        .0
+        .iter_mut()
+        .find(|s| matches!(s, Step::EnterMint { .. }))
+    else {
+        panic!("missing mint entry")
+    };
+    constructor.0[0] ^= 1;
+    assert!(verify_sat(&wrong, &statement.signers).is_err());
+    Ok(())
+}
+
 /// Start at script entry with a detached token restored in its own component.
 #[tokio::test]
 async fn send_single_token_from_storage() -> wasmtime::Result<()> {
@@ -244,6 +323,7 @@ fn verification_preparation_rejects_wrong_setter_kind() -> wasmtime::Result<()> 
                 input_utxos: &[(0, utxo.to_owned())],
                 input_tokens: &[(0, token.to_owned())],
                 new_utxos: &[],
+                new_tokens: &[],
             }],
             [WasmSize::Large],
         )
@@ -349,7 +429,7 @@ fn constructed_resource(coordinator: &Trace) -> ResourceHandle {
         .0
         .iter()
         .find_map(|step| match step {
-            Step::ReceiveNewUtxoHandle { resource } => Some(resource.0),
+            Step::ReceiveNewResourceHandle { resource } => Some(resource.0),
             _ => None,
         })
         .unwrap_or_else(|| panic!("coordinator trace has no received UTXO handle: {coordinator:?}"))
@@ -372,7 +452,7 @@ fn expected_minimal_method_call_traces(
             constructor,
             arguments: u64_root(55),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(resource),
         },
         call(resource, "accept", 13),
@@ -401,7 +481,7 @@ fn expected_score_traces(execution: &TracedExecution, resource: ResourceHandle) 
             constructor,
             arguments: UNIT,
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: Out(resource),
         },
     ];
@@ -596,15 +676,18 @@ async fn effect_raised_after_its_scope_is_popped_is_unhandled() {
 async fn traced_transactions_satisfy_the_quint_specification() -> wasmtime::Result<()> {
     let verifier = QuintVerifier::new()
         .map_err(|error| wasmtime::format_err!("Quint is unavailable: {error}"))?;
-    for (name, source) in [
-        ("minimal method call", MINIMAL_METHOD_CALL),
-        ("score", SCORE),
-        ("multiple UTXOs", common::MULTI_UTXO),
-        ("distinct UTXO types", common::DISTINCT_UTXO_TYPES),
+    for (name, source, script) in [
+        ("minted payment", MINT_PAYMENT, "mint-payment"),
+        ("minimal method call", MINIMAL_METHOD_CALL, "example"),
+        ("score", SCORE, "example"),
+        ("multiple UTXOs", common::MULTI_UTXO, "example"),
+        (
+            "distinct UTXO types",
+            common::DISTINCT_UTXO_TYPES,
+            "example",
+        ),
     ] {
-        let transaction = trace_coordination_script(source, "example")
-            .await?
-            .transaction;
+        let transaction = trace_coordination_script(source, script).await?.transaction;
         verifier.verify(&transaction.execution).map_err(|error| {
             wasmtime::format_err!("Quint rejected the {name} execution: {error}")
         })?;
@@ -645,7 +728,7 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
         .0
         .iter()
         .filter_map(|step| match step {
-            Step::ReceiveNewUtxoHandle { resource } => Some(resource.0),
+            Step::ReceiveNewResourceHandle { resource } => Some(resource.0),
             _ => None,
         })
         .collect();
@@ -665,7 +748,7 @@ async fn multiple_utxos_finalize_in_allocation_order_with_consumed_gap() -> wasm
             register("increment"),
             register("finish"),
             ret(),
-            Step::ReceiveNewUtxoHandle {
+            Step::ReceiveNewResourceHandle {
                 resource: Out(*handle),
             },
         ]);
@@ -863,6 +946,20 @@ mod proving {
 
     #[tokio::test]
     #[ignore = "Nebula proofs; run with --release --features proof-tests -- --ignored"]
+    async fn minted_payment_proof_round_trip() -> wasmtime::Result<()> {
+        use starstream_proving_runtime::{Engine, TransactionProver, decode_captured_execution};
+        let (traced, registry) =
+            common::trace_coordination_script_with_registry(MINT_PAYMENT, "mint-payment").await?;
+        let execution = decode_captured_execution(&registry, [])?;
+        let mut prover = TransactionProver::new(Engine::Optimized);
+        let (proof, _) = prover.prove(&registry, &execution)?;
+        let verification =
+            minted_payment_verification(&traced.wasm, proof.instances.iter().map(|p| p.size))?;
+        prover.verify(&proof, &verification, &execution.transaction.statement)
+    }
+
+    #[tokio::test]
+    #[ignore = "Nebula proofs; run with --release --features proof-tests -- --ignored"]
     async fn two_utxo_proofs_keep_order_and_bind_each_finalized_root() -> wasmtime::Result<()> {
         use starstream_proving_runtime::{Engine, TransactionProver, decode_captured_execution};
 
@@ -884,7 +981,8 @@ mod proving {
             panic!("expected one surviving UTXO");
         };
         assert_eq!(output.utxo, 1);
-        let ids = [0, 1, 2].map(common::coroutine_id);
+        use starstream_interleaving_prover::CoroutineId::{Coord, Utxo};
+        let ids = [Coord(1), Utxo(0), Utxo(1)].map(|id| id.encoded());
         assert_ne!(traced.commitments[&ids[1]], traced.commitments[&ids[2]]);
         let wasm = traced.wasm;
         let mut prover = TransactionProver::new(Engine::Optimized);

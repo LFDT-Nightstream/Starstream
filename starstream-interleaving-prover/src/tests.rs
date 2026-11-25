@@ -28,7 +28,7 @@ mod padding {
             COL_RESOURCE_RESOLVER_READ,
             COL_RESOURCE_RESOLVER_WRITE,
             COL_ABI_METHOD_COUNT_READ,
-            COL_TOKEN_LOAD,
+            COL_TOKEN_INTERFACE_WRITE,
             COL_UTXO_EVENT,
             COL_COORD_EVENT,
             COL_ABI_METHOD_COUNT_WRITE,
@@ -156,7 +156,7 @@ pub(super) fn constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {
@@ -178,7 +178,7 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {
@@ -222,7 +222,7 @@ fn rejects_receiving_a_constructor_as_a_method() {
 #[test]
 fn rejects_receiving_a_method_as_a_constructor() {
     let mut trace = method_call_trace(true);
-    trace.0[10] = Step::ReceiveNewUtxoHandle {
+    trace.0[10] = Step::ReceiveNewResourceHandle {
         resource: ResourceHandle(99).into(),
     };
     assert!(matches!(
@@ -231,7 +231,7 @@ fn rejects_receiving_a_method_as_a_constructor() {
             step: 10,
             constraint,
             ..
-        })) if constraint == "receive new utxo handle constraints"));
+        })) if constraint == "receive constructor handle constraints"));
 }
 
 fn incomplete_constructor_trace(arguments: [u32; 4]) -> Trace {
@@ -314,7 +314,7 @@ pub(super) fn method_call_trace_with_values(
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::CallMethod {
@@ -421,7 +421,7 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::CallMethod {
@@ -569,7 +569,7 @@ fn constructor_effect_trace(effect_after_registration: bool) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::PopEffectHandlerFrame,
@@ -684,7 +684,7 @@ fn rejects_return_while_method_result_is_pending() {
 #[test]
 fn rejects_return_while_new_utxo_handle_is_pending() {
     let mut trace = minimal_constructor_trace([0, 1, 2, 3]);
-    let Step::ReceiveNewUtxoHandle { resource } = trace.0[5] else {
+    let Step::ReceiveNewResourceHandle { resource } = trace.0[5] else {
         panic!("constructor trace must receive its handle at step 5");
     };
     trace.0.splice(
@@ -693,7 +693,7 @@ fn rejects_return_while_new_utxo_handle_is_pending() {
             Step::Return {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
-            Step::ReceiveNewUtxoHandle { resource },
+            Step::ReceiveNewResourceHandle { resource },
         ],
     );
     assert!(matches!(
@@ -747,7 +747,7 @@ fn rejects_effect_while_method_result_is_pending() {
 fn rejects_effect_while_new_utxo_handle_is_pending() {
     let mut trace = minimal_constructor_trace([0, 1, 2, 3]);
     let effect = MethodHash([12, 0, 1, 0, 1, 0, 1, 0]);
-    let Step::ReceiveNewUtxoHandle { resource } = trace.0[5].clone() else {
+    let Step::ReceiveNewResourceHandle { resource } = trace.0[5].clone() else {
         panic!("constructor trace must resume at step 5");
     };
     trace.0.splice(
@@ -769,7 +769,7 @@ fn rejects_effect_while_new_utxo_handle_is_pending() {
             Step::ResumeEffect {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
-            Step::ReceiveNewUtxoHandle { resource },
+            Step::ReceiveNewResourceHandle { resource },
         ],
     );
     assert!(matches!(

@@ -106,7 +106,7 @@ pub fn transaction_commitment(
     crate::transaction::check_token_records(statement)?;
     for &packed in roots.keys() {
         match CoroutineId::from_packed(packed) {
-            Some(CoroutineId::Token(i)) if (i as usize) < statement.input_tokens.len() => {}
+            Some(CoroutineId::Token(i)) if (i as usize) < statement.output_tokens.len() => {}
             Some(CoroutineId::Coord(_) | CoroutineId::Utxo(_)) => {}
             _ => return Err(reject()),
         }

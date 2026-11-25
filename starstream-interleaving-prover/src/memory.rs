@@ -30,7 +30,7 @@ use crate::ccs::layout::{
     COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_ADDR_HANDLE, COL_RESOURCE_RESOLVER_READ,
     COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_SEL_CALL_METHOD,
     COL_SEL_ENTER_EFFECT_HANDLER, COL_SEL_EXIT_EFFECT_HANDLER, COL_SEL_READ_ABI,
-    COL_SEL_RECEIVE_CALL_RESULT, COL_SEL_RECEIVE_NEW_UTXO_HANDLE, COL_SEL_RESUME_EFFECT,
+    COL_SEL_RECEIVE_CALL_RESULT, COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE, COL_SEL_RESUME_EFFECT,
     COL_SEL_RETURN, COL_SEL_YIELD_BEGIN, COL_SIGNER_INDEX, COL_SIGNER_KEY_ADDR, SIGNER_KEY_LIMBS,
     range_check_layout,
 };
@@ -217,7 +217,7 @@ pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
                 address_columns: vec![COL_INSTANCE_DEPTH_BEFORE],
                 value_column: COL_RESOURCE_RESOLVER_VALUE,
                 kind: MemoryPortKind::Read,
-                activation: MemoryPortActivation::When(COL_SEL_RECEIVE_NEW_UTXO_HANDLE),
+                activation: MemoryPortActivation::When(COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE),
             },
         ],
     });
@@ -253,8 +253,8 @@ pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
     });
 
     memories.extend_from_slice(&resource_resolver_layout());
-    // Both the setter and callback templates name their defining token interface.
-    use crate::ccs::layout::{COL_EVENT_OWNER, COL_TOKEN_INTERFACE, COL_TOKEN_LOAD};
+    // The mint or setter establishes the interface for subsequent token events.
+    use crate::ccs::layout::{COL_EVENT_OWNER, COL_TOKEN_INTERFACE, COL_TOKEN_INTERFACE_WRITE};
     memories.push(MemorySpec {
         id: MemoryId::TokenInterface,
         kind: MemoryKind::Ram,
@@ -265,7 +265,7 @@ pub fn build_memory_layout() -> MemoryCatalog<MemoryId> {
                 kind: MemoryPortKind::Write {
                     value_before_column: None,
                 },
-                activation: MemoryPortActivation::When(COL_TOKEN_LOAD),
+                activation: MemoryPortActivation::When(COL_TOKEN_INTERFACE_WRITE),
             },
             MemoryPortSpec {
                 address_columns: vec![COL_EVENT_OWNER],
@@ -758,7 +758,7 @@ fn call_stack_layout() -> [MemorySpec<MemoryId>; 8] {
                     address_columns: vec![COL_CALL_STACK_FRAME],
                     value_column: COL_CALL_FRAME_SAVED_PHASE,
                     kind: MemoryPortKind::Read,
-                    activation: MemoryPortActivation::When(COL_SEL_RECEIVE_NEW_UTXO_HANDLE),
+                    activation: MemoryPortActivation::When(COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE),
                 },
                 MemoryPortSpec {
                     address_columns: vec![COL_CALL_STACK_FRAME],

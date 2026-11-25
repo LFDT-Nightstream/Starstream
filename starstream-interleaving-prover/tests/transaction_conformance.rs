@@ -234,7 +234,7 @@ fn new_utxo_transaction(
         Step::Return {
             result: UNIT.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(1).into(),
         },
         Step::Return {

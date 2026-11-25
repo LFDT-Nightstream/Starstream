@@ -47,7 +47,7 @@ fn constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {
@@ -69,7 +69,7 @@ fn minimal_constructor_trace(arguments: [u32; 4]) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::Return {
@@ -217,7 +217,7 @@ fn method_call_result_trace(
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::CallMethod {
@@ -324,7 +324,7 @@ fn method_reyield_trace(final_method: MethodHash) -> Trace {
         Step::Return {
             result: StarstreamValue::UNIT_VALUE.into(),
         },
-        Step::ReceiveNewUtxoHandle {
+        Step::ReceiveNewResourceHandle {
             resource: ResourceHandle(0).into(),
         },
         Step::CallMethod {
@@ -384,7 +384,7 @@ fn two_utxo_trace(first_method: MethodHash, second_method: MethodHash) -> Trace 
             Step::Return {
                 result: StarstreamValue::UNIT_VALUE.into(),
             },
-            Step::ReceiveNewUtxoHandle {
+            Step::ReceiveNewResourceHandle {
                 resource: ResourceHandle(handle).into(),
             },
         ]);

@@ -566,12 +566,27 @@ impl fmt::Display for Qnt<&Step> {
             Step::ReadAbi { method } => write!(f, "read_abi({})", Qnt(method)),
             Step::FinishTransaction => f.write_str("finish_transaction"),
             Step::FinalizeCoordinator => f.write_str("finalize_coordinator"),
+            Step::Mint {
+                constructor,
+                arguments,
+            } => write!(f, "mint({}, {})", Qnt(constructor), Qnt(arguments)),
+            Step::EnterMint {
+                constructor,
+                arguments,
+                interface,
+            } => write!(
+                f,
+                "enter_mint({}, {}, {})",
+                Qnt(constructor),
+                Qnt(arguments),
+                interface
+            ),
             Step::NewUtxo {
                 constructor,
                 arguments,
             } => write!(f, "new_utxo({}, {})", Qnt(constructor), Qnt(arguments)),
-            Step::ReceiveNewUtxoHandle { resource } => {
-                write!(f, "receive_new_utxo_handle({})", Qnt(resource))
+            Step::ReceiveNewResourceHandle { resource } => {
+                write!(f, "receive_new_resource_handle({})", Qnt(resource))
             }
             Step::EnterConstructor {
                 constructor,
@@ -699,7 +714,7 @@ mod tests {
                 Return {
                     result: StarstreamValue::UNIT_VALUE.into(),
                 },
-                ReceiveNewUtxoHandle {
+                ReceiveNewResourceHandle {
                     resource: ResourceHandle(0).into(),
                 },
                 Return {

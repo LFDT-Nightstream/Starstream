@@ -461,19 +461,18 @@ pub(crate) fn constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     });
 }
 
-/// Each loaded token has one output and each output names a surviving UTXO.
+/// Each allocated token has one output and each output names a surviving UTXO.
 pub(crate) fn check_token_records(statement: &TransactionStatement) -> Result<(), Error> {
-    if statement.input_tokens.len() != statement.output_tokens.len() {
+    if statement.input_tokens.len() > statement.output_tokens.len()
+        || statement
+            .input_tokens
+            .iter()
+            .any(|input| input.owner as usize >= statement.inputs.len())
+    {
         return Err(Unsatisfied::TransactionStatement.into());
     }
-    for (index, (input, output)) in statement
-        .input_tokens
-        .iter()
-        .zip(&statement.output_tokens)
-        .enumerate()
-    {
+    for (index, output) in statement.output_tokens.iter().enumerate() {
         if output.token as usize != index
-            || input.owner as usize >= statement.inputs.len()
             || statement
                 .outputs
                 .binary_search_by_key(&output.owner, |utxo| utxo.utxo)

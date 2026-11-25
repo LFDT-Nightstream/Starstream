@@ -23,6 +23,8 @@ pub struct VerificationProgram<'a> {
     /// Transaction-local IDs of outputs created by this component, and their
     /// UTXO export names. IDs follow the inputs, in creation order.
     pub new_utxos: &'a [(u32, String)],
+    /// Newly allocated token IDs and token exports in the original contract image.
+    pub new_tokens: &'a [(u32, String)],
 }
 
 pub(crate) struct ProgramVerificationInputs {
@@ -47,6 +49,13 @@ impl PreparedVerification {
         self.input_count
     }
 
+    pub(crate) fn token_count(&self) -> usize {
+        self.resource_entries
+            .keys()
+            .filter(|&&id| matches!(CoroutineId::from_packed(id), Some(CoroutineId::Token(_))))
+            .count()
+    }
+
     pub(crate) fn input_token_count(&self) -> usize {
         self.input_token_count
     }
@@ -61,7 +70,7 @@ impl PreparedVerification {
         let bound = self.resource_entries.get(&coroutine);
         match CoroutineId::from_packed(coroutine) {
             Some(CoroutineId::Token(_)) => {
-                ensure!(bound.is_some(), "missing input token program binding")
+                ensure!(bound.is_some(), "missing token program binding")
             }
             Some(_) => {}
             None => wasmtime::bail!("invalid coroutine kind"),
@@ -177,27 +186,37 @@ pub fn prepare_verification(
             }
         }
         ensure!(
-            source.new_utxos.is_empty() || source.is_original_image,
+            (source.new_utxos.is_empty() && source.new_tokens.is_empty())
+                || source.is_original_image,
             "new output requires the original contract program"
         );
-        for (utxo, export) in source.new_utxos {
+        let outputs = source
+            .new_utxos
+            .iter()
+            .map(|(i, export)| (CoroutineId::Utxo(*i), export, "utxo"))
+            .chain(
+                source
+                    .new_tokens
+                    .iter()
+                    .map(|(i, export)| (CoroutineId::Token(*i), export, "token")),
+            );
+        for (id, export, kind) in outputs {
             // The constructor's entry event commits to this contract and
             // export, and the interleaving proof matches it to the caller's
-            // `NewUtxo`, so any of the export's constructors is admissible.
+            // constructor call, so any of the export's constructor entries is admissible.
+            let prefix = format!("{export}#[static]{kind}.");
             let constructors = templates
                 .export_frefs
-                .range(format!("{export}#[static]utxo.")..)
-                .take_while(|(name, _)| {
-                    name.strip_prefix(export.as_str())
-                        .is_some_and(|item| item.starts_with("#[static]utxo."))
-                })
+                .range(prefix.clone()..)
+                .take_while(|(name, _)| name.starts_with(&prefix))
                 .map(|(_, &fref)| fref)
+                .filter(|fref| templates.initial_exports.contains(fref))
                 .collect::<Vec<_>>();
             ensure!(
                 !constructors.is_empty(),
-                "output UTXO export has no constructor"
+                "output {kind} export has no constructor"
             );
-            bind(CoroutineId::Utxo(*utxo), source_index, constructors)?;
+            bind(id, source_index, constructors)?;
         }
         let module = crate::templates::first_core_module(source.wasm)?;
         let mut artifacts = neo_wasm::extract_wasm_program_artifacts(module)?;
@@ -270,6 +289,10 @@ pub fn prepare_verification(
 }
 
 #[cfg(test)]
+#[path = "../tests/common/compile.rs"]
+mod compile;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -293,6 +316,7 @@ mod tests {
                 input_tokens: &[],
                 input_utxos: &[(0, "first".into()), (2, "second".into())],
                 new_utxos: &[],
+                new_tokens: &[],
             },
             VerificationProgram {
                 wasm: &second,
@@ -302,6 +326,7 @@ mod tests {
                 input_tokens: &[],
                 input_utxos: &[(1, "first".into())],
                 new_utxos: &[],
+                new_tokens: &[],
             },
         ];
         let size = WasmSize::Small;
@@ -347,6 +372,7 @@ mod tests {
             input_tokens: &[],
             input_utxos,
             new_utxos,
+            new_tokens: &[],
         };
         let inputs = [(0, "first".into())];
         let outputs = [(1, "first".into())];
@@ -401,6 +427,64 @@ mod tests {
     }
 
     #[test]
+    fn minted_token_must_start_at_its_bound_mint_export() -> wasmtime::Result<()> {
+        let definition = |name| {
+            format!(
+                r#"
+            token {name} {{
+                storage {{ let mut amount: u64; }}
+                mint fn issue(pub value: u64) {{ amount = value; }}
+                impl Token {{
+                    fn attach(to: Utxo) {{}}
+                    fn detach(source: Utxo) {{}}
+                }}
+            }}
+        "#
+            )
+        };
+        let wasm =
+            compile::compile_component(&(definition("PaymentToken") + &definition("OtherToken")))?;
+        let size = WasmSize::Large;
+        let digest = &[0; 32];
+        let expected = prepare_verification(
+            &[VerificationProgram {
+                wasm: &wasm,
+                contract_digest: digest,
+                coordination_exports: &[],
+                is_original_image: true,
+                input_utxos: &[],
+                input_tokens: &[],
+                new_utxos: &[],
+                new_tokens: &[(0, "payment-token".into()), (1, "other-token".into())],
+            }],
+            [size],
+        )?;
+        let program = &expected.programs[&size][0].program;
+        let templates = crate::build_component_templates(&wasm, &[], digest)?;
+        let entry = |token, export| {
+            let fref = templates.export_fref(export).expect("fixture mint export");
+            expected.resolve(
+                CoroutineId::Token(token).encoded(),
+                size,
+                program.d_init().map(|x| x.as_canonical_u64()),
+                fref,
+            )
+        };
+        let payment = "payment-token#[static]token.issue";
+        let other = "other-token#[static]token.issue";
+        entry(0, payment)?;
+        entry(1, other)?;
+        let err = entry(0, other)
+            .err()
+            .expect("token 0 must use the payment mint");
+        assert_eq!(
+            err.to_string(),
+            "resource proof must start at its bound export"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn preparation_binds_bytecode_and_canonical_entry_state() -> wasmtime::Result<()> {
         let module = |value| {
             wat::parse_str(format!(
@@ -422,6 +506,7 @@ mod tests {
                     input_tokens: &[],
                     input_utxos: &[],
                     new_utxos: &[],
+                    new_tokens: &[],
                 }],
                 [WasmSize::Small],
             )

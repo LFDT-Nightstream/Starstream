@@ -17,8 +17,10 @@ use crate::{
 
 fn kind(op: Opcode) -> Option<EventKind> {
     Some(match op {
+        Opcode::Mint => EventKind::Mint,
+        Opcode::EnterMint => EventKind::EnterMint,
         Opcode::NewUtxo => EventKind::NewUtxo,
-        Opcode::ReceiveNewUtxoHandle => EventKind::ReceiveNewUtxoHandle,
+        Opcode::ReceiveNewResourceHandle => EventKind::ReceiveNewResourceHandle,
         Opcode::EnterConstructor => EventKind::EnterConstructor,
         Opcode::YieldBegin => EventKind::YieldBegin,
         Opcode::RegisterMethod => EventKind::RegisterMethod,

@@ -51,7 +51,7 @@ module coordinator_calls_test {
   run test_wrong_arguments = called.then(enter_call("A", RESULT).fail())
   run test_return_before_entry = called.then(return({ value: RESULT }).fail())
   run test_wrong_result = returned.then(receive_call_result({ value: ARG }).fail())
-  run test_wrong_receive_kind = returned.then(receive_new_utxo_handle({ value: 0 }).fail())
+  run test_wrong_receive_kind = returned.then(receive_new_resource_handle({ value: 0 }).fail())
   // The entry script is entered exactly like an imported one.
   run test_entry_uses_coordinator_call_protocol = fresh
     .then(check(state.curr == Coord(0) and state.next_coordinator_id == 1))

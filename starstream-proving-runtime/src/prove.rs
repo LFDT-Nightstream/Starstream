@@ -588,9 +588,13 @@ impl TransactionProver {
             expected.input_count() == statement.inputs.len(),
             "missing verification program for a transaction input"
         );
-        let token_count = expected.input_token_count();
+        let token_count = statement.output_tokens.len();
         ensure!(
-            token_count == statement.input_tokens.len(),
+            expected.token_count() == token_count,
+            "token program bindings must cover every output token"
+        );
+        ensure!(
+            expected.input_token_count() == statement.input_tokens.len(),
             "token program bindings must cover exactly the transaction input tokens"
         );
         ensure!(

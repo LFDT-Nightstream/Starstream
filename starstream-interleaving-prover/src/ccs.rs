@@ -17,11 +17,12 @@ use crate::{
             COL_ENABLED_METHOD_LOG_ADDR, COL_ENABLED_METHOD_LOG_GENERATION,
             COL_ENABLED_METHOD_LOG_LEN_AFTER, COL_ENABLED_METHOD_LOG_LEN_BEFORE,
             COL_ENABLED_METHOD_LOG_UTXO, COL_EVENT_OWNER_STRIDE_8, COL_METHOD_INDEX,
-            COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_UTXO_ID_AFTER,
-            COL_NEXT_UTXO_ID_BEFORE, COL_RESOURCE_RESOLVER_ADDR_CID, COL_RESOURCE_RESOLVER_READ,
-            COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE, COL_RESULT_ROOT,
-            COL_RETURN_REQUIRES_UNIT, COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO,
-            COL_SEL_RECEIVE_NEW_UTXO_HANDLE, SELECTORS, range_check_layout,
+            COL_METHOD_LOOKUP, COL_METHOD_TABLE_ADDR, COL_NEXT_TOKEN_ID_BEFORE,
+            COL_NEXT_UTXO_ID_AFTER, COL_NEXT_UTXO_ID_BEFORE, COL_RESOURCE_RESOLVER_ADDR_CID,
+            COL_RESOURCE_RESOLVER_READ, COL_RESOURCE_RESOLVER_VALUE, COL_RESOURCE_RESOLVER_WRITE,
+            COL_RESULT_ROOT, COL_SEL_CALL_METHOD, COL_SEL_NEW_UTXO,
+            COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE, COL_UNIT_RETURN_WEIGHT, SELECTORS,
+            range_check_layout,
         },
         tags::{ConstraintScope, always, opcode_tag, opcode_tags},
     },
@@ -180,8 +181,14 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
             (layout::COL_UTXO_LOAD, -F::ONE),
         ]);
         b.push_linear_zero([
+            (layout::COL_TOKEN_INTERFACE_WRITE, F::ONE),
+            (layout::COL_TOKEN_LOAD, -F::ONE),
+            (layout::COL_SEL_ENTER_MINT, -F::ONE),
+        ]);
+        b.push_linear_zero([
             (layout::COL_NEXT_TOKEN_ID_AFTER, F::ONE),
-            (layout::COL_NEXT_TOKEN_ID_BEFORE, -F::ONE),
+            (COL_NEXT_TOKEN_ID_BEFORE, -F::ONE),
+            (layout::COL_SEL_MINT, -F::ONE),
             (layout::COL_TOKEN_LOAD, -F::ONE),
         ]);
     });
@@ -271,7 +278,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         ]);
         b.push_linear_zero([
             (COL_RESOURCE_RESOLVER_WRITE, F::ONE),
-            (COL_SEL_RECEIVE_NEW_UTXO_HANDLE, -F::ONE),
+            (COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE, -F::ONE),
             (layout::COL_SEL_UPCAST, -F::ONE),
             (layout::COL_SEL_ENTER_ATTACH, -F::ONE),
             (layout::COL_SEL_SET_STORAGE, -F::ONE),
@@ -395,6 +402,7 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
                 (COL_ONE, F::ONE),
                 (layout::COL_TOKEN_LOAD, -F::ONE),
                 (layout::COL_SEL_ENTER_ATTACH, -F::ONE),
+                (layout::COL_SEL_ENTER_MINT, -F::ONE),
                 (layout::COL_SEL_GET_TOKEN_STORAGE, -F::ONE),
                 (layout::COL_SEL_UPCAST, -F::ONE),
                 (layout::COL_SEL_ASSERT_SIGNED_BY, -F::ONE),
@@ -540,22 +548,35 @@ pub fn build_relation() -> Result<ApplicationRelation<ConstraintScope>, crate::E
         },
     );
 
-    b.with_tag(
-        opcode_tag("new utxo constraints", Opcode::NewUtxo),
-        visit_new_utxo,
-    );
+    for (op, enter, kind, allocator) in [
+        (
+            Opcode::NewUtxo,
+            Opcode::EnterConstructor,
+            CoroutineKind::Utxo,
+            COL_NEXT_UTXO_ID_BEFORE,
+        ),
+        (
+            Opcode::Mint,
+            Opcode::EnterMint,
+            CoroutineKind::Token,
+            COL_NEXT_TOKEN_ID_BEFORE,
+        ),
+    ] {
+        b.with_tag(opcode_tag("allocate constructor target", op), |b| {
+            visit_constructor_call(b, op, kind, allocator)
+        });
+        b.with_tag(opcode_tag("enter constructor constraints", enter), |b| {
+            visit_enter_constructor(b, enter, kind)
+        });
+    }
     b.with_tag(
         opcode_tag(
-            "receive new utxo handle constraints",
-            Opcode::ReceiveNewUtxoHandle,
+            "receive constructor handle constraints",
+            Opcode::ReceiveNewResourceHandle,
         ),
-        visit_receive_new_utxo_handle,
+        visit_receive_new_resource_handle,
     );
 
-    b.with_tag(
-        opcode_tag("enter constructor constraints", Opcode::EnterConstructor),
-        visit_enter_constructor,
-    );
     b.with_tag(
         opcode_tag("yield begin constraints", Opcode::YieldBegin),
         visit_yield_begin,
@@ -853,22 +874,21 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         [(phase_before[2], F::ONE), (phase_before[3], F::ONE)],
     );
     require_coroutine_kind(b, Opcode::Return, COL_CURR_AFTER, CoroutineKind::Coord);
-    // Constructors, token attach callbacks and the entry coordinator return unit.
-    // These cases are disjoint. A zero caller identifies the entry coordinator.
-    b.push_gated_linear_zero(
-        Opcode::Return.selector(),
+    // A mint returns from a token coroutine on a constructor frame, so both flags are set.
+    b.push_row(
+        [(Opcode::Return.selector(), F::ONE)],
         [
-            (COL_RETURN_REQUIRES_UNIT, F::ONE),
-            (coroutine_kind_bits(COL_CURR_BEFORE)[1], -F::ONE),
-            (COL_CALL_FRAME_CONSTRUCTOR, -F::ONE),
-            (layout::COL_CALL_TARGET_IS_ZERO, -F::ONE),
+            (coroutine_kind_bits(COL_CURR_BEFORE)[1], F::ONE),
+            (COL_CALL_FRAME_CONSTRUCTOR, F::ONE),
+            (layout::COL_CALL_TARGET_IS_ZERO, F::ONE),
         ],
+        [(COL_UNIT_RETURN_WEIGHT, F::ONE)],
     );
     for limb in COL_RESULT_ROOT {
-        b.push_row([(COL_RETURN_REQUIRES_UNIT, F::ONE)], [(limb, F::ONE)], []);
+        b.push_row([(COL_UNIT_RETURN_WEIGHT, F::ONE)], [(limb, F::ONE)], []);
     }
     // A root return pops immediately. Other program returns leave their frame
-    // live for ReceiveCallResult or ReceiveNewUtxoHandle to consume.
+    // live for ReceiveCallResult or ReceiveNewResourceHandle to consume.
     b.push_gated_linear_zero(
         Opcode::Return.selector(),
         [
@@ -880,7 +900,7 @@ fn visit_return(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     let root_phase = F::new(crate::ivc_state::CurrPhase::Executing.value() as u64);
     let method_phase = F::new(crate::ivc_state::CurrPhase::CallResultPending.value() as u64);
     let constructor_phase =
-        F::new(crate::ivc_state::CurrPhase::NewUtxoHandlePending.value() as u64);
+        F::new(crate::ivc_state::CurrPhase::NewResourceHandlePending.value() as u64);
     // Start with the method receive phase, then select the root or constructor
     // phase using their mutually exclusive indicators.
     b.push_gated_linear_zero(
@@ -970,64 +990,56 @@ fn visit_yield_begin(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     );
 }
 
-fn visit_enter_constructor(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
-    require_coroutine_kind(
-        b,
-        Opcode::EnterConstructor,
-        COL_CURR_BEFORE,
-        CoroutineKind::Utxo,
-    );
-    require_phase_before(
-        b,
-        Opcode::EnterConstructor,
-        crate::ivc_state::CurrPhase::CtorEnterPending,
-    );
-    require_phase_after(
-        b,
-        Opcode::EnterConstructor,
-        crate::ivc_state::CurrPhase::ConstructorExecuting,
-    );
+fn visit_enter_constructor(
+    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+    op: Opcode,
+    kind: CoroutineKind,
+) {
+    require_coroutine_kind(b, op, COL_CURR_BEFORE, kind);
+    require_phase_before(b, op, crate::ivc_state::CurrPhase::CtorEnterPending);
+    require_phase_after(b, op, crate::ivc_state::CurrPhase::ConstructorExecuting);
 }
 
-fn visit_new_utxo(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
-    require_coroutine_kind(b, Opcode::NewUtxo, COL_CURR_BEFORE, CoroutineKind::Coord);
-    require_program_call_phase(b, Opcode::NewUtxo);
-    require_phase_after(
-        b,
-        Opcode::NewUtxo,
-        crate::ivc_state::CurrPhase::CtorEnterPending,
-    );
+fn visit_constructor_call(
+    b: &mut TaggedR1csBuilder<'_, ConstraintScope>,
+    op: Opcode,
+    kind: CoroutineKind,
+    allocator: usize,
+) {
+    require_coroutine_kind(b, op, COL_CURR_BEFORE, CoroutineKind::Coord);
+    require_program_call_phase(b, op);
+    require_phase_after(b, op, crate::ivc_state::CurrPhase::CtorEnterPending);
     b.push_gated_linear_zero(
-        Opcode::NewUtxo.selector(),
+        op.selector(),
         [
             (COL_CALL_TARGET, F::ONE),
-            (COL_NEXT_UTXO_ID_BEFORE, -F::new(4)),
-            (COL_ONE, -F::ONE),
+            (allocator, -F::new(4)),
+            (COL_ONE, -F::from_u32(kind.tag())),
         ],
     );
 }
 
-fn visit_receive_new_utxo_handle(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
+fn visit_receive_new_resource_handle(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
     require_phase_before(
         b,
-        Opcode::ReceiveNewUtxoHandle,
-        crate::ivc_state::CurrPhase::NewUtxoHandlePending,
+        Opcode::ReceiveNewResourceHandle,
+        crate::ivc_state::CurrPhase::NewResourceHandlePending,
     );
     require_equal(
         b,
-        Opcode::ReceiveNewUtxoHandle,
+        Opcode::ReceiveNewResourceHandle,
         COL_CALL_TARGET,
         COL_CURR_BEFORE,
     );
     require_equal(
         b,
-        Opcode::ReceiveNewUtxoHandle,
+        Opcode::ReceiveNewResourceHandle,
         COL_CURR_PHASE_AFTER,
         COL_CALL_FRAME_SAVED_PHASE,
     );
     require_equal(
         b,
-        Opcode::ReceiveNewUtxoHandle,
+        Opcode::ReceiveNewResourceHandle,
         COL_RESOURCE_RESOLVER_ADDR_CID,
         COL_CURR_BEFORE,
     );
@@ -1142,9 +1154,16 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         COL_PENDING_METHOD_BEFORE, COL_PENDING_VALUE_AFTER, COL_PENDING_VALUE_BEFORE,
     };
     // Entry must match the caller's method selector or contract-specific script or constructor hash.
-    let argument_writers = [Attach, CallMethod, CallCoordinator, BeginExecution, NewUtxo];
+    let argument_writers = [
+        Attach,
+        CallMethod,
+        CallCoordinator,
+        BeginExecution,
+        NewUtxo,
+        Mint,
+    ];
     let result_writers = [Return, ExitEffectHandler];
-    let callee_identity_writers = [CallMethod, CallCoordinator, BeginExecution, NewUtxo];
+    let callee_identity_writers = [CallMethod, CallCoordinator, BeginExecution, NewUtxo, Mint];
     // Padding keeps every carried column through its own rule.
     let keepers = |writers: &[Opcode]| {
         selector_sum(
@@ -1189,7 +1208,7 @@ fn call_handoff_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
             );
         }
     });
-    let argument_readers = [EnterCall, EnterConstructor];
+    let argument_readers = [EnterCall, EnterConstructor, EnterMint];
     let callee_identity_readers = argument_readers;
     let result_readers = [ReceiveCallResult, ResumeEffect];
     b.with_tag(
@@ -1241,7 +1260,7 @@ fn instance_stack_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
         );
         b.push_linear_zero([
             (COL_INSTANCE_POP, F::ONE),
-            (COL_SEL_RECEIVE_NEW_UTXO_HANDLE, -F::ONE),
+            (COL_SEL_RECEIVE_NEW_RESOURCE_HANDLE, -F::ONE),
             (COL_SEL_RECEIVE_CALL_RESULT, -F::ONE),
         ]);
         b.push_linear_zero([
@@ -1378,6 +1397,7 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
 
     let fresh = [
         Opcode::NewUtxo,
+        Opcode::Mint,
         Opcode::Attach,
         Opcode::CallMethod,
         Opcode::CallCoordinator,
@@ -1392,6 +1412,7 @@ fn effect_scope_constraints(b: &mut TaggedR1csBuilder<'_, ConstraintScope>) {
                 push,
                 pop,
                 Opcode::NewUtxo,
+                Opcode::Mint,
                 Opcode::Attach,
                 Opcode::CallMethod,
                 Opcode::CallCoordinator,

@@ -23,8 +23,10 @@ pub enum EventKind {
     SetStorage,
     GetStorage,
     GetTokenStorage,
+    Mint,
+    EnterMint,
     NewUtxo,
-    ReceiveNewUtxoHandle,
+    ReceiveNewResourceHandle,
     EnterConstructor,
     YieldBegin,
     RegisterMethod,
@@ -60,6 +62,8 @@ impl EventKind {
     #[must_use]
     pub const fn from_tag(tag: u64) -> Option<Self> {
         Some(match tag {
+            25 => Self::Mint,
+            26 => Self::EnterMint,
             24 => Self::GetTokenStorage,
             23 => Self::Upcast,
             21 => Self::Attach,
@@ -77,7 +81,7 @@ impl EventKind {
             11 => Self::EnterEffectHandler,
             12 => Self::ExitEffectHandler,
             13 => Self::ResumeEffect,
-            14 => Self::ReceiveNewUtxoHandle,
+            14 => Self::ReceiveNewResourceHandle,
             15 => Self::ReceiveCallResult,
             16 => Self::PushEffectHandlerFrame,
             17 => Self::AddEffectHandler,
@@ -95,8 +99,10 @@ impl EventKind {
             Step::SetStorage { .. } => Self::SetStorage,
             Step::GetTokenStorage { .. } => Self::GetTokenStorage,
             Step::GetStorage { .. } => Self::GetStorage,
+            Step::Mint { .. } => Self::Mint,
+            Step::EnterMint { .. } => Self::EnterMint,
             Step::NewUtxo { .. } => Self::NewUtxo,
-            Step::ReceiveNewUtxoHandle { .. } => Self::ReceiveNewUtxoHandle,
+            Step::ReceiveNewResourceHandle { .. } => Self::ReceiveNewResourceHandle,
             Step::EnterConstructor { .. } => Self::EnterConstructor,
             Step::YieldBegin => Self::YieldBegin,
             Step::RegisterMethod { .. } => Self::RegisterMethod,
@@ -140,11 +146,13 @@ impl EventKind {
             Self::SetStorage => 8,
             Self::GetStorage => 9,
             Self::GetTokenStorage => 24,
+            Self::Mint => 25,
+            Self::EnterMint => 26,
             Self::RaiseEffect => 10,
             Self::EnterEffectHandler => 11,
             Self::ExitEffectHandler => 12,
             Self::ResumeEffect => 13,
-            Self::ReceiveNewUtxoHandle => 14,
+            Self::ReceiveNewResourceHandle => 14,
             Self::ReceiveCallResult => 15,
             Self::PushEffectHandlerFrame => 16,
             Self::AddEffectHandler => 17,
@@ -180,7 +188,7 @@ impl EventKind {
                 root(&mut words, &mut last_root_block, false)
             }
             Self::AssertSignedBy => words.extend([Method(0), Method(1)]),
-            Self::ReceiveNewUtxoHandle => words.push(Resource),
+            Self::ReceiveNewResourceHandle => words.push(Resource),
             Self::YieldBegin | Self::PopEffectHandlerFrame => {}
             Self::PushEffectHandlerFrame => words.push(FrameId),
             Self::RegisterMethod | Self::AddEffectHandler => {
@@ -197,6 +205,8 @@ impl EventKind {
             Self::EnterCall
             | Self::RaiseEffect
             | Self::CallCoordinator
+            | Self::Mint
+            | Self::EnterMint
             | Self::NewUtxo
             | Self::EnterConstructor => {
                 words.extend((0..METHOD_WORDS).map(Method));
@@ -211,6 +221,9 @@ impl EventKind {
                 words.push(Handled);
                 root(&mut words, &mut last_root_block, false);
             }
+        }
+        if self == Self::EnterMint {
+            words.push(TokenInterface);
         }
         words.resize(words.len().div_ceil(BLOCK_SIZE) * BLOCK_SIZE, Constant(0));
         words.as_chunks::<BLOCK_SIZE>().0.to_vec()
@@ -336,6 +349,8 @@ impl EventKind {
                     | EventKind::RaiseEffect
                     | EventKind::EnterEffectHandler
                     | EventKind::CallCoordinator
+                    | EventKind::Mint
+                    | EventKind::EnterMint
                     | EventKind::NewUtxo
                     | EventKind::EnterConstructor
             )
@@ -377,11 +392,20 @@ impl EventKind {
             EventKind::GetStorage => Step::GetStorage {
                 storage: Out(result),
             },
+            EventKind::Mint => Step::Mint {
+                constructor: method,
+                arguments: argument,
+            },
+            EventKind::EnterMint => Step::EnterMint {
+                constructor: method,
+                arguments: argument,
+                interface,
+            },
             EventKind::NewUtxo => Step::NewUtxo {
                 constructor: method,
                 arguments: argument,
             },
-            EventKind::ReceiveNewUtxoHandle => Step::ReceiveNewUtxoHandle {
+            EventKind::ReceiveNewResourceHandle => Step::ReceiveNewResourceHandle {
                 resource: Out(ResourceHandle(resource)),
             },
             EventKind::EnterConstructor => Step::EnterConstructor {
@@ -472,7 +496,16 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
         | Step::SkipEffectHandler
         | Step::FinalizeCoordinator
         | Step::FinishTransaction => unreachable!(),
-        Step::NewUtxo {
+        Step::Mint {
+            constructor,
+            arguments,
+        }
+        | Step::EnterMint {
+            constructor,
+            arguments,
+            ..
+        }
+        | Step::NewUtxo {
             constructor,
             arguments,
         }
@@ -480,7 +513,7 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
             constructor,
             arguments,
         } => (0, Some(constructor), Some(arguments), None),
-        Step::ReceiveNewUtxoHandle { resource } => (resource.0.0, None, None, None),
+        Step::ReceiveNewResourceHandle { resource } => (resource.0.0, None, None, None),
         Step::YieldBegin => (0, None, None, None),
         Step::RegisterMethod { method } => (0, Some(method), None, None),
         Step::PushEffectHandlerFrame { .. } | Step::PopEffectHandlerFrame => (0, None, None, None),
@@ -513,7 +546,8 @@ pub fn encode(step: &Step) -> Vec<[u64; BLOCK_SIZE]> {
                     }
                 )),
                 Word::TokenInterface => match step {
-                    Step::GetTokenStorage { interface, .. }
+                    Step::EnterMint { interface, .. }
+                    | Step::GetTokenStorage { interface, .. }
                     | Step::SetStorage {
                         kind: crate::StorageKind::Token { interface },
                         ..
@@ -616,7 +650,7 @@ mod test {
                 constructor: METHOD,
                 arguments: ROOT,
             },
-            Step::ReceiveNewUtxoHandle {
+            Step::ReceiveNewResourceHandle {
                 resource: Out(ResourceHandle(7)),
             },
             Step::EnterConstructor {
@@ -814,7 +848,7 @@ mod test {
 
     #[test]
     fn rejects_named_words_that_do_not_fit_the_wasm_encoding() {
-        let step = Step::ReceiveNewUtxoHandle {
+        let step = Step::ReceiveNewResourceHandle {
             resource: Out(ResourceHandle(7)),
         };
         let mut encoded = encode(&step);

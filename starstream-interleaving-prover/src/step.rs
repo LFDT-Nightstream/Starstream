@@ -178,7 +178,6 @@ pub(crate) fn normalize_with_inputs(
         let mut call_frame_is_effect = false;
         let mut call_frame_constructor = false;
         let mut call_frame_saved_phase = CurrPhase::Executing;
-        let mut return_requires_unit = false;
         let mut effect_handled = false;
         let mut effect_frame_id = 0;
         let mut effect_registered = false;
@@ -295,7 +294,11 @@ pub(crate) fn normalize_with_inputs(
             Step::FinalizeCoordinator => {
                 tx.coordinator_cursor = tx.coordinator_cursor.wrapping_add(1);
             }
-            Step::NewUtxo {
+            Step::Mint {
+                constructor,
+                arguments,
+            }
+            | Step::NewUtxo {
                 constructor,
                 arguments,
             } => {
@@ -308,10 +311,13 @@ pub(crate) fn normalize_with_inputs(
                         .collect(),
                 );
 
-                let target = CoroutineId::Utxo(next_utxo_id_before);
-                next_utxo_id = next_utxo_id_before
-                    .checked_add(1)
-                    .expect("the UTXO allocator fits in u32");
+                let target = if opcode == Opcode::Mint {
+                    next_token_id += 1;
+                    CoroutineId::Token(next_token_id_before)
+                } else {
+                    next_utxo_id += 1;
+                    CoroutineId::Utxo(next_utxo_id_before)
+                };
                 callers.push(CallFrame {
                     caller: curr_before,
                     saved_phase: curr_phase_before,
@@ -328,11 +334,19 @@ pub(crate) fn normalize_with_inputs(
                 call_frame_constructor = true;
                 call_frame_saved_phase = curr_phase_before;
             }
-            Step::EnterConstructor {
+            Step::EnterMint {
+                constructor,
+                arguments,
+                ..
+            }
+            | Step::EnterConstructor {
                 constructor,
                 arguments,
             } => {
                 event_identity = Some(identity_limbs(*constructor));
+                if let Step::EnterMint { interface, .. } = step {
+                    token_interface = *interface;
+                }
                 call_frame_constructor = callers
                     .last()
                     .map(|frame| frame.kind == CallFrameKind::Constructor)
@@ -403,14 +417,11 @@ pub(crate) fn normalize_with_inputs(
                 call_frame_constructor = frame.kind == CallFrameKind::Constructor;
                 saved_effect_depth = frame.saved_effect_depth;
                 effect_depth = frame.saved_effect_depth;
-                return_requires_unit = frame.kind == CallFrameKind::Constructor
-                    || !return_has_receiver
-                    || matches!(curr_before, CoroutineId::Token(_));
                 curr_after = frame.caller;
                 call_target = frame.caller;
                 if return_has_receiver {
                     dynamic_phase_after = Some(if frame.kind == CallFrameKind::Constructor {
-                        CurrPhase::NewUtxoHandlePending
+                        CurrPhase::NewResourceHandlePending
                     } else {
                         CurrPhase::CallResultPending
                     });
@@ -530,7 +541,7 @@ pub(crate) fn normalize_with_inputs(
                 );
                 event_identity.replace(identity_limbs(*method));
             }
-            Step::ReceiveNewUtxoHandle { resource } => {
+            Step::ReceiveNewResourceHandle { resource } => {
                 let frame = callers
                     .pop()
                     .unwrap_or_else(|| CallFrame::placeholder(CallFrameKind::Constructor));
@@ -745,6 +756,7 @@ pub(crate) fn normalize_with_inputs(
             Opcode::CallMethod
             | Opcode::CallCoordinator
             | Opcode::BeginExecution
+            | Opcode::Mint
             | Opcode::NewUtxo => {
                 pending_value = root_of(&expected_arguments);
                 pending_method = event_identity.unwrap_or([F::ZERO; 8]);
@@ -785,7 +797,6 @@ pub(crate) fn normalize_with_inputs(
             call_frame_is_effect,
             call_frame_constructor,
             call_frame_saved_phase,
-            return_requires_unit,
             effect_handled,
             effect_frame_id,
             effect_registered,
@@ -926,7 +937,6 @@ pub(crate) struct Wit {
     pub(crate) call_frame_is_effect: bool,
     pub(crate) call_frame_constructor: bool,
     pub(crate) call_frame_saved_phase: CurrPhase,
-    pub(crate) return_requires_unit: bool,
     pub(crate) effect_handled: bool,
     pub(crate) effect_frame_id: u32,
     pub(crate) effect_registered: bool,
@@ -1009,7 +1019,6 @@ impl Wit {
             call_frame_is_effect: false,
             call_frame_constructor: false,
             call_frame_saved_phase: CurrPhase::Executing,
-            return_requires_unit: false,
             effect_handled: false,
             effect_frame_id: 0,
             effect_registered: false,
