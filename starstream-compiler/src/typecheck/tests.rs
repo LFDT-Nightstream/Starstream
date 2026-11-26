@@ -2810,3 +2810,222 @@ fn utxo_public_method_conflicts_with_abi_error() {
         "#
     );
 }
+
+fn check_modules(
+    files: &[(&str, &str)],
+) -> Result<super::TypedModuleGraph, super::TypecheckModulesFailure> {
+    let mut memory = starstream_types::MemoryFs::new();
+    for (path, content) in files {
+        memory.insert(path, content.as_bytes());
+    }
+    let mut fs = starstream_types::FileSystem::with_vfs(memory);
+    let graph = crate::ModuleGraph::from_workspace(&mut fs, std::path::Path::new("/ws"))
+        .expect("module graph");
+    super::typecheck_modules(&graph, TypecheckOptions::default())
+}
+
+#[test]
+fn module_does_not_export_prelude_items() {
+    let err = check_modules(&[
+        ("/ws/helper.star", "fn helper() -> i64 { 1 }\n"),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import { i64 as MyInt } from "./helper.star";
+                script fn run() -> MyInt { 1 }
+            "#},
+        ),
+    ])
+    .expect_err("prelude type `i64` must not be exported by helper");
+
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::UnknownImportFunction { name, .. } if name == "i64"
+        )),
+        "expected UnknownImportFunction for `i64`, got: {:?}",
+        err.errors
+    );
+
+    let err = check_modules(&[
+        ("/ws/helper.star", "fn helper() -> i64 { 1 }\n"),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import h from "./helper.star";
+                script fn run() -> Option<i64> { h::Option::Some(1) }
+            "#},
+        ),
+    ])
+    .expect_err("prelude namespace `Option` must not be exported under `h::`");
+
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::UnknownNamespace { name } if name == "Option"
+        )),
+        "expected UnknownNamespace for `Option`, got: {:?}",
+        err.errors
+    );
+}
+
+#[test]
+fn module_does_not_reexport_imports() {
+    let err = check_modules(&[
+        (
+            "/ws/helper.star",
+            indoc! {r#"
+                import { blockHeight } from starstream:std/cardano;
+                fn current() -> i64 { runtime blockHeight() }
+            "#},
+        ),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import { blockHeight } from "./helper.star";
+                script fn run() -> i64 { runtime blockHeight() }
+            "#},
+        ),
+    ])
+    .expect_err("WIT import `blockHeight` must not be re-exported by helper");
+
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::UnknownImportFunction { name, .. } if name == "blockHeight"
+        )),
+        "expected UnknownImportFunction for `blockHeight`, got: {:?}",
+        err.errors
+    );
+
+    let err = check_modules(&[
+        ("/ws/leaf.star", "fn leaf() -> i64 { 42 }\n"),
+        (
+            "/ws/mid.star",
+            indoc! {r#"
+                import { leaf } from "./leaf.star";
+                fn mid() -> i64 { leaf() }
+            "#},
+        ),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import { leaf } from "./mid.star";
+                script fn run() -> i64 { leaf() }
+            "#},
+        ),
+    ])
+    .expect_err("path import `leaf` must not be re-exported by mid");
+
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::UnknownImportFunction { name, .. } if name == "leaf"
+        )),
+        "expected UnknownImportFunction for `leaf`, got: {:?}",
+        err.errors
+    );
+}
+
+#[test]
+fn module_exports_all_local_definition_kinds() {
+    check_modules(&[
+        (
+            "/ws/defs.star",
+            indoc! {r#"
+                struct Point { x: i64 }
+                enum Color { Red, Rgb(i64) }
+                abi Events {
+                    event Ping(x: i64);
+                    effect Ask() -> i64;
+                    fn tick();
+                }
+                utxo Counter {
+                    main fn new() { yield(Events); }
+                    impl Events { fn tick() {} }
+                }
+                token Coin {
+                    storage { let mut amount: i64; }
+                    mint fn create() { amount = 1; }
+                    impl Token {
+                        fn attach(u: Utxo) {}
+                        fn detach(u: Utxo) {}
+                    }
+                }
+                fn answer() -> i64 { 42 }
+            "#},
+        ),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import { Point, Color, Events, Ping, Ask, Counter, Coin, answer } from "./defs.star";
+                import defs from "./defs.star";
+
+                script fn run() -> i64 {
+                    let p = Point { x: answer() };
+                    let c1 = Color::Red;
+                    let c2 = defs::Color::Rgb(p.x);
+                    let u = Counter::new();
+                    u.tick();
+                    let t = Coin::create();
+                    t.attach(u);
+                    emit Ping(disclose(1));
+                    let _ = defs::answer();
+                    match c1 {
+                        Color::Red => {
+                            match c2 {
+                                Color::Red => { 0 },
+                                Color::Rgb(v) => { v },
+                            }
+                        },
+                        Color::Rgb(v) => { v },
+                    }
+                }
+            "#},
+        ),
+    ])
+    .expect("all local definition kinds should be exported");
+}
+
+#[test]
+fn module_body_error_keeps_local_exports_without_leaking_prelude() {
+    let err = check_modules(&[
+        (
+            "/ws/helper.star",
+            indoc! {r#"
+                fn broken() -> i64 { true }
+            "#},
+        ),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import { broken, i64 as Leaked } from "./helper.star";
+                script fn run() -> Leaked { broken() }
+            "#},
+        ),
+    ])
+    .expect_err("expected helper body error and missing prelude export");
+
+    assert!(
+        !err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::UnknownImportFunction { name, .. } if name == "broken"
+        )),
+        "`broken` should still be exported despite body error: {:?}",
+        err.errors
+    );
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::UnknownImportFunction { name, .. } if name == "i64"
+        )),
+        "prelude `i64` must not be exported on body error: {:?}",
+        err.errors
+    );
+}
