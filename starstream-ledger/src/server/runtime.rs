@@ -40,16 +40,16 @@ impl starstream_runtime::Host for Ctx {
         &mut self.starstream
     }
 
-    async fn call_utxo_main(
-        _store: StoreContextMut<'_, Self>,
-        instance_name: Arc<str>,
-        _external_id: Option<Arc<str>>,
+    async fn call_utxo_main<'a>(
+        _store: StoreContextMut<'a, Self>,
+        instance_name: &Arc<str>,
+        _external_id: Option<&Arc<str>>,
         _export: UtxoExport,
-        _f: impl for<'a> FnOnce(
-            StoreContextMut<'a, Self>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
             Self::UtxoContext,
         ) -> Pin<
-            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
+            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'b>,
         > + Send,
     ) -> wasmtime::Result<Utxo<Self::UtxoContext>> {
         bail!("attempted to call `main fn` of UTXO `{instance_name}`")
@@ -95,6 +95,62 @@ impl starstream_runtime::Host for Ctx {
 
     fn drop_token(_store: StoreContextMut<Self>, _token: Resource<Token>) -> wasmtime::Result<()> {
         bail!("attempted to drop token")
+    }
+
+    async fn mint_token<'a>(
+        _store: StoreContextMut<'a, Self>,
+        instance_name: &Arc<str>,
+        _external_id: Option<&Arc<str>>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<Token>> + Send + 'b>>
+        + Send,
+    ) -> wasmtime::Result<Token> {
+        bail!("attempted to mint token `{instance_name}`")
+    }
+
+    async fn burn_token<'a>(
+        _store: StoreContextMut<'a, Self>,
+        _token: Resource<Token>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+            Resource<Token>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<()>> + Send + 'b>>
+        + Send,
+    ) -> wasmtime::Result<()> {
+        bail!("attempted to burn token")
+    }
+
+    async fn attach_token<'a>(
+        _store: StoreContextMut<'a, Self>,
+        _token: Resource<Token>,
+        _utxo: Resource<Utxo<Self::UtxoContext>>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+            Resource<Token>,
+            Resource<Utxo<Self::UtxoContext>>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<()>> + Send + 'b>>
+        + Send,
+    ) -> wasmtime::Result<()> {
+        bail!("attempted to attach token")
+    }
+
+    async fn detach_token<'a>(
+        _store: StoreContextMut<'a, Self>,
+        _token: Resource<Token>,
+        _utxo: Resource<Utxo<Self::UtxoContext>>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
+            Resource<Token>,
+            Resource<Utxo<Self::UtxoContext>>,
+        )
+            -> Pin<Box<dyn Future<Output = wasmtime::Result<()>> + Send + 'b>>
+        + Send,
+    ) -> wasmtime::Result<()> {
+        bail!("attempted to detach token")
     }
 
     fn emit_event(

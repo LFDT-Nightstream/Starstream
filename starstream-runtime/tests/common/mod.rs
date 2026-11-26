@@ -10,7 +10,7 @@ use starstream_runtime::{
 use tracing::instrument;
 use wasmtime::component::{Resource, ResourceTable, Val, types};
 use wasmtime::error::Context as _;
-use wasmtime::{AsContextMut as _, StoreContextMut, bail, ensure, format_err};
+use wasmtime::{StoreContextMut, bail, ensure, format_err};
 
 pub static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(|| {
     let mut engine_config = wasmtime::Config::default();
@@ -113,20 +113,20 @@ impl Host for Ctx {
         &mut self.starstream
     }
 
-    async fn call_utxo_main(
-        mut store: StoreContextMut<'_, Self>,
-        _instance_name: Arc<str>,
-        _external_id: Option<Arc<str>>,
+    async fn call_utxo_main<'a>(
+        mut store: StoreContextMut<'a, Self>,
+        _instance_name: &Arc<str>,
+        _external_id: Option<&Arc<str>>,
         _export: UtxoExport,
-        f: impl for<'a> FnOnce(
-            StoreContextMut<'a, Self>,
+        f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
             Self::UtxoContext,
         ) -> Pin<
-            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
+            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'b>,
         > + Send,
     ) -> wasmtime::Result<Utxo<Self::UtxoContext>> {
         let cx = Self::UtxoContext::default();
-        let utxo = f(store.as_context_mut(), Arc::clone(&cx)).await?;
+        let utxo = f(&mut store, Arc::clone(&cx)).await?;
         store.data_mut().outputs.push(utxo.clone());
         Ok(utxo)
     }
