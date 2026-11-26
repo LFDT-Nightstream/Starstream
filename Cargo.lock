@@ -3652,6 +3652,7 @@ dependencies = [
  "starstream-ledger-cli",
  "starstream-ledger-node",
  "starstream-runtime",
+ "starstream-runtime-web",
  "starstream-to-wasm",
  "starstream-types",
  "thiserror 2.0.21",
@@ -3678,6 +3679,17 @@ dependencies = [
  "wasmparser 0.263.0",
  "wit-component 0.263.0",
  "wit-parser 0.263.0",
+]
+
+[[package]]
+name = "starstream-compiler-web"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "miette",
+ "starstream-compiler",
+ "starstream-to-wasm",
+ "starstream-types",
 ]
 
 [[package]]
@@ -3799,6 +3811,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "http",
+ "http-body-util",
  "hyper-util",
  "minicbor",
  "rand_core 0.6.4",
@@ -3806,6 +3819,7 @@ dependencies = [
  "starstream-compiler",
  "starstream-ledger",
  "starstream-runtime",
+ "starstream-runtime-web",
  "starstream-to-wasm",
  "starstream-types",
  "tempfile",
@@ -3820,6 +3834,26 @@ dependencies = [
  "wit-parser 0.263.0",
  "wrpc",
  "zeroize",
+]
+
+[[package]]
+name = "starstream-ledger-client-web"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "ed25519-dalek",
+ "futures",
+ "http",
+ "http-body-util",
+ "minicbor",
+ "serde_json",
+ "starstream-ledger",
+ "starstream-runtime",
+ "starstream-runtime-web",
+ "tokio-util",
+ "wasmtime",
+ "wrpc",
 ]
 
 [[package]]
@@ -3909,7 +3943,6 @@ name = "starstream-runtime-web"
 version = "0.0.0"
 dependencies = [
  "cranelift-codegen",
- "futures",
  "wasmtime",
 ]
 

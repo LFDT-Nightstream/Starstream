@@ -131,13 +131,13 @@ as `sha256:HEX`.
   <amount>`**: credit an account (a hex-encoded public key), signed by the
   admin. `--nonce` defaults to the admin's last fund nonce plus one.
 - **`account balance <account>`**, **`account nonce <account>`**: print the
-  balance or the last publish nonce of an account.
+  balance or the last publish or transaction nonce of an account.
 - **`admin nonce`**: print the admin's last fund nonce.
 - **`contract publish --key PATH [--network NETWORK] [--nonce N] <wasm>`**:
   publish a contract and print its digest. `--nonce` defaults to the
-  account's last publish nonce plus one.
-- **`contract script call [--key PATH [--network NETWORK] | --simulate]
-  [--import PATH]... [--output-transaction PATH]
+  account's last nonce plus one.
+- **`contract script call [--key PATH [--network NETWORK] [--nonce N] |
+  --simulate] [--import PATH]... [--output-transaction PATH]
   [--cardano-block-height N] [--cardano-current-slot N] <digest> <script>
   [<arg>]...`**: run a coordination script locally and submit the
   resulting transaction, logging its digest. UTXO arguments are
@@ -145,7 +145,7 @@ as `sha256:HEX`.
   other arguments are WAVE. Prints the results as a WAVE tuple, with
   returned UTXOs replaced by their output index. `--import` resolves
   contracts from local files instead of the ledger, `--simulate` skips
-  submission.
+  submission. `--nonce` defaults to the key's last nonce plus one.
 - **`utxo call [--transaction DIGEST] <index> <method> [<arg>]...`**: call
   a method of an unspent output, discarding the resulting state, and print
   its results as WAVE.
@@ -168,14 +168,16 @@ as `sha256:HEX`.
   lowercase alphanumeric characters). Lookups accept any base, but
   transactions must use the canonical form for their input transactions
   and output contracts.
-- **Accounts.** An Ed25519 public key with a balance and a nonce, created
-  and credited only by the admin. Publishing costs one unit per envelope
+- **Accounts.** An Ed25519 public key with a balance and a nonce, credited
+  only by the admin. Funding creates an account, and so does signing a
+  transaction, with a zero balance. Publishing costs one unit per envelope
   byte.
-- **Nonces.** Each fund and publish carries a nonce, which must be greater
-  than the last one its signer used, so the first is at least `1`. The
-  admin's fund nonces and its account's publish nonces are counted
-  separately. A publish rejected for an insufficient balance still uses up
-  its nonce.
+- **Nonces.** Each fund and publish carries a nonce, and a transaction one
+  per signer, which must be greater than the last one its signer used, so
+  the first is at least `1`. The admin's fund nonces are counted
+  separately from its account's publish and transaction nonces. A publish
+  rejected for an insufficient balance still uses up its nonce; a rejected
+  transaction does not.
 - **UTXOs.** Transaction outputs, referenced as `(transaction, index)`; an
   empty transaction refers to the genesis outputs. Spent outputs are
   removed.
@@ -211,7 +213,7 @@ parameters is `400 Bad Request`, and one stalling after them
 | Instance                        | Function          | Returns                                         |
 | ------------------------------- | ----------------- | ----------------------------------------------- |
 | `starstream:ledger/account`     | `get-balance`     | the balance of an account                       |
-| `starstream:ledger/account`     | `get-nonce`       | the last publish nonce of an account            |
+| `starstream:ledger/account`     | `get-nonce`       | the last publish or transaction nonce           |
 | `starstream:ledger/admin`       | `get-nonce`       | the admin's last fund nonce                     |
 | `starstream:ledger/block`       | `get-height`      | the block height                                |
 | `starstream:ledger/block`       | `get-block`       | the envelopes of a block, `none` for height `0` |
@@ -269,18 +271,19 @@ EdDSA `alg` and a protected `kid` holding the signer's raw 32-byte public
 key, no unprotected or critical headers, and empty external AAD. The
 payload is a CBOR array `[network, context, message]`:
 
-| `context` | Message     | Encoding                                  | Success               |
-| --------- | ----------- | ----------------------------------------- | --------------------- |
-| `0`       | fund        | `[nonce, account: bytes(32), amount]`     | `200 OK`              |
-| `1`       | publish     | `[nonce, wasm: bytes]`                    | `201 Created`, digest |
-| `2`       | transaction | `[inputs, outputs, events, proof: bytes]` | `201 Created`, digest |
+| `context` | Message     | Encoding                                          | Success               |
+| --------- | ----------- | ------------------------------------------------- | --------------------- |
+| `0`       | fund        | `[nonce, account: bytes(32), amount]`             | `200 OK`              |
+| `1`       | publish     | `[nonce, wasm: bytes]`                            | `201 Created`, digest |
+| `2`       | transaction | `[inputs, outputs, events, proof: bytes, nonces]` | `201 Created`, digest |
 
 - **Fund** is signed by the admin alone and creates the account if needed.
 - **Publish** has one signer with an account. The Wasm must be a component
   whose UTXO methods are synchronous and take and return only booleans,
   integers, and options, results and tuples of them.
-- **Transaction** has at least one unspent input and no duplicates.
-  Spending a genesis output requires the admin's signature.
+- **Transaction** has unspent inputs, none of them duplicated, and
+  `nonces`, a list of `[key: bytes(32), nonce]`, with exactly one nonce per
+  signer. Spending a genesis output requires the admin's signature.
 
 Errors are plain text: `400` for a malformed request or another network,
 `401` for a bad signature, `402` for a missing account or insufficient

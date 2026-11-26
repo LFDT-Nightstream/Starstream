@@ -36,7 +36,7 @@ use crate::wrpc::{
 };
 use crate::{
     APPLICATION_COSE, APPLICATION_WASM, APPLICATION_WRPC, Action, Block, Fund, Message, Publish,
-    TransactionInput, TransactionOutput, encode_digest, parse_digest,
+    TransactionInput, TransactionNonce, TransactionOutput, encode_digest, parse_digest,
 };
 
 mod accept;
@@ -334,10 +334,25 @@ impl Ledger {
             .digest()
             .map_err(TransactionPostError::CborEncoding)?;
         let crate::Transaction {
-            inputs, outputs, ..
+            inputs,
+            outputs,
+            nonces,
+            ..
         } = &transaction;
-        if inputs.is_empty() {
-            return Err(TransactionPostError::InputsEmpty);
+        let mut signer_nonces = HashMap::with_capacity(nonces.len());
+        for TransactionNonce { key, nonce } in nonces {
+            let key = VerifyingKey::from_bytes(key).map_err(TransactionPostError::NonceKey)?;
+            if !signers.contains(&key) {
+                return Err(TransactionPostError::NonceUnsigned(key.to_bytes()));
+            }
+            if signer_nonces.insert(key, *nonce).is_some() {
+                return Err(TransactionPostError::NonceDuplicate(key.to_bytes()));
+            }
+        }
+        for signer in &signers {
+            if !signer_nonces.contains_key(signer) {
+                return Err(TransactionPostError::NonceMissing(signer.to_bytes()));
+            }
         }
         let mut resolved_inputs = HashSet::with_capacity(inputs.len());
         for TransactionInput { transaction, index } in inputs {
@@ -380,7 +395,20 @@ impl Ledger {
             return Err(TransactionPostError::AlreadyExists(digest));
         }
         let mut genesis = self.genesis.outputs.write().await;
+        let mut accounts = self.accounts.write().await;
         let mut blocks = self.blocks.write().await;
+        for (key, &nonce) in &signer_nonces {
+            let last_nonce = accounts
+                .get(key)
+                .map_or(0, |account| account.last_nonce.load(Ordering::Relaxed));
+            if nonce <= last_nonce {
+                return Err(TransactionPostError::NonceTooLow {
+                    key: key.to_bytes(),
+                    last_nonce,
+                    nonce,
+                });
+            }
+        }
         for (tx, i) in &resolved_inputs {
             // TODO: Verify transaction signatures
             if let Some(tx) = tx {
@@ -399,6 +427,10 @@ impl Ledger {
             }
         }
         // TODO: Verify sum(inputs) >= sum(outputs) + fee
+        for (key, nonce) in signer_nonces {
+            let account = accounts.entry(key).or_default();
+            account.last_nonce.store(nonce, Ordering::Relaxed);
+        }
         for (tx, i) in resolved_inputs {
             let utxo = if let Some(tx) = tx {
                 let Some(Transaction { outputs, .. }) = txs.get_mut(&tx) else {

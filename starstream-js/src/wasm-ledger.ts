@@ -61,8 +61,6 @@ export interface WasmLedgerOptions {
   maxRequests?: number;
   /** Fuel available to each UTXO method call over `/rpc`. */
   fuel?: bigint;
-  /** Time a request body may stall before the request fails, in whole seconds. */
-  ioTimeout?: number;
   /** Cardano block height reported to contracts (`cardano#block-height`). */
   cardanoBlockHeight?: bigint;
   /** Cardano current slot reported to contracts (`cardano#current-slot`). */
@@ -93,7 +91,7 @@ export class WasmLedger {
   private constructor() {}
 
   private async instantiate(module: WebAssembly.Module): Promise<void> {
-    this.runtime = new RuntimeWeb((err) => this.fail(this.trapError(err)));
+    this.runtime = new RuntimeWeb();
     const instance = await WebAssembly.instantiate(module, {
       env: {
         ...this.runtime.imports,
@@ -159,7 +157,6 @@ export class WasmLedger {
       imports,
       maxRequests,
       fuel,
-      ioTimeout,
       cardanoBlockHeight,
       cardanoCurrentSlot,
     }: WasmLedgerOptions,
@@ -182,7 +179,6 @@ export class WasmLedger {
         genesis: genesis ?? {},
         max_requests: maxRequests,
         fuel: fuel === undefined ? undefined : rawJSON(String(fuel)),
-        io_timeout: ioTimeout,
         cardano_block_height:
           cardanoBlockHeight === undefined
             ? undefined
@@ -263,7 +259,6 @@ export class WasmLedger {
       return;
     }
     this.failure = err;
-    this.runtime.dispose();
     for (const [id, request] of this.requests) {
       this.take(id);
       request.reject(err);

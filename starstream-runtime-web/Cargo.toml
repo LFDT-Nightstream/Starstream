@@ -12,5 +12,4 @@ test = false
 
 [dependencies]
 cranelift-codegen = { workspace = true, features = ["std", "timing"] }
-futures = { workspace = true, features = ["alloc"] }
 wasmtime = { workspace = true }

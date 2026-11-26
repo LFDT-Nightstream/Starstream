@@ -367,6 +367,7 @@ pub async fn call_coordination_script(
         outputs: tx_outputs,
         events,
         proof: Box::default(),
+        nonces: Vec::default(),
     };
     #[cfg(feature = "proving")]
     if let Some(prover) = prover {
@@ -387,6 +388,34 @@ pub async fn call_coordination_script(
         return Ok((transaction, Ok(call)));
     }
     Ok((transaction, execution))
+}
+
+/// Replace each UTXO resource in `results` of a [`call_coordination_script`]
+/// call by the index of its output in `utxos`, as a `u32`.
+pub fn resolve_utxo_results(
+    store: &mut Store<Ctx>,
+    utxos: &[Utxo<Arc<std::sync::Mutex<UtxoCtx>>>],
+    results: &mut [Val],
+) -> wasmtime::Result<()> {
+    for result in results {
+        if let &mut Val::Resource(utxo) = result {
+            let utxo = utxo
+                .try_into_resource(&mut *store)
+                .context("result resource is not a UTXO")?;
+            let utxo: &Utxo<Arc<std::sync::Mutex<UtxoCtx>>> = store
+                .data()
+                .table
+                .get(&utxo)
+                .context("result UTXO not found")?;
+            let i = utxos
+                .iter()
+                .position(|out| utxo.resource() == out.resource())
+                .context("failed to identify result resource")?;
+            let i = u32::try_from(i).context("too many UTXOs")?;
+            *result = Val::U32(i);
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Default)]

@@ -1,0 +1,19 @@
+[package]
+name = "starstream-compiler-web"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+test = false
+crate-type = ["cdylib"]
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+anyhow = { workspace = true, features = ["std"] }
+miette = { workspace = true, features = ["fancy-no-backtrace"] }
+starstream-compiler = { workspace = true }
+starstream-to-wasm = { workspace = true }
+starstream-types = { workspace = true }

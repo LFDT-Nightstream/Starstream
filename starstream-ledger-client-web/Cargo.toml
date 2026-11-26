@@ -1,0 +1,31 @@
+[package]
+name = "starstream-ledger-client-web"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+test = false
+crate-type = ["cdylib"]
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+anyhow = { workspace = true, features = ["std"] }
+bytes = { workspace = true }
+ed25519-dalek = { workspace = true }
+futures = { workspace = true, features = ["alloc", "async-await"] }
+http = { workspace = true, features = ["std"] }
+http-body-util = { workspace = true }
+minicbor = { workspace = true, features = ["std"] }
+serde_json = { workspace = true }
+starstream-ledger = { workspace = true, features = ["client", "http"] }
+starstream-runtime = { workspace = true, features = [
+    "wasmtime-custom-fiber",
+    "wasmtime-custom-virtual-memory",
+] }
+starstream-runtime-web = { workspace = true }
+tokio-util = { workspace = true, features = ["codec"] }
+wasmtime = { workspace = true }
+wrpc = { workspace = true, features = ["http", "wasmtime"] }

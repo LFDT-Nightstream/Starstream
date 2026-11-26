@@ -3,11 +3,13 @@ resolver = "2"
 members = [
   "starstream-cli",
   "starstream-compiler",
+  "starstream-compiler-web",
   "starstream-interpreter",
   "starstream-language-server",
   "starstream-language-server-web",
   "starstream-ledger",
   "starstream-ledger-cli",
+  "starstream-ledger-client-web",
   "starstream-ledger-node",
   "starstream-ledger-web",
   "starstream-runtime",
@@ -63,7 +65,7 @@ serde_json = "1.0"
 starstream-compiler = { path = "starstream-compiler" }
 starstream-language-server = { path = "starstream-language-server" }
 starstream-ledger = { path = "starstream-ledger", default-features = false }
-starstream-ledger-cli = { path = "starstream-ledger-cli" }
+starstream-ledger-cli = { path = "starstream-ledger-cli", default-features = false }
 starstream-ledger-node = { path = "starstream-ledger-node" }
 starstream-proving-runtime = { path = "starstream-proving-runtime" }
 starstream-runtime = { path = "starstream-runtime" }

@@ -7,12 +7,27 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "starstream-ledger-cli"
+required-features = ["tcp"]
+
+[features]
+default = ["proving", "tcp"]
+proving = ["starstream-ledger/proving"]
+tcp = [
+    "dep:hyper-util",
+    "dep:tracing-subscriber",
+    "starstream-ledger/tcp",
+    "tokio/rt-multi-thread",
+]
+
 [dependencies]
 anyhow = { workspace = true, features = ["std"] }
 bytes = { workspace = true }
 clap = { workspace = true, features = [
     "color",
     "derive",
+    "env",
     "error-context",
     "help",
     "std",
@@ -27,7 +42,7 @@ ed25519-dalek = { workspace = true, features = [
 ] }
 hex = { workspace = true, features = ["std"] }
 http = { workspace = true, features = ["std"] }
-hyper-util = { workspace = true, features = [
+hyper-util = { workspace = true, optional = true, features = [
     "client-legacy",
     "http1",
     "tokio",
@@ -35,23 +50,13 @@ hyper-util = { workspace = true, features = [
 minicbor = { workspace = true, features = ["std"] }
 rand_core = { workspace = true, features = ["getrandom", "std"] }
 sha2 = { workspace = true }
-starstream-ledger = { workspace = true, features = [
-    "client",
-    "http",
-    "proving",
-    "tcp",
-] }
+starstream-ledger = { workspace = true, features = ["client", "http"] }
 starstream-runtime = { workspace = true }
 toml = { workspace = true, features = ["display", "serde"] }
-tokio = { workspace = true, features = [
-    "fs",
-    "io-std",
-    "macros",
-    "rt-multi-thread",
-] }
+tokio = { workspace = true, features = ["macros"] }
 tokio-util = { workspace = true, features = ["codec"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = [
+tracing-subscriber = { workspace = true, optional = true, features = [
     "ansi",
     "env-filter",
     "fmt",
@@ -68,6 +73,10 @@ wasmtime = { workspace = true, features = [
 wit-parser = { workspace = true, features = ["decoding"] }
 wrpc = { workspace = true, features = ["wave"] }
 zeroize = { workspace = true }
+
+[target.'cfg(target_os = "wasi")'.dependencies]
+http-body-util = { workspace = true }
+starstream-runtime-web = { workspace = true }
 
 [dev-dependencies]
 starstream-compiler = { workspace = true }

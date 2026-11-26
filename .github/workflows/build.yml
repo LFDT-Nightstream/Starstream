@@ -45,12 +45,14 @@ jobs:
       # Cosmetic checks.
       - run: cargo clippy
       # Native builds of these crates leave out their Wasm-only code.
-      - run: cargo clippy -p starstream-ledger-web -p starstream-runtime-web --target wasm32-unknown-unknown
+      - run: >-
+          cargo clippy --target wasm32-unknown-unknown
+          -p starstream-compiler-web
+          -p starstream-ledger-client-web
+          -p starstream-ledger-web
+          -p starstream-runtime-web
+      - run: cargo clippy -p starstream-cli --target wasm32-wasip1
       - run: cargo fmt --check
-      # Mock ledger
-      - name: Mock Ledger - Check formatting
-        run: cargo fmt --check
-        working-directory: mock-ledger/backend
   website:
     name: Website
     runs-on: ubuntu-24.04

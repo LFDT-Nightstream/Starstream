@@ -90,6 +90,9 @@ Tooling:
 - `starstream-language-server/` - [LSP] server implementation.
 - `starstream-language-server-web/` - Compiles the language server to WebAssembly ([Web Worker] only, uses [wasm-bindgen]).
 - `starstream-sandbox-web/` - Compiles `starstream-to-wasm/` to Wasm for use in the web sandbox (freestanding).
+- `starstream-compiler-web/` - Compiles the compiler to Wasm (freestanding) for
+    `WasmCompiler` in `starstream-js/`: `cargo build -p starstream-compiler-web
+    --release --target wasm32-unknown-unknown`.
 
 [Web Worker]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API
 [wasm-bindgen]: https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html
@@ -108,13 +111,16 @@ The host/embedder side of the WASM execution is split between
 instance management
 - `starstream-runtime-web/` - Runs `starstream-runtime/` on wasm32 in a JS host:
     Wasmtime's custom fiber and virtual memory C ABIs, with fibers and an
-    executor on JSPI, and timers.
+    executor on JSPI.
 - `starstream-ledger/` - Ledger-backed execution: resolves transaction inputs,
     loads UTXO state, runs coordination scripts, and collects transaction
     outputs.
 - `starstream-ledger-web/` - Compiles the ledger to Wasm (freestanding):
     `cargo build -p starstream-ledger-web --release --target
     wasm32-unknown-unknown`.
+- `starstream-ledger-client-web/` - Compiles the ledger client to Wasm
+    (freestanding) for `WasmClient` in `starstream-js/`: `cargo build -p
+    starstream-ledger-client-web --release --target wasm32-unknown-unknown`.
 
 With the Starstream specific proving side in:
 

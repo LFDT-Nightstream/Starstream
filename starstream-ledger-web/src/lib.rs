@@ -15,7 +15,6 @@
 use core::cell::RefCell;
 use core::ptr;
 use core::sync::atomic::{AtomicBool, Ordering};
-use core::time::Duration;
 
 use std::collections::HashMap;
 use std::panic;
@@ -24,6 +23,7 @@ use std::sync::{Once, OnceLock};
 use anyhow::{Context as _, bail};
 use bytes::Bytes;
 use ed25519_dalek::VerifyingKey;
+use futures::future;
 use http::header::CONTENT_LENGTH;
 use http::{HeaderMap, StatusCode};
 use http_body_util::BodyExt as _;
@@ -31,10 +31,8 @@ use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use starstream_ledger::CardanoCtx;
 use starstream_ledger::genesis::Genesis;
-use starstream_ledger::server::{
-    DEFAULT_FUEL, DEFAULT_IO_TIMEOUT, DEFAULT_MAX_REQUESTS, Ledger, build_text_response,
-};
-use starstream_runtime_web::{block_on, configure_wasmtime, disable_cranelift_profiler, sleep};
+use starstream_ledger::server::{DEFAULT_FUEL, DEFAULT_MAX_REQUESTS, Ledger, build_text_response};
+use starstream_runtime_web::{block_on, configure_wasmtime, disable_cranelift_profiler};
 
 mod body;
 use body::*;
@@ -58,7 +56,7 @@ unsafe extern "C" {
 thread_local! {
     static IMPORTS: RefCell<HashMap<[u8; 32], Bytes>> = RefCell::default();
 }
-static NODE: OnceLock<Node> = OnceLock::new();
+static NODE: OnceLock<Ledger> = OnceLock::new();
 static ENTERED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Deserialize)]
@@ -71,16 +69,10 @@ struct Config {
     genesis: Genesis,
     max_requests: Option<u32>,
     fuel: Option<u64>,
-    io_timeout: Option<u64>,
     #[serde(default)]
     cardano_block_height: i64,
     #[serde(default)]
     cardano_current_slot: i64,
-}
-
-struct Node {
-    ledger: Ledger,
-    io_timeout: Duration,
 }
 
 fn report_error(err: &str) {
@@ -127,7 +119,6 @@ fn start(config: &[u8]) -> anyhow::Result<()> {
         genesis,
         max_requests,
         fuel,
-        io_timeout,
         cardano_block_height,
         cardano_current_slot,
     } = serde_json::from_slice(config).context("failed to parse ledger config")?;
@@ -150,8 +141,7 @@ fn start(config: &[u8]) -> anyhow::Result<()> {
             cardano,
         ))
     })?;
-    let io_timeout = io_timeout.map_or(DEFAULT_IO_TIMEOUT, Duration::from_secs);
-    if NODE.set(Node { ledger, io_timeout }).is_err() {
+    if NODE.set(ledger).is_err() {
         unreachable!("ledger started concurrently");
     }
     IMPORTS.take();
@@ -213,11 +203,7 @@ fn respond(id: u32, status: StatusCode, headers: &HeaderMap, body: &[u8]) {
 async fn handle(id: u32, head: Vec<u8>) {
     let res = match NODE.get() {
         Some(node) => match parse_request(id, &head) {
-            Ok(req) => {
-                node.ledger
-                    .handle_http(req, move || sleep(node.io_timeout))
-                    .await
-            }
+            Ok(req) => node.handle_http(req, future::pending).await,
             Err(err) => build_text_response(StatusCode::BAD_REQUEST, format!("{err:#}")),
         },
         None => build_text_response(StatusCode::SERVICE_UNAVAILABLE, "ledger not started"),
@@ -268,8 +254,8 @@ pub unsafe extern "C" fn ledger_import(wasm: *mut u8, len: usize) -> i32 {
 
 /// Start the ledger with a JSON-encoded config: the `network`, the
 /// hex-encoded `admin` key and optionally the `genesis`, `max_requests`,
-/// `fuel`, `io_timeout` in seconds, `cardano_block_height` and
-/// `cardano_current_slot`, defaulting to those of `starstream-ledger-node`.
+/// `fuel`, `cardano_block_height` and `cardano_current_slot`, defaulting to
+/// those of `starstream-ledger-node`.
 ///
 /// # Safety
 ///

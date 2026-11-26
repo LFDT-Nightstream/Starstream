@@ -1,12 +1,15 @@
+use core::task::{Context, Poll};
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context as _, ensure};
 use bytes::Bytes;
 use ed25519_dalek::{SigningKey, VerifyingKey};
+use futures::future::BoxFuture;
 use http::header::{ACCEPT, CONTENT_TYPE};
 use http::{Method, Request, Uri};
-use http_body_util::Full;
+use http_body_util::{BodyExt as _, Full};
 use mediatype::MediaType;
 use sha2::{Digest as _, Sha256};
 use starstream_runtime::{CoordinationScriptExport, Utxo};
@@ -14,6 +17,7 @@ use tracing::{instrument, warn};
 use wasmtime::Store;
 use wasmtime::component::Val;
 use wasmtime_wizer::Wizer;
+use wrpc::http::{OutgoingParams, Service};
 use wrpc::{Codec, Invoke, RawCodec};
 
 use crate::client::runtime::{CompiledContract, Contract, Ctx, UtxoCtx, call_coordination_script};
@@ -25,7 +29,7 @@ use crate::cose::read_envelope;
 use crate::wrpc::{LEDGER_UTXO_INSTANCE, bindings};
 use crate::{
     APPLICATION_COSE, Fund, PUBLISH_CONTEXT, Publish, TRANSACTION_CONTEXT, Transaction,
-    TransactionInput, TransactionOutput, configure_wasmtime, encode_digest, parse_digest,
+    TransactionInput, TransactionOutput, encode_digest, parse_digest,
 };
 
 #[cfg(feature = "tcp")]
@@ -42,14 +46,14 @@ fn endpoint_uri(base: &Uri, endpoint: impl AsRef<str>) -> anyhow::Result<String>
     Ok(format!("{base}/{endpoint}"))
 }
 
-fn wrpc_client<T: Clone>(
+fn wrpc_client<T>(
     base: &Uri,
     endpoint: impl AsRef<str>,
-    service: &T,
+    service: T,
 ) -> anyhow::Result<wrpc::http::Client<T>> {
     let uri = endpoint_uri(base, endpoint)?;
     let uri = Uri::try_from(uri).context("failed to parse wRPC endpoint URI")?;
-    Ok(wrpc::http::Client::new(uri, service.clone()))
+    Ok(wrpc::http::Client::new(uri, service))
 }
 
 fn build_envelope_request(
@@ -183,6 +187,11 @@ fn verify_envelope(
 
 /// HTTP transport of the ledger client.
 pub trait Transport: Send + Sync {
+    /// [`Service`] sending wRPC requests over this transport.
+    type Wrpc;
+
+    fn wrpc(&self) -> Self::Wrpc;
+
     /// Send `req` and return the response with its body collected.
     fn request(
         &self,
@@ -190,22 +199,56 @@ pub trait Transport: Send + Sync {
     ) -> impl Future<Output = anyhow::Result<(http::response::Parts, Bytes)>> + Send;
 }
 
+/// [`Service`] sending wRPC requests through a [`Transport`], which buffers their parameters,
+/// failing on responses with an unsuccessful status.
 #[derive(Clone)]
-pub struct ClientBuilder<W, H> {
-    wrpc: W,
-    http: H,
+pub struct TransportService<T>(pub T);
+
+impl<T> Service<http::Request<OutgoingParams>> for TransportService<T>
+where
+    T: Transport + Clone + 'static,
+{
+    type Response = http::Response<Full<Bytes>>;
+    type Error = anyhow::Error;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: http::Request<OutgoingParams>) -> Self::Future {
+        let http = self.0.clone();
+        Box::pin(async move {
+            let (parts, body) = req.into_parts();
+            let body = body
+                .collect()
+                .await
+                .context("failed to encode parameters")?;
+            let req = http::Request::from_parts(parts, Full::new(body.to_bytes()));
+            let (parts, body) = http.request(req).await?;
+            ensure!(
+                parts.status.is_success(),
+                "HTTP request failed with status `{}`: {}",
+                parts.status,
+                String::from_utf8_lossy(&body)
+            );
+            Ok(http::Response::from_parts(parts, Full::new(body)))
+        })
+    }
+}
+
+#[derive(Clone)]
+pub struct ClientBuilder<T> {
+    http: T,
     api_base: Uri,
     engine: wasmtime::Engine,
     wizer: Wizer,
 }
 
-impl<W, H> ClientBuilder<W, H> {
-    pub fn new(wrpc: W, http: H, api_base: impl Into<Uri>) -> Self {
-        let mut engine_config = wasmtime::Config::default();
-        configure_wasmtime(&mut engine_config);
-        let engine = wasmtime::Engine::new(&engine_config).unwrap();
+impl<T> ClientBuilder<T> {
+    /// `engine` must be configured by [`crate::configure_wasmtime`].
+    pub fn new(http: T, api_base: impl Into<Uri>, engine: wasmtime::Engine) -> Self {
         Self {
-            wrpc,
             http,
             api_base: api_base.into(),
             engine,
@@ -213,41 +256,33 @@ impl<W, H> ClientBuilder<W, H> {
         }
     }
 
-    pub fn engine(mut self, engine: wasmtime::Engine) -> Self {
-        self.engine = engine;
-        self
-    }
-
     pub fn wizer(mut self, wizer: Wizer) -> Self {
         self.wizer = wizer;
         self
     }
 
-    pub fn build(self) -> Client<W, H> {
+    pub fn build(self) -> Client<T> {
         self.into()
     }
 }
 
-pub struct Client<W, H> {
-    wrpc: W,
-    http: H,
+pub struct Client<T> {
+    http: T,
     api_base: Uri,
     engine: wasmtime::Engine,
     wizer: Wizer,
 }
 
-impl<W, H> From<ClientBuilder<W, H>> for Client<W, H> {
+impl<T> From<ClientBuilder<T>> for Client<T> {
     fn from(
         ClientBuilder {
-            wrpc,
             http,
             api_base,
             engine,
             wizer,
-        }: ClientBuilder<W, H>,
+        }: ClientBuilder<T>,
     ) -> Self {
         Self {
-            wrpc,
             http,
             api_base,
             engine,
@@ -256,11 +291,10 @@ impl<W, H> From<ClientBuilder<W, H>> for Client<W, H> {
     }
 }
 
-impl<W, H> runtime::Client for Client<W, H>
+impl<T> runtime::Client for Client<T>
 where
-    W: Clone,
-    wrpc::http::Client<W>: Invoke,
-    H: Transport,
+    T: Transport,
+    wrpc::http::Client<T::Wrpc>: Invoke,
 {
     async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Bytes> {
         let wasm = Client::get_contract(self, digest).await?;
@@ -284,14 +318,14 @@ where
     }
 }
 
-impl<W, H> Client<W, H>
+impl<T> Client<T>
 where
-    W: Clone,
-    wrpc::http::Client<W>: Invoke,
-    H: Transport,
+    T: Transport,
+    wrpc::http::Client<T::Wrpc>: Invoke,
 {
-    pub fn new(wrpc: W, http: H, api_base: impl Into<Uri>) -> Self {
-        ClientBuilder::new(wrpc, http, api_base).build()
+    /// `engine` must be configured by [`crate::configure_wasmtime`].
+    pub fn new(http: T, api_base: impl Into<Uri>, engine: wasmtime::Engine) -> Self {
+        ClientBuilder::new(http, api_base, engine).build()
     }
 
     pub fn engine(&self) -> &wasmtime::Engine {
@@ -305,7 +339,7 @@ where
     /// Get the height of the latest ledger block.
     #[instrument(skip_all)]
     pub async fn block_height(&self) -> anyhow::Result<u64> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         bindings::starstream::ledger::block::get_height(clt)
             .await
             .map_err(anyhow::Error::from)
@@ -314,7 +348,7 @@ where
     /// Get the envelopes of the block at `height`, in order.
     #[instrument(skip_all)]
     pub async fn get_block(&self, height: u64) -> anyhow::Result<Option<Vec<Bytes>>> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         let envelopes = bindings::starstream::ledger::block::get_block(clt, height).await?;
         let Some(envelopes) = envelopes else {
             return Ok(None);
@@ -328,25 +362,40 @@ where
     /// Get the name of the network the ledger accepts envelopes for.
     #[instrument(skip_all)]
     pub async fn get_network(&self) -> anyhow::Result<String> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         bindings::starstream::ledger::network::get_name(clt)
             .await
             .map_err(anyhow::Error::from)
     }
 
+    /// Return `network`, defaulting to the name of the network the ledger accepts envelopes for.
+    pub async fn resolve_network(&self, network: Option<String>) -> anyhow::Result<String> {
+        match network {
+            Some(network) => Ok(network),
+            None => self.get_network().await,
+        }
+    }
+
     /// Get the last nonce used by the admin key to fund accounts.
     #[instrument(skip_all)]
     pub async fn get_admin_nonce(&self) -> anyhow::Result<u64> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         bindings::starstream::ledger::admin::get_nonce(clt)
             .await
             .map_err(anyhow::Error::from)
     }
 
+    /// Get the nonce following the last one used by the admin key to fund accounts.
+    #[instrument(skip_all)]
+    pub async fn next_admin_nonce(&self) -> anyhow::Result<u64> {
+        let nonce = self.get_admin_nonce().await?;
+        nonce.checked_add(1).context("admin nonce exhausted")
+    }
+
     /// Get the balance of the account `key`.
     #[instrument(skip_all)]
     pub async fn get_account_balance(&self, key: &VerifyingKey) -> anyhow::Result<Option<u64>> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         let key = Bytes::copy_from_slice(key.as_bytes());
         let balance = bindings::starstream::ledger::account::get_balance(clt, &key).await?;
         match balance {
@@ -356,10 +405,10 @@ where
         }
     }
 
-    /// Get the last nonce used by the account `key` to publish contracts.
+    /// Get the last nonce used by the account `key` to publish contracts or sign transactions.
     #[instrument(skip_all)]
     pub async fn get_account_nonce(&self, key: &VerifyingKey) -> anyhow::Result<Option<u64>> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         let key = Bytes::copy_from_slice(key.as_bytes());
         let nonce = bindings::starstream::ledger::account::get_nonce(clt, &key).await?;
         match nonce {
@@ -367,6 +416,16 @@ where
             Err(bindings::starstream::ledger::types::GetError::NotFound) => Ok(None),
             Err(err) => Err(err).context("failed to get account nonce"),
         }
+    }
+
+    /// Get the nonce following the last one used by the account `key` to publish contracts or
+    /// sign transactions.
+    #[instrument(skip_all)]
+    pub async fn next_account_nonce(&self, key: &VerifyingKey) -> anyhow::Result<u64> {
+        let nonce = self.get_account_nonce(key).await?;
+        let nonce = nonce
+            .with_context(|| format!("account `{}` not found", hex::encode(key.as_bytes())))?;
+        nonce.checked_add(1).context("account nonce exhausted")
     }
 
     /// Get the transaction UTXO referenced by `digest` and `idx`.
@@ -436,7 +495,7 @@ where
         name: &str,
         args: &[u8],
     ) -> anyhow::Result<Bytes> {
-        let clt = wrpc_client(&self.api_base, utxo_endpoint(input), &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, utxo_endpoint(input), self.http.wrpc())?;
         let (results, io) = Invoke::invoke_with(
             clt,
             Codec {
@@ -537,7 +596,7 @@ where
     /// Get the transaction identified by `digest`.
     #[instrument(skip_all)]
     pub async fn get_transaction(&self, digest: [u8; 32]) -> anyhow::Result<Option<Transaction>> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         let tx = bindings::starstream::ledger::transaction::get_transaction(
             clt,
             &encode_digest(&digest),
@@ -564,7 +623,7 @@ where
         &self,
         digest: &[u8; 32],
     ) -> anyhow::Result<Option<Bytes>> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         let body =
             bindings::starstream::ledger::transaction::get_envelope(clt, &encode_digest(digest))
                 .await?;
@@ -575,7 +634,7 @@ where
     /// Get the genesis outputs.
     #[instrument(skip_all)]
     pub async fn get_genesis(&self) -> anyhow::Result<Vec<TransactionOutput>> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         let outputs = bindings::starstream::ledger::genesis::get_outputs(clt).await?;
         Ok(outputs.into_iter().map(Into::into).collect())
     }
@@ -583,7 +642,7 @@ where
     /// Get the Wasm bytes of the contract identified by `digest`.
     #[instrument(skip_all)]
     pub async fn get_contract(&self, digest: [u8; 32]) -> anyhow::Result<Option<Bytes>> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         let wasm =
             bindings::starstream::ledger::contract::get_wasm(clt, &encode_digest(&digest)).await?;
         let wasm = match wasm {
@@ -602,7 +661,7 @@ where
 
     #[instrument(skip_all)]
     pub async fn get_contract_envelope(&self, digest: &[u8; 32]) -> anyhow::Result<Option<Bytes>> {
-        let clt = wrpc_client(&self.api_base, "rpc", &self.wrpc)?;
+        let clt = wrpc_client(&self.api_base, "rpc", self.http.wrpc())?;
         let body =
             bindings::starstream::ledger::contract::get_envelope(clt, &encode_digest(digest))
                 .await?;
