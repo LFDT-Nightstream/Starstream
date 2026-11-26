@@ -76,7 +76,7 @@ struct Compiled {
 thread_local! {
     static CONTRACTS: RefCell<HashMap<[u8; 32], Rc<Compiled>>> = RefCell::default();
 }
-static CLIENT: OnceLock<Client<TransportService<FetchTransport>, FetchTransport>> = OnceLock::new();
+static CLIENT: OnceLock<Client<FetchTransport>> = OnceLock::new();
 static ENTERED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
@@ -89,6 +89,12 @@ struct Outcome {
 struct FetchTransport;
 
 impl Transport for FetchTransport {
+    type Wrpc = TransportService<Self>;
+
+    fn wrpc(&self) -> Self::Wrpc {
+        TransportService(Self)
+    }
+
     async fn request(
         &self,
         req: http::Request<Full<Bytes>>,
@@ -155,7 +161,7 @@ fn report(res: anyhow::Result<Outcome>) -> i32 {
 }
 
 fn run<T: Future<Output = anyhow::Result<Outcome>>>(
-    op: impl FnOnce(&'static Client<TransportService<FetchTransport>, FetchTransport>) -> T,
+    op: impl FnOnce(&'static Client<FetchTransport>) -> T,
 ) -> i32 {
     init();
     if ENTERED.swap(true, Ordering::Relaxed) {
@@ -195,13 +201,7 @@ fn start(url: Vec<u8>) -> anyhow::Result<Outcome> {
     starstream_ledger::configure_wasmtime(&mut config);
     configure_wasmtime(&mut config)?;
     let engine = wasmtime::Engine::new(&config)?;
-    let client = ClientBuilder::new(
-        TransportService(FetchTransport),
-        FetchTransport,
-        url,
-        engine,
-    )
-    .build();
+    let client = ClientBuilder::new(FetchTransport, url, engine).build();
     if CLIENT.set(client).is_err() {
         bail!("client already started");
     }
@@ -210,10 +210,7 @@ fn start(url: Vec<u8>) -> anyhow::Result<Outcome> {
 
 /// Get the published contract with `contract` digest compiled, from the
 /// contracts compiled before or by fetching and compiling it.
-async fn compiled(
-    client: &Client<TransportService<FetchTransport>, FetchTransport>,
-    contract: &str,
-) -> anyhow::Result<Rc<Compiled>> {
+async fn compiled(client: &Client<FetchTransport>, contract: &str) -> anyhow::Result<Rc<Compiled>> {
     let digest = parse_digest(contract)
         .with_context(|| format!("failed to parse `{contract}` as multibase multihash"))?;
     if let Some(compiled) = CONTRACTS.with_borrow(|contracts| contracts.get(&digest).cloned()) {
@@ -331,7 +328,7 @@ fn signature<'a>(
 }
 
 async fn script_type(
-    client: &Client<TransportService<FetchTransport>, FetchTransport>,
+    client: &Client<FetchTransport>,
     contract: Vec<u8>,
     script: Vec<u8>,
 ) -> anyhow::Result<Outcome> {
@@ -348,10 +345,7 @@ async fn script_type(
     })
 }
 
-async fn scripts(
-    client: &Client<TransportService<FetchTransport>, FetchTransport>,
-    contract: Vec<u8>,
-) -> anyhow::Result<Outcome> {
+async fn scripts(client: &Client<FetchTransport>, contract: Vec<u8>) -> anyhow::Result<Outcome> {
     let contract = string(contract, "contract digest")?;
     let compiled = compiled(client, &contract).await?;
     let scripts = compiled
@@ -370,10 +364,7 @@ async fn scripts(
     })
 }
 
-fn contract_scripts(
-    client: &Client<TransportService<FetchTransport>, FetchTransport>,
-    wasm: Vec<u8>,
-) -> anyhow::Result<Outcome> {
+fn contract_scripts(client: &Client<FetchTransport>, wasm: Vec<u8>) -> anyhow::Result<Outcome> {
     let engine = client.engine();
     let component = Component::new(engine, &wasm)
         .map_err(anyhow::Error::from)
@@ -396,7 +387,7 @@ fn contract_scripts(
 }
 
 async fn utxo_methods(
-    client: &Client<TransportService<FetchTransport>, FetchTransport>,
+    client: &Client<FetchTransport>,
     contract: Vec<u8>,
     instance: Vec<u8>,
 ) -> anyhow::Result<Outcome> {
@@ -426,7 +417,7 @@ async fn utxo_methods(
 }
 
 async fn call(
-    client: &Client<TransportService<FetchTransport>, FetchTransport>,
+    client: &Client<FetchTransport>,
     contract: Vec<u8>,
     script: Vec<u8>,
     args: Vec<u8>,
@@ -511,7 +502,7 @@ async fn call(
 }
 
 async fn fund(
-    client: &Client<TransportService<FetchTransport>, FetchTransport>,
+    client: &Client<FetchTransport>,
     key: Vec<u8>,
     account: Vec<u8>,
     amount: u64,
@@ -532,7 +523,7 @@ async fn fund(
 }
 
 async fn publish(
-    client: &Client<TransportService<FetchTransport>, FetchTransport>,
+    client: &Client<FetchTransport>,
     key: Vec<u8>,
     wasm: Vec<u8>,
     network: Vec<u8>,
@@ -554,7 +545,7 @@ async fn publish(
 }
 
 async fn transact(
-    client: &Client<TransportService<FetchTransport>, FetchTransport>,
+    client: &Client<FetchTransport>,
     key: Vec<u8>,
     tx: Vec<u8>,
     network: Vec<u8>,

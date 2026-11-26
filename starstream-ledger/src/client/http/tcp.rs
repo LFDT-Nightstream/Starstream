@@ -20,8 +20,7 @@ const MAX_ERROR_BODY_SIZE: usize = 1 << 16;
 pub type Body = UnsyncBoxBody<Bytes, std::io::Error>;
 
 /// [Client](crate::client::http::Client) backed by a `hyper-util` legacy client.
-pub type Client<C> =
-    crate::client::http::Client<WrpcService<C>, hyper_util::client::legacy::Client<C, Body>>;
+pub type Client<C> = crate::client::http::Client<hyper_util::client::legacy::Client<C, Body>>;
 
 /// Service sending wRPC requests with a `hyper-util` legacy client, failing on responses with an
 /// unsuccessful status.
@@ -60,7 +59,7 @@ where
     }
 }
 
-impl<C> ClientBuilder<WrpcService<C>, hyper_util::client::legacy::Client<C, Body>>
+impl<C> ClientBuilder<hyper_util::client::legacy::Client<C, Body>>
 where
     C: Connect + Clone + Send + Sync + 'static,
 {
@@ -69,11 +68,10 @@ where
         connect: C,
         api_base: impl Into<Uri>,
     ) -> Self {
-        let http = http.build(connect);
         let mut engine_config = wasmtime::Config::default();
         configure_wasmtime(&mut engine_config);
         let engine = wasmtime::Engine::new(&engine_config).unwrap();
-        Self::new(WrpcService(http.clone()), http, api_base, engine)
+        Self::new(http.build(connect), api_base, engine)
     }
 }
 
@@ -81,6 +79,12 @@ impl<C> Transport for hyper_util::client::legacy::Client<C, Body>
 where
     C: Connect + Clone + Send + Sync + 'static,
 {
+    type Wrpc = WrpcService<C>;
+
+    fn wrpc(&self) -> Self::Wrpc {
+        WrpcService(self.clone())
+    }
+
     #[instrument(skip_all)]
     async fn request(
         &self,

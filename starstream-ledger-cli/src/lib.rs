@@ -407,11 +407,10 @@ fn parse_verifying_key(s: &str) -> anyhow::Result<VerifyingKey> {
     Ok(key)
 }
 
-async fn exec<W, H>(command: Command, client: &Client<W, H>) -> anyhow::Result<()>
+async fn exec<T>(command: Command, client: &Client<T>) -> anyhow::Result<()>
 where
-    W: Clone,
-    wrpc::http::Client<W>: wrpc::Invoke,
-    H: Transport,
+    T: Transport,
+    wrpc::http::Client<T::Wrpc>: wrpc::Invoke,
 {
     match command {
         Command::Account(AccountCommand::Balance { account }) => {

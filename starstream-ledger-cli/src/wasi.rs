@@ -34,6 +34,12 @@ unsafe extern "C" {
 struct FetchTransport;
 
 impl Transport for FetchTransport {
+    type Wrpc = TransportService<Self>;
+
+    fn wrpc(&self) -> Self::Wrpc {
+        TransportService(Self)
+    }
+
     async fn request(
         &self,
         req: http::Request<Full<Bytes>>,
@@ -88,13 +94,7 @@ impl Args {
         starstream_ledger::configure_wasmtime(&mut config);
         starstream_runtime_web::configure_wasmtime(&mut config)?;
         let engine = wasmtime::Engine::new(&config)?;
-        let client = ClientBuilder::new(
-            TransportService(FetchTransport),
-            FetchTransport,
-            self.url,
-            engine,
-        )
-        .build();
+        let client = ClientBuilder::new(FetchTransport, self.url, engine).build();
         exec(self.command, &client).await
     }
 }
