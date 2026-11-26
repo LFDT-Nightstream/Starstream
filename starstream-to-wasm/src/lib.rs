@@ -18,7 +18,7 @@ use starstream_types::{
     TypedEffectHandler, TypedEnumDef, TypedExpr, TypedExprKind, TypedFunctionDef,
     TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedMatchArm, TypedPattern,
     TypedProgram, TypedStatement, TypedStructDef, TypedTestDef, TypedTokenDef, TypedTokenPart,
-    TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier,
+    TypedUtxoDef, TypedUtxoPart, UnaryOp, ast::Identifier, encode_digest,
 };
 use starstream_types::{ModuleId, TypedImportItem};
 use thiserror::Error;
@@ -478,7 +478,7 @@ impl Compiler {
         };
         if let Ok(component) = r.to_component() {
             r.export = Some(TypedModuleExport {
-                hash: format!("{:x}", sha2::Sha256::digest(&component)),
+                hash: encode_digest(&sha2::Sha256::digest(&component).into()),
             });
         }
         r

@@ -9,7 +9,7 @@ use sha2::Digest;
 use starstream_compiler::typecheck::TypedModuleContents;
 use starstream_compiler::{ModuleGraph, TypecheckOptions, typecheck_modules};
 use starstream_runtime::{Contract, ContractLookup};
-use starstream_types::FileSystem;
+use starstream_types::{FileSystem, encode_digest};
 use wasmprinter::Print;
 use wasmtime::component::Component;
 use wasmtime::error::Context;
@@ -382,7 +382,7 @@ fn run_tests(
     }
 
     contracts.0.insert(
-        format!("{:x}", sha2::Sha256::digest(component_wasm)),
+        encode_digest(&sha2::Sha256::digest(component_wasm).into()),
         contract,
     );
 }

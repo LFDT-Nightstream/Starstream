@@ -10,6 +10,7 @@ use sha2::{Digest as _, Sha256};
 use starstream_runtime::{
     Contract, ContractLookup, Host, StarstreamCtx, Token, Utxo, UtxoExport, bindings,
 };
+use starstream_types::encode_digest;
 use tokio::fs;
 use tracing::{debug, info, instrument};
 use wasmtime::component::{Component, Resource, ResourceTable, Val, types};
@@ -199,8 +200,7 @@ pub async fn load(
             .with_context(|| format!("failed to read import contract `{}`", import.display()))?;
         let component =
             Component::new(&engine, &wasm).context("failed to compile import contract")?;
-        let digest = Sha256::digest(&wasm);
-        let digest = format!("{digest:02x}");
+        let digest = encode_digest(&Sha256::digest(&wasm).into());
         let contract = Contract::new(&component, Some(&digest), &lookup)
             .with_context(|| format!("failed to load import contract `{}`", import.display()))?;
         debug!(?digest, path = %import.display(), "imported contract");

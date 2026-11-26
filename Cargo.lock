@@ -3782,8 +3782,6 @@ dependencies = [
  "hyper-util",
  "mediatype",
  "minicbor",
- "multibase",
- "multihash",
  "pin-project-lite",
  "serde",
  "sha2",
@@ -3988,8 +3986,11 @@ dependencies = [
  "chumsky",
  "inventory",
  "miette",
+ "multibase",
+ "multihash",
  "pretty",
  "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
