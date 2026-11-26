@@ -259,7 +259,7 @@ pub fn typecheck_modules(
                             // so a body error leaves every export intact.
                             all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
                             warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
-                            module_exports.insert(module_id, env.root);
+                            module_exports.insert(module_id, env.exports);
                             continue;
                         }
                     };
@@ -269,8 +269,7 @@ pub fn typecheck_modules(
 
                 // Capture this module's exports for downstream modules.
                 // TODO: exclude private items.
-                let exports = env.root;
-                module_exports.insert(module_id, exports);
+                module_exports.insert(module_id, env.exports);
             }
             ModuleContents::Wasm(wasm) => match import_wasm(
                 &mut inferencer.next_name_id,
@@ -779,7 +778,7 @@ impl Inferencer {
             fields,
         });
         let ty = Type::from(record_ty.clone());
-        env.root.insert_type(
+        env.define_type(
             &def.name,
             TypeEntry {
                 ty: ty.clone(),
@@ -789,7 +788,7 @@ impl Inferencer {
                 variant_docs: HashMap::new(),
             },
         )?;
-        env.root.insert_struct_constructor(
+        env.define_struct_constructor(
             &def.name,
             StructConstructor {
                 span: def.name.span,
@@ -871,7 +870,7 @@ impl Inferencer {
             type_args: vec![],
         });
         let ty = Type::from(enum_type.clone());
-        env.root.insert_type(
+        env.define_type(
             &def.name,
             TypeEntry {
                 ty: ty.clone(),
@@ -882,12 +881,12 @@ impl Inferencer {
             },
         )?;
 
-        let namespace = env.root.add_child(def.name.to_string());
+        let mut ns = Namespace::default();
         for (i, (variant, base)) in enum_type.variants.iter().zip(&def.variants).enumerate() {
             match &variant.kind {
                 EnumVariantKind::Unit => {
                     // Unit variants are constants
-                    namespace.insert_constant(
+                    ns.insert_constant(
                         &base.name,
                         ConstantInfo {
                             span: base.span,
@@ -899,7 +898,7 @@ impl Inferencer {
                 }
                 EnumVariantKind::Tuple(params) => {
                     // Tuple variants are functions
-                    namespace.insert_constant(
+                    ns.insert_constant(
                         &base.name,
                         ConstantInfo::new(
                             base.span,
@@ -915,7 +914,7 @@ impl Inferencer {
                 }
                 EnumVariantKind::Struct(_fields) => {
                     // Struct variants are constructors
-                    namespace.insert_struct_constructor(
+                    ns.insert_struct_constructor(
                         &base.name,
                         StructConstructor {
                             span: base.span,
@@ -927,6 +926,7 @@ impl Inferencer {
                 }
             }
         }
+        env.define_namespace(&def.name, &ns)?;
 
         Ok(TypedEnumDef { ty: enum_type })
     }
@@ -986,8 +986,7 @@ impl Inferencer {
             name: def.name.clone(),
             methods,
         });
-        env.root
-            .insert_type(&def.name, TypeEntry::from(Type::Abi(abi_ty.clone())))?;
+        env.define_type(&def.name, TypeEntry::from(Type::Abi(abi_ty.clone())))?;
         Ok(TypedAbiDef {
             ty: abi_ty,
             functions,
@@ -1018,7 +1017,7 @@ impl Inferencer {
             result: Type::Unit,
             callee: Some(StaticFunction::Named(id)),
         });
-        env.root.insert_constant(
+        env.define_constant(
             &event.name,
             ConstantInfo::new(event.name.span, Type::from(func_ty.clone())),
         )?;
@@ -1056,7 +1055,7 @@ impl Inferencer {
             result: return_type,
             callee: Some(StaticFunction::Named(id)),
         });
-        env.root.insert_constant(
+        env.define_constant(
             &effect.name,
             ConstantInfo::new(effect.name.span, Type::from(func_ty.clone())),
         )?;
@@ -1152,7 +1151,7 @@ impl Inferencer {
             always_abis,
             public_methods,
         }));
-        env.root.insert_type(
+        env.define_type(
             &def.name,
             TypeEntry {
                 ty: ty.clone(),
@@ -1182,10 +1181,7 @@ impl Inferencer {
             }
         }
 
-        // TODO: extraneous clone
-        env.root
-            .add_child(def.name.to_string())
-            .import_all_from(&ns)?;
+        env.define_namespace(&def.name, &ns)?;
 
         Ok(())
     }
@@ -1329,7 +1325,7 @@ impl Inferencer {
             methods,
             abis,
         }));
-        env.root.insert_type(
+        env.define_type(
             &def.name,
             TypeEntry {
                 ty: ty.clone(),
@@ -1355,18 +1351,14 @@ impl Inferencer {
             }
         }
 
-        // TODO: extraneous clone
-        env.root
-            .add_child(def.name.to_string())
-            .import_all_from(&ns)?;
+        env.define_namespace(&def.name, &ns)?;
 
         Ok(())
     }
 
     fn register_function(&mut self, env: &mut TypeEnv, def: &FunctionDef) -> Result<(), TypeError> {
         let ty = Type::Function(Arc::new(self.function_def_to_type(env, def)?));
-        env.root
-            .insert_constant(&def.name, ConstantInfo::new(def.name.span, ty))?;
+        env.define_constant(&def.name, ConstantInfo::new(def.name.span, ty))?;
         Ok(())
     }
 

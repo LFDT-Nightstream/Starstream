@@ -15,8 +15,10 @@ use crate::typecheck::{TypeError, TypeErrorKind};
 pub struct TypeEnv {
     /// The stack of local scopes.
     scopes: Vec<HashMap<String, Binding>>,
-    /// The root namespace for global lookups.
+    /// The root namespace for global lookups (prelude, imports, and local definitions).
     pub root: Namespace,
+    /// Items defined directly in this module, exported to modules that import it.
+    pub exports: Namespace,
 }
 
 #[derive(Clone, Debug)]
@@ -84,7 +86,38 @@ impl TypeEnv {
         Self {
             scopes: vec![HashMap::new()],
             root: Namespace::default(),
+            exports: Namespace::default(),
         }
+    }
+
+    pub fn define_constant(&mut self, name: &Identifier, v: ConstantInfo) -> Result<(), TypeError> {
+        self.root.insert_constant(name, v.clone())?;
+        self.exports.insert_constant(name, v)?;
+        Ok(())
+    }
+
+    pub fn define_struct_constructor(
+        &mut self,
+        name: &Identifier,
+        v: StructConstructor,
+    ) -> Result<(), TypeError> {
+        self.root.insert_struct_constructor(name, v.clone())?;
+        self.exports.insert_struct_constructor(name, v)?;
+        Ok(())
+    }
+
+    pub fn define_type(&mut self, name: &Identifier, v: TypeEntry) -> Result<(), TypeError> {
+        self.root.insert_type(name, v.clone())?;
+        self.exports.insert_type(name, v)?;
+        Ok(())
+    }
+
+    pub fn define_namespace(&mut self, name: &Identifier, ns: &Namespace) -> Result<(), TypeError> {
+        self.root.add_child(name.to_string()).import_all_from(ns)?;
+        self.exports
+            .add_child(name.to_string())
+            .import_all_from(ns)?;
+        Ok(())
     }
 
     pub fn push_scope(&mut self) {
