@@ -246,6 +246,7 @@ pub fn typecheck_modules(
                 {
                     all_errors.push((module_id, error));
                     warnings.extend(inferencer.warnings.drain(..).map(|w| (module_id, w)));
+                    module_exports.insert(module_id, Namespace::default());
                     continue;
                 }
 
@@ -926,7 +927,7 @@ impl Inferencer {
                 }
             }
         }
-        env.define_namespace(&def.name, &ns)?;
+        env.define_namespace(&def.name, ns)?;
 
         Ok(TypedEnumDef { ty: enum_type })
     }
@@ -1181,7 +1182,7 @@ impl Inferencer {
             }
         }
 
-        env.define_namespace(&def.name, &ns)?;
+        env.define_namespace(&def.name, ns)?;
 
         Ok(())
     }
@@ -1351,7 +1352,7 @@ impl Inferencer {
             }
         }
 
-        env.define_namespace(&def.name, &ns)?;
+        env.define_namespace(&def.name, ns)?;
 
         Ok(())
     }

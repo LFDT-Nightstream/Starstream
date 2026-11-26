@@ -3029,3 +3029,178 @@ fn module_body_error_keeps_local_exports_without_leaking_prelude() {
         err.errors
     );
 }
+
+#[test]
+fn duplicate_namespace_import_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        import ns from starstream:std/cardano;
+        import ns from starstream:std/ledger;
+
+        fn main() -> i64 {
+            runtime ns::blockHeight()
+        }
+        "#
+    );
+}
+
+#[test]
+fn namespace_import_cannot_shadow_prelude_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        import Option from starstream:std/cardano;
+
+        fn main() -> i64 {
+            runtime Option::blockHeight()
+        }
+        "#
+    );
+}
+
+#[test]
+fn enum_cannot_collide_with_namespace_import_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        import E from starstream:std/cardano;
+
+        enum E {
+            A,
+        }
+        "#
+    );
+}
+
+#[test]
+fn duplicate_path_namespace_import_error() {
+    let err = check_modules(&[
+        ("/ws/a.star", "fn a() -> i64 { 1 }\n"),
+        ("/ws/b.star", "fn b() -> i64 { 2 }\n"),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import ns from "./a.star";
+                import ns from "./b.star";
+                script fn run() -> i64 { ns::a() + ns::b() }
+            "#},
+        ),
+    ])
+    .expect_err("duplicate namespace alias across path imports must fail");
+
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::NamespaceAlreadyDefined { name } if name == "ns"
+        )),
+        "expected NamespaceAlreadyDefined for `ns`, got: {:?}",
+        err.errors
+    );
+}
+
+#[test]
+fn named_enum_import_and_namespace_import_collision() {
+    // Namespace import first, then named enum import with the same name.
+    let err = check_modules(&[
+        ("/ws/colors.star", "enum Color { Red }\n"),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import Color from starstream:std/cardano;
+                import { Color } from "./colors.star";
+                script fn run() {}
+            "#},
+        ),
+    ])
+    .expect_err("named enum import must not merge into an existing namespace import");
+
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::NamespaceAlreadyDefined { name } if name == "Color"
+        )),
+        "expected NamespaceAlreadyDefined for `Color`, got: {:?}",
+        err.errors
+    );
+
+    // Named enum import first, then namespace import with the same name.
+    let err = check_modules(&[
+        ("/ws/colors.star", "enum Color { Red }\n"),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import { Color } from "./colors.star";
+                import Color from starstream:std/cardano;
+                script fn run() {}
+            "#},
+        ),
+    ])
+    .expect_err("namespace import must not merge into an imported enum namespace");
+
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::NamespaceAlreadyDefined { name } if name == "Color"
+        )),
+        "expected NamespaceAlreadyDefined for `Color`, got: {:?}",
+        err.errors
+    );
+
+    // Two named enum imports with the same name still report TypeAlreadyDefined.
+    let err = check_modules(&[
+        ("/ws/a.star", "enum Color { Red }\n"),
+        ("/ws/b.star", "enum Color { Blue }\n"),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import { Color } from "./a.star";
+                import { Color } from "./b.star";
+                script fn run() {}
+            "#},
+        ),
+    ])
+    .expect_err("duplicate named enum import must fail");
+
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::TypeAlreadyDefined { name } if name == "Color"
+        )),
+        "expected TypeAlreadyDefined for `Color`, got: {:?}",
+        err.errors
+    );
+}
+
+#[test]
+fn helper_import_error_does_not_panic_importers() {
+    let err = check_modules(&[
+        (
+            "/ws/helper.star",
+            indoc! {r#"
+                import ns from starstream:std/cardano;
+                import ns from starstream:std/ledger;
+                fn add() -> i64 { 1 }
+            "#},
+        ),
+        (
+            "/ws/main.star",
+            indoc! {r#"
+                contract;
+                import { add } from "./helper.star";
+                script fn run() -> i64 { add() }
+            "#},
+        ),
+    ])
+    .expect_err("helper import error should return errors rather than panicking");
+
+    assert!(
+        err.errors.iter().any(|(_, e)| matches!(
+            &**e,
+            super::TypeErrorKind::NamespaceAlreadyDefined { name } if name == "ns"
+        )),
+        "expected NamespaceAlreadyDefined in helper, got: {:?}",
+        err.errors
+    );
+}

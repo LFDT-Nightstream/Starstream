@@ -243,6 +243,10 @@ pub enum TypeErrorKind {
     ResumeOutsideUtxo,
     /// A branch of an `if` without `else` produces a value.
     IfWithoutElseValue,
+    /// Namespace imported or declared with a name already in use in this module.
+    NamespaceAlreadyDefined {
+        name: String,
+    },
     /// A `token` definition has no `mint fn`.
     TokenMissingMintFn {
         name: String,
@@ -330,6 +334,7 @@ impl TypeErrorKind {
             TypeErrorKind::ImportWasm { .. } => error_code!(E0060),
             TypeErrorKind::ResumeOutsideUtxo => error_code!(E0061),
             TypeErrorKind::IfWithoutElseValue => error_code!(E0062),
+            TypeErrorKind::NamespaceAlreadyDefined { .. } => error_code!(E0063),
         }
     }
 }
@@ -729,6 +734,9 @@ impl fmt::Display for TypeErrorKind {
             }
             TypeErrorKind::IfWithoutElseValue => {
                 write!(f, "`if` without `else` cannot produce a value")
+            }
+            TypeErrorKind::NamespaceAlreadyDefined { name } => {
+                write!(f, "namespace `{name}` is already defined in this module")
             }
             TypeErrorKind::TokenMissingMintFn { name } => {
                 write!(f, "token `{name}` must have at least one `mint fn`")

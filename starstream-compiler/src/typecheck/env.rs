@@ -45,6 +45,8 @@ pub enum BindingVisibility {
 /// Namespace containing names divided into zones.
 #[derive(Clone, Default, Debug)]
 pub struct Namespace {
+    /// Span where this namespace was declared or imported (`None` for built-in/root namespaces).
+    pub span: Option<Span>,
     /// Child namespaces.
     pub namespaces: HashMap<String, Namespace>,
     /// Constants in the value zone, namely functions and unit enum variants.
@@ -112,11 +114,9 @@ impl TypeEnv {
         Ok(())
     }
 
-    pub fn define_namespace(&mut self, name: &Identifier, ns: &Namespace) -> Result<(), TypeError> {
-        self.root.add_child(name.to_string()).import_all_from(ns)?;
-        self.exports
-            .add_child(name.to_string())
-            .import_all_from(ns)?;
+    pub fn define_namespace(&mut self, name: &Identifier, ns: Namespace) -> Result<(), TypeError> {
+        self.root.insert_namespace(name, ns.clone())?;
+        self.exports.insert_namespace(name, ns)?;
         Ok(())
     }
 
@@ -243,13 +243,26 @@ impl Namespace {
         Ok(())
     }
 
+    pub fn insert_namespace(
+        &mut self,
+        name: &Identifier,
+        mut ns: Namespace,
+    ) -> Result<(), TypeError> {
+        if let Some(old) = self.namespaces.get(name.as_str()) {
+            return Err(namespace_collision(name.as_str(), name.span, old.span));
+        }
+        ns.span = name.opt_span();
+        self.namespaces.insert(name.to_string(), ns);
+        Ok(())
+    }
+
     /// Import like `import ns from ...`
     pub fn import_as_namespace(
         &mut self,
         name: &Identifier,
         other: &Namespace,
     ) -> Result<(), TypeError> {
-        self.add_child(name.to_string()).import_all_from(other)
+        self.insert_namespace(name, other.clone())
     }
 
     /// Import like `import { their_name as name } from ...`
@@ -261,20 +274,20 @@ impl Namespace {
         source: &str,
     ) -> Result<(), TypeError> {
         let mut ok = false;
-        if let Some(child) = other.namespaces.get(their_name) {
-            self.import_as_namespace(name, child)?;
-            ok = true;
-        }
-        if let Some(v) = other.constants.get(their_name) {
-            self.insert_constant(name, v.clone())?;
+        if let Some(v) = other.types.get(their_name) {
+            self.insert_type(name, v.clone())?;
             ok = true;
         }
         if let Some(v) = other.struct_constructors.get(their_name) {
             self.insert_struct_constructor(name, v.clone())?;
             ok = true;
         }
-        if let Some(v) = other.types.get(their_name) {
-            self.insert_type(name, v.clone())?;
+        if let Some(v) = other.constants.get(their_name) {
+            self.insert_constant(name, v.clone())?;
+            ok = true;
+        }
+        if let Some(child) = other.namespaces.get(their_name) {
+            self.import_as_namespace(name, child)?;
             ok = true;
         }
         if ok {
@@ -293,7 +306,14 @@ impl Namespace {
     /// Import like `import * from ...`
     pub fn import_all_from(&mut self, other: &Namespace) -> Result<(), TypeError> {
         for (k, v) in &other.namespaces {
-            self.add_child(k.to_owned()).import_all_from(v)?;
+            if let Some(old) = self.namespaces.get(k) {
+                return Err(namespace_collision(
+                    k,
+                    v.span.unwrap_or(DUMMY_SPAN),
+                    old.span,
+                ));
+            }
+            self.namespaces.insert(k.to_owned(), v.clone());
         }
         for (k, v) in &other.constants {
             if let Some(old) = self.constants.insert(k.to_owned(), v.clone()) {
@@ -364,6 +384,19 @@ fn collision2(name: &str, span: Span, prev: Span) -> TypeError {
         span,
     )
     .with_secondary(prev, "previously defined here")
+}
+
+fn namespace_collision(name: &str, span: Span, prev: Option<Span>) -> TypeError {
+    let err = TypeError::new(
+        TypeErrorKind::NamespaceAlreadyDefined {
+            name: name.to_string(),
+        },
+        span,
+    );
+    match prev {
+        Some(prev) => err.with_secondary(prev, "previously defined here"),
+        None => err.with_help(format!("`{name}` is a built-in namespace from the prelude")),
+    }
 }
 
 fn free_type_vars_scheme(scheme: &Scheme) -> HashSet<TypeVarId> {

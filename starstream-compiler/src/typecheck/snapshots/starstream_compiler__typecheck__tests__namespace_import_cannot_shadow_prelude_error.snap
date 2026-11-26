@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nimport Option from starstream:std/cardano;\n\nfn main() -> i64 {\n    runtime Option::blockHeight()\n}\n"
+---
+E0063 (https://starstream.nightstream.dev/errors/E0063)
+
+  x namespace `Option` is already defined in this module
+   ,-[test.star:1:8]
+ 1 | import Option from starstream:std/cardano;
+   :        ^^^^^^
+ 2 | 
+   `----
+  help: `Option` is a built-in namespace from the prelude
