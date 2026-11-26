@@ -129,7 +129,6 @@ pub struct Transaction {
     #[cbor(n(3), with = "minicbor::bytes")]
     #[serde(serialize_with = "serialize_proof")]
     pub proof: Box<[u8]>,
-    /// Signer IDs requested by the executed contracts.
     #[n(4)]
     pub required_signers: BTreeSet<u64>,
 }

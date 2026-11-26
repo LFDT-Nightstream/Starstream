@@ -153,8 +153,6 @@ pub enum TransactionPostError {
     InputNotFound,
     #[error("input not authorized")]
     InputUnauthorized,
-    #[error("the ledger cannot authenticate dummy u64 signer IDs")]
-    UnsupportedSignerId,
     #[error("transaction input index does not fit in usize")]
     InputIndexOverflow,
     #[error("failed to parse output contract digest `{0}`: {1}")]
@@ -179,7 +177,7 @@ impl TransactionPostError {
             | Self::OutputContractDigestNotCanonical(..) => http::StatusCode::BAD_REQUEST,
             Self::AlreadyExists(..) => http::StatusCode::CONFLICT,
             Self::InputNotFound => http::StatusCode::NOT_FOUND,
-            Self::UnsupportedSignerId | Self::InputUnauthorized => http::StatusCode::FORBIDDEN,
+            Self::InputUnauthorized => http::StatusCode::FORBIDDEN,
             Self::CborEncoding(..) | Self::WrpcEncoding(..) | Self::Http(..) => {
                 http::StatusCode::INTERNAL_SERVER_ERROR
             }

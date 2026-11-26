@@ -301,10 +301,9 @@ impl Ledger {
         let crate::Transaction {
             inputs, outputs, ..
         } = &transaction;
-        // The contract ABI currently exposes dummy u64 IDs. Only full public
-        // keys can be authenticated by the Ed25519 envelope.
+        // TODO: Once required signers carry full keys, check each against the envelope signers.
         if !transaction.required_signers.is_empty() {
-            return Err(TransactionPostError::UnsupportedSignerId);
+            return Err(TransactionPostError::InputUnauthorized);
         }
         if inputs.is_empty() {
             return Err(TransactionPostError::InputsEmpty);

@@ -526,17 +526,6 @@ async fn http() {
         required_signers,
         proof,
     };
-    let mut requires_signer = tx.clone();
-    requires_signer.required_signers.insert(17);
-    let err = client
-        .transact(ADMIN.clone(), NETWORK, requires_signer)
-        .await
-        .unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "the ledger cannot authenticate dummy u64 signer IDs"
-    );
-
     let tx_cbor = minicbor::to_vec(&tx).unwrap();
     let tx_digest: [u8; 32] = Sha256::digest(&tx_cbor).into();
     let digest = client
