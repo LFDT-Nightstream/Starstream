@@ -40,16 +40,16 @@ impl starstream_runtime::Host for Ctx {
         &mut self.starstream
     }
 
-    async fn call_utxo_main(
-        _store: StoreContextMut<'_, Self>,
-        instance_name: Arc<str>,
-        _external_id: Option<Arc<str>>,
+    async fn call_utxo_main<'a>(
+        _store: StoreContextMut<'a, Self>,
+        instance_name: &Arc<str>,
+        _external_id: Option<&Arc<str>>,
         _export: UtxoExport,
-        _f: impl for<'a> FnOnce(
-            StoreContextMut<'a, Self>,
+        _f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
             Self::UtxoContext,
         ) -> Pin<
-            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
+            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'b>,
         > + Send,
     ) -> wasmtime::Result<Utxo<Self::UtxoContext>> {
         bail!("attempted to call `main fn` of UTXO `{instance_name}`")

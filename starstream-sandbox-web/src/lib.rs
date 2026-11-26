@@ -125,19 +125,19 @@ impl Host for Ctx {
         &mut self.starstream
     }
 
-    async fn call_utxo_main(
-        store: StoreContextMut<'_, Self>,
-        _instance_name: Arc<str>,
-        _external_id: Option<Arc<str>>,
+    async fn call_utxo_main<'a>(
+        mut store: StoreContextMut<'a, Self>,
+        _instance_name: &Arc<str>,
+        _external_id: Option<&Arc<str>>,
         _export: UtxoExport,
-        f: impl for<'a> FnOnce(
-            StoreContextMut<'a, Self>,
+        f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
             Self::UtxoContext,
         ) -> Pin<
-            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
+            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'b>,
         > + Send,
     ) -> wasmtime::Result<Utxo<Self::UtxoContext>> {
-        f(store, Self::UtxoContext::default()).await
+        f(&mut store, Self::UtxoContext::default()).await
     }
 
     fn has_method(

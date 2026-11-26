@@ -175,16 +175,16 @@ pub trait Host:
 
     fn starstream(&mut self) -> &mut StarstreamCtx;
 
-    fn call_utxo_main(
-        store: StoreContextMut<Self>,
-        instance_name: Arc<str>,
-        external_id: Option<Arc<str>>,
+    fn call_utxo_main<'a>(
+        store: StoreContextMut<'a, Self>,
+        instance_name: &Arc<str>,
+        external_id: Option<&Arc<str>>,
         export: UtxoExport,
-        f: impl for<'a> FnOnce(
-            StoreContextMut<'a, Self>,
+        f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
             Self::UtxoContext,
         ) -> Pin<
-            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
+            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'b>,
         > + Send,
     ) -> impl Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send;
 
@@ -626,7 +626,6 @@ fn link_typed_utxo_main<T: Host>(
                 .as_contract()
                 .context("contract was not initialized")?;
             let export = contract.get_utxo(&instance_name)?;
-            let instance = contract.instantiate(&mut store).await?;
 
             let mut params = {
                 let mut ps = Vec::with_capacity(params.len().saturating_add(1));
@@ -638,16 +637,17 @@ fn link_typed_utxo_main<T: Host>(
             };
             let utxo = T::call_utxo_main(
                 store.as_context_mut(),
-                instance_name,
-                external_id,
+                &instance_name,
+                external_id.as_ref(),
                 export,
-                move |mut store, cx| {
+                move |store, cx| {
                     Box::pin(async move {
+                        let instance = contract.instantiate(&mut *store).await?;
                         let cx_res = store.data_mut().table().push(cx.clone())?;
-                        let cx_res = cx_res.try_into_resource_any(&mut store)?;
+                        let cx_res = cx_res.try_into_resource_any(&mut *store)?;
                         params[0] = Val::Resource(cx_res);
                         instance
-                            .construct_utxo(&mut store, instance_idx, idx, params, cx)
+                            .construct_utxo(store, instance_idx, idx, params, cx)
                             .await
                     })
                 },

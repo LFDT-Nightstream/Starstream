@@ -450,26 +450,26 @@ impl starstream_runtime::Host for Ctx {
         &mut self.starstream
     }
 
-    async fn call_utxo_main(
-        mut store: StoreContextMut<'_, Self>,
-        instance_name: Arc<str>,
-        external_id: Option<Arc<str>>,
+    async fn call_utxo_main<'a>(
+        mut store: StoreContextMut<'a, Self>,
+        instance_name: &Arc<str>,
+        external_id: Option<&Arc<str>>,
         export: UtxoExport,
-        f: impl for<'a> FnOnce(
-            StoreContextMut<'a, Self>,
+        f: impl for<'b> FnOnce(
+            &'b mut StoreContextMut<'a, Self>,
             Self::UtxoContext,
         ) -> Pin<
-            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'a>,
+            Box<dyn Future<Output = wasmtime::Result<Utxo<Self::UtxoContext>>> + Send + 'b>,
         > + Send,
     ) -> wasmtime::Result<Utxo<Self::UtxoContext>> {
         let cx = UtxoCtx {
             export,
-            instance: instance_name,
-            external_id,
+            instance: Arc::clone(instance_name),
+            external_id: external_id.cloned(),
             methods: HashSet::default(),
             dropped: false,
         };
-        let utxo = f(store.as_context_mut(), Arc::new(std::sync::Mutex::new(cx))).await?;
+        let utxo = f(&mut store, Arc::new(std::sync::Mutex::new(cx))).await?;
         store.as_context_mut().data_mut().outputs.push(utxo.clone());
         Ok(utxo)
     }
