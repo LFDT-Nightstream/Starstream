@@ -6,7 +6,7 @@ import { utxoId, utxoLabel } from "./format";
 import styles from "./styles.module.css";
 
 /** What a form holds for a value of a type, before converting it. */
-type Draft = unknown;
+export type Draft = unknown;
 
 const INTEGERS: Record<string, [bigint, bigint]> = {
   s8: [-(1n << 7n), (1n << 7n) - 1n],
@@ -18,6 +18,17 @@ const INTEGERS: Record<string, [bigint, bigint]> = {
   s64: [-(1n << 63n), (1n << 63n) - 1n],
   u64: [0n, (1n << 64n) - 1n],
 };
+
+const WAVE_KEYWORDS = new Set([
+  "true",
+  "false",
+  "some",
+  "none",
+  "ok",
+  "err",
+  "inf",
+  "nan",
+]);
 
 export function typeName(ty: Type): string {
   switch (ty.kind) {
@@ -148,6 +159,101 @@ function toValue(ty: Type, draft: Draft, what: string): unknown {
       );
   }
   throw new Error(`${what} is of the unsupported type \`${ty.kind}\``);
+}
+
+function waveString(s: string, quote: string): string {
+  let out = quote;
+  for (const c of s) {
+    const code = c.codePointAt(0)!;
+    if (c === "\\" || c === quote) {
+      out += `\\${c}`;
+    } else if (c === "\n") {
+      out += "\\n";
+    } else if (c === "\r") {
+      out += "\\r";
+    } else if (c === "\t") {
+      out += "\\t";
+    } else if (code < 0x20 || code === 0x7f) {
+      out += `\\u{${code.toString(16)}}`;
+    } else {
+      out += c;
+    }
+  }
+  return out + quote;
+}
+
+function waveCase(name: string): string {
+  return WAVE_KEYWORDS.has(name) ? `%${name}` : name;
+}
+
+/** Encode `v`, a value of `ty` as returned by `toArgs`, in WAVE. */
+export function toWave(ty: Type, v: unknown): string {
+  const d = v as never;
+  switch (ty.kind) {
+    case "bool":
+    case "s8":
+    case "u8":
+    case "s16":
+    case "u16":
+    case "s32":
+    case "u32":
+    case "s64":
+    case "u64":
+      return String(d);
+    case "f32":
+    case "f64": {
+      const n = d as number;
+      if (Number.isNaN(n)) {
+        return "nan";
+      }
+      return n === Infinity ? "inf" : n === -Infinity ? "-inf" : String(n);
+    }
+    case "char":
+      return waveString(d, "'");
+    case "string":
+      return waveString(d, '"');
+    case "enum":
+      return waveCase(d);
+    case "list":
+      return `[${(d as unknown[]).map((v) => toWave(ty.elem, v)).join(", ")}]`;
+    case "tuple":
+      return `(${ty.elems.map((ty, i) => toWave(ty, (d as unknown[])[i])).join(", ")})`;
+    case "option": {
+      if (ty.some.kind === "option") {
+        const { kind, value } = d as { kind: string; value?: unknown };
+        return kind === "none" ? "none" : `some(${toWave(ty.some, value)})`;
+      }
+      return d === null ? "none" : `some(${toWave(ty.some, d)})`;
+    }
+    case "result": {
+      const { kind, value } = d as { kind: string; value?: unknown };
+      const payload = kind === "ok" ? ty.ok : ty.err;
+      const name = kind === "ok" ? "ok" : "err";
+      return payload ? `${name}(${toWave(payload, value)})` : name;
+    }
+    case "record":
+      if (ty.fields.length === 0) {
+        return "{:}";
+      }
+      return `{${ty.fields
+        .map(
+          ({ name, key, ty }) =>
+            `${name}: ${toWave(ty, (d as Record<string, unknown>)[key])}`,
+        )
+        .join(", ")}}`;
+    case "variant": {
+      const { kind, value } = d as { kind: string; value?: unknown };
+      const payload = ty.cases.find(({ name }) => name === kind)?.ty;
+      const name = waveCase(kind);
+      return payload ? `${name}(${toWave(payload, value)})` : name;
+    }
+    case "flags":
+      return `{${ty.flags
+        .filter(({ key }) => (d as Record<string, boolean>)[key])
+        .map(({ name }) => name)
+        .join(", ")}}`;
+  }
+  throw new Error(`values of type \`${ty.kind}\` have no WAVE encoding`);
 }
 
 function utxoValue(draft: Draft, what: string) {
@@ -424,6 +530,58 @@ export function formatValue(v: unknown): string {
     .join(", ")}}`;
 }
 
+/** Drafts of the arguments of `func` a form starts with. */
+export function initialDrafts(func: Func): Draft[] {
+  return func.params.map(({ ty, utxo }) => (utxo ? "" : initial(ty)));
+}
+
+/** Convert `drafts` to arguments of `func`, failing if one is not valid. */
+export function toArgs(func: Func, drafts: Draft[]): unknown[] {
+  return func.params.map(({ name, ty, utxo }, i) =>
+    utxo
+      ? utxoValue(drafts[i], `\`${name}\``)
+      : toValue(ty, drafts[i], `\`${name}\``),
+  );
+}
+
+/** Fields of the parameters of `func`. */
+export function ParamFields({
+  func,
+  utxos,
+  drafts,
+  onChange,
+}: {
+  func: Func;
+  /** UTXOs to choose UTXO arguments from. */
+  utxos: UtxoInfo[];
+  drafts: Draft[];
+  onChange: (drafts: Draft[]) => void;
+}) {
+  return func.params.map(({ name, ty, utxo }, i) => {
+    const set = (v: Draft) =>
+      onChange(drafts.map((old, j) => (i === j ? v : old)));
+    return (
+      <Field key={name} name={name} ty={utxo ? "utxo" : ty}>
+        {utxo ? (
+          <select
+            value={drafts[i] as string}
+            onChange={(e) => set(e.target.value)}
+          >
+            <option value="">select a live UTXO</option>
+            {utxos.map((u) => (
+              <option key={utxoId(u)} value={utxoId(u)}>
+                {utxoLabel(u)} {u.instance}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Input ty={ty} draft={drafts[i]} onChange={set} />
+        )}
+      </Field>
+    );
+  });
+}
+
 /** Form calling `func` with arguments of its parameter types. */
 export function CallForm({
   func,
@@ -437,9 +595,7 @@ export function CallForm({
   label?: string;
   run: (args: unknown[]) => Promise<string>;
 }) {
-  const [drafts, setDrafts] = useState<Draft[]>(() =>
-    func.params.map(({ ty, utxo }) => (utxo ? "" : initial(ty))),
-  );
+  const [drafts, setDrafts] = useState<Draft[]>(() => initialDrafts(func));
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string }>();
   return (
@@ -450,11 +606,7 @@ export function CallForm({
         setResult(undefined);
         let args: unknown[];
         try {
-          args = func.params.map(({ name, ty, utxo }, i) =>
-            utxo
-              ? utxoValue(drafts[i], `\`${name}\``)
-              : toValue(ty, drafts[i], `\`${name}\``),
-          );
+          args = toArgs(func, drafts);
         } catch (err) {
           setResult({ ok: false, text: (err as Error).message });
           return;
@@ -472,29 +624,12 @@ export function CallForm({
           .finally(() => setBusy(false));
       }}
     >
-      {func.params.map(({ name, ty, utxo }, i) => {
-        const set = (v: Draft) =>
-          setDrafts((drafts) => drafts.map((old, j) => (i === j ? v : old)));
-        return (
-          <Field key={name} name={name} ty={utxo ? "utxo" : ty}>
-            {utxo ? (
-              <select
-                value={drafts[i] as string}
-                onChange={(e) => set(e.target.value)}
-              >
-                <option value="">select a live UTXO</option>
-                {utxos.map((u) => (
-                  <option key={utxoId(u)} value={utxoId(u)}>
-                    {utxoLabel(u)} {u.instance}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <Input ty={ty} draft={drafts[i]} onChange={set} />
-            )}
-          </Field>
-        );
-      })}
+      <ParamFields
+        func={func}
+        utxos={utxos}
+        drafts={drafts}
+        onChange={setDrafts}
+      />
       <button className="button button--sm button--primary" disabled={busy}>
         {busy ? "Running…" : label}
       </button>

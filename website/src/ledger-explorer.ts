@@ -188,7 +188,8 @@ export class Explorer {
   constructor(
     private readonly ledger: Ledger,
     private readonly network: string,
-    private readonly admin: string,
+    /** Public key of the admin, if known. */
+    private readonly admin: string | undefined,
   ) {}
 
   private async block(height: bigint): Promise<BlockInfo> {
@@ -251,11 +252,24 @@ export class Explorer {
         });
       });
 
+    const admins = new Set(
+      blocks.flatMap(({ envelopes }) =>
+        envelopes.flatMap(({ kind, signers }) =>
+          kind === "fund" ? signers : [],
+        ),
+      ),
+    );
+    if (this.admin) {
+      admins.add(this.admin);
+    }
     addOutputs("", this.genesis, 0n);
     for (const { height, envelopes } of blocks) {
       for (const envelope of envelopes) {
         for (const key of envelope.signers) {
-          if (key !== this.admin && !funded.has(key)) {
+          if (
+            (envelope.kind === "transaction" || !admins.has(key)) &&
+            !funded.has(key)
+          ) {
             funded.set(key, 0n);
           }
         }

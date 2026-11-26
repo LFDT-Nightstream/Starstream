@@ -70,6 +70,7 @@ function Explorer() {
   );
   const nextId = useRef(0);
   const picker = useRef<HTMLInputElement>(null);
+  const keyPicker = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const w = new Worker(new URL("../ledger.worker", import.meta.url));
@@ -226,6 +227,18 @@ function Explorer() {
     }
   };
 
+  const uploadKey = async (file: File) => {
+    setError(undefined);
+    try {
+      await call({
+        op: "wallet",
+        key: new Uint8Array(await file.arrayBuffer()),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const state = explorer?.state;
   const wallet = explorer?.wallet;
   const walletAccount = state?.accounts.find(({ key }) => key === wallet);
@@ -258,16 +271,25 @@ function Explorer() {
     >
       <header className={styles.toolbar}>
         <h1>Ledger</h1>
-        <span
-          className={info?.running ? styles.statusRunning : styles.status}
-          title={info?.error}
+        <button
+          className={
+            info?.running
+              ? styles.statusRunning
+              : info?.error
+                ? styles.statusError
+                : styles.status
+          }
+          title={info?.error ?? info?.url}
+          onClick={() => setPanel("node")}
         >
           {info?.running
-            ? `${info.network} · block ${state ? String(state.height) : "…"}`
-            : info
-              ? "stopped"
-              : "starting…"}
-        </span>
+            ? `${info.remote ? new URL(info.url).host : "in-browser"} · ${info.network} · block ${state ? String(state.height) : "…"}`
+            : info?.error
+              ? "failed"
+              : info
+                ? "stopped"
+                : "starting…"}
+        </button>
         <span className={styles.spacer} />
         <span className={styles.wallet}>
           {wallet ? (
@@ -276,52 +298,80 @@ function Explorer() {
               title={`Account ${wallet}, which signs what this page publishes and runs`}
               onClick={() => select({ kind: "account", key: wallet })}
             >
-              Wallet {key(wallet)}: {amount(walletAccount?.balance)}
+              Wallet <code>{key(wallet)}</code>
+              <strong>{amount(walletAccount?.balance)}</strong>
             </button>
           ) : (
-            "No wallet yet"
+            <span className={styles.hint}>No wallet yet</span>
           )}
-          <button
-            className="button button--sm button--secondary"
-            disabled={!info?.running}
-            onClick={() => void topUp()}
-            title={`The ledger admin credits ${amount(WALLET_TOP_UP)} to your wallet, creating it if needed`}
-          >
-            {wallet ? "Add funds" : "Create wallet"}
-          </button>
+          {info?.remote ? (
+            <>
+              <button
+                className="button button--sm button--secondary"
+                disabled={!info.running}
+                onClick={() => keyPicker.current?.click()}
+                title="Use the secret key of a funded account of the remote ledger as your wallet"
+              >
+                Upload key
+              </button>
+              <input
+                ref={keyPicker}
+                type="file"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) {
+                    void uploadKey(file);
+                  }
+                }}
+              />
+            </>
+          ) : (
+            <button
+              className="button button--sm button--secondary"
+              disabled={!info?.running}
+              onClick={() => void topUp()}
+              title={`The ledger admin credits ${amount(WALLET_TOP_UP)} to your wallet, creating it if needed`}
+            >
+              {wallet ? "Add funds" : "Create wallet"}
+            </button>
+          )}
         </span>
-        <select
-          className={styles.examples}
-          value=""
-          disabled={!info?.running || publishing}
-          onChange={(e) => void publishExample(e.target.value)}
-        >
-          <option value="" disabled>
-            Publish an example…
-          </option>
-          {Object.keys(EXAMPLES).map((name) => (
-            <option key={name}>{name}</option>
-          ))}
-        </select>
-        <button
-          className="button button--sm button--primary"
-          disabled={!info?.running || publishing}
-          onClick={() => picker.current?.click()}
-        >
-          {publishing ? "Publishing…" : "Publish contract"}
-        </button>
-        <input
-          ref={picker}
-          type="file"
-          accept=".star,.wasm"
-          multiple
-          hidden
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            e.target.value = "";
-            void publish(files);
-          }}
-        />
+        <span className={styles.group}>
+          <select
+            className={styles.examples}
+            value=""
+            disabled={!info?.running || publishing}
+            onChange={(e) => void publishExample(e.target.value)}
+          >
+            <option value="" disabled>
+              Publish an example…
+            </option>
+            {Object.keys(EXAMPLES).map((name) => (
+              <option key={name}>{name}</option>
+            ))}
+          </select>
+          <button
+            className="button button--sm button--primary"
+            disabled={!info?.running || publishing}
+            onClick={() => picker.current?.click()}
+          >
+            {publishing ? "Publishing…" : "Publish contract"}
+          </button>
+          <input
+            ref={picker}
+            type="file"
+            accept=".star,.wasm"
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = "";
+              void publish(files);
+            }}
+          />
+        </span>
         <button
           className={`button button--sm ${terminal ? "button--primary" : "button--secondary"}`}
           aria-pressed={terminal}
@@ -398,39 +448,36 @@ function Explorer() {
             ))}
           </div>
           <div className={styles.panel}>
-            {panel === "details" ? (
-              state ? (
-                <Details
-                  selection={selection}
-                  state={state}
-                  wallet={wallet}
-                  published={explorer?.published ?? {}}
-                  call={call}
-                  perform={perform}
-                  onGenesis={(genesisContract, genesisScript) => {
-                    setPreset({
-                      genesisContract,
-                      genesisScript,
-                      genesisArgs: "",
-                    });
-                    setPanel("node");
-                  }}
-                  onSelect={select}
-                />
-              ) : null
-            ) : (
+            {panel === "details" && state ? (
+              <Details
+                selection={selection}
+                state={state}
+                wallet={wallet}
+                published={explorer?.published ?? {}}
+                call={call}
+                perform={perform}
+                onGenesis={(genesisContract, genesisScript) => {
+                  setPreset({ genesisContract, genesisScript });
+                  setPanel("node");
+                }}
+                onSelect={select}
+              />
+            ) : null}
+            <div hidden={panel !== "node"}>
               <NodeSettings
                 info={info}
                 preset={preset}
                 files={files}
+                call={call}
                 onStart={(config: NodeConfig) => {
                   setPreset(undefined);
                   post(worker, { type: "start", config });
                 }}
                 onStop={() => post(worker, { type: "stop" })}
+                onConnect={(url) => post(worker, { type: "connect", url })}
                 onDownload={(path) => post(worker, { type: "download", path })}
               />
-            )}
+            </div>
           </div>
         </aside>
       </div>
